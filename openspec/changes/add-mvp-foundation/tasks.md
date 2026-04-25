@@ -299,11 +299,13 @@
 
 ## 26. Conventional commits enforcement
 
-- [ ] 26.1 Add `commitlint` (or `cz-cli` / `conform`) configured for conventional-commits at the repo root
-- [ ] 26.2 Add a `commit-msg` git hook (via `lefthook`, `husky`, or a plain `.githooks/` directory) that invokes the linter
-- [ ] 26.3 Document hook installation in `CONTRIBUTING.md` (allowed types, breaking-change syntax, examples)
-- [ ] 26.4 Add a `.github/workflows/commitlint.yml` (or fold into `ci.yml`) that lints PR titles and commits
-- [ ] 26.5 Verify locally: a non-conforming commit message is rejected by the hook
+> **Skipped** — automated enforcement is intentionally deferred. The conventional-commits expectation is documented in `CONTRIBUTING.md`; reviewers police it on PRs. Revisit if drift becomes a problem.
+
+- [x] 26.1 ~~Add `commitlint` (or `cz-cli` / `conform`) configured for conventional-commits at the repo root~~ (skipped)
+- [x] 26.2 ~~Add a `commit-msg` git hook (via `lefthook`, `husky`, or a plain `.githooks/` directory) that invokes the linter~~ (skipped)
+- [x] 26.3 ~~Document hook installation in `CONTRIBUTING.md` (allowed types, breaking-change syntax, examples)~~ (skipped — expectations already documented)
+- [x] 26.4 ~~Add a `.github/workflows/commitlint.yml` (or fold into `ci.yml`) that lints PR titles and commits~~ (skipped)
+- [x] 26.5 ~~Verify locally: a non-conforming commit message is rejected by the hook~~ (skipped)
 
 ## 27. Server Dockerfile
 
