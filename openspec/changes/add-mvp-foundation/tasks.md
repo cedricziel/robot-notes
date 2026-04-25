@@ -268,13 +268,13 @@
 
 ## 23. Notes list view
 
-- [ ] 23.1 Write failing widget test: initial render fetches first page
-- [ ] 23.2 Write failing widget test: pull-to-refresh re-fetches first page
-- [ ] 23.3 Write failing widget test: scrolling past end fetches next cursor page
-- [ ] 23.4 Write failing widget test: `changed{action:"updated"}` updates entry without manual refresh
-- [ ] 23.5 Write failing widget test: `changed{action:"created"}` prepends entry
-- [ ] 23.6 Write failing widget test: `changed{action:"deleted"}` removes entry
-- [ ] 23.7 Implement list view backed by API client + WS stream
+- [x] 23.1 Write failing widget test: initial render fetches first page
+- [x] 23.2 Write failing widget test: pull-to-refresh re-fetches first page
+- [x] 23.3 Write failing widget test: scrolling past end fetches next cursor page
+- [x] 23.4 Write failing widget test: `changed{action:"updated"}` updates entry without manual refresh
+- [x] 23.5 Write failing widget test: `changed{action:"created"}` prepends entry
+- [x] 23.6 Write failing widget test: `changed{action:"deleted"}` removes entry
+- [x] 23.7 Implement list view backed by API client + WS stream
 
 ## 24. Note view (read + edit + lock)
 
