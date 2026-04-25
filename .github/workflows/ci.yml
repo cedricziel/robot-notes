@@ -20,10 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned to match developer machines (3.41.x ships Dart 3.11). The
+      # workspace pubspecs declare sdk: ^3.6, so any Flutter 3.27+ would
+      # technically resolve, but pinning to the version we actually use
+      # locally avoids "works on my machine" surprises.
       - name: Setup Flutter (provides Dart SDK)
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.0"
+          flutter-version: "3.41.6"
           channel: stable
           cache: true
 
