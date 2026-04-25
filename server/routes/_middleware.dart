@@ -6,6 +6,7 @@ import 'package:server/src/config.dart';
 import 'package:server/src/config_holder.dart' as config_holder;
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
+import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
@@ -32,6 +33,7 @@ Handler middleware(Handler handler) {
       .use(provider<PresenceTracker>((_) => deps.presence))
       .use(provider<Broadcaster>((_) => deps.broadcaster))
       .use(provider<LockManager>((_) => deps.lockManager))
+      .use(provider<SearchIndex>((_) => deps.searchIndex))
       .use(provider<MetaIndex>((_) => deps.metaIndex))
       .use(provider<Storage>((_) => deps.storage))
       .use(provider<Config>((_) => config));

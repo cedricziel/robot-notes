@@ -6,6 +6,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
+import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
@@ -24,6 +25,7 @@ class AppDeps {
   AppDeps({
     required this.storage,
     required this.metaIndex,
+    required this.searchIndex,
     required this.lockManager,
     required this.broadcaster,
     required this.presence,
@@ -53,9 +55,15 @@ class AppDeps {
       clock: clock,
       ttl: Duration(seconds: config.lockTtlSeconds),
     );
+    final searchIndex = await SearchIndex.open(
+      dbFile: File('${config.dataDir}/search.db'),
+      storage: storage,
+      logger: Logger('search_index'),
+    );
     return AppDeps(
       storage: storage,
       metaIndex: metaIndex,
+      searchIndex: searchIndex,
       lockManager: lockManager,
       broadcaster: Broadcaster(),
       presence: PresenceTracker(),
@@ -68,6 +76,9 @@ class AppDeps {
 
   /// In-memory listing index, derived from [storage].
   final MetaIndex metaIndex;
+
+  /// FTS5-backed full-text search index, derived from [storage].
+  final SearchIndex searchIndex;
 
   /// Soft editor lock manager (process-local).
   final LockManager lockManager;
@@ -91,5 +102,6 @@ class AppDeps {
     _lockSub = null;
     await broadcaster.close();
     await lockManager.close();
+    searchIndex.close();
   }
 }

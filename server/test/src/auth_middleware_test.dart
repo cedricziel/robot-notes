@@ -148,6 +148,15 @@ void main() {
       );
       expect(response.statusCode, HttpStatus.ok);
     });
+
+    test('GET /search without bearer is rejected', () async {
+      final ctx = _ctx(path: '/search', method: HttpMethod.get);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
   });
 
   group('debugExtractBearer', () {

@@ -175,13 +175,13 @@
 
 ## 15. Search API route
 
-- [ ] 15.1 Write failing test: `GET /search?q=foo` returns ranked items
-- [ ] 15.2 Write failing test: `GET /search` (no q) → 400
-- [ ] 15.3 Write failing test: `GET /search?q=` (empty) → 400 with `empty_query`
-- [ ] 15.4 Write failing test: `limit` defaults to 20, clamps at 100
-- [ ] 15.5 Write failing test: invalid FTS query → 400 with `invalid_query`
-- [ ] 15.6 Write failing test: unauthenticated request → 401
-- [ ] 15.7 Implement the route delegating to `SearchIndex`
+- [x] 15.1 Write failing test: `GET /search?q=foo` returns ranked items
+- [x] 15.2 Write failing test: `GET /search` (no q) → 400
+- [x] 15.3 Write failing test: `GET /search?q=` (empty) → 400 with `empty_query`
+- [x] 15.4 Write failing test: `limit` defaults to 20, clamps at 100
+- [x] 15.5 Write failing test: invalid FTS query → 400 with `invalid_query`
+- [x] 15.6 Write failing test: unauthenticated request → 401
+- [x] 15.7 Implement the route delegating to `SearchIndex`
 
 ## 16. Invite store and agent-onboarding endpoints
 
