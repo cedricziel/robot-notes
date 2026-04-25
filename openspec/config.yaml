@@ -20,6 +20,7 @@ rules:
     - Break tasks into chunks of max 15 minutes
     - Always include a "Definition of Done" section
     - Always follow TDD principles, failing tests first
+    - Atomic commits with conventional commit messages
 #     proposal:
 #       - Keep proposals under 500 words
 #       - Always include a "Non-goals" section
