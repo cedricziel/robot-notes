@@ -4,7 +4,7 @@ description: >-
   as markdown files on disk, indexes them for FTS5 search, and broadcasts
   presence/lock/changed events over a WebSocket.
 publish_to: none
-version: 0.1.0 # x-release-please-version
+version: 0.1.1 # x-release-please-version
 
 environment:
   sdk: ^3.6.0
