@@ -259,12 +259,12 @@
 
 ## 22. WebSocket client (Dart, in `app/`)
 
-- [ ] 22.1 Write failing test: connect → send auth message within 100ms after open
-- [ ] 22.2 Write failing test: re-connect on disconnect with exponential backoff (mockable clock)
-- [ ] 22.3 Write failing test: re-auth and re-subscribe on each successful reconnect
-- [ ] 22.4 Write failing test: events are exposed as a typed `Stream<NoteEvent>`
-- [ ] 22.5 Write failing test: stale views (>5s offline) trigger explicit refresh signal
-- [ ] 22.6 Implement WS client wrapper
+- [x] 22.1 Write failing test: connect → send auth message within 100ms after open
+- [x] 22.2 Write failing test: re-connect on disconnect with exponential backoff (mockable clock)
+- [x] 22.3 Write failing test: re-auth and re-subscribe on each successful reconnect
+- [x] 22.4 Write failing test: events are exposed as a typed `Stream<NoteEvent>`
+- [x] 22.5 Write failing test: stale views (>5s offline) trigger explicit refresh signal
+- [x] 22.6 Implement WS client wrapper
 
 ## 23. Notes list view
 
