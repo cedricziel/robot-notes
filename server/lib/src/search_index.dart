@@ -168,9 +168,9 @@ class SearchIndex {
   /// Closes the database file. After calling this method the index must
   /// not be used again.
   void close() {
-    _upsertStmt.dispose();
-    _deleteStmt.dispose();
-    _db.dispose();
+    _upsertStmt.close();
+    _deleteStmt.close();
+    _db.close();
   }
 
   Future<int> _rebuild(Storage storage) async {
@@ -223,7 +223,7 @@ class SearchIndex {
       log.warning('search.db open failed: $e');
       return false;
     } finally {
-      db?.dispose();
+      db?.close();
     }
   }
 

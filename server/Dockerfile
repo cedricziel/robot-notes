@@ -91,9 +91,14 @@ RUN dart_frog build
 # build/ is a self-contained Dart package (shared is inlined under
 # .dart_frog_path_dependencies/) so we can resolve and compile it without
 # the surrounding workspace.
+#
+# `dart build cli` runs build hooks so package:sqlite3 (3.x) bundles
+# libsqlite3 alongside the binary. Output layout:
+#   /workspace/cli/bundle/bin/server
+#   /workspace/cli/bundle/lib/libsqlite3.so
 WORKDIR /workspace/server/build
 RUN dart pub get
-RUN dart compile exe bin/server.dart -o /workspace/server.exe
+RUN dart build cli -o /workspace/cli
 
 # ---------------------------------------------------------------------------
 # Runtime
@@ -112,12 +117,13 @@ LABEL org.opencontainers.image.source="https://github.com/cedricziel/robot-notes
       org.opencontainers.image.title="robot-notes server" \
       org.opencontainers.image.description="Real-time markdown notes server (HTTP + WebSocket)."
 
-# wget powers the HEALTHCHECK; libsqlite3-0 is dlopen()ed by package:sqlite3
-# at runtime; ca-certificates is kept for any future outbound TLS.
+# wget powers the HEALTHCHECK; ca-certificates is kept for any future
+# outbound TLS. libsqlite3 is bundled with the binary by `dart build cli`
+# (build hooks ship a libsqlite3.so under bundle/lib/), so no apt package
+# is needed.
 RUN apt-get update \
  && apt-get install --no-install-recommends -y \
       ca-certificates \
-      libsqlite3-0 \
       wget \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 robotnotes \
@@ -126,7 +132,10 @@ RUN apt-get update \
  && chown -R 10001:10001 /app /data
 
 WORKDIR /app
-COPY --from=builder --chown=10001:10001 /workspace/server.exe /app/server
+# bundle/ contains bin/server + lib/libsqlite3.so. Copy the whole bundle
+# preserving relative layout so the binary's runtime DT_RPATH ($ORIGIN/../lib)
+# resolves the bundled SQLite.
+COPY --from=builder --chown=10001:10001 /workspace/cli/bundle /app
 COPY --from=web-builder --chown=10001:10001 /workspace/app/build/web /app/web
 
 USER 10001
@@ -140,4 +149,4 @@ ENV ROBOT_NOTES_DATA_DIR=/data \
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD wget -q -O - http://127.0.0.1:8080/healthz || exit 1
 
-ENTRYPOINT ["/app/server"]
+ENTRYPOINT ["/app/bin/server"]

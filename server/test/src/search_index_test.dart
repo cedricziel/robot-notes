@@ -114,7 +114,7 @@ void main() {
         ..execute(
           "UPDATE meta SET value = '0' WHERE key = 'schema_version';",
         )
-        ..dispose();
+        ..close();
 
       final logger = Logger.detached('search-test')..level = Level.ALL;
       final logged = <String>[];
