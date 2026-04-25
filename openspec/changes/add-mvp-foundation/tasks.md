@@ -157,21 +157,21 @@
 
 ## 14. Search index (FTS5)
 
-- [ ] 14.1 Write failing test: missing `search.db` is rebuilt on startup from `content/`
-- [ ] 14.2 Write failing test: corrupt `search.db` (failed `PRAGMA integrity_check`) is rebuilt on startup
-- [ ] 14.3 Write failing test: healthy `search.db` matching schema is reused (no rebuild)
-- [ ] 14.4 Write failing test: schema mismatch triggers rebuild
-- [ ] 14.5 Write failing test: rebuild logs the count of indexed notes
-- [ ] 14.6 Write failing test: `SearchIndex.upsert(id,title,content)` makes the row searchable
-- [ ] 14.7 Write failing test: `SearchIndex.delete(id)` removes the row
-- [ ] 14.8 Write failing test: stemmed match (`run` matches `running`)
-- [ ] 14.9 Write failing test: case-insensitive match
-- [ ] 14.10 Write failing test: phrase query `"release notes"` works
-- [ ] 14.11 Write failing test: prefix query `archi*` works
-- [ ] 14.12 Write failing test: invalid FTS5 query returns `invalid_query` error from the layer
-- [ ] 14.13 Write failing test: results include `id`, `title`, `snippet`, `rank` and are ordered by rank ascending
-- [ ] 14.14 Write failing test: snippet contains `<mark>...</mark>` markers
-- [ ] 14.15 Implement `SearchIndex` over `package:sqlite3`
+- [x] 14.1 Write failing test: missing `search.db` is rebuilt on startup from `content/`
+- [x] 14.2 Write failing test: corrupt `search.db` (failed `PRAGMA integrity_check`) is rebuilt on startup
+- [x] 14.3 Write failing test: healthy `search.db` matching schema is reused (no rebuild)
+- [x] 14.4 Write failing test: schema mismatch triggers rebuild
+- [x] 14.5 Write failing test: rebuild logs the count of indexed notes
+- [x] 14.6 Write failing test: `SearchIndex.upsert(id,title,content)` makes the row searchable
+- [x] 14.7 Write failing test: `SearchIndex.delete(id)` removes the row
+- [x] 14.8 Write failing test: stemmed match (`run` matches `running`)
+- [x] 14.9 Write failing test: case-insensitive match
+- [x] 14.10 Write failing test: phrase query `"release notes"` works
+- [x] 14.11 Write failing test: prefix query `archi*` works
+- [x] 14.12 Write failing test: invalid FTS5 query returns `invalid_query` error from the layer
+- [x] 14.13 Write failing test: results include `id`, `title`, `snippet`, `rank` and are ordered by rank ascending
+- [x] 14.14 Write failing test: snippet contains `<mark>...</mark>` markers
+- [x] 14.15 Implement `SearchIndex` over `package:sqlite3`
 
 ## 15. Search API route
 
