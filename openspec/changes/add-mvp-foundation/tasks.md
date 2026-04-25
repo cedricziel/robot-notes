@@ -19,13 +19,13 @@
 
 ## 3. CLI argument and config plumbing
 
-- [ ] 3.1 Write failing test: `Config.fromArgs([])` exits with non-zero code when no key is configured
-- [ ] 3.2 Write failing test: `Config.fromArgs(['--api-key','rn_x'])` returns a config with apiKey `'rn_x'`
-- [ ] 3.3 Write failing test: env var fallback returns key when CLI arg absent
-- [ ] 3.4 Write failing test: CLI arg wins over env var when both present
-- [ ] 3.5 Write failing test: `--data-dir`, `--port`, `--lock-ttl-seconds` parse correctly with defaults
-- [ ] 3.6 Implement `Config` class to make tests pass
-- [ ] 3.7 Wire `Config` into the server entrypoint; abort startup with a helpful message if invalid
+- [x] 3.1 Write failing test: `Config.fromArgs([])` exits with non-zero code when no key is configured
+- [x] 3.2 Write failing test: `Config.fromArgs(['--api-key','rn_x'])` returns a config with apiKey `'rn_x'`
+- [x] 3.3 Write failing test: env var fallback returns key when CLI arg absent
+- [x] 3.4 Write failing test: CLI arg wins over env var when both present
+- [x] 3.5 Write failing test: `--data-dir`, `--port`, `--lock-ttl-seconds` parse correctly with defaults
+- [x] 3.6 Implement `Config` class to make tests pass
+- [x] 3.7 Wire `Config` into the server entrypoint; abort startup with a helpful message if invalid
 
 ## 4. Auth middleware
 
