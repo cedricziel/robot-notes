@@ -8,7 +8,25 @@
   "packages": {
     ".": {
       "package-name": "robot-notes",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "shared/lib/src/version.dart"
+        },
+        {
+          "type": "generic",
+          "path": "shared/pubspec.yaml"
+        },
+        {
+          "type": "generic",
+          "path": "server/pubspec.yaml"
+        },
+        {
+          "type": "generic",
+          "path": "app/pubspec.yaml"
+        }
+      ]
     }
   },
   "changelog-sections": [

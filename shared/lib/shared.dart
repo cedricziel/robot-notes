@@ -5,4 +5,5 @@ library;
 export 'src/dtos.dart';
 export 'src/errors.dart';
 export 'src/routes.dart';
+export 'src/version.dart';
 export 'src/ws.dart';

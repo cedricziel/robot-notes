@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '_test_app.dart';
@@ -138,7 +139,10 @@ void main() {
   test('healthz is reachable without auth', () async {
     final res = await http.get(Uri.parse('${app.baseUrl}/healthz'));
     expect(res.statusCode, 200);
-    expect(jsonDecode(res.body), {'status': 'ok'});
+    expect(
+      jsonDecode(res.body),
+      {'status': 'ok', 'version': robotNotesVersion},
+    );
   });
 
   test('protected route returns 401 without bearer', () async {

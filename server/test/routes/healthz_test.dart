@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../routes/healthz.dart' as route;
@@ -20,11 +21,14 @@ RequestContext _ctx({required HttpMethod method}) {
 
 void main() {
   group('GET /healthz', () {
-    test('responds with 200 and {"status":"ok"}', () async {
+    test('responds with 200 and {"status":"ok","version":<release>}', () async {
       final response = route.onRequest(_ctx(method: HttpMethod.get));
       expect(response.statusCode, HttpStatus.ok);
       expect(response.headers['content-type'], contains('application/json'));
-      expect(await response.json(), {'status': 'ok'});
+      expect(
+        await response.json(),
+        {'status': 'ok', 'version': robotNotesVersion},
+      );
     });
   });
 
