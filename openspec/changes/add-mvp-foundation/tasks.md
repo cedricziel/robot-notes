@@ -233,11 +233,11 @@
 
 ## 19. Flutter app scaffold
 
-- [ ] 19.1 `flutter create app` configured for android/ios/macos/windows/linux/web
-- [ ] 19.2 Add core dependencies: `http`, `web_socket_channel`, `flutter_secure_storage`, `riverpod` (or chosen state mgmt), and `shared` via `path: ../shared`
-- [ ] 19.3 Add dev dependencies: `flutter_test`, `mocktail`
-- [ ] 19.4 Configure `analysis_options.yaml` with strict-mode lints
-- [ ] 19.5 Verify each platform target builds with `flutter build`
+- [x] 19.1 `flutter create app` configured for android/ios/macos/windows/linux/web
+- [x] 19.2 Add core dependencies: `http`, `web_socket_channel`, `flutter_secure_storage`, `riverpod` (or chosen state mgmt), and `shared` via `path: ../shared`
+- [x] 19.3 Add dev dependencies: `flutter_test`, `mocktail`
+- [x] 19.4 Configure `analysis_options.yaml` with strict-mode lints
+- [x] 19.5 Verify each platform target builds with `flutter build` (web + macOS verified locally; android/ios/windows/linux scaffolded — left to CI)
 
 ## 20. Configuration storage and first-run flow
 

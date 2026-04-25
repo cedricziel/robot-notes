@@ -15,10 +15,18 @@ resolution: workspace
 dependencies:
   flutter:
     sdk: flutter
+  flutter_riverpod: ^3.3.1
+  flutter_secure_storage: ^10.0.0
+  http: ^1.5.0
   shared:
     path: ../shared
+  web_socket_channel: ^3.0.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  mocktail: ^1.0.4
+
+flutter:
+  uses-material-design: true
