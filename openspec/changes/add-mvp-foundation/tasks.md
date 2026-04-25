@@ -325,7 +325,7 @@
 - [x] 28.4 Job step: `make format` and verify no diff (`dart format --set-exit-if-changed`)
 - [x] 28.5 Job step: `make test` for both packages (server unit + integration; app widget + unit)
 - [x] 28.6 Job: `docker buildx build --platform linux/amd64` against `server/Dockerfile` (no push) to validate the Dockerfile each PR
-- [ ] 28.7 Configure required status checks on `main` (manual repo settings step, document in RELEASING.md — see task 32)
+- [x] 28.7 Configure required status checks on `main` (manual repo settings step, document in RELEASING.md — see task 32) — applied via `gh api`: required checks `Lint, format, test (Dart + Flutter workspace)` and `Validate server Dockerfile`, 1 review required (stale-dismissing), linear history enforced, force-pushes/deletions blocked, conversation resolution required, `enforce_admins` left off so the solo maintainer isn't locked out before the team grows
 
 ## 29. release-please configuration
 
@@ -353,7 +353,7 @@
 - [x] 31.2 Configure `schedule.interval: daily` for each ecosystem
 - [x] 31.3 Configure `groups:` blocks for minor/patch updates per ecosystem to reduce PR noise
 - [x] 31.4 ~~Add labels per ecosystem~~ — skipped; the directory column on the PR list already conveys the area, and unmanaged labels become noise.
-- [ ] 31.5 Manual verification: enable Dependabot in repo settings, observe initial scan, confirm no warnings in the Dependabot dashboard (deferred — runbook step in RELEASING.md)
+- [x] 31.5 Manual verification: enable Dependabot in repo settings, observe initial scan, confirm no warnings in the Dependabot dashboard — Dependabot version updates already running (multiple ecosystem PRs landed); enabled `vulnerability-alerts` and `automated-security-fixes` via `gh api`; secret scanning + push protection are also on
 
 ## 32. Release runbook documentation
 
