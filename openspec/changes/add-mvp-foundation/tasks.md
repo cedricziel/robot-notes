@@ -241,12 +241,12 @@
 
 ## 20. Configuration storage and first-run flow
 
-- [ ] 20.1 Write failing widget test: setup screen renders three inputs (URL, key, actor)
-- [ ] 20.2 Write failing test: invalid key validation surfaces a 401 message and does not persist
-- [ ] 20.3 Write failing test: unreachable server surfaces a network error and does not persist
-- [ ] 20.4 Write failing test: successful validation persists to secure storage and routes to list
-- [ ] 20.5 Write failing test: API key is never written to logs (capture log stream and assert)
-- [ ] 20.6 Implement setup screen + secure storage adapter
+- [x] 20.1 Write failing widget test: setup screen renders three inputs (URL, key, actor)
+- [x] 20.2 Write failing test: invalid key validation surfaces a 401 message and does not persist
+- [x] 20.3 Write failing test: unreachable server surfaces a network error and does not persist
+- [x] 20.4 Write failing test: successful validation persists to secure storage and routes to list
+- [x] 20.5 Write failing test: API key is never written to logs (capture log stream and assert)
+- [x] 20.6 Implement setup screen + secure storage adapter
 
 ## 21. API client (Dart, in `app/`)
 
