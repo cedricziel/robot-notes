@@ -115,6 +115,11 @@ jobs:
   web:
     name: Build web bundle
     needs: [resolve-tag]
+    # resolve-tag uses `if: always()` so it can run when release-please was
+    # skipped (workflow_dispatch with a tag input). The default
+    # `if: success()` on this job sees a skipped transitive dep and skips
+    # itself, so we gate explicitly on resolve-tag's output instead.
+    if: needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -143,6 +148,7 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     needs: [resolve-tag, web]
+    if: needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -230,6 +236,7 @@ jobs:
   manifest:
     name: Merge manifests
     needs: [resolve-tag, build]
+    if: needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
