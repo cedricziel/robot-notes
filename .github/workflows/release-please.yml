@@ -82,7 +82,7 @@ jobs:
 
       - name: Extract metadata (tags, labels)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.image.outputs.name }}
           # Release-only tag set: vX.Y.Z, X.Y, X, latest, plus a sha-<7>
