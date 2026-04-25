@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 
+import 'lib/src/app_deps.dart';
+import 'lib/src/app_deps_holder.dart';
 import 'lib/src/config.dart';
 import 'lib/src/config_holder.dart';
 
@@ -29,6 +31,9 @@ Future<HttpServer> run(
     printErr: stderr.writeln,
   );
   setConfig(config);
+
+  final deps = await AppDeps.bootstrap(config);
+  setAppDeps(deps);
 
   final effectivePort = _portFromEnvOverride(config.port, port);
   return serve(handler, ip, effectivePort);
