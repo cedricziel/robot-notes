@@ -1,0 +1,51 @@
+# Build context lives at the repository root (see server/Dockerfile).
+# Anything not needed by the server build pipeline is excluded so the
+# context stays small and reproducible.
+
+# VCS / GitHub
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+
+# Dart / Flutter caches and build outputs
+**/.dart_tool/
+**/.dart_frog/
+**/.packages
+**/.pub-cache/
+**/build/
+**/*.iml
+
+# Generated files
+**/pubspec_overrides.yaml
+
+# The Flutter app — server image does not need it.
+app/
+
+# Tests, fixtures, and dev scripts — server tests run in CI, not in the image.
+**/test/
+tool/
+.serena/
+
+# Project / planning artifacts
+openspec/
+CONTRIBUTING.md
+LICENSE
+NOTICE
+README.md
+RELEASING.md
+*.md
+
+# Runtime data — never copied into the image; mounted at /data.
+data/
+
+# CI artifacts and logs
+*.log
+coverage/

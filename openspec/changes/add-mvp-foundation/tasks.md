@@ -309,13 +309,13 @@
 
 ## 27. Server Dockerfile
 
-- [ ] 27.1 Write `server/Dockerfile` with a multi-stage build (builder + slim runtime), pinning each `FROM` by digest
-- [ ] 27.2 Configure non-root user (`USER 10001` or named user), `WORKDIR /app`, `VOLUME /data`, `EXPOSE 8080`
-- [ ] 27.3 Implement `HEALTHCHECK` invoking `/healthz` (e.g. `CMD wget -q -O - http://127.0.0.1:8080/healthz || exit 1`)
-- [ ] 27.4 Add OCI labels: `org.opencontainers.image.source`, `.revision`, `.version`, `.created`, `.licenses`
-- [ ] 27.5 Add `server/.dockerignore` excluding tests, dev artifacts, IDE files, and `data/`
-- [ ] 27.6 Manual verification: `docker build server/` succeeds locally, `docker run` accepts `--api-key` and serves `/healthz`
-- [ ] 27.7 Manual verification: container runs as non-root (`docker run --rm <img> id -u` returns non-zero)
+- [x] 27.1 Write `server/Dockerfile` with a multi-stage build (builder + slim runtime), pinning each `FROM` by digest
+- [x] 27.2 Configure non-root user (`USER 10001` or named user), `WORKDIR /app`, `VOLUME /data`, `EXPOSE 8080`
+- [x] 27.3 Implement `HEALTHCHECK` invoking `/healthz` (e.g. `CMD wget -q -O - http://127.0.0.1:8080/healthz || exit 1`)
+- [x] 27.4 Add OCI labels: `org.opencontainers.image.source`, `.revision`, `.version`, `.created`, `.licenses`
+- [x] 27.5 Add `.dockerignore` (at repo root — build context is the workspace root because the server depends on `shared/`) excluding tests, dev artifacts, IDE files, the Flutter app, and `data/`
+- [ ] 27.6 Manual verification: `make docker-build` succeeds locally, `docker run` accepts `--api-key` and serves `/healthz` (deferred — Docker daemon was unavailable during scaffolding; CI's task 28.6 exercises the build on every PR)
+- [ ] 27.7 Manual verification: container runs as non-root (`docker run --rm <img> id -u` returns non-zero) (deferred alongside 27.6)
 
 ## 28. CI workflow (test + lint + format + build dry-run)
 
