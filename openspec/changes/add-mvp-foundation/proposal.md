@@ -56,7 +56,7 @@ None — this is the inaugural change.
 
 ## Impact
 
-- **New repository structure**: introduces `server/` (Dart Frog) and `app/` (Flutter) workspaces, plus a shared package for DTOs if useful
+- **New repository structure**: a single Dart pub workspace at the repo root with three member packages — `server/` (Dart Frog), `app/` (Flutter), and `shared/` (the API-contract package: DTOs, WebSocket envelopes, error codes, route constants — depended on by both `server/` and `app/`)
 - **Dependencies**: `dart_frog`, `package:sqlite3`, `package:yaml` (or equivalent frontmatter parser), `package:ulid`, `shelf_web_socket`; on the Flutter side, an HTTP client and WebSocket client
 - **Native binary**: SQLite (bundled via `sqlite3_native_assets` or system lib)
 - **Operational**: single binary + a `data/` directory (containing `content/`, `search.db`, and `invites/`); rotating the API key requires a server restart; revoking a single agent invite is just deleting its file under `data/invites/`

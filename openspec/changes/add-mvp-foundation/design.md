@@ -279,7 +279,45 @@ GET    /invites/{token}/onboarding.txt   (no auth)                       → tex
 
 **Rationale:** KISS. The feature exists to hand an LLM "everything it needs in one fetch" without inventing a parallel auth model. Because the bundle ships the same shared key, the invite URL has the same security level as the key itself — single-use + short TTL + secure-channel distribution (HTTPS, copy-paste in a trusted UI) keeps the blast radius small. Revocation of one agent's onboarding URL doesn't affect anyone else; the file just goes away.
 
-### D16: Forward compatibility for CRDTs and multi-tenancy
+### D16: Dart pub workspace at the repo root
+
+**Choice:** The repo is a single Dart **pub workspace** (Dart 3.5+ feature). The root `pubspec.yaml` declares `workspace:` with the member packages `server/`, `app/`, and `shared/`. All three resolve to a single shared `.dart_tool/` and lock file; cross-package dependencies are wired with `path:` references resolved by the workspace.
+
+**Alternatives considered:**
+
+- *Melos* — battle-tested before pub workspaces existed, but now redundant for resolution. Useful for command orchestration (`melos run test`), so adopting melos *in addition* to workspaces is a future option, not v1.
+- *Plain sibling packages with no workspace declaration* — works, but every package needs its own pubspec lock and resolution; cross-package edits force `dart pub get` in every package separately. Worse DX.
+- *Single mega-package* — rejected; `app/` is Flutter and `server/` is plain Dart, which forces incompatible SDK constraints.
+
+**Rationale:** Pub workspaces are the language-native answer and ship in stable Dart. One resolution, one lockfile, fast cross-package iteration, no third-party tool. We can layer melos later if command orchestration becomes painful.
+
+### D17: `shared/` is the API-contract package
+
+**Choice:** The `shared/` package is a pure Dart library that holds the **API contract** between server and client: request/response DTOs (`Note`, `NoteMeta`, `Lock`, `InviteSummary`, `OnboardingBundle` shape), WebSocket envelope types (`AuthMsg`, `SubscribeMsg`, `PresenceEvent`, `LockEvent`, `ChangedEvent`, `PingMsg`, `PongMsg`, `ErrorMsg`), the error code enum, and route path constants. The server depends on it; the Flutter app depends on it; nothing in `shared/` depends on either.
+
+**What's in:**
+
+- DTO classes with `fromJson` / `toJson` for every request and response body.
+- WebSocket message envelopes — one Dart type per `type` value documented in `realtime-sync`.
+- A typed error envelope and a stable `ErrorCode` enum mirroring the codes in the specs.
+- Route path constants (`/notes`, `/notes/{id}`, `/notes/{id}/lock`, `/search`, `/healthz`, `/ws`, `/invites`, `/invites/{token}/onboarding.txt`) so server route registration and client URL building reference the same strings.
+
+**What's out:**
+
+- HTTP client logic (lives in `app/` via `package:http`).
+- Server route handlers (lives in `server/`).
+- Storage / FTS / lock manager internals (server-only concerns).
+- Anything Flutter-specific (`shared/` must not import `package:flutter`).
+
+**Alternatives considered:**
+
+- *Hand-roll DTOs separately in server and app* — drifts immediately. Hidden until a release breaks the wire format silently.
+- *OpenAPI as the source of truth, generate Dart in both packages* — a fine future step, but adds codegen tooling cost on day one. The hand-written `shared/` package can later be replaced by generated code without changing its consumers.
+- *Inline DTOs in `server/` and have `app/` depend on `server/`* — drags every server-only dep into the Flutter build. Rejected.
+
+**Rationale:** A separate package makes the wire contract a first-class artifact. A breaking change to a DTO is a breaking change to `shared/`, which is exactly what release-please's per-component versioning will surface later. It also makes the boundary inspectable: anything not exported from `shared/` is internal to its package by construction.
+
+### D18: Forward compatibility for CRDTs and multi-tenancy
 
 The API shape is chosen so future capabilities don't break it:
 
@@ -327,7 +365,7 @@ We do not need to design those today, only avoid choices that preclude them. The
 
 This is the inaugural change — no migration. Bootstrapping order:
 
-1. Repository layout: top-level `server/` (Dart Frog) and `app/` (Flutter) workspaces. Shared DTO package optional but recommended.
+1. Repository layout: a single Dart pub workspace at the repo root with member packages `server/` (Dart Frog), `app/` (Flutter), and `shared/` (API-contract DTOs, WS envelopes, error codes, route constants). The contract package is populated first so the server and app can both depend on it from the beginning.
 2. Server first to a passing health check; then auth middleware; then storage; then API; then locks; then WS; then search.
 3. Flutter client follows once the server has a stable enough surface to consume.
 
@@ -335,7 +373,7 @@ No rollback path required — there is no prior version to roll back to.
 
 ## Open Questions
 
-- **Repository structure:** mono-repo with `server/` and `app/` siblings vs. separate repos? Recommend mono-repo for MVP; revisit if release cadences diverge.
+- **Repository structure:** mono-repo with `server/`, `app/`, and `shared/` packages under a single Dart pub workspace vs. separate repos? Decided: mono-repo with workspace (D16). Revisit if release cadences diverge enough that one component's CI/PR noise consistently disrupts the other.
 - **Frontmatter parser:** `package:yaml` vs. a hand-rolled minimal parser? Recommend `package:yaml` for correctness; the cost is small.
 - **WebSocket auth:** does the Bearer key go in a query parameter (Sec-WebSocket-Protocol works but is awkward), an Authorization header (some browsers strip), or as the first message after connect? **Recommendation:** require key in the first WS message (auth frame); reject the connection if not received within ~2 seconds.
 - **Pagination scheme on `GET /notes`:** cursor (sortable ULIDs make this trivial) vs. offset/limit. Recommend cursor.

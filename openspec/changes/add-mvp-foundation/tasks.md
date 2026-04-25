@@ -1,15 +1,18 @@
 ## 1. Repository scaffold
 
-- [ ] 1.1 Initialize a Dart pub workspace at the repo root with `server/`, `app/`, and `shared/` packages
-- [ ] 1.2 Add `Makefile` targets `lint`, `format`, `test`, `run-server`, `run-app`
-- [ ] 1.3 Add `.gitignore` covering Dart build outputs, Flutter build outputs, IDE files, and `data/`
-- [ ] 1.4 Add a top-level README stub with how to run server and app locally
-- [ ] 1.5 Add a `.dart_tool/` exclusion and a `melos.yaml` if needed for cross-package commands
+- [ ] 1.1 Initialize a Dart **pub workspace** (Dart 3.5+ feature) at the repo root: top-level `pubspec.yaml` with `workspace:` listing `server/`, `app/`, and `shared/`
+- [ ] 1.2 Create the three member packages — `server/` (plain Dart, will be Dart Frog), `app/` (Flutter), `shared/` (pure Dart, no Flutter dep) — each with its own `pubspec.yaml` declaring `resolution: workspace`
+- [ ] 1.3 Wire `server/` and `app/` to depend on `shared/` via `path: ../shared`; verify `dart pub get` at the root resolves all three with a single shared `.dart_tool/`
+- [ ] 1.4 Populate `shared/` with the initial API-contract types: `Note`, `NoteMeta`, `Lock`, `InviteSummary`, error envelope + `ErrorCode` enum, route path constants, WS envelope types (`AuthMsg`, `SubscribeMsg`, `PresenceEvent`, `LockEvent`, `ChangedEvent`, `PingMsg`, `PongMsg`, `ErrorMsg`) — each with `fromJson`/`toJson`
+- [ ] 1.5 Write failing tests in `shared/` covering JSON round-trips for every DTO and event envelope
+- [ ] 1.6 Add `Makefile` targets `lint`, `format`, `test`, `run-server`, `run-app` that operate over the workspace
+- [ ] 1.7 Add a top-level README stub with how to run server and app locally
+- [ ] 1.8 Verify `shared/` does NOT depend on `package:flutter`, `dart_frog`, or anything server-only (lint or test)
 
 ## 2. Server scaffold (Dart Frog)
 
 - [ ] 2.1 Initialize a Dart Frog project under `server/`
-- [ ] 2.2 Add core dependencies: `dart_frog`, `package:sqlite3`, `package:yaml`, `package:ulid`, `package:args`, `package:logging`
+- [ ] 2.2 Add core dependencies: `dart_frog`, `package:sqlite3`, `package:yaml`, `package:ulid`, `package:args`, `package:logging`, and `shared` via `path: ../shared`
 - [ ] 2.3 Add dev dependencies: `test`, `mocktail`, `http`, `web_socket_channel` (for client-side test helpers)
 - [ ] 2.4 Configure `analysis_options.yaml` with strict-mode lints
 - [ ] 2.5 Verify `dart_frog dev` boots and serves a default route
@@ -231,7 +234,7 @@
 ## 19. Flutter app scaffold
 
 - [ ] 19.1 `flutter create app` configured for android/ios/macos/windows/linux/web
-- [ ] 19.2 Add core dependencies: `http`, `web_socket_channel`, `flutter_secure_storage`, `riverpod` (or chosen state mgmt)
+- [ ] 19.2 Add core dependencies: `http`, `web_socket_channel`, `flutter_secure_storage`, `riverpod` (or chosen state mgmt), and `shared` via `path: ../shared`
 - [ ] 19.3 Add dev dependencies: `flutter_test`, `mocktail`
 - [ ] 19.4 Configure `analysis_options.yaml` with strict-mode lints
 - [ ] 19.5 Verify each platform target builds with `flutter build`
