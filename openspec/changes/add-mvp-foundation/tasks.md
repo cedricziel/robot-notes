@@ -135,25 +135,25 @@
 
 ## 13. WebSocket endpoint
 
-- [ ] 13.1 Write failing test: connection without auth message within 2s closes with code 4001 and reason `auth_timeout`
-- [ ] 13.2 Write failing test: auth with wrong key closes with 4001 and reason `auth_failed`
-- [ ] 13.3 Write failing test: successful auth gets `auth_ok` and binds actor identity
-- [ ] 13.4 Write failing test: missing `actor` in auth defaults to `"unknown"`
-- [ ] 13.5 Write failing test: subscribe before auth is silently ignored, no events delivered
-- [ ] 13.6 Write failing test: per-note subscribe receives only events for that id
-- [ ] 13.7 Write failing test: wildcard subscribe receives events for any id
-- [ ] 13.8 Write failing test: unsubscribe stops further delivery for that id
-- [ ] 13.9 Write failing test: subscribing to a note triggers a `presence` event for prior subscribers
-- [ ] 13.10 Write failing test: disconnect updates presence on remaining subscribers
-- [ ] 13.11 Write failing test: same actor on two connections appears once in presence
-- [ ] 13.12 Write failing test: `lock` event fires for acquire, heartbeat, release, expiry
-- [ ] 13.13 Write failing test: `changed` event fires on create/update/delete with correct shape
-- [ ] 13.14 Write failing test: `changed` events do NOT include note content
-- [ ] 13.15 Write failing test: binary frame closes connection with 1003
-- [ ] 13.16 Write failing test: ping/pong echo with same id
-- [ ] 13.17 Write failing test: unknown message type yields `{type:"error","error":"unknown_type",...}` and keeps connection open
-- [ ] 13.18 Write failing test: slow consumer is dropped without blocking the broadcast loop
-- [ ] 13.19 Implement the WS handler, broadcaster, and presence tracker
+- [x] 13.1 Write failing test: connection without auth message within 2s closes with code 4001 and reason `auth_timeout`
+- [x] 13.2 Write failing test: auth with wrong key closes with 4001 and reason `auth_failed`
+- [x] 13.3 Write failing test: successful auth gets `auth_ok` and binds actor identity
+- [x] 13.4 Write failing test: missing `actor` in auth defaults to `"unknown"`
+- [x] 13.5 Write failing test: subscribe before auth is silently ignored, no events delivered
+- [x] 13.6 Write failing test: per-note subscribe receives only events for that id
+- [x] 13.7 Write failing test: wildcard subscribe receives events for any id
+- [x] 13.8 Write failing test: unsubscribe stops further delivery for that id
+- [x] 13.9 Write failing test: subscribing to a note triggers a `presence` event for prior subscribers
+- [x] 13.10 Write failing test: disconnect updates presence on remaining subscribers
+- [x] 13.11 Write failing test: same actor on two connections appears once in presence
+- [x] 13.12 Write failing test: `lock` event fires for acquire, heartbeat, release, expiry
+- [x] 13.13 Write failing test: `changed` event fires on create/update/delete with correct shape
+- [x] 13.14 Write failing test: `changed` events do NOT include note content
+- [x] 13.15 Write failing test: binary frame closes connection with 1003
+- [x] 13.16 Write failing test: ping/pong echo with same id
+- [x] 13.17 Write failing test: unknown message type yields `{type:"error","error":"unknown_type",...}` and keeps connection open
+- [x] 13.18 Write failing test: slow consumer is dropped without blocking the broadcast loop
+- [x] 13.19 Implement the WS handler, broadcaster, and presence tracker
 
 ## 14. Search index (FTS5)
 
