@@ -61,6 +61,21 @@ RUN flutter pub get
 RUN cd app && flutter build web --release --no-tree-shake-icons
 
 # ---------------------------------------------------------------------------
+# Web bundle — minimal stage that exposes ONLY the built SPA at the root.
+# ---------------------------------------------------------------------------
+# Two roles:
+#   1. Local dev (`docker build` from the repo root): inherits from
+#      `web-builder` above and gives the runtime stage a stable name to
+#      copy from.
+#   2. CI: a separate workflow job pre-builds the bundle once and the
+#      arch-matrix builds override this stage via
+#      `--build-context web-bundle=./prebuilt-web`. Because the runtime
+#      copy uses `--from=web-bundle /`, the override only needs to
+#      contain the bundle contents at its root — no path matching needed.
+FROM scratch AS web-bundle
+COPY --from=web-builder /workspace/app/build/web/ /
+
+# ---------------------------------------------------------------------------
 # Server builder
 # ---------------------------------------------------------------------------
 FROM dart:3.11.0-sdk@sha256:193a4d037dcef48b56f2a3544f053f4ef3b5e9865953f8f5ff2a284554da567a AS builder
@@ -136,7 +151,7 @@ WORKDIR /app
 # preserving relative layout so the binary's runtime DT_RPATH ($ORIGIN/../lib)
 # resolves the bundled SQLite.
 COPY --from=builder --chown=10001:10001 /workspace/cli/bundle /app
-COPY --from=web-builder --chown=10001:10001 /workspace/app/build/web /app/web
+COPY --from=web-bundle --chown=10001:10001 / /app/web
 
 USER 10001
 EXPOSE 8080
