@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.1](https://github.com/cedricziel/robot-notes/compare/v0.1.0...v0.1.1) (2026-04-25)
+
+
+### Features
+
+* **server:** log resolved config on startup; make run-server work out of the box ([32f0210](https://github.com/cedricziel/robot-notes/commit/32f021020208e50e99bd42f316f2139b3f5b82e9))
+
+
+### Bug Fixes
+
+* **app:** grant outbound network entitlement to macOS app ([34bdd23](https://github.com/cedricziel/robot-notes/commit/34bdd23fe35e531640bb8704ddb8f1e292671c37))
+* **app:** send non-empty title from create-note FAB ([8490595](https://github.com/cedricziel/robot-notes/commit/8490595611762127cf31abea86f57f1c227e77e6))
+* **ci:** build multi-arch image on native runners ([89700b2](https://github.com/cedricziel/robot-notes/commit/89700b219e04d08d93ff9da781f2d2edd712eef9))
+* **ci:** gate publish jobs on resolve-tag output, not implicit success() ([889c0f9](https://github.com/cedricziel/robot-notes/commit/889c0f9b2ea260290171fe0f35561b1a4582ebd6))
+* **ci:** use always() so the if-gate actually evaluates after a skipped dep ([dcdb55d](https://github.com/cedricziel/robot-notes/commit/dcdb55d389cab52c27c96bc72003628e09d9ec8d))
+* **server:** stop feeding VM args to Config parser ([39b6d9b](https://github.com/cedricziel/robot-notes/commit/39b6d9baed868c8f1a6f5b36fb6b33c3b0411397))
+
 ## 0.1.0 (2026-04-25)
 
 
