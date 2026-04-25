@@ -4,12 +4,15 @@ import 'package:server/src/constant_time.dart';
 
 const String _healthzPath = '/healthz';
 const String _wsPath = '/ws';
+final RegExp _onboardingPath = RegExp(r'^/invites/[^/]+/onboarding\.txt$');
 
 /// Builds a Dart Frog [Middleware] that enforces a single configured bearer
-/// key on every request except `GET /healthz` and `GET /ws` (the WebSocket
+/// key on every request except `GET /healthz`, `GET /ws` (the WebSocket
 /// endpoint authenticates via its in-protocol `auth` envelope rather than
 /// an HTTP header, since browsers can't set arbitrary headers on the
-/// upgrade request).
+/// upgrade request), and `GET /invites/{token}/onboarding.txt` (the token
+/// itself is the credential and is single-use; bearer auth would defeat
+/// the bootstrap).
 ///
 /// Failure responses are JSON `{"error": "unauthorized"}` with HTTP 401.
 /// The configured key is compared in constant time against the supplied
@@ -37,7 +40,9 @@ Middleware bearerAuth({required String configuredKey}) {
 bool _isExempt(Request request) {
   if (request.method != HttpMethod.get) return false;
   final path = request.uri.path;
-  return path == _healthzPath || path == _wsPath;
+  return path == _healthzPath ||
+      path == _wsPath ||
+      _onboardingPath.hasMatch(path);
 }
 
 String? _extractBearer(String? header) {

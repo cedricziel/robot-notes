@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/invite_store.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/search_index.dart';
@@ -26,6 +27,7 @@ class AppDeps {
     required this.storage,
     required this.metaIndex,
     required this.searchIndex,
+    required this.inviteStore,
     required this.lockManager,
     required this.broadcaster,
     required this.presence,
@@ -60,10 +62,15 @@ class AppDeps {
       storage: storage,
       logger: Logger('search_index'),
     );
+    final inviteStore = InviteStore(
+      inviteDir: Directory('${config.dataDir}/invites'),
+      clock: clock,
+    );
     return AppDeps(
       storage: storage,
       metaIndex: metaIndex,
       searchIndex: searchIndex,
+      inviteStore: inviteStore,
       lockManager: lockManager,
       broadcaster: Broadcaster(),
       presence: PresenceTracker(),
@@ -79,6 +86,9 @@ class AppDeps {
 
   /// FTS5-backed full-text search index, derived from [storage].
   final SearchIndex searchIndex;
+
+  /// Filesystem-backed agent-onboarding invite store.
+  final InviteStore inviteStore;
 
   /// Soft editor lock manager (process-local).
   final LockManager lockManager;

@@ -157,6 +157,60 @@ void main() {
       );
       expect(response.statusCode, HttpStatus.unauthorized);
     });
+
+    test('GET /invites/{token}/onboarding.txt bypasses auth', () async {
+      final ctx = _ctx(
+        path: '/invites/abc-123/onboarding.txt',
+        method: HttpMethod.get,
+      );
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response(body: 'bundle'),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+      expect(await response.body(), 'bundle');
+    });
+
+    test('non-GET on onboarding URL still requires auth', () async {
+      final ctx = _ctx(
+        path: '/invites/abc-123/onboarding.txt',
+        method: HttpMethod.post,
+      );
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
+    test('GET /invites (without onboarding suffix) still requires auth',
+        () async {
+      final ctx = _ctx(path: '/invites', method: HttpMethod.get);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
+    test('POST /invites still requires auth', () async {
+      final ctx = _ctx(path: '/invites', method: HttpMethod.post);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
+    test('DELETE /invites/{token} still requires auth', () async {
+      final ctx = _ctx(path: '/invites/abc', method: HttpMethod.delete);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
   });
 
   group('debugExtractBearer', () {

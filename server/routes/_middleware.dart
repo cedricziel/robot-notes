@@ -2,8 +2,10 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor_middleware.dart';
 import 'package:server/src/app_deps_holder.dart' as app_deps_holder;
 import 'package:server/src/auth_middleware.dart';
+import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/config_holder.dart' as config_holder;
+import 'package:server/src/invite_store.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/search_index.dart';
@@ -34,7 +36,9 @@ Handler middleware(Handler handler) {
       .use(provider<Broadcaster>((_) => deps.broadcaster))
       .use(provider<LockManager>((_) => deps.lockManager))
       .use(provider<SearchIndex>((_) => deps.searchIndex))
+      .use(provider<InviteStore>((_) => deps.inviteStore))
       .use(provider<MetaIndex>((_) => deps.metaIndex))
       .use(provider<Storage>((_) => deps.storage))
+      .use(provider<Clock>((_) => deps.clock))
       .use(provider<Config>((_) => config));
 }

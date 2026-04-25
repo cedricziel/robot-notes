@@ -194,24 +194,24 @@
 - [x] 16.7 Write failing test: `InviteStore.revoke(token)` deletes the file and returns 204; missing token returns 404
 - [x] 16.8 Write failing test: malformed JSON in `data/invites/` is skipped on listing and logged
 - [x] 16.9 Implement `InviteStore` (token gen, file IO, atomic burn) over a real temp directory
-- [ ] 16.10 Write failing test: `POST /invites` (Bearer) with `{}` returns 201 with `token`, `url`, `expires_at`, `single_use:true`, default 24h TTL
-- [ ] 16.11 Write failing test: `POST /invites` honors `label` and `ttl_seconds`
-- [ ] 16.12 Write failing test: `POST /invites` rejects `ttl_seconds > 2592000` with 400 `invalid_ttl`
-- [ ] 16.13 Write failing test: `POST /invites` without auth → 401
-- [ ] 16.14 Write failing test: `GET /invites` (Bearer) returns array with all invites including `expired` flag
-- [ ] 16.15 Write failing test: `GET /invites` without auth → 401
-- [ ] 16.16 Write failing test: `DELETE /invites/{token}` (Bearer) returns 204 and removes the file
-- [ ] 16.17 Write failing test: `DELETE /invites/{unknown}` returns 404 `invite_not_found`
-- [ ] 16.18 Write failing test: `GET /invites/{token}/onboarding.txt` (no auth) on unburned, unexpired invite returns 200 `text/plain; charset=utf-8` and atomically burns
-- [ ] 16.19 Write failing test: bundle body contains the configured api key, server base URL, and a recommended `X-Actor` derived from the invite label
-- [ ] 16.20 Write failing test: bundle body includes the API surface guide (notes CRUD, lock endpoints, search, /ws)
-- [ ] 16.21 Write failing test: second fetch of the same token returns 410 `invite_burned`
-- [ ] 16.22 Write failing test: expired invite returns 404 `invite_not_found`
-- [ ] 16.23 Write failing test: simultaneous fetches of the same unburned token — exactly one client receives 200, the other 410
-- [ ] 16.24 Write failing test: response on the onboarding endpoint does NOT include `Access-Control-Allow-Credentials: true`
-- [ ] 16.25 Write failing test: server logs do not include the full token nor the bundle body (capture log stream and assert)
-- [ ] 16.26 Implement the four invite route handlers (`POST /invites`, `GET /invites`, `DELETE /invites/{token}`, `GET /invites/{token}/onboarding.txt`)
-- [ ] 16.27 Implement the onboarding bundle template — a single Markdown-compatible plain-text document compiled from the spec'd API surface
+- [x] 16.10 Write failing test: `POST /invites` (Bearer) with `{}` returns 201 with `token`, `url`, `expires_at`, `single_use:true`, default 24h TTL
+- [x] 16.11 Write failing test: `POST /invites` honors `label` and `ttl_seconds`
+- [x] 16.12 Write failing test: `POST /invites` rejects `ttl_seconds > 2592000` with 400 `invalid_ttl`
+- [x] 16.13 Write failing test: `POST /invites` without auth → 401
+- [x] 16.14 Write failing test: `GET /invites` (Bearer) returns array with all invites including `expired` flag
+- [x] 16.15 Write failing test: `GET /invites` without auth → 401
+- [x] 16.16 Write failing test: `DELETE /invites/{token}` (Bearer) returns 204 and removes the file
+- [x] 16.17 Write failing test: `DELETE /invites/{unknown}` returns 404 `invite_not_found`
+- [x] 16.18 Write failing test: `GET /invites/{token}/onboarding.txt` (no auth) on unburned, unexpired invite returns 200 `text/plain; charset=utf-8` and atomically burns
+- [x] 16.19 Write failing test: bundle body contains the configured api key, server base URL, and a recommended `X-Actor` derived from the invite label
+- [x] 16.20 Write failing test: bundle body includes the API surface guide (notes CRUD, lock endpoints, search, /ws)
+- [x] 16.21 Write failing test: second fetch of the same token returns 410 `invite_burned`
+- [x] 16.22 Write failing test: expired invite returns 404 `invite_not_found`
+- [x] 16.23 Write failing test: simultaneous fetches of the same unburned token — exactly one client receives 200, the other 410
+- [x] 16.24 Write failing test: response on the onboarding endpoint does NOT include `Access-Control-Allow-Credentials: true`
+- [x] 16.25 Write failing test: server logs do not include the full token nor the bundle body (capture log stream and assert)
+- [x] 16.26 Implement the four invite route handlers (`POST /invites`, `GET /invites`, `DELETE /invites/{token}`, `GET /invites/{token}/onboarding.txt`)
+- [x] 16.27 Implement the onboarding bundle template — a single Markdown-compatible plain-text document compiled from the spec'd API surface
 
 ## 17. Wire-up: write path triggers broadcast and search index update
 
