@@ -47,8 +47,8 @@
 
 ## 6. Health endpoint
 
-- [ ] 6.1 Write failing test: `GET /healthz` returns 200 with body `{"status":"ok"}`
-- [ ] 6.2 Implement `routes/healthz.dart`
+- [x] 6.1 Write failing test: `GET /healthz` returns 200 with body `{"status":"ok"}`
+- [x] 6.2 Implement `routes/healthz.dart`
 
 ## 7. Frontmatter parser
 
