@@ -138,6 +138,16 @@ void main() {
       );
       expect(response.statusCode, HttpStatus.unauthorized);
     });
+
+    test('GET /ws bypasses HTTP auth (auth happens in-protocol)', () async {
+      final ctx = _ctx(path: '/ws', method: HttpMethod.get);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response.json(body: const {'ok': true}),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+    });
   });
 
   group('debugExtractBearer', () {

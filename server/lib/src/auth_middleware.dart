@@ -3,9 +3,13 @@ import 'package:meta/meta.dart';
 import 'package:server/src/constant_time.dart';
 
 const String _healthzPath = '/healthz';
+const String _wsPath = '/ws';
 
 /// Builds a Dart Frog [Middleware] that enforces a single configured bearer
-/// key on every request except `GET /healthz`.
+/// key on every request except `GET /healthz` and `GET /ws` (the WebSocket
+/// endpoint authenticates via its in-protocol `auth` envelope rather than
+/// an HTTP header, since browsers can't set arbitrary headers on the
+/// upgrade request).
 ///
 /// Failure responses are JSON `{"error": "unauthorized"}` with HTTP 401.
 /// The configured key is compared in constant time against the supplied
@@ -14,7 +18,7 @@ Middleware bearerAuth({required String configuredKey}) {
   return (handler) {
     return (context) async {
       final request = context.request;
-      if (_isHealthz(request)) {
+      if (_isExempt(request)) {
         return handler(context);
       }
 
@@ -30,8 +34,10 @@ Middleware bearerAuth({required String configuredKey}) {
   };
 }
 
-bool _isHealthz(Request request) {
-  return request.method == HttpMethod.get && request.uri.path == _healthzPath;
+bool _isExempt(Request request) {
+  if (request.method != HttpMethod.get) return false;
+  final path = request.uri.path;
+  return path == _healthzPath || path == _wsPath;
 }
 
 String? _extractBearer(String? header) {
