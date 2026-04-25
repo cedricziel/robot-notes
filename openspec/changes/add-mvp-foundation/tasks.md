@@ -185,15 +185,15 @@
 
 ## 16. Invite store and agent-onboarding endpoints
 
-- [ ] 16.1 Write failing test: `InviteStore.mint(label, ttl)` writes `data/invites/<token>.json` atomically (tmp+fsync+rename) with the documented schema
-- [ ] 16.2 Write failing test: minted token is URL-safe and carries at least 128 bits of entropy
-- [ ] 16.3 Write failing test: `InviteStore.list()` returns all on-disk invites with `expired` flag computed against the current clock
-- [ ] 16.4 Write failing test: `InviteStore.get(token)` returns the invite or null for missing
-- [ ] 16.5 Write failing test: `InviteStore.burn(token)` sets `burned_at` atomically and returns the previous (unburned) state
-- [ ] 16.6 Write failing test: `InviteStore.burn(token)` is exclusive — under simulated concurrent calls exactly one returns the unburned state, others return `AlreadyBurned`
-- [ ] 16.7 Write failing test: `InviteStore.revoke(token)` deletes the file and returns 204; missing token returns 404
-- [ ] 16.8 Write failing test: malformed JSON in `data/invites/` is skipped on listing and logged
-- [ ] 16.9 Implement `InviteStore` (token gen, file IO, atomic burn) over a real temp directory
+- [x] 16.1 Write failing test: `InviteStore.mint(label, ttl)` writes `data/invites/<token>.json` atomically (tmp+fsync+rename) with the documented schema
+- [x] 16.2 Write failing test: minted token is URL-safe and carries at least 128 bits of entropy
+- [x] 16.3 Write failing test: `InviteStore.list()` returns all on-disk invites with `expired` flag computed against the current clock
+- [x] 16.4 Write failing test: `InviteStore.get(token)` returns the invite or null for missing
+- [x] 16.5 Write failing test: `InviteStore.burn(token)` sets `burned_at` atomically and returns the previous (unburned) state
+- [x] 16.6 Write failing test: `InviteStore.burn(token)` is exclusive — under simulated concurrent calls exactly one returns the unburned state, others return `AlreadyBurned`
+- [x] 16.7 Write failing test: `InviteStore.revoke(token)` deletes the file and returns 204; missing token returns 404
+- [x] 16.8 Write failing test: malformed JSON in `data/invites/` is skipped on listing and logged
+- [x] 16.9 Implement `InviteStore` (token gen, file IO, atomic burn) over a real temp directory
 - [ ] 16.10 Write failing test: `POST /invites` (Bearer) with `{}` returns 201 with `token`, `url`, `expires_at`, `single_use:true`, default 24h TTL
 - [ ] 16.11 Write failing test: `POST /invites` honors `label` and `ttl_seconds`
 - [ ] 16.12 Write failing test: `POST /invites` rejects `ttl_seconds > 2592000` with 400 `invalid_ttl`
