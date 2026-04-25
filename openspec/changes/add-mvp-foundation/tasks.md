@@ -337,15 +337,15 @@
 
 ## 30. Publish workflow (ghcr multi-arch)
 
-- [ ] 30.1 Create `.github/workflows/publish.yml` triggered by release-please's tag-create event (or by `release: { types: [published] }`) and by `push: { branches: [main] }` for previews
-- [ ] 30.2 Declare `permissions: { contents: read, packages: write }`
-- [ ] 30.3 Step: `docker/setup-qemu-action`
-- [ ] 30.4 Step: `docker/setup-buildx-action`
-- [ ] 30.5 Step: `docker/login-action` with `registry: ghcr.io`, `username: ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`
-- [ ] 30.6 Step: `docker/metadata-action` configuring tags for releases (`vX.Y.Z`, `X.Y`, `X`, `latest`, `sha-<7>`) and previews (`main`, `sha-<7>`)
-- [ ] 30.7 Step: `docker/build-push-action` with `platforms: linux/amd64,linux/arm64`, `push: true`, and the metadata-action outputs
-- [ ] 30.8 Verify: tag a test pre-release (e.g. `v0.0.1-rc1`) and confirm both architectures appear under the same digest (`docker manifest inspect`)
-- [ ] 30.9 One-time post-publish: set the ghcr package visibility to public and link to the source repo (document in RELEASING.md)
+- [x] 30.1 Create `.github/workflows/publish.yml` triggered by `release: { types: [published] }` (release-please cuts a release on tag) and by `push: { branches: [main] }` for previews
+- [x] 30.2 Declare `permissions: { contents: read, packages: write }`
+- [x] 30.3 Step: `docker/setup-qemu-action`
+- [x] 30.4 Step: `docker/setup-buildx-action`
+- [x] 30.5 Step: `docker/login-action` with `registry: ghcr.io`, `username: ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`
+- [x] 30.6 Step: `docker/metadata-action` configuring tags for releases (`vX.Y.Z`, `X.Y`, `X`, `latest`, `sha-<7>`) and previews (`main`, `sha-<7>`)
+- [x] 30.7 Step: `docker/build-push-action` with `platforms: linux/amd64,linux/arm64`, `push: true`, provenance + sbom on, and the metadata-action outputs
+- [ ] 30.8 Verify: tag a test pre-release (e.g. `v0.0.1-rc1`) and confirm both architectures appear under the same digest (`docker manifest inspect`) — verification deferred to task 33.4
+- [ ] 30.9 One-time post-publish: set the ghcr package visibility to public and link to the source repo — documented in RELEASING.md (see task 32)
 
 ## 31. Dependabot configuration
 
