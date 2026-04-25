@@ -6,7 +6,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:test/test.dart';
 
-import '../../../routes/invites/[token].dart' as route;
+import '../../../../routes/invites/[token]/index.dart' as route;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 

@@ -24,11 +24,11 @@ import 'package:server/src/ws/presence.dart';
 
 import '../../routes/healthz.dart' as healthz_route;
 import '../../routes/index.dart' as root_index;
-import '../../routes/invites/[token].dart' as invites_token_route;
+import '../../routes/invites/[token]/index.dart' as invites_token_route;
 import '../../routes/invites/[token]/onboarding.txt.dart'
     as invites_token_onboarding_route;
 import '../../routes/invites/index.dart' as invites_index_route;
-import '../../routes/notes/[id].dart' as notes_id_route;
+import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
 import '../../routes/notes/index.dart' as notes_index_route;
 import '../../routes/search.dart' as search_route;

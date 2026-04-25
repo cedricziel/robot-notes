@@ -13,7 +13,7 @@ import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
-import '../../../routes/notes/[id].dart' as route;
+import '../../../../routes/notes/[id]/index.dart' as route;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
