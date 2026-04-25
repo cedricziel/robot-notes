@@ -106,19 +106,19 @@
 - [x] 11.4 Write failing test: list items omit `content` field
 - [x] 11.5 Write failing test: `POST /notes` with valid body returns 201 and full record with `version: 1`
 - [x] 11.6 Write failing test: `POST /notes` with empty/missing title returns 400
-- [ ] 11.7 Write failing test: `GET /notes/{id}` returns 200 with full record
-- [ ] 11.8 Write failing test: `GET /notes/{id}` returns 404 with `{error:"not_found"}` for unknown id
-- [ ] 11.9 Write failing test: `GET /notes/{id}` includes `lock` when locked
-- [ ] 11.10 Write failing test: `PUT /notes/{id}` without `If-Match` returns 428
-- [ ] 11.11 Write failing test: `PUT /notes/{id}` with non-numeric `If-Match` returns 400
-- [ ] 11.12 Write failing test: `PUT /notes/{id}` with stale `If-Match` returns 409 with current state
-- [ ] 11.13 Write failing test: `PUT /notes/{id}` while locked by another actor returns 423
-- [ ] 11.14 Write failing test: `PUT /notes/{id}` by lock holder with matching `If-Match` succeeds
-- [ ] 11.15 Write failing test: `DELETE /notes/{id}` returns 204 and removes file
-- [ ] 11.16 Write failing test: `DELETE /notes/{id}` while locked by another actor returns 423
-- [ ] 11.17 Write failing test: `DELETE /notes/{id}` for unknown id returns 404
-- [ ] 11.18 Write failing test: every error response has a JSON body with stable `error` code
-- [ ] 11.19 Implement the five route handlers using `Storage`, `MetaIndex`, and `LockManager`
+- [x] 11.7 Write failing test: `GET /notes/{id}` returns 200 with full record
+- [x] 11.8 Write failing test: `GET /notes/{id}` returns 404 with `{error:"not_found"}` for unknown id
+- [x] 11.9 Write failing test: `GET /notes/{id}` includes `lock` when locked
+- [x] 11.10 Write failing test: `PUT /notes/{id}` without `If-Match` returns 428
+- [x] 11.11 Write failing test: `PUT /notes/{id}` with non-numeric `If-Match` returns 400
+- [x] 11.12 Write failing test: `PUT /notes/{id}` with stale `If-Match` returns 409 with current state
+- [x] 11.13 Write failing test: `PUT /notes/{id}` while locked by another actor returns 423
+- [x] 11.14 Write failing test: `PUT /notes/{id}` by lock holder with matching `If-Match` succeeds
+- [x] 11.15 Write failing test: `DELETE /notes/{id}` returns 204 and removes file
+- [x] 11.16 Write failing test: `DELETE /notes/{id}` while locked by another actor returns 423
+- [x] 11.17 Write failing test: `DELETE /notes/{id}` for unknown id returns 404
+- [x] 11.18 Write failing test: every error response has a JSON body with stable `error` code
+- [x] 11.19 Implement the five route handlers using `Storage`, `MetaIndex`, and `LockManager`
 
 ## 12. Lock API routes (HTTP)
 
