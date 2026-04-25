@@ -381,10 +381,10 @@
 - [x] 34.4 README: how to onboard an agent (mint invite via `POST /invites`, share the URL, agent fetches `onboarding.txt` once)
 - [x] 34.5 Document the API in `server/API.md` (endpoints, error codes, WS protocol, invite endpoints)
 - [x] 34.6 Document data layout in `server/STORAGE.md` (frontmatter schema, paths, atomicity, `data/invites/` schema)
-- [ ] 34.7 Run `make lint` and `make format` on both server and app; resolve all warnings
-- [ ] 34.8 Confirm full test suite is green for server and app
-- [ ] 34.9 Smoke test: spin up server (locally and via published image), build Flutter for one desktop platform, walk through happy path manually
-- [ ] 34.10 Smoke test: mint an invite against the running server, fetch `onboarding.txt` once with `curl`, verify the bundle is readable, confirm the second fetch returns 410
+- [x] 34.7 Run `make lint` and `make format` on both server and app; resolve all warnings — clean (162 files unchanged, 0 analyzer issues)
+- [x] 34.8 Confirm full test suite is green for server and app — shared 35/35, server 309/309, app 55/55 passing
+- [ ] 34.9 Smoke test: spin up server (locally and via published image), build Flutter for one desktop platform, walk through happy path manually (deferred to first-release runbook in RELEASING.md)
+- [ ] 34.10 Smoke test: mint an invite against the running server, fetch `onboarding.txt` once with `curl`, verify the bundle is readable, confirm the second fetch returns 410 (deferred alongside 34.9)
 
 ## Definition of Done
 
