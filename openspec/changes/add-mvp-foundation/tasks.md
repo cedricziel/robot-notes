@@ -84,19 +84,19 @@
 
 ## 10. Lock manager
 
-- [ ] 10.1 Write failing test: `LockManager.acquire(id, actor)` succeeds when unlocked
-- [ ] 10.2 Write failing test: acquire by different actor while locked → `LockedException` with current state
-- [ ] 10.3 Write failing test: acquire by same actor while locked extends TTL (idempotent)
-- [ ] 10.4 Write failing test: acquire on expired lock succeeds
-- [ ] 10.5 Write failing test: `heartbeat` by holder extends `expires_at`
-- [ ] 10.6 Write failing test: heartbeat by non-holder throws
-- [ ] 10.7 Write failing test: heartbeat on expired lock throws `NotFound`
-- [ ] 10.8 Write failing test: `release` by holder clears state
-- [ ] 10.9 Write failing test: release by non-holder throws
-- [ ] 10.10 Write failing test: release of expired/missing lock is idempotent
-- [ ] 10.11 Write failing test: `lockOf(id)` returns null for expired locks
-- [ ] 10.12 Write failing test: lock state transitions emit events on a stream the broadcaster can subscribe to
-- [ ] 10.13 Implement `LockManager` purely in-memory using a `Map<String, Lock>` and a `Stream<LockEvent>`
+- [x] 10.1 Write failing test: `LockManager.acquire(id, actor)` succeeds when unlocked
+- [x] 10.2 Write failing test: acquire by different actor while locked → `LockedException` with current state
+- [x] 10.3 Write failing test: acquire by same actor while locked extends TTL (idempotent)
+- [x] 10.4 Write failing test: acquire on expired lock succeeds
+- [x] 10.5 Write failing test: `heartbeat` by holder extends `expires_at`
+- [x] 10.6 Write failing test: heartbeat by non-holder throws
+- [x] 10.7 Write failing test: heartbeat on expired lock throws `NotFound`
+- [x] 10.8 Write failing test: `release` by holder clears state
+- [x] 10.9 Write failing test: release by non-holder throws
+- [x] 10.10 Write failing test: release of expired/missing lock is idempotent
+- [x] 10.11 Write failing test: `lockOf(id)` returns null for expired locks
+- [x] 10.12 Write failing test: lock state transitions emit events on a stream the broadcaster can subscribe to
+- [x] 10.13 Implement `LockManager` purely in-memory using a `Map<String, Lock>` and a `Stream<LockEvent>`
 
 ## 11. Notes API routes (HTTP)
 
