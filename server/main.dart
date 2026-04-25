@@ -11,21 +11,20 @@ import 'package:server/src/config_holder.dart';
 ///
 /// Dart Frog calls this function with the framework-resolved [handler],
 /// listen [ip], and the port from the `PORT` env var. We override the port
-/// with what [Config] resolves so `ROBOT_NOTES_PORT` and `--port` win
-/// consistently.
+/// with what [Config] resolves so `ROBOT_NOTES_PORT` wins consistently.
 ///
-/// The CLI flags documented in the `auth` and `lock-management` specs are
-/// honored when this binary is invoked through a wrapper that forwards
-/// `Platform.executableArguments`; in production (e.g. `dart_frog build`
-/// + a Docker image) configuration flows through the `ROBOT_NOTES_*`
-/// environment variables.
+/// Configuration flows exclusively through the `ROBOT_NOTES_*` environment
+/// variables. The dart_frog generated `main()` does not forward user CLI
+/// args, and `Platform.executableArguments` is reserved for VM-level flags
+/// (e.g. `--resolved_executable_name`), not user input. Tests cover the
+/// CLI-flag path directly via [Config.fromArgs].
 Future<HttpServer> run(
   Handler handler,
   InternetAddress ip,
   int port,
 ) async {
   final config = Config.loadOrExit(
-    Platform.executableArguments,
+    const <String>[],
     env: Platform.environment,
     exit: exit,
     printErr: stderr.writeln,
