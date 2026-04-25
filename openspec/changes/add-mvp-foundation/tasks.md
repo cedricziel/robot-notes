@@ -122,16 +122,16 @@
 
 ## 12. Lock API routes (HTTP)
 
-- [ ] 12.1 Write failing test: `POST /notes/{id}/lock` on unlocked note returns 200 with holder/expiry
-- [ ] 12.2 Write failing test: `POST /notes/{id}/lock` blocked by other actor returns 423
-- [ ] 12.3 Write failing test: `POST /notes/{id}/lock` by same actor extends TTL (idempotent 200)
-- [ ] 12.4 Write failing test: `PUT /notes/{id}/lock` heartbeat by holder extends expiry
-- [ ] 12.5 Write failing test: heartbeat by non-holder returns 423
-- [ ] 12.6 Write failing test: heartbeat on expired lock returns 404
-- [ ] 12.7 Write failing test: `DELETE /notes/{id}/lock` by holder returns 204
-- [ ] 12.8 Write failing test: release by non-holder returns 423
-- [ ] 12.9 Write failing test: release of expired/missing lock returns 204 (idempotent)
-- [ ] 12.10 Implement the three lock route handlers
+- [x] 12.1 Write failing test: `POST /notes/{id}/lock` on unlocked note returns 200 with holder/expiry
+- [x] 12.2 Write failing test: `POST /notes/{id}/lock` blocked by other actor returns 423
+- [x] 12.3 Write failing test: `POST /notes/{id}/lock` by same actor extends TTL (idempotent 200)
+- [x] 12.4 Write failing test: `PUT /notes/{id}/lock` heartbeat by holder extends expiry
+- [x] 12.5 Write failing test: heartbeat by non-holder returns 423
+- [x] 12.6 Write failing test: heartbeat on expired lock returns 404
+- [x] 12.7 Write failing test: `DELETE /notes/{id}/lock` by holder returns 204
+- [x] 12.8 Write failing test: release by non-holder returns 423
+- [x] 12.9 Write failing test: release of expired/missing lock returns 204 (idempotent)
+- [x] 12.10 Implement the three lock route handlers
 
 ## 13. WebSocket endpoint
 
