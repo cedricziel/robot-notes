@@ -349,7 +349,7 @@
 
 ## 31. Dependabot configuration
 
-- [x] 31.1 Create `.github/dependabot.yml` with five `updates:` entries (`pub` × `server/`, `pub` × `app/`, `pub` × `shared/`, `github-actions` × `/`, `docker` × `server/`)
+- [x] 31.1 Create `.github/dependabot.yml` with three `updates:` entries (`pub` × `/` workspace root, `github-actions` × `/`, `docker` × `server/`). Originally proposed five entries (one pub per workspace member) but Dart's `dependency_services` errors with `Only apply dependency_services to the root of the workspace`, so member-level pub entries are not viable — the single root entry resolves all members through the shared pubspec.lock.
 - [x] 31.2 Configure `schedule.interval: daily` for each ecosystem
 - [x] 31.3 Configure `groups:` blocks for minor/patch updates per ecosystem to reduce PR noise
 - [x] 31.4 ~~Add labels per ecosystem~~ — skipped; the directory column on the PR list already conveys the area, and unmanaged labels become noise.

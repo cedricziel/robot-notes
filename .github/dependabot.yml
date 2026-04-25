@@ -3,36 +3,25 @@ version: 2
 # One updates: entry per ecosystem we depend on. Daily cadence catches
 # CVEs as quickly as Dependabot can scan them; minor/patch updates are
 # grouped per ecosystem so unrelated bumps still land as a single PR.
+#
+# Pub note: this repo is a Dart pub *workspace* (root pubspec.yaml has a
+# `workspace:` key listing server/, app/, shared/). Dart's
+# `dependency_services` — the tool Dependabot drives for pub — only runs
+# at the workspace root and errors out (`Only apply dependency_services
+# to the root of the workspace.`) when pointed at a member. So we have a
+# single pub entry at `/`; the resolve walks every member pubspec.yaml
+# and writes the shared root pubspec.lock.
 
 updates:
-  # Dart server package
+  # All three workspace packages (server/, app/, shared/) resolve through
+  # the root. Member-level scoping isn't possible — see the note above.
   - package-ecosystem: pub
-    directory: /server
+    directory: /
     schedule:
       interval: daily
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     groups:
-      server-minor-and-patch:
-        update-types: [minor, patch]
-
-  # Flutter app package
-  - package-ecosystem: pub
-    directory: /app
-    schedule:
-      interval: daily
-    open-pull-requests-limit: 5
-    groups:
-      app-minor-and-patch:
-        update-types: [minor, patch]
-
-  # Shared workspace package
-  - package-ecosystem: pub
-    directory: /shared
-    schedule:
-      interval: daily
-    open-pull-requests-limit: 3
-    groups:
-      shared-minor-and-patch:
+      pub-minor-and-patch:
         update-types: [minor, patch]
 
   # GitHub Actions used by every workflow under .github/workflows/
