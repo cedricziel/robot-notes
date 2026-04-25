@@ -35,21 +35,31 @@ import 'package:server/src/ws/presence.dart';
 ///      that match an API path (`/notes`, `/search`, `/ws`,
 ///      `/invites`, `/healthz`) pass straight through to the rest of
 ///      the chain.
+///
+/// The chain is built lazily on first request because the dart_frog
+/// generated entrypoint calls `buildRootHandler()` before our
+/// `entrypoint.run()` populates the Config/AppDeps holders.
 Handler middleware(Handler handler) {
-  final config = config_holder.config;
-  final deps = app_deps_holder.appDeps;
-  return handler
-      .use(actorIdentity())
-      .use(bearerAuth(configuredKey: config.apiKey))
-      .use(provider<PresenceTracker>((_) => deps.presence))
-      .use(provider<Broadcaster>((_) => deps.broadcaster))
-      .use(provider<LockManager>((_) => deps.lockManager))
-      .use(provider<SearchIndex>((_) => deps.searchIndex))
-      .use(provider<InviteStore>((_) => deps.inviteStore))
-      .use(provider<MetaIndex>((_) => deps.metaIndex))
-      .use(provider<NoteWriteService>((_) => deps.noteWriteService))
-      .use(provider<Storage>((_) => deps.storage))
-      .use(provider<Clock>((_) => deps.clock))
-      .use(provider<Config>((_) => config))
-      .use(staticWebMiddleware(webDir: config.webDir));
+  Handler? chain;
+  return (context) async {
+    chain ??= () {
+      final config = config_holder.config;
+      final deps = app_deps_holder.appDeps;
+      return handler
+          .use(actorIdentity())
+          .use(bearerAuth(configuredKey: config.apiKey))
+          .use(provider<PresenceTracker>((_) => deps.presence))
+          .use(provider<Broadcaster>((_) => deps.broadcaster))
+          .use(provider<LockManager>((_) => deps.lockManager))
+          .use(provider<SearchIndex>((_) => deps.searchIndex))
+          .use(provider<InviteStore>((_) => deps.inviteStore))
+          .use(provider<MetaIndex>((_) => deps.metaIndex))
+          .use(provider<NoteWriteService>((_) => deps.noteWriteService))
+          .use(provider<Storage>((_) => deps.storage))
+          .use(provider<Clock>((_) => deps.clock))
+          .use(provider<Config>((_) => config))
+          .use(staticWebMiddleware(webDir: config.webDir));
+    }();
+    return chain!(context);
+  };
 }
