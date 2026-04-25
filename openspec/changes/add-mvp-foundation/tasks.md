@@ -3,8 +3,8 @@
 - [x] 1.1 Initialize a Dart **pub workspace** (Dart 3.5+ feature) at the repo root: top-level `pubspec.yaml` with `workspace:` listing `server/`, `app/`, and `shared/`
 - [x] 1.2 Create the three member packages — `server/` (plain Dart, will be Dart Frog), `app/` (Flutter), `shared/` (pure Dart, no Flutter dep) — each with its own `pubspec.yaml` declaring `resolution: workspace`
 - [x] 1.3 Wire `server/` and `app/` to depend on `shared/` via `path: ../shared`; verify `dart pub get` at the root resolves all three with a single shared `.dart_tool/`
-- [ ] 1.4 Populate `shared/` with the initial API-contract types: `Note`, `NoteMeta`, `Lock`, `InviteSummary`, error envelope + `ErrorCode` enum, route path constants, WS envelope types (`AuthMsg`, `SubscribeMsg`, `PresenceEvent`, `LockEvent`, `ChangedEvent`, `PingMsg`, `PongMsg`, `ErrorMsg`) — each with `fromJson`/`toJson`
-- [ ] 1.5 Write failing tests in `shared/` covering JSON round-trips for every DTO and event envelope
+- [x] 1.4 Populate `shared/` with the initial API-contract types: `Note`, `NoteMeta`, `Lock`, `InviteSummary`, error envelope + `ErrorCode` enum, route path constants, WS envelope types (`AuthMsg`, `SubscribeMsg`, `PresenceEvent`, `LockEvent`, `ChangedEvent`, `PingMsg`, `PongMsg`, `ErrorMsg`) — each with `fromJson`/`toJson`
+- [x] 1.5 Write failing tests in `shared/` covering JSON round-trips for every DTO and event envelope
 - [ ] 1.6 Add `Makefile` targets `lint`, `format`, `test`, `run-server`, `run-app` that operate over the workspace
 - [ ] 1.7 Add a top-level README stub with how to run server and app locally
 - [ ] 1.8 Verify `shared/` does NOT depend on `package:flutter`, `dart_frog`, or anything server-only (lint or test)
