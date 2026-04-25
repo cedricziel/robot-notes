@@ -224,12 +224,12 @@
 
 ## 18. Server integration test (end-to-end)
 
-- [ ] 18.1 Write failing test: full lifecycle — create, read, lock, update, search, delete — over real HTTP
-- [ ] 18.2 Write failing test: two clients see each other's presence and changes over real WS
-- [ ] 18.3 Write failing test: 409 path under simulated concurrency
-- [ ] 18.4 Write failing test: lock TTL expiry observed via lazy-evaluation on next access
-- [ ] 18.5 Write failing test: end-to-end invite flow — operator mints invite, agent fetches `onboarding.txt` once, second fetch is 410, agent uses returned key to GET `/notes`
-- [ ] 18.6 Run the full integration suite green
+- [x] 18.1 Write failing test: full lifecycle — create, read, lock, update, search, delete — over real HTTP
+- [x] 18.2 Write failing test: two clients see each other's presence and changes over real WS
+- [x] 18.3 Write failing test: 409 path under simulated concurrency
+- [x] 18.4 Write failing test: lock TTL expiry observed via lazy-evaluation on next access
+- [x] 18.5 Write failing test: end-to-end invite flow — operator mints invite, agent fetches `onboarding.txt` once, second fetch is 410, agent uses returned key to GET `/notes`
+- [x] 18.6 Run the full integration suite green
 
 ## 19. Flutter app scaffold
 
