@@ -11,11 +11,11 @@
 
 ## 2. Server scaffold (Dart Frog)
 
-- [ ] 2.1 Initialize a Dart Frog project under `server/`
-- [ ] 2.2 Add core dependencies: `dart_frog`, `package:sqlite3`, `package:yaml`, `package:ulid`, `package:args`, `package:logging`, and `shared` via `path: ../shared`
-- [ ] 2.3 Add dev dependencies: `test`, `mocktail`, `http`, `web_socket_channel` (for client-side test helpers)
-- [ ] 2.4 Configure `analysis_options.yaml` with strict-mode lints
-- [ ] 2.5 Verify `dart_frog dev` boots and serves a default route
+- [x] 2.1 Initialize a Dart Frog project under `server/`
+- [x] 2.2 Add core dependencies: `dart_frog`, `package:sqlite3`, `package:yaml`, `package:ulid`, `package:args`, `package:logging`, and `shared` via `path: ../shared`
+- [x] 2.3 Add dev dependencies: `test`, `mocktail`, `http`, `web_socket_channel` (for client-side test helpers)
+- [x] 2.4 Configure `analysis_options.yaml` with strict-mode lints
+- [x] 2.5 Verify `dart_frog dev` boots and serves a default route
 
 ## 3. CLI argument and config plumbing
 
