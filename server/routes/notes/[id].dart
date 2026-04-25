@@ -4,10 +4,8 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/lock_manager.dart';
-import 'package:server/src/meta_index.dart';
+import 'package:server/src/note_write_service.dart';
 import 'package:server/src/storage.dart';
-import 'package:server/src/ws/broadcaster.dart';
-import 'package:shared/shared.dart';
 
 /// `GET /notes/{id}`    — read a single note (with optional lock state).
 /// `PUT /notes/{id}`    — replace a note's title/content (If-Match required).
@@ -143,25 +141,16 @@ Future<Response> _update(RequestContext context, String id) async {
   }
   final content = (contentRaw as String?) ?? '';
 
-  final storage = context.read<Storage>();
-  final index = context.read<MetaIndex>();
+  final writes = context.read<NoteWriteService>();
 
   try {
-    final updated = await storage.update(
+    final updated = await writes.update(
       id: id,
       title: title,
       content: content,
       ifMatch: ifMatch,
+      actor: actor.name,
     );
-    index.upsert(updated.toSummary());
-    context.read<Broadcaster>().emitChanged(
-          ChangedEvent(
-            noteId: updated.id,
-            version: updated.version,
-            by: actor.name,
-            action: ChangeAction.updated,
-          ),
-        );
     return Response.json(
       body: {
         'id': updated.id,
@@ -213,21 +202,9 @@ Future<Response> _delete(RequestContext context, String id) async {
     );
   }
 
-  final storage = context.read<Storage>();
-  final index = context.read<MetaIndex>();
-  final broadcaster = context.read<Broadcaster>();
+  final writes = context.read<NoteWriteService>();
   try {
-    final deleted = await storage.read(id);
-    await storage.delete(id);
-    index.remove(id);
-    broadcaster.emitChanged(
-      ChangedEvent(
-        noteId: id,
-        version: deleted.version,
-        by: actor.name,
-        action: ChangeAction.deleted,
-      ),
-    );
+    await writes.delete(id: id, actor: actor.name);
     return Response(statusCode: HttpStatus.noContent);
   } on NoteNotFoundException {
     return Response.json(

@@ -6,6 +6,8 @@ import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
+import 'package:server/src/note_write_service.dart';
+import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
@@ -22,6 +24,7 @@ RequestContext _ctx({
   required Storage storage,
   required MetaIndex metaIndex,
   required LockManager lockManager,
+  NoteWriteService? writes,
   Broadcaster? broadcaster,
   Actor actor = const Actor('tester'),
   Map<String, String> headers = const {},
@@ -49,8 +52,30 @@ RequestContext _ctx({
   when(() => ctx.read<MetaIndex>()).thenReturn(metaIndex);
   when(() => ctx.read<LockManager>()).thenReturn(lockManager);
   when(() => ctx.read<Broadcaster>()).thenReturn(broadcaster ?? Broadcaster());
+  if (writes != null) {
+    when(() => ctx.read<NoteWriteService>()).thenReturn(writes);
+  }
   when(() => ctx.read<Actor>()).thenReturn(actor);
   return ctx;
+}
+
+Future<NoteWriteService> _writeService(
+  Directory tmp,
+  Storage storage,
+  MetaIndex metaIndex, {
+  Broadcaster? broadcaster,
+}) async {
+  final search = await SearchIndex.open(
+    dbFile: File('${tmp.path}/search.db'),
+    storage: storage,
+  );
+  addTearDown(search.close);
+  return NoteWriteService(
+    storage: storage,
+    metaIndex: metaIndex,
+    searchIndex: search,
+    broadcaster: broadcaster ?? Broadcaster(),
+  );
 }
 
 Directory _tempDir() {
@@ -191,12 +216,14 @@ void main() {
         content: 'updated',
         ifMatch: 1,
       );
+      final writes = await _writeService(tmp, storage, index);
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.put,
           storage: storage,
           metaIndex: index,
           lockManager: lockManager,
+          writes: writes,
           headers: {'if-match': '1'},
           body: {'title': 'mine', 'content': ''},
         ),
@@ -238,6 +265,7 @@ void main() {
       final note = await storage.create(title: 't', content: 'c');
       index.upsert(note.toSummary());
       await lockManager.acquire(noteId: note.id, actor: 'alice');
+      final writes = await _writeService(tmp, storage, index);
 
       final res = await route.onRequest(
         _ctx(
@@ -245,6 +273,7 @@ void main() {
           storage: storage,
           metaIndex: index,
           lockManager: lockManager,
+          writes: writes,
           actor: const Actor('alice'),
           headers: {'if-match': '1'},
           body: {'title': 'alice-edit', 'content': 'fresh'},
@@ -261,12 +290,14 @@ void main() {
     });
 
     test('on unknown id returns 404 not_found', () async {
+      final writes = await _writeService(tmp, storage, index);
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.put,
           storage: storage,
           metaIndex: index,
           lockManager: lockManager,
+          writes: writes,
           headers: {'if-match': '1'},
           body: {'title': 'x', 'content': ''},
         ),
@@ -282,6 +313,7 @@ void main() {
     test('returns 204 and removes the file', () async {
       final note = await storage.create(title: 't', content: 'c');
       index.upsert(note.toSummary());
+      final writes = await _writeService(tmp, storage, index);
 
       final res = await route.onRequest(
         _ctx(
@@ -289,6 +321,7 @@ void main() {
           storage: storage,
           metaIndex: index,
           lockManager: lockManager,
+          writes: writes,
         ),
         note.id,
       );
@@ -317,12 +350,14 @@ void main() {
     });
 
     test('on unknown id returns 404 not_found', () async {
+      final writes = await _writeService(tmp, storage, index);
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.delete,
           storage: storage,
           metaIndex: index,
           lockManager: lockManager,
+          writes: writes,
         ),
         '01UNKNOWNXXXXXXXXXXXXXXXXX',
       );
@@ -375,6 +410,12 @@ void main() {
       broadcaster
         ..register('listener').listen(received.add)
         ..subscribeWildcard('listener');
+      final writes = await _writeService(
+        tmp,
+        storage,
+        index,
+        broadcaster: broadcaster,
+      );
 
       await route.onRequest(
         _ctx(
@@ -383,6 +424,7 @@ void main() {
           metaIndex: index,
           lockManager: lockManager,
           broadcaster: broadcaster,
+          writes: writes,
           actor: const Actor('alice'),
           headers: const {'if-match': '1'},
           body: {'title': 'updated', 'content': 'changed'},
@@ -409,6 +451,12 @@ void main() {
       broadcaster
         ..register('listener').listen(received.add)
         ..subscribeWildcard('listener');
+      final writes = await _writeService(
+        tmp,
+        storage,
+        index,
+        broadcaster: broadcaster,
+      );
 
       await route.onRequest(
         _ctx(
@@ -417,6 +465,7 @@ void main() {
           metaIndex: index,
           lockManager: lockManager,
           broadcaster: broadcaster,
+          writes: writes,
           actor: const Actor('bob'),
         ),
         note.id,

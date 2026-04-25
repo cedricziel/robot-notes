@@ -7,6 +7,7 @@ import 'package:server/src/config.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
+import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
@@ -32,7 +33,14 @@ class AppDeps {
     required this.broadcaster,
     required this.presence,
     required this.clock,
-  }) {
+    NoteWriteService? noteWriteService,
+  }) : noteWriteService = noteWriteService ??
+            NoteWriteService(
+              storage: storage,
+              metaIndex: metaIndex,
+              searchIndex: searchIndex,
+              broadcaster: broadcaster,
+            ) {
     _lockSub = lockManager.transitions.listen(broadcaster.emitLock);
   }
 
@@ -102,6 +110,10 @@ class AppDeps {
 
   /// Clock injected into every time-stamping component.
   final Clock clock;
+
+  /// Orchestrates filesystem + search + meta + broadcast on every note
+  /// write, so the routes don't have to remember the dependency order.
+  final NoteWriteService noteWriteService;
 
   StreamSubscription<LockEvent>? _lockSub;
 

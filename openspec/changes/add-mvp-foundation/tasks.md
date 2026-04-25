@@ -215,12 +215,12 @@
 
 ## 17. Wire-up: write path triggers broadcast and search index update
 
-- [ ] 17.1 Write failing test: successful create updates `MetaIndex`, `SearchIndex`, and emits `changed{action:"created"}`
-- [ ] 17.2 Write failing test: successful update updates all three and emits `changed{action:"updated"}`
-- [ ] 17.3 Write failing test: successful delete removes from all three and emits `changed{action:"deleted"}`
-- [ ] 17.4 Write failing test: search index update is transactional with the file write (no half-state on failure)
-- [ ] 17.5 Write failing test: WS broadcast failure does NOT roll back the file write
-- [ ] 17.6 Implement an application service that orchestrates Storage + MetaIndex + SearchIndex + Broadcaster
+- [x] 17.1 Write failing test: successful create updates `MetaIndex`, `SearchIndex`, and emits `changed{action:"created"}`
+- [x] 17.2 Write failing test: successful update updates all three and emits `changed{action:"updated"}`
+- [x] 17.3 Write failing test: successful delete removes from all three and emits `changed{action:"deleted"}`
+- [x] 17.4 Write failing test: search index update is transactional with the file write (no half-state on failure)
+- [x] 17.5 Write failing test: WS broadcast failure does NOT roll back the file write
+- [x] 17.6 Implement an application service that orchestrates Storage + MetaIndex + SearchIndex + Broadcaster
 
 ## 18. Server integration test (end-to-end)
 

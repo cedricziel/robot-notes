@@ -5,6 +5,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/meta_index.dart';
+import 'package:server/src/note_write_service.dart';
+import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
@@ -20,6 +22,7 @@ RequestContext _ctx({
   required HttpMethod method,
   required Storage storage,
   required MetaIndex metaIndex,
+  NoteWriteService? writes,
   Broadcaster? broadcaster,
   Actor? actor,
   Uri? uri,
@@ -45,8 +48,30 @@ RequestContext _ctx({
   when(() => ctx.read<Storage>()).thenReturn(storage);
   when(() => ctx.read<MetaIndex>()).thenReturn(metaIndex);
   when(() => ctx.read<Broadcaster>()).thenReturn(broadcaster ?? Broadcaster());
+  if (writes != null) {
+    when(() => ctx.read<NoteWriteService>()).thenReturn(writes);
+  }
   when(() => ctx.read<Actor>()).thenReturn(actor ?? Actor.unknown);
   return ctx;
+}
+
+Future<NoteWriteService> _writeService(
+  Directory tmp,
+  Storage storage,
+  MetaIndex metaIndex, {
+  Broadcaster? broadcaster,
+}) async {
+  final search = await SearchIndex.open(
+    dbFile: File('${tmp.path}/search.db'),
+    storage: storage,
+  );
+  addTearDown(search.close);
+  return NoteWriteService(
+    storage: storage,
+    metaIndex: metaIndex,
+    searchIndex: search,
+    broadcaster: broadcaster ?? Broadcaster(),
+  );
 }
 
 Directory _tempDir() {
@@ -205,11 +230,13 @@ void main() {
     test('returns 201 with full record at version 1', () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
+      final writes = await _writeService(tmp, storage, index);
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.post,
           storage: storage,
           metaIndex: index,
+          writes: writes,
           body: {'title': 'hello', 'content': 'world'},
         ),
       );
@@ -229,11 +256,13 @@ void main() {
         () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
+      final writes = await _writeService(tmp, storage, index);
       await route.onRequest(
         _ctx(
           method: HttpMethod.post,
           storage: storage,
           metaIndex: index,
+          writes: writes,
           body: {'title': 'new', 'content': ''},
         ),
       );
@@ -325,6 +354,12 @@ void main() {
       final index = MetaIndex();
       final broadcaster = Broadcaster();
       addTearDown(broadcaster.close);
+      final writes = await _writeService(
+        tmp,
+        storage,
+        index,
+        broadcaster: broadcaster,
+      );
 
       final received = <WsMessage>[];
       broadcaster
@@ -337,6 +372,7 @@ void main() {
           storage: storage,
           metaIndex: index,
           broadcaster: broadcaster,
+          writes: writes,
           actor: const Actor('alice'),
           body: {'title': 'hello', 'content': 'world'},
         ),

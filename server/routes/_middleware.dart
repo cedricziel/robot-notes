@@ -8,6 +8,7 @@ import 'package:server/src/config_holder.dart' as config_holder;
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
+import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
@@ -38,6 +39,7 @@ Handler middleware(Handler handler) {
       .use(provider<SearchIndex>((_) => deps.searchIndex))
       .use(provider<InviteStore>((_) => deps.inviteStore))
       .use(provider<MetaIndex>((_) => deps.metaIndex))
+      .use(provider<NoteWriteService>((_) => deps.noteWriteService))
       .use(provider<Storage>((_) => deps.storage))
       .use(provider<Clock>((_) => deps.clock))
       .use(provider<Config>((_) => config));
