@@ -15,12 +15,18 @@ class NotesListScreen extends StatefulWidget {
     required this.controller,
     this.onNoteTap,
     this.onCreate,
+    this.appBarActions,
     super.key,
   });
 
   final NotesListController controller;
   final ValueChanged<String>? onNoteTap;
   final VoidCallback? onCreate;
+
+  /// Optional widgets rendered as the AppBar actions (e.g. search + reset
+  /// affordances supplied by the host shell). When `null` the AppBar
+  /// shows just the title.
+  final List<Widget>? appBarActions;
 
   @override
   State<NotesListScreen> createState() => _NotesListScreenState();
@@ -59,7 +65,10 @@ class _NotesListScreenState extends State<NotesListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Notes')),
+      appBar: AppBar(
+        title: const Text('Notes'),
+        actions: widget.appBarActions,
+      ),
       floatingActionButton: widget.onCreate == null
           ? null
           : FloatingActionButton(
