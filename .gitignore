@@ -1,0 +1,33 @@
+# Serena tooling state (project-local cache + user-specific config)
+.serena/cache/
+.serena/project.local.yml
+
+# Dart / Flutter build outputs (anticipated)
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+pubspec.lock
+
+# Flutter platform build outputs
+**/ios/Pods/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/macos/Pods/
+**/android/.gradle/
+**/android/captures/
+**/android/local.properties
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+
+# Server runtime data (created at runtime, never committed)
+/data/
+
+# Logs
+*.log
