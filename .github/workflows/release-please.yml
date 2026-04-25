@@ -1,9 +1,21 @@
 name: release-please
 
-# Opens (and keeps in sync) a release PR that bumps the version and
-# CHANGELOG based on conventional commits since the last release. Merging
-# the PR creates a vX.Y.Z tag + GitHub release, which the publish workflow
-# uses to push the matching multi-arch container image to ghcr.
+# End-to-end release pipeline:
+#
+#   1. `release-please` job opens (and keeps in sync) a release PR that
+#      bumps the version and CHANGELOG based on conventional commits since
+#      the last release. Merging the PR cuts a `vX.Y.Z` tag + GitHub
+#      release in the same workflow run.
+#   2. `publish` job builds and pushes the multi-arch (linux/amd64 +
+#      linux/arm64) container image to ghcr.io. It runs *only* on the run
+#      that actually cuts a release (`release_created == true`); routine
+#      pushes to main don't ship preview images.
+#
+# `RELEASE_PLEASE_TOKEN` is still required: a PR opened by `GITHUB_TOKEN`
+# does not trigger downstream workflow runs, so without the PAT the
+# release PR opens but `ci.yml` never reports back on it, making the
+# release merge ungated. The fallback to `GITHUB_TOKEN` keeps the
+# workflow operational during initial bootstrap.
 
 on:
   push:
@@ -11,21 +23,93 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      major: ${{ steps.release.outputs.major }}
+      minor: ${{ steps.release.outputs.minor }}
     steps:
-      # RELEASE_PLEASE_TOKEN is a PAT (or GitHub App token). It is required
-      # so that the tag release-please creates triggers the downstream
-      # publish workflow — tags pushed by the default GITHUB_TOKEN are
-      # silently dropped from triggering other workflows. The fallback
-      # to GITHUB_TOKEN keeps the workflow operational during bootstrap
-      # (the first run only opens a PR, so no tag is created yet).
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Build and push image
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # Check out the tag release-please just created so the image carries
+      # the version-bumped manifest + CHANGELOG.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Set up QEMU (cross-arch emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Image name is forced to lowercase to satisfy ghcr's path rules
+      # for capitalised owner/repo combinations.
+      - name: Compute image name
+        id: image
+        run: |
+          echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/robot-notes-server" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          # Release-only tag set: vX.Y.Z, X.Y, X, latest, plus a sha-<7>
+          # alias for callers who want a content-addressable handle.
+          tags: |
+            type=raw,value=${{ needs.release-please.outputs.tag_name }}
+            type=raw,value=${{ needs.release-please.outputs.major }}.${{ needs.release-please.outputs.minor }}
+            type=raw,value=${{ needs.release-please.outputs.major }}
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+          labels: |
+            org.opencontainers.image.title=robot-notes server
+            org.opencontainers.image.description=Real-time markdown notes server (HTTP + WebSocket).
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.release-please.outputs.tag_name }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          provenance: true
+          sbom: true

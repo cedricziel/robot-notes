@@ -18,8 +18,7 @@ Each successful release publishes a multi-arch container image to
 | `X.Y` | release event | follows latest patch |
 | `X` | release event | follows latest minor |
 | `latest` | release event | follows latest stable release |
-| `sha-<7>` | release event + push to `main` | exact commit |
-| `main` | push to `main` | rolling preview of the default branch |
+| `sha-<7>` | release event | exact commit |
 
 Production deployments SHOULD pin to `vX.Y.Z` (or by digest); preview
 environments can ride `main`.
@@ -67,10 +66,13 @@ The flow is fully driven by merging a release PR.
    maintains a single open release PR titled
    `chore(main): release X.Y.Z`. Review it like any other PR — the
    diff is just `CHANGELOG.md` + `.release-please-manifest.json`.
-3. **Merge** the release PR. Release-please then:
+3. **Merge** the release PR. The release-please workflow then, in the
+   *same run*:
    - creates a `vX.Y.Z` git tag,
    - creates a GitHub release with the CHANGELOG entry as body,
-   - which triggers `publish.yml` → multi-arch buildx → ghcr push.
+   - builds and pushes the multi-arch image to ghcr.io (the `publish`
+     job is gated on `release_created == true`, so routine pushes to
+     `main` don't ship preview images).
 4. Verify the tag set is live:
    ```
    docker pull ghcr.io/<owner>/robot-notes-server:vX.Y.Z
@@ -121,10 +123,10 @@ once and forget.
 
 ### `RELEASE_PLEASE_TOKEN` PAT
 
-The default `secrets.GITHUB_TOKEN` cannot push tags that trigger
-*other* workflows (GitHub deliberately drops those events to break
-recursion). Without a PAT, the publish workflow never fires on a new
-release.
+The release PR is opened by release-please. If it's opened with the
+default `secrets.GITHUB_TOKEN`, GitHub deliberately suppresses
+downstream workflow events on it — meaning `ci.yml` won't run on the
+release PR, and you can't gate the release merge on green checks.
 
 1. Create a fine-grained PAT scoped to this repo with these
    permissions: **Contents: read+write**, **Pull requests: read+write**,
@@ -132,7 +134,7 @@ release.
 2. Add it as repository secret `RELEASE_PLEASE_TOKEN`.
 
 The release-please workflow already prefers `RELEASE_PLEASE_TOKEN`
-when present and falls back to `GITHUB_TOKEN` for safety.
+when present and falls back to `GITHUB_TOKEN` during bootstrap.
 
 ### GHCR package visibility
 
