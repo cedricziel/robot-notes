@@ -1,4 +1,4 @@
-.PHONY: help install hooks fmt format lint analyze test test-shared test-server test-app run-server run-app outdated upgrade clean docker-build
+.PHONY: help install hooks fmt format lint analyze test test-shared test-server test-app run-server run-app web-build outdated upgrade clean docker-build
 
 # Default target prints the help table
 help:
@@ -12,8 +12,9 @@ help:
 	@printf "  test-shared    run shared/ tests only\n"
 	@printf "  test-server    run server/ tests only\n"
 	@printf "  test-app       run app/ Flutter tests only\n"
-	@printf "  run-server     start the Dart Frog dev server\n"
+	@printf "  run-server     start the Dart Frog dev server (with dev defaults)\n"
 	@printf "  run-app        start the Flutter app on the default device\n"
+	@printf "  web-build      build the Flutter web bundle into app/build/web\n"
 	@printf "  docker-build   build the server container image (multi-stage)\n"
 	@printf "  outdated       dart pub outdated --no-dev-dependencies\n"
 	@printf "  upgrade        dart pub upgrade across the workspace\n"
@@ -45,11 +46,37 @@ test-server:
 test-app:
 	cd app && flutter test
 
+# `make run-server` boots the Dart Frog dev server with dev defaults.
+# Override any of these on the command line (e.g.
+# `make run-server ROBOT_NOTES_API_KEY=mine`) or by exporting the env
+# var before invoking make. The web bundle path is set automatically if
+# `app/build/web/index.html` exists — run `make web-build` once first
+# if you want the SPA served at /.
+ROBOT_NOTES_API_KEY ?= dev-secret-do-not-ship
+ROBOT_NOTES_DATA_DIR ?= $(CURDIR)/.dev-data
+ROBOT_NOTES_PORT ?= 8080
+
 run-server:
-	cd server && dart_frog dev
+	@if [ -f app/build/web/index.html ]; then \
+	  webdir="$(CURDIR)/app/build/web"; \
+	  echo "==> serving Flutter web bundle from $$webdir"; \
+	else \
+	  webdir=""; \
+	  echo "==> no app/build/web bundle; running API-only (run \`make web-build\` to serve the SPA)"; \
+	fi; \
+	mkdir -p "$(ROBOT_NOTES_DATA_DIR)"; \
+	cd server && \
+	  ROBOT_NOTES_API_KEY="$(ROBOT_NOTES_API_KEY)" \
+	  ROBOT_NOTES_DATA_DIR="$(ROBOT_NOTES_DATA_DIR)" \
+	  ROBOT_NOTES_PORT="$(ROBOT_NOTES_PORT)" \
+	  ROBOT_NOTES_WEB_DIR="$$webdir" \
+	  dart_frog dev
 
 run-app:
 	cd app && flutter run
+
+web-build:
+	cd app && flutter build web --release --no-tree-shake-icons
 
 # The Dockerfile imports the shared/ workspace package via path dependency,
 # so the build context MUST be the repo root, not server/.
@@ -68,4 +95,4 @@ upgrade:
 
 clean:
 	dart pub cache clean -f || true
-	rm -rf .dart_tool */.dart_tool app/build
+	rm -rf .dart_tool */.dart_tool app/build .dev-data

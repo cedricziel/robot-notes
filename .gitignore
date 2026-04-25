@@ -31,6 +31,8 @@ build/
 
 # Server runtime data (created at runtime, never committed)
 /data/
+/.dev-data/
+server/data/
 
 # Logs
 *.log
