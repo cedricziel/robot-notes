@@ -75,12 +75,12 @@
 
 ## 9. In-memory metadata index
 
-- [ ] 9.1 Write failing test: `MetaIndex.scan(dir)` populates entries from existing files
-- [ ] 9.2 Write failing test: `MetaIndex` exposes paginated cursor-based listing sorted by id
-- [ ] 9.3 Write failing test: `MetaIndex.upsert` reflects new metadata immediately
-- [ ] 9.4 Write failing test: `MetaIndex.remove` deletes the entry
-- [ ] 9.5 Write failing test: malformed file is skipped and logged but doesn't throw
-- [ ] 9.6 Implement `MetaIndex` with map + sorted-key list
+- [x] 9.1 Write failing test: `MetaIndex.scan(dir)` populates entries from existing files
+- [x] 9.2 Write failing test: `MetaIndex` exposes paginated cursor-based listing sorted by id
+- [x] 9.3 Write failing test: `MetaIndex.upsert` reflects new metadata immediately
+- [x] 9.4 Write failing test: `MetaIndex.remove` deletes the entry
+- [x] 9.5 Write failing test: malformed file is skipped and logged but doesn't throw
+- [x] 9.6 Implement `MetaIndex` with map + sorted-key list
 
 ## 10. Lock manager
 
