@@ -357,12 +357,12 @@
 
 ## 32. Release runbook documentation
 
-- [ ] 32.1 Add `RELEASING.md` covering: conventional-commits cheatsheet, how to read release-please's release PR, when/how to merge
-- [ ] 32.2 Document the one-time ghcr post-publish step (set visibility public, link to repo)
-- [ ] 32.3 Document hotfix procedure (`fix:` commit → release-please patch PR → merge → publish)
-- [ ] 32.4 Document the tag scheme (`vX.Y.Z`, `X.Y`, `X`, `latest`, `sha-<7>`, `main`) and what each is for
-- [ ] 32.5 Add a "first release" walkthrough so the very first contributor sees a coherent path from initial commit to `v0.1.0`
-- [ ] 32.6 Document the agent-onboarding flow for operators: how to mint an invite (`curl -X POST .../invites`), how to share the URL, that the URL is single-use and as sensitive as the bearer key, and how to revoke
+- [x] 32.1 Add `RELEASING.md` covering: conventional-commits cheatsheet, how to read release-please's release PR, when/how to merge
+- [x] 32.2 Document the one-time ghcr post-publish step (set visibility public, link to repo)
+- [x] 32.3 Document hotfix procedure (`fix:` commit → release-please patch PR → merge → publish)
+- [x] 32.4 Document the tag scheme (`vX.Y.Z`, `X.Y`, `X`, `latest`, `sha-<7>`, `main`) and what each is for
+- [x] 32.5 Add a "first release" walkthrough so the very first contributor sees a coherent path from initial commit to `v0.1.0`
+- [x] 32.6 Document the agent-onboarding flow for operators: how to mint an invite (`curl -X POST .../invites`), how to share the URL, that the URL is single-use and as sensitive as the bearer key, and how to revoke
 
 ## 33. Bootstrap and verify the pipeline end-to-end
 
