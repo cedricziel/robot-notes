@@ -349,11 +349,11 @@
 
 ## 31. Dependabot configuration
 
-- [ ] 31.1 Create `.github/dependabot.yml` with four `updates:` entries (`pub` × `server/`, `pub` × `app/`, `github-actions` × `/`, `docker` × `server/`)
-- [ ] 31.2 Configure `schedule.interval: weekly` for each ecosystem
-- [ ] 31.3 Configure `groups:` blocks for minor/patch updates per ecosystem to reduce PR noise
-- [ ] 31.4 Add reviewers/labels per ecosystem (e.g. `dependencies`, `area:server`, `area:app`)
-- [ ] 31.5 Manual verification: enable Dependabot in repo settings, observe initial scan, confirm no warnings in the Dependabot dashboard
+- [x] 31.1 Create `.github/dependabot.yml` with five `updates:` entries (`pub` × `server/`, `pub` × `app/`, `pub` × `shared/`, `github-actions` × `/`, `docker` × `server/`)
+- [x] 31.2 Configure `schedule.interval: weekly` for each ecosystem
+- [x] 31.3 Configure `groups:` blocks for minor/patch updates per ecosystem to reduce PR noise
+- [x] 31.4 Add labels per ecosystem (`dependencies`, `area:server`, `area:app`, `area:shared`, `area:ci`, `area:docker`)
+- [ ] 31.5 Manual verification: enable Dependabot in repo settings, observe initial scan, confirm no warnings in the Dependabot dashboard (deferred — runbook step in RELEASING.md)
 
 ## 32. Release runbook documentation
 
