@@ -250,12 +250,12 @@
 
 ## 21. API client (Dart, in `app/`)
 
-- [ ] 21.1 Write failing test: client adds `Authorization: Bearer ...` and `X-Actor: ...` to every request
-- [ ] 21.2 Write failing test: 401 surfaces a typed `Unauthorized` exception
-- [ ] 21.3 Write failing test: 409 surfaces `VersionConflict` with current state
-- [ ] 21.4 Write failing test: 423 surfaces `Locked` with holder/expiry
-- [ ] 21.5 Write failing test: list, read, create, update, delete, lock-acquire/heartbeat/release, search are exercised
-- [ ] 21.6 Implement client against fake HTTP
+- [x] 21.1 Write failing test: client adds `Authorization: Bearer ...` and `X-Actor: ...` to every request
+- [x] 21.2 Write failing test: 401 surfaces a typed `Unauthorized` exception
+- [x] 21.3 Write failing test: 409 surfaces `VersionConflict` with current state
+- [x] 21.4 Write failing test: 423 surfaces `Locked` with holder/expiry
+- [x] 21.5 Write failing test: list, read, create, update, delete, lock-acquire/heartbeat/release, search are exercised
+- [x] 21.6 Implement client against fake HTTP
 
 ## 22. WebSocket client (Dart, in `app/`)
 
