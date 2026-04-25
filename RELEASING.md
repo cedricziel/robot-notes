@@ -154,10 +154,14 @@ consumers pull `ghcr.io/<owner>/robot-notes-server`:
 To prevent direct pushes from skipping CI:
 
 1. Settings → Branches → branch protection rule for `main`.
-2. Require pull-request reviews before merging.
-3. Require status checks to pass before merging — select the `dart`
+2. Require status checks to pass before merging — select the `dart`
    and `docker` jobs from `ci.yml`.
-4. Require linear history (optional but recommended).
+3. Require linear history (optional but recommended).
+4. PR reviews are intentionally **not** required while this is a
+   solo-maintainer repo. Re-enable
+   (`required_pull_request_reviews.required_approving_review_count >= 1`,
+   ideally with `dismiss_stale_reviews: true`) once a second human is on
+   the project.
 
 ### Dependabot
 

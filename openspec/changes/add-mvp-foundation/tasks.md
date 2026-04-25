@@ -325,7 +325,7 @@
 - [x] 28.4 Job step: `make format` and verify no diff (`dart format --set-exit-if-changed`)
 - [x] 28.5 Job step: `make test` for both packages (server unit + integration; app widget + unit)
 - [x] 28.6 Job: `docker buildx build --platform linux/amd64` against `server/Dockerfile` (no push) to validate the Dockerfile each PR
-- [x] 28.7 Configure required status checks on `main` (manual repo settings step, document in RELEASING.md — see task 32) — applied via `gh api`: required checks `Lint, format, test (Dart + Flutter workspace)` and `Validate server Dockerfile`, 1 review required (stale-dismissing), linear history enforced, force-pushes/deletions blocked, conversation resolution required, `enforce_admins` left off so the solo maintainer isn't locked out before the team grows
+- [x] 28.7 Configure required status checks on `main` (manual repo settings step, document in RELEASING.md — see task 32) — applied via `gh api`: required checks `Lint, format, test (Dart + Flutter workspace)` and `Validate server Dockerfile`, linear history enforced, force-pushes/deletions blocked, conversation resolution required, `enforce_admins` left off. PR reviews are NOT required (solo maintainer); flip on once the team grows.
 
 ## 29. release-please configuration
 
