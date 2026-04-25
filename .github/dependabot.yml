@@ -1,17 +1,15 @@
 version: 2
 
-# One updates: entry per ecosystem we depend on. Weekly cadence keeps
-# the PR volume sane for a small team while still catching CVEs within
-# a tolerable window. Minor/patch updates are grouped per ecosystem so
-# unrelated bumps don't fan out into a dozen PRs every Monday.
+# One updates: entry per ecosystem we depend on. Daily cadence catches
+# CVEs as quickly as Dependabot can scan them; minor/patch updates are
+# grouped per ecosystem so unrelated bumps still land as a single PR.
 
 updates:
   # Dart server package
   - package-ecosystem: pub
     directory: /server
     schedule:
-      interval: weekly
-      day: monday
+      interval: daily
     open-pull-requests-limit: 5
     labels:
       - dependencies
@@ -24,8 +22,7 @@ updates:
   - package-ecosystem: pub
     directory: /app
     schedule:
-      interval: weekly
-      day: monday
+      interval: daily
     open-pull-requests-limit: 5
     labels:
       - dependencies
@@ -38,8 +35,7 @@ updates:
   - package-ecosystem: pub
     directory: /shared
     schedule:
-      interval: weekly
-      day: monday
+      interval: daily
     open-pull-requests-limit: 3
     labels:
       - dependencies
@@ -52,8 +48,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: daily
     open-pull-requests-limit: 5
     labels:
       - dependencies
@@ -66,8 +61,7 @@ updates:
   - package-ecosystem: docker
     directory: /server
     schedule:
-      interval: weekly
-      day: monday
+      interval: daily
     open-pull-requests-limit: 3
     labels:
       - dependencies
