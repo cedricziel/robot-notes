@@ -319,13 +319,13 @@
 
 ## 28. CI workflow (test + lint + format + build dry-run)
 
-- [ ] 28.1 Create `.github/workflows/ci.yml` triggered on `pull_request` and `push: { branches: [main] }`
-- [ ] 28.2 Job: setup Dart + Flutter, run `dart pub get` for `server/` and `app/`
-- [ ] 28.3 Job step: `make lint` (strict-mode analyzer) for both packages
-- [ ] 28.4 Job step: `make format` and verify no diff (`dart format --set-exit-if-changed`)
-- [ ] 28.5 Job step: `make test` for both packages (server unit + integration; app widget + unit)
-- [ ] 28.6 Job: `docker buildx build --platform linux/amd64 server/` (no push) to validate Dockerfile each PR
-- [ ] 28.7 Configure required status checks on `main` (manual repo settings step, document in RELEASING.md)
+- [x] 28.1 Create `.github/workflows/ci.yml` triggered on `pull_request` and `push: { branches: [main] }`
+- [x] 28.2 Job: setup Dart + Flutter, run `dart pub get` for `server/` and `app/`
+- [x] 28.3 Job step: `make lint` (strict-mode analyzer) for both packages
+- [x] 28.4 Job step: `make format` and verify no diff (`dart format --set-exit-if-changed`)
+- [x] 28.5 Job step: `make test` for both packages (server unit + integration; app widget + unit)
+- [x] 28.6 Job: `docker buildx build --platform linux/amd64` against `server/Dockerfile` (no push) to validate the Dockerfile each PR
+- [ ] 28.7 Configure required status checks on `main` (manual repo settings step, document in RELEASING.md — see task 32)
 
 ## 29. release-please configuration
 

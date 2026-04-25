@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel any in-flight run for the same ref when a new commit lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dart:
+    name: Lint, format, test (Dart + Flutter workspace)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter (provides Dart SDK)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.0"
+          channel: stable
+          cache: true
+
+      - name: Show toolchain versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Resolve workspace dependencies
+        run: dart pub get
+
+      - name: Format check
+        run: dart format --set-exit-if-changed .
+
+      - name: Analyze (strict-mode)
+        run: dart analyze
+
+      - name: Test — shared
+        run: cd shared && dart test --reporter expanded
+
+      - name: Test — server
+        run: cd server && dart test --reporter expanded
+
+      - name: Test — app (Flutter)
+        run: cd app && flutter test --reporter expanded
+
+  docker:
+    name: Validate server Dockerfile
+    runs-on: ubuntu-latest
+    needs: dart
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build only — no push. The Dockerfile lives at server/Dockerfile but
+      # the build context is the repo root because the server depends on
+      # the shared/ workspace package via path dependency.
+      - name: Build server image (linux/amd64, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64
+          push: false
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
