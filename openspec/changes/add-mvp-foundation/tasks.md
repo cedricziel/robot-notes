@@ -375,12 +375,12 @@
 
 ## 34. Documentation, polish, and ship gate
 
-- [ ] 34.1 README: how to run server with `--api-key` and `--data-dir`
-- [ ] 34.2 README: how to point the Flutter app at a server
-- [ ] 34.3 README: how to run the server via Docker (`docker run -e ROBOT_NOTES_API_KEY=... -v $(pwd)/data:/data -p 8080:8080 ghcr.io/<owner>/robot-notes-server:latest`)
-- [ ] 34.4 README: how to onboard an agent (mint invite via `POST /invites`, share the URL, agent fetches `onboarding.txt` once)
-- [ ] 34.5 Document the API in `server/API.md` (endpoints, error codes, WS protocol, invite endpoints)
-- [ ] 34.6 Document data layout in `server/STORAGE.md` (frontmatter schema, paths, atomicity, `data/invites/` schema)
+- [x] 34.1 README: how to run server with `--api-key` and `--data-dir`
+- [x] 34.2 README: how to point the Flutter app at a server
+- [x] 34.3 README: how to run the server via Docker (`docker run -e ROBOT_NOTES_API_KEY=... -v $(pwd)/data:/data -p 8080:8080 ghcr.io/<owner>/robot-notes-server:latest`)
+- [x] 34.4 README: how to onboard an agent (mint invite via `POST /invites`, share the URL, agent fetches `onboarding.txt` once)
+- [x] 34.5 Document the API in `server/API.md` (endpoints, error codes, WS protocol, invite endpoints)
+- [x] 34.6 Document data layout in `server/STORAGE.md` (frontmatter schema, paths, atomicity, `data/invites/` schema)
 - [ ] 34.7 Run `make lint` and `make format` on both server and app; resolve all warnings
 - [ ] 34.8 Confirm full test suite is green for server and app
 - [ ] 34.9 Smoke test: spin up server (locally and via published image), build Flutter for one desktop platform, walk through happy path manually
