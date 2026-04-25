@@ -22,9 +22,20 @@
 # ---------------------------------------------------------------------------
 # Web builder — produces app/build/web/* (the Flutter SPA bundle).
 # ---------------------------------------------------------------------------
-# We use the Cirrus Labs Flutter image; pin by major version. Update by
-# bumping the tag in CI and re-resolving the digest.
-FROM ghcr.io/cirruslabs/flutter:3.27.0 AS web-builder
+# `--platform=$BUILDPLATFORM` pins this stage to the build host's native
+# architecture. The bundle output is JS/HTML/WASM and architecture-
+# independent, so we run Flutter once natively rather than emulating it
+# under QEMU on each target arch.
+#
+# Tag + digest pinning. Re-resolve the digest when bumping the tag:
+#
+#   TOKEN=$(curl -s "https://ghcr.io/token?service=ghcr.io&\
+#       scope=repository:cirruslabs/flutter:pull" | jq -r .token)
+#   curl -sI -H "Authorization: Bearer $TOKEN" \
+#     -H "Accept: application/vnd.oci.image.index.v1+json" \
+#     https://ghcr.io/v2/cirruslabs/flutter/manifests/<TAG> \
+#     | grep -i docker-content-digest
+FROM --platform=$BUILDPLATFORM ghcr.io/cirruslabs/flutter:3.27.0@sha256:3aa235f10b9700466ee5fc92ece03e867c336168ead60ef7449480a38c6cd92e AS web-builder
 
 WORKDIR /workspace
 
