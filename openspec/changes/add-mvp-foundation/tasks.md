@@ -40,10 +40,10 @@
 
 ## 5. Actor identity middleware
 
-- [ ] 5.1 Write failing test: `X-Actor: alice` results in handler context having `actor == "alice"`
-- [ ] 5.2 Write failing test: missing `X-Actor` results in `actor == "unknown"`
-- [ ] 5.3 Write failing test: empty `X-Actor` results in `actor == "unknown"`
-- [ ] 5.4 Implement actor middleware exposing `request.context.read<Actor>()`
+- [x] 5.1 Write failing test: `X-Actor: alice` results in handler context having `actor == "alice"`
+- [x] 5.2 Write failing test: missing `X-Actor` results in `actor == "unknown"`
+- [x] 5.3 Write failing test: empty `X-Actor` results in `actor == "unknown"`
+- [x] 5.4 Implement actor middleware exposing `request.context.read<Actor>()`
 
 ## 6. Health endpoint
 
