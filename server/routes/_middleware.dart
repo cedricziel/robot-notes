@@ -7,13 +7,16 @@ import 'package:server/src/config_holder.dart' as config_holder;
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/ws/broadcaster.dart';
+import 'package:server/src/ws/presence.dart';
 
 /// Root route middleware applied to every request.
 ///
 /// Order is bottom-up (last `.use` runs first):
 ///   1. `provider<Config>` and the long-lived dependency providers
-///      ([Storage], [MetaIndex], [LockManager]) so handlers and downstream
-///      middleware can `read<T>()` them.
+///      ([Storage], [MetaIndex], [LockManager], [Broadcaster],
+///      [PresenceTracker]) so handlers and downstream middleware can
+///      `read<T>()` them.
 ///   2. [bearerAuth] gates traffic on the configured API key (with
 ///      `GET /healthz` exempted inside the middleware).
 ///   3. [actorIdentity] derives the display actor from `X-Actor` and
@@ -26,6 +29,8 @@ Handler middleware(Handler handler) {
   return handler
       .use(actorIdentity())
       .use(bearerAuth(configuredKey: config.apiKey))
+      .use(provider<PresenceTracker>((_) => deps.presence))
+      .use(provider<Broadcaster>((_) => deps.broadcaster))
       .use(provider<LockManager>((_) => deps.lockManager))
       .use(provider<MetaIndex>((_) => deps.metaIndex))
       .use(provider<Storage>((_) => deps.storage))

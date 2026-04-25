@@ -7,6 +7,8 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/ws/broadcaster.dart';
+import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/notes/[id].dart' as route;
@@ -20,6 +22,7 @@ RequestContext _ctx({
   required Storage storage,
   required MetaIndex metaIndex,
   required LockManager lockManager,
+  Broadcaster? broadcaster,
   Actor actor = const Actor('tester'),
   Map<String, String> headers = const {},
   Object? body,
@@ -45,6 +48,7 @@ RequestContext _ctx({
   when(() => ctx.read<Storage>()).thenReturn(storage);
   when(() => ctx.read<MetaIndex>()).thenReturn(metaIndex);
   when(() => ctx.read<LockManager>()).thenReturn(lockManager);
+  when(() => ctx.read<Broadcaster>()).thenReturn(broadcaster ?? Broadcaster());
   when(() => ctx.read<Actor>()).thenReturn(actor);
   return ctx;
 }
@@ -357,6 +361,73 @@ void main() {
         'anything',
       );
       expect(res.statusCode, HttpStatus.methodNotAllowed);
+    });
+  });
+
+  group('changed event', () {
+    test('successful PUT emits a changed:updated event', () async {
+      final note = await storage.create(title: 'orig', content: 'c');
+      index.upsert(note.toSummary());
+
+      final broadcaster = Broadcaster();
+      addTearDown(broadcaster.close);
+      final received = <WsMessage>[];
+      broadcaster
+        ..register('listener').listen(received.add)
+        ..subscribeWildcard('listener');
+
+      await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          broadcaster: broadcaster,
+          actor: const Actor('alice'),
+          headers: const {'if-match': '1'},
+          body: {'title': 'updated', 'content': 'changed'},
+        ),
+        note.id,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, hasLength(1));
+      final ev = received.single as ChangedEvent;
+      expect(ev.noteId, note.id);
+      expect(ev.action, ChangeAction.updated);
+      expect(ev.version, 2);
+      expect(ev.by, 'alice');
+    });
+
+    test('successful DELETE emits a changed:deleted event', () async {
+      final note = await storage.create(title: 'gone', content: 'c');
+      index.upsert(note.toSummary());
+
+      final broadcaster = Broadcaster();
+      addTearDown(broadcaster.close);
+      final received = <WsMessage>[];
+      broadcaster
+        ..register('listener').listen(received.add)
+        ..subscribeWildcard('listener');
+
+      await route.onRequest(
+        _ctx(
+          method: HttpMethod.delete,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          broadcaster: broadcaster,
+          actor: const Actor('bob'),
+        ),
+        note.id,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, hasLength(1));
+      final ev = received.single as ChangedEvent;
+      expect(ev.noteId, note.id);
+      expect(ev.action, ChangeAction.deleted);
+      expect(ev.by, 'bob');
     });
   });
 }

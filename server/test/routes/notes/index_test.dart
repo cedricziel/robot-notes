@@ -2,9 +2,12 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/ws/broadcaster.dart';
+import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/notes/index.dart' as route;
@@ -17,6 +20,8 @@ RequestContext _ctx({
   required HttpMethod method,
   required Storage storage,
   required MetaIndex metaIndex,
+  Broadcaster? broadcaster,
+  Actor? actor,
   Uri? uri,
   Object? body,
 }) {
@@ -39,6 +44,8 @@ RequestContext _ctx({
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<Storage>()).thenReturn(storage);
   when(() => ctx.read<MetaIndex>()).thenReturn(metaIndex);
+  when(() => ctx.read<Broadcaster>()).thenReturn(broadcaster ?? Broadcaster());
+  when(() => ctx.read<Actor>()).thenReturn(actor ?? Actor.unknown);
   return ctx;
 }
 
@@ -308,6 +315,40 @@ void main() {
       expect(res.statusCode, HttpStatus.methodNotAllowed);
       final body = await res.json() as Map<String, dynamic>;
       expect(body['error'], 'method_not_allowed');
+    });
+  });
+
+  group('changed event', () {
+    test('successful POST emits a changed:created event without content',
+        () async {
+      final storage = _storage(tmp);
+      final index = MetaIndex();
+      final broadcaster = Broadcaster();
+      addTearDown(broadcaster.close);
+
+      final received = <WsMessage>[];
+      broadcaster
+        ..register('listener').listen(received.add)
+        ..subscribeWildcard('listener');
+
+      await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          storage: storage,
+          metaIndex: index,
+          broadcaster: broadcaster,
+          actor: const Actor('alice'),
+          body: {'title': 'hello', 'content': 'world'},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, hasLength(1));
+      final ev = received.single as ChangedEvent;
+      expect(ev.action, ChangeAction.created);
+      expect(ev.version, 1);
+      expect(ev.by, 'alice');
+      expect(ev.toJson().containsKey('content'), isFalse);
     });
   });
 }

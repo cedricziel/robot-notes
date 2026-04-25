@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/actor.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/ws/broadcaster.dart';
+import 'package:shared/shared.dart';
 
 /// `GET /notes`  — paginated listing of note metadata (no content).
 /// `POST /notes` — create a new note.
@@ -116,8 +119,18 @@ Future<Response> _create(RequestContext context) async {
 
   final storage = context.read<Storage>();
   final index = context.read<MetaIndex>();
+  final broadcaster = context.read<Broadcaster>();
+  final actor = context.read<Actor>();
   final note = await storage.create(title: title, content: content);
   index.upsert(note.toSummary());
+  broadcaster.emitChanged(
+    ChangedEvent(
+      noteId: note.id,
+      version: note.version,
+      by: actor.name,
+      action: ChangeAction.created,
+    ),
+  );
 
   return Response.json(
     statusCode: HttpStatus.created,

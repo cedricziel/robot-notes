@@ -6,6 +6,8 @@ import 'package:server/src/actor.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/ws/broadcaster.dart';
+import 'package:shared/shared.dart';
 
 /// `GET /notes/{id}`    — read a single note (with optional lock state).
 /// `PUT /notes/{id}`    — replace a note's title/content (If-Match required).
@@ -152,6 +154,14 @@ Future<Response> _update(RequestContext context, String id) async {
       ifMatch: ifMatch,
     );
     index.upsert(updated.toSummary());
+    context.read<Broadcaster>().emitChanged(
+          ChangedEvent(
+            noteId: updated.id,
+            version: updated.version,
+            by: actor.name,
+            action: ChangeAction.updated,
+          ),
+        );
     return Response.json(
       body: {
         'id': updated.id,
@@ -205,9 +215,19 @@ Future<Response> _delete(RequestContext context, String id) async {
 
   final storage = context.read<Storage>();
   final index = context.read<MetaIndex>();
+  final broadcaster = context.read<Broadcaster>();
   try {
+    final deleted = await storage.read(id);
     await storage.delete(id);
     index.remove(id);
+    broadcaster.emitChanged(
+      ChangedEvent(
+        noteId: id,
+        version: deleted.version,
+        by: actor.name,
+        action: ChangeAction.deleted,
+      ),
+    );
     return Response(statusCode: HttpStatus.noContent);
   } on NoteNotFoundException {
     return Response.json(

@@ -4,6 +4,7 @@ import 'package:server/src/app_deps.dart';
 import 'package:server/src/app_deps_holder.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 Directory _tempDir() {
@@ -69,8 +70,30 @@ void main() {
         DateTime.utc(2026, 4, 25, 10, 0, 5),
       ]);
       final deps = await AppDeps.bootstrap(cfg, clock: clock);
+      addTearDown(deps.close);
       final lock = await deps.lockManager.acquire(noteId: 'n1', actor: 'alice');
       expect(lock.expiresAt, DateTime.utc(2026, 4, 25, 10, 0, 30));
+    });
+
+    test('forwards lock-manager transitions to the broadcaster', () async {
+      final clock = FixedClock([
+        DateTime.utc(2026, 4, 25, 10),
+        DateTime.utc(2026, 4, 25, 10, 0, 5),
+      ]);
+      final deps = await AppDeps.bootstrap(_config(tmp), clock: clock);
+      addTearDown(deps.close);
+
+      final received = <WsMessage>[];
+      deps.broadcaster
+        ..register('c1').listen(received.add)
+        ..subscribe('c1', 'n1');
+
+      await deps.lockManager.acquire(noteId: 'n1', actor: 'alice');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, hasLength(1));
+      expect((received.single as LockEvent).noteId, 'n1');
+      expect((received.single as LockEvent).holder, 'alice');
     });
   });
 
