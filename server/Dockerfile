@@ -35,7 +35,7 @@
 #     -H "Accept: application/vnd.oci.image.index.v1+json" \
 #     https://ghcr.io/v2/cirruslabs/flutter/manifests/<TAG> \
 #     | grep -i docker-content-digest
-FROM --platform=$BUILDPLATFORM ghcr.io/cirruslabs/flutter:3.41.6@sha256:2e5918c0681a1599ca6bf9a4c0a4f78d39e450da673d063a13968265aa87c210 AS web-builder
+FROM --platform=$BUILDPLATFORM ghcr.io/cirruslabs/flutter:3.41.7@sha256:644e3cea0a8440ce75804b67ceab77b16a87b39d9e9d89b07aceca7a98af1aa3 AS web-builder
 
 WORKDIR /workspace
 
@@ -78,7 +78,7 @@ COPY --from=web-builder /workspace/app/build/web/ /
 # ---------------------------------------------------------------------------
 # Server builder
 # ---------------------------------------------------------------------------
-FROM dart:3.11.0-sdk@sha256:193a4d037dcef48b56f2a3544f053f4ef3b5e9865953f8f5ff2a284554da567a AS builder
+FROM dart:3.11.5-sdk@sha256:44f6f9d3f09e503b1624a7ab3e6e03ccae88503bc5a7abf67eefe6a96d1d9949 AS builder
 
 ENV PATH="/root/.pub-cache/bin:${PATH}"
 
