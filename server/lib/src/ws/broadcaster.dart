@@ -4,6 +4,11 @@ import 'dart:collection';
 import 'package:logging/logging.dart';
 import 'package:shared/shared.dart';
 
+/// Default ceiling on the per-subscriber outbox. When the queued depth
+/// exceeds this many events the broadcaster treats the consumer as slow,
+/// closes its stream, and removes it.
+const int kDefaultSlowConsumerThreshold = 1024;
+
 /// Routes server-emitted [LockEvent]s and [ChangedEvent]s to every WebSocket
 /// connection that has subscribed to the corresponding note (or wildcard).
 ///
@@ -11,11 +16,22 @@ import 'package:shared/shared.dart';
 /// lifecycle (handshake, ping, presence) — that lives in the WS route. Each
 /// registered connection gets a single-subscriber [Stream] of [WsMessage]s
 /// it can drain into its own outbox.
+///
+/// Slow consumers (whose outbox depth exceeds the configured threshold)
+/// are dropped: their stream is closed and they are removed from the
+/// routing table so the broadcast loop never blocks waiting on a single
+/// client.
 class Broadcaster {
-  /// Creates a broadcaster. [logger] is optional and used for diagnostics
-  /// when a slow consumer must be evicted by the WS layer.
-  Broadcaster({Logger? logger}) : _log = logger ?? Logger('broadcaster');
+  /// Creates a broadcaster. [slowConsumerThreshold] caps the per-subscriber
+  /// pending-event count before the connection is evicted; [logger] is
+  /// optional and used for diagnostics.
+  Broadcaster({
+    int slowConsumerThreshold = kDefaultSlowConsumerThreshold,
+    Logger? logger,
+  })  : _slowConsumerThreshold = slowConsumerThreshold,
+        _log = logger ?? Logger('broadcaster');
 
+  final int _slowConsumerThreshold;
   final Logger _log;
   final Map<String, _Subscriber> _subs = HashMap<String, _Subscriber>();
 
@@ -33,7 +49,7 @@ class Broadcaster {
     if (_subs.containsKey(connectionId)) {
       throw StateError('connection already registered: $connectionId');
     }
-    final sub = _Subscriber(connectionId);
+    final sub = _Subscriber(connectionId, _slowConsumerThreshold);
     _subs[connectionId] = sub;
     return sub.stream;
   }
@@ -71,12 +87,26 @@ class Broadcaster {
   /// Emits a changed-note notification. Routed identically to [emitLock].
   void emitChanged(ChangedEvent event) => _emit(event.noteId, event);
 
+  /// Emits a presence-roster update for a note. Routed identically to
+  /// [emitLock]; the WS route uses this to fan out viewer-set changes
+  /// produced by the presence tracker.
+  void emitPresence(PresenceEvent event) => _emit(event.noteId, event);
+
   /// Sends [event] to every registered subscriber that matches.
   void _emit(String noteId, WsMessage event) {
     if (_subs.isEmpty) return;
+    List<String>? toDrop;
     for (final sub in _subs.values) {
       if (sub.wildcard || sub.notes.contains(noteId)) {
-        sub.send(event);
+        if (sub.send(event)) {
+          (toDrop ??= []).add(sub.id);
+        }
+      }
+    }
+    if (toDrop != null) {
+      for (final id in toDrop) {
+        _log.warning('dropping slow consumer $id');
+        unawaited(disconnect(id));
       }
     }
   }
@@ -92,18 +122,36 @@ class Broadcaster {
 }
 
 class _Subscriber {
-  _Subscriber(this.id);
+  _Subscriber(this.id, this._slowConsumerThreshold);
 
   final String id;
+  final int _slowConsumerThreshold;
   final StreamController<WsMessage> _outbox = StreamController<WsMessage>();
   final Set<String> notes = HashSet<String>();
   bool wildcard = false;
+  int _pending = 0;
+  bool _dropped = false;
 
-  Stream<WsMessage> get stream => _outbox.stream;
+  /// The downstream stream wraps the controller so we can decrement pending
+  /// every time the consumer pulls an event. The wrapper is single-use,
+  /// matching the underlying non-broadcast controller.
+  Stream<WsMessage> get stream => _outbox.stream.map((event) {
+        if (_pending > 0) _pending--;
+        return event;
+      });
 
-  void send(WsMessage event) {
-    if (_outbox.isClosed) return;
+  /// Returns true if the broadcaster should drop this subscriber after
+  /// [send]: the outbox grew beyond the slow-consumer threshold without
+  /// being drained.
+  bool send(WsMessage event) {
+    if (_dropped || _outbox.isClosed) return false;
+    if (_pending >= _slowConsumerThreshold) {
+      _dropped = true;
+      return true;
+    }
+    _pending++;
     _outbox.add(event);
+    return false;
   }
 
   Future<void> close() async {

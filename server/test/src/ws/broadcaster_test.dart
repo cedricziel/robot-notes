@@ -253,4 +253,43 @@ void main() {
       expect(broadcaster.connectionCount, 0);
     });
   });
+
+  group('slow consumer', () {
+    test('drops a connection whose outbox exceeds the threshold', () async {
+      final small = Broadcaster(slowConsumerThreshold: 3);
+      addTearDown(small.close);
+
+      // Slow consumer: registered, subscribed, but never drained.
+      small
+        ..register('slow')
+        ..subscribeWildcard('slow');
+
+      // Burst past the threshold synchronously.
+      for (var i = 0; i < 5; i++) {
+        small.emitLock(LockEvent(noteId: 'note-$i'));
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      expect(small.isRegistered('slow'), isFalse);
+    });
+
+    test('does not drop a connection that drains between emits', () async {
+      final small = Broadcaster(slowConsumerThreshold: 2);
+      addTearDown(small.close);
+
+      final received = <WsMessage>[];
+      small
+        ..register('fast').listen(received.add)
+        ..subscribeWildcard('fast');
+
+      // Each emit is followed by a microtask drain so pending never grows.
+      for (var i = 0; i < 5; i++) {
+        small.emitLock(LockEvent(noteId: 'note-$i'));
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(small.isRegistered('fast'), isTrue);
+      expect(received, hasLength(5));
+    });
+  });
 }
