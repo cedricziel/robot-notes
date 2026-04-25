@@ -61,17 +61,17 @@
 
 ## 8. Storage primitives
 
-- [ ] 8.1 Write failing test: `Storage.list()` empty when content dir is empty
-- [ ] 8.2 Write failing test: `Storage.create(title, content, actor)` writes a file with frontmatter and version 1
-- [ ] 8.3 Write failing test: created file uses ULID filename and includes `id`, `created_at`, `updated_at`
-- [ ] 8.4 Write failing test: `Storage.read(id)` returns the parsed note
-- [ ] 8.5 Write failing test: `Storage.update(id, title, content, ifMatch=v)` succeeds when version matches and bumps to v+1
-- [ ] 8.6 Write failing test: update with stale `ifMatch` throws `VersionConflict` carrying current state
-- [ ] 8.7 Write failing test: `Storage.delete(id)` removes the file and returns ok
-- [ ] 8.8 Write failing test: writes are atomic (simulate crash between tmp write and rename, file remains intact)
-- [ ] 8.9 Write failing test: concurrent updates to the same id are serialized
-- [ ] 8.10 Write failing test: updates preserve unknown frontmatter keys
-- [ ] 8.11 Implement `Storage` over a real temp directory using tmp+fsync+rename and per-id mutex
+- [x] 8.1 Write failing test: `Storage.list()` empty when content dir is empty
+- [x] 8.2 Write failing test: `Storage.create(title, content, actor)` writes a file with frontmatter and version 1
+- [x] 8.3 Write failing test: created file uses ULID filename and includes `id`, `created_at`, `updated_at`
+- [x] 8.4 Write failing test: `Storage.read(id)` returns the parsed note
+- [x] 8.5 Write failing test: `Storage.update(id, title, content, ifMatch=v)` succeeds when version matches and bumps to v+1
+- [x] 8.6 Write failing test: update with stale `ifMatch` throws `VersionConflict` carrying current state
+- [x] 8.7 Write failing test: `Storage.delete(id)` removes the file and returns ok
+- [x] 8.8 Write failing test: writes are atomic (simulate crash between tmp write and rename, file remains intact)
+- [x] 8.9 Write failing test: concurrent updates to the same id are serialized
+- [x] 8.10 Write failing test: updates preserve unknown frontmatter keys
+- [x] 8.11 Implement `Storage` over a real temp directory using tmp+fsync+rename and per-id mutex
 
 ## 9. In-memory metadata index
 
