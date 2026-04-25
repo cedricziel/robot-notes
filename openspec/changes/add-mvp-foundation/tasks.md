@@ -7,7 +7,7 @@
 - [x] 1.5 Write failing tests in `shared/` covering JSON round-trips for every DTO and event envelope
 - [x] 1.6 Add `Makefile` targets `lint`, `format`, `test`, `run-server`, `run-app` that operate over the workspace
 - [x] 1.7 Add a top-level README stub with how to run server and app locally
-- [ ] 1.8 Verify `shared/` does NOT depend on `package:flutter`, `dart_frog`, or anything server-only (lint or test)
+- [x] 1.8 Verify `shared/` does NOT depend on `package:flutter`, `dart_frog`, or anything server-only (lint or test)
 
 ## 2. Server scaffold (Dart Frog)
 
