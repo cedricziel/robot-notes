@@ -26,8 +26,18 @@
 # Generated files
 **/pubspec_overrides.yaml
 
-# The Flutter app — server image does not need it.
-app/
+# Flutter app — the runtime image needs the web bundle, but we only want
+# the source the `flutter build web` step requires. Everything platform-
+# specific (iOS/Android/macOS/Linux/Windows runners), generated, or
+# test-only is excluded.
+app/android/
+app/ios/
+app/linux/
+app/macos/
+app/windows/
+app/test/
+app/build/
+app/.dart_tool/
 
 # Tests, fixtures, and dev scripts — server tests run in CI, not in the image.
 **/test/

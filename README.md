@@ -58,6 +58,7 @@ Other knobs (with their env equivalents):
 | `--api-key`  | `ROBOT_NOTES_API_KEY`  | _(required)_ | Bearer token for every request. |
 | `--data-dir` | `ROBOT_NOTES_DATA_DIR` | `./data`     | Root for `content/`, `invites/`, `search.db`. |
 | `--port`     | `ROBOT_NOTES_PORT`     | `8080`       | Listen port. |
+| `--web-dir`  | `ROBOT_NOTES_WEB_DIR`  | _(unset)_    | When set, serve a Flutter web bundle at `/`. The published Docker image sets this automatically. |
 
 Every HTTP request must carry `Authorization: Bearer <key>`. Clients
 self-declare their display name with the `X-Actor: <name>` header (defaulting
@@ -96,6 +97,15 @@ docker run --rm \
   -p 8080:8080 \
   ghcr.io/<owner>/robot-notes-server:latest
 ```
+
+The image is plug-and-play: open `http://localhost:8080/` in a browser
+and the bundled Flutter web UI loads. The setup screen pre-fills the
+server URL with the current origin, so the user only enters the API key
+and a display name. The same image continues to serve the JSON/WebSocket
+API at the documented paths — `/notes`, `/search`, `/invites`,
+`/healthz`, `/ws`, etc. — and gates everything except `/healthz`,
+`/ws`, the onboarding bundle, and the static SPA assets behind the
+configured bearer key.
 
 The image runs as UID 10001, exposes port 8080, declares `/data` as a
 VOLUME, and ships an HTTP `HEALTHCHECK` against `/healthz`. To pin to a

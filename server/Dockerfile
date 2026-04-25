@@ -3,16 +3,46 @@
 # robot-notes server image.
 #
 # Build context: the repository root (the Dockerfile imports `shared/` via
-# its workspace path dependency, so building from `server/` alone will not
-# work). From the repo root run:
+# its workspace path dependency and `app/` for the Flutter web bundle, so
+# building from `server/` alone will not work). From the repo root run:
 #
 #   docker build -f server/Dockerfile -t robot-notes-server:dev .
 #
-# The image runs as a non-root user, exposes 8080, persists state under
-# `/data` (a VOLUME), and ships a HEALTHCHECK that probes `/healthz`.
+# The image is plug-and-play: it serves the Flutter web UI at `/` and the
+# JSON/WebSocket API at the documented paths. It runs as a non-root user,
+# exposes 8080, persists state under `/data` (a VOLUME), and ships a
+# HEALTHCHECK that probes `/healthz`.
+#
+# Three build stages:
+#   1. `web-builder`     — `flutter build web` produces the SPA bundle.
+#   2. `server-builder`  — `dart_frog build` + `dart compile exe` produces
+#      the AOT server binary.
+#   3. runtime           — debian-slim, copies the bundle and the binary.
 
 # ---------------------------------------------------------------------------
-# Builder
+# Web builder — produces app/build/web/* (the Flutter SPA bundle).
+# ---------------------------------------------------------------------------
+# We use the Cirrus Labs Flutter image; pin by major version. Update by
+# bumping the tag in CI and re-resolving the digest.
+FROM ghcr.io/cirruslabs/flutter:3.27.0 AS web-builder
+
+WORKDIR /workspace
+
+# Copy the workspace pubspec and the two packages the Flutter app depends
+# on (`app/` itself and `shared/`, which it imports via path). The server
+# package isn't needed for `flutter build web`.
+COPY pubspec.yaml ./
+COPY shared/ ./shared/
+COPY app/ ./app/
+
+# Resolve the workspace, then build the web bundle in release mode.
+# `--no-tree-shake-icons` keeps icon glyphs reachable from runtime data
+# (Flutter's tree-shaker can't follow Material Icons used by name).
+RUN flutter pub get
+RUN cd app && flutter build web --release --no-tree-shake-icons
+
+# ---------------------------------------------------------------------------
+# Server builder
 # ---------------------------------------------------------------------------
 FROM dart:3.11.0-sdk@sha256:193a4d037dcef48b56f2a3544f053f4ef3b5e9865953f8f5ff2a284554da567a AS builder
 
@@ -78,13 +108,15 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=builder --chown=10001:10001 /workspace/server.exe /app/server
+COPY --from=web-builder --chown=10001:10001 /workspace/app/build/web /app/web
 
 USER 10001
 EXPOSE 8080
 VOLUME ["/data"]
 
 ENV ROBOT_NOTES_DATA_DIR=/data \
-    ROBOT_NOTES_PORT=8080
+    ROBOT_NOTES_PORT=8080 \
+    ROBOT_NOTES_WEB_DIR=/app/web
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD wget -q -O - http://127.0.0.1:8080/healthz || exit 1

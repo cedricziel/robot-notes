@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../config/app_config.dart';
@@ -32,7 +33,14 @@ class _SetupScreenState extends State<SetupScreen> {
   @override
   void initState() {
     super.initState();
-    _baseUrl = TextEditingController();
+    // On web the bundle is served from the same origin as the API, so we
+    // pre-fill the URL field with the current origin and the user only
+    // has to enter the API key + display name. The field is still
+    // editable in case they want to point a same-origin web build at a
+    // different backend (rare, but cheap to allow).
+    _baseUrl = TextEditingController(
+      text: kIsWeb ? Uri.base.origin : '',
+    );
     _apiKey = TextEditingController();
     _actor = TextEditingController();
     widget.controller.addListener(_onState);

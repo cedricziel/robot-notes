@@ -137,6 +137,38 @@ void main() {
       );
     });
 
+    test('webDir is null by default', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x'],
+        env: const {},
+      );
+      expect(config.webDir, isNull);
+    });
+
+    test('--web-dir flag populates webDir', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x', '--web-dir', '/srv/web'],
+        env: const {},
+      );
+      expect(config.webDir, '/srv/web');
+    });
+
+    test('ROBOT_NOTES_WEB_DIR env var populates webDir', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x'],
+        env: const {'ROBOT_NOTES_WEB_DIR': '/env/web'},
+      );
+      expect(config.webDir, '/env/web');
+    });
+
+    test('--web-dir CLI flag wins over env var', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x', '--web-dir', '/cli/web'],
+        env: const {'ROBOT_NOTES_WEB_DIR': '/env/web'},
+      );
+      expect(config.webDir, '/cli/web');
+    });
+
     test('rejects empty --api-key', () {
       expect(
         () => Config.fromArgs(

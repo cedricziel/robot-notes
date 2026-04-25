@@ -10,6 +10,7 @@ import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
+import 'package:server/src/static_web_middleware.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
@@ -27,6 +28,13 @@ import 'package:server/src/ws/presence.dart';
 ///      provides it via `context.read<Actor>()`. This runs after auth so
 ///      we never expose an actor to a handler that wouldn't otherwise
 ///      execute.
+///   4. [staticWebMiddleware] runs outermost. When [Config.webDir] is
+///      set, it serves the Flutter web bundle at the root and short-
+///      circuits before the bearer-key check — the bundle is the same
+///      static asset for everyone and never contains secrets. Requests
+///      that match an API path (`/notes`, `/search`, `/ws`,
+///      `/invites`, `/healthz`) pass straight through to the rest of
+///      the chain.
 Handler middleware(Handler handler) {
   final config = config_holder.config;
   final deps = app_deps_holder.appDeps;
@@ -42,5 +50,6 @@ Handler middleware(Handler handler) {
       .use(provider<NoteWriteService>((_) => deps.noteWriteService))
       .use(provider<Storage>((_) => deps.storage))
       .use(provider<Clock>((_) => deps.clock))
-      .use(provider<Config>((_) => config));
+      .use(provider<Config>((_) => config))
+      .use(staticWebMiddleware(webDir: config.webDir));
 }

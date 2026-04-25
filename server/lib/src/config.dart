@@ -25,6 +25,7 @@ class Config {
     required this.dataDir,
     required this.port,
     required this.lockTtlSeconds,
+    this.webDir,
   });
 
   /// Resolves a [Config] from CLI [args] and the supplied environment.
@@ -84,11 +85,17 @@ class Config {
       );
     }
 
+    final webDir = _coalesce(
+      parsed['web-dir'] as String?,
+      env['ROBOT_NOTES_WEB_DIR'],
+    );
+
     return Config(
       apiKey: apiKey,
       dataDir: dataDir,
       port: port,
       lockTtlSeconds: lockTtl,
+      webDir: webDir,
     );
   }
 
@@ -116,6 +123,12 @@ class Config {
   /// TTL applied to every soft editor lock acquire/heartbeat, in seconds.
   final int lockTtlSeconds;
 
+  /// Optional directory containing the Flutter web bundle. When set, the
+  /// server mounts the bundle at the root and serves `index.html`/assets
+  /// without the bearer-key requirement; the bundle itself never contains
+  /// secrets. `null` disables static serving.
+  final String? webDir;
+
   /// Builds an [ArgParser] mirroring the documented CLI surface.
   static ArgParser buildParser() => ArgParser()
     ..addOption('api-key', help: 'Bearer API key required on every request.')
@@ -127,6 +140,11 @@ class Config {
     ..addOption(
       'lock-ttl-seconds',
       help: 'Soft editor lock TTL in seconds (min 5).',
+    )
+    ..addOption(
+      'web-dir',
+      help: 'Path to the Flutter web bundle. When set, the server serves '
+          'the bundle at /. Leave empty to run as an API-only server.',
     )
     ..addFlag('help', abbr: 'h', negatable: false, help: 'Print usage.');
 
@@ -147,6 +165,7 @@ class Config {
       printErr('');
       printErr('Usage: dart_frog dev [-- --api-key <key>] [--data-dir <path>]');
       printErr('       [--port <int>] [--lock-ttl-seconds <int>]');
+      printErr('       [--web-dir <path>]');
       exit(64); // EX_USAGE
       // exit() should not return; rethrow defensively if a test stub does.
       rethrow;
