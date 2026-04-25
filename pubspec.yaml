@@ -1,0 +1,16 @@
+name: robot_notes_root
+description: >-
+  Root tooling shell for robot-notes. Hosts the dart_pre_commit dev dependency
+  and the git-hook installer. This file will evolve into a Dart pub workspace
+  declaration when task 1 of `openspec/changes/add-mvp-foundation` runs.
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dev_dependencies:
+  dart_pre_commit: ^6.1.2
+
+dart_pre_commit:
+  format: null
+  analyze: null

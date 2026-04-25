@@ -8,7 +8,6 @@
 .pub-cache/
 .pub/
 build/
-pubspec.lock
 
 # Flutter platform build outputs
 **/ios/Pods/
