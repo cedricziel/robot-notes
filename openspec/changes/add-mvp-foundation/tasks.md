@@ -278,16 +278,16 @@
 
 ## 24. Note view (read + edit + lock)
 
-- [ ] 24.1 Write failing widget test: open note → calls `GET /notes/{id}` and subscribes via WS
-- [ ] 24.2 Write failing widget test: enter edit mode → acquires lock; on 423 stays read-only with banner
-- [ ] 24.3 Write failing widget test: heartbeat is sent at half-TTL while editing
-- [ ] 24.4 Write failing widget test: save sends `PUT` with `If-Match` of last-loaded version
-- [ ] 24.5 Write failing widget test: 409 presents reconcile UI with server state and local edits
-- [ ] 24.6 Write failing widget test: 423 mid-edit switches to read-only with holder banner
-- [ ] 24.7 Write failing widget test: closing the editor releases the lock
-- [ ] 24.8 Write failing widget test: presence indicator updates on `presence` events
-- [ ] 24.9 Write failing widget test: lock indicator updates on `lock` events
-- [ ] 24.10 Implement note view
+- [x] 24.1 Write failing widget test: open note → calls `GET /notes/{id}` and subscribes via WS
+- [x] 24.2 Write failing widget test: enter edit mode → acquires lock; on 423 stays read-only with banner
+- [x] 24.3 Write failing widget test: heartbeat is sent at half-TTL while editing
+- [x] 24.4 Write failing widget test: save sends `PUT` with `If-Match` of last-loaded version
+- [x] 24.5 Write failing widget test: 409 presents reconcile UI with server state and local edits
+- [x] 24.6 Write failing widget test: 423 mid-edit switches to read-only with holder banner
+- [x] 24.7 Write failing widget test: closing the editor releases the lock
+- [x] 24.8 Write failing widget test: presence indicator updates on `presence` events
+- [x] 24.9 Write failing widget test: lock indicator updates on `lock` events
+- [x] 24.10 Implement note view
 
 ## 25. Search view
 
