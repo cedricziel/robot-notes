@@ -41,8 +41,16 @@ WORKDIR /workspace
 
 # Copy the workspace pubspec and the two packages the Flutter app depends
 # on (`app/` itself and `shared/`, which it imports via path). The server
-# package isn't needed for `flutter build web`.
+# package isn't needed for `flutter build web`, so we strip it from the
+# workspace declaration; otherwise `flutter pub get` errors with
+# "Could not find a file named 'pubspec.yaml' in '/workspace/server'".
+# Same `dev_dependencies`/`dart_pre_commit` strip the server-builder
+# does — flutter doesn't need them either, and they pull packages we
+# haven't copied (`dart_pre_commit`).
 COPY pubspec.yaml ./
+RUN sed -i '/^  - server$/d' pubspec.yaml \
+ && sed -i '/^dev_dependencies:$/,$d' pubspec.yaml \
+ && sed -i '/^dart_pre_commit:$/,$d' pubspec.yaml
 COPY shared/ ./shared/
 COPY app/ ./app/
 
