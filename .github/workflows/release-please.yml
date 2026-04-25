@@ -1,0 +1,31 @@
+name: release-please
+
+# Opens (and keeps in sync) a release PR that bumps the version and
+# CHANGELOG based on conventional commits since the last release. Merging
+# the PR creates a vX.Y.Z tag + GitHub release, which the publish workflow
+# uses to push the matching multi-arch container image to ghcr.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      # RELEASE_PLEASE_TOKEN is a PAT (or GitHub App token). It is required
+      # so that the tag release-please creates triggers the downstream
+      # publish workflow — tags pushed by the default GITHUB_TOKEN are
+      # silently dropped from triggering other workflows. The fallback
+      # to GITHUB_TOKEN keeps the workflow operational during bootstrap
+      # (the first run only opens a PR, so no tag is created yet).
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

@@ -329,11 +329,11 @@
 
 ## 29. release-please configuration
 
-- [ ] 29.1 Create `release-please-config.json` at repo root in manifest mode declaring component `robot-notes-server` (root or `server/`-rooted depending on layout)
-- [ ] 29.2 Create `.release-please-manifest.json` initialized to `{ ".": "0.0.0" }` (or per-component map)
-- [ ] 29.3 Create `.github/workflows/release-please.yml` triggered on `push: { branches: [main] }` invoking `googleapis/release-please-action@v4` with the config
-- [ ] 29.4 Declare workflow `permissions: { contents: write, pull-requests: write }`
-- [ ] 29.5 Verify locally with a dry run or by reviewing the action's first opened PR after merging the bootstrap commit
+- [x] 29.1 Create `release-please-config.json` at repo root in manifest mode (single component `robot-notes` rooted at `.`; the server, app, and shared packages ship as one product)
+- [x] 29.2 Create `.release-please-manifest.json` initialized to `{ ".": "0.0.0" }`
+- [x] 29.3 Create `.github/workflows/release-please.yml` triggered on `push: { branches: [main] }` invoking `googleapis/release-please-action@v4` with the config
+- [x] 29.4 Declare workflow `permissions: { contents: write, pull-requests: write }`
+- [ ] 29.5 Verify locally with a dry run or by reviewing the action's first opened PR after merging the bootstrap commit (verification deferred to task 33.2)
 
 ## 30. Publish workflow (ghcr multi-arch)
 
