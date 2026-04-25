@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared/shared.dart';
 
 import 'src/api/api_client.dart';
 import 'src/api/api_exceptions.dart';
@@ -20,6 +21,30 @@ import 'src/setup/setup_screen.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const ProviderScope(child: RobotNotesApp()));
+}
+
+/// Builds the placeholder title for a freshly-created note, prefixed
+/// with the calendar date so the list stays roughly chronological even
+/// before the user renames it. Format: `YYYY-MM-DD Untitled`.
+///
+/// Pure / time-injectable so widget tests can pin a deterministic value.
+String blankNoteTitle(DateTime now) {
+  final y = now.year.toString().padLeft(4, '0');
+  final m = now.month.toString().padLeft(2, '0');
+  final d = now.day.toString().padLeft(2, '0');
+  return '$y-$m-$d Untitled';
+}
+
+/// Creates a fresh note with the date-prefixed placeholder title and
+/// empty content. The server rejects empty titles (`POST /notes`
+/// requires a non-empty string), so the client always sends a stand-in;
+/// the user renames it inline once the editor opens.
+///
+/// Extracted so widget tests can exercise the same call the FAB does
+/// without having to mount the full app shell.
+Future<Note> createBlankNote(RobotNotesClient api, {DateTime? now}) {
+  final title = blankNoteTitle(now ?? DateTime.now());
+  return api.createNote(title: title, content: '');
 }
 
 /// Root widget for the robot-notes Flutter client.
@@ -207,7 +232,7 @@ class _AppShellState extends State<_AppShell> {
   Future<void> _createNote() async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final note = await _api.createNote(title: '', content: '');
+      final note = await createBlankNote(_api);
       if (!mounted) return;
       await _openNote(note.id);
     } on ApiException catch (e) {
