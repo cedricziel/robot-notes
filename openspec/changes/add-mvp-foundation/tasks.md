@@ -52,12 +52,12 @@
 
 ## 7. Frontmatter parser
 
-- [ ] 7.1 Write failing test: parse a file with `---` frontmatter returns map + body
-- [ ] 7.2 Write failing test: parse a file without frontmatter returns empty map + full body
-- [ ] 7.3 Write failing test: malformed frontmatter throws a typed exception
-- [ ] 7.4 Write failing test: serialize map + body produces a round-trippable file
-- [ ] 7.5 Write failing test: round-trip preserves unknown keys in stable order
-- [ ] 7.6 Implement frontmatter parse/serialize using `package:yaml` + a thin wrapper
+- [x] 7.1 Write failing test: parse a file with `---` frontmatter returns map + body
+- [x] 7.2 Write failing test: parse a file without frontmatter returns empty map + full body
+- [x] 7.3 Write failing test: malformed frontmatter throws a typed exception
+- [x] 7.4 Write failing test: serialize map + body produces a round-trippable file
+- [x] 7.5 Write failing test: round-trip preserves unknown keys in stable order
+- [x] 7.6 Implement frontmatter parse/serialize using `package:yaml` + a thin wrapper
 
 ## 8. Storage primitives
 
