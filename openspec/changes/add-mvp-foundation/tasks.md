@@ -100,12 +100,12 @@
 
 ## 11. Notes API routes (HTTP)
 
-- [ ] 11.1 Write failing test: `GET /notes` returns paginated metadata, default limit 50
-- [ ] 11.2 Write failing test: `GET /notes?limit=200` is allowed; `limit=201` is clamped to 200
-- [ ] 11.3 Write failing test: cursor pagination returns subsequent pages and final page has `next_cursor: null`
-- [ ] 11.4 Write failing test: list items omit `content` field
-- [ ] 11.5 Write failing test: `POST /notes` with valid body returns 201 and full record with `version: 1`
-- [ ] 11.6 Write failing test: `POST /notes` with empty/missing title returns 400
+- [x] 11.1 Write failing test: `GET /notes` returns paginated metadata, default limit 50
+- [x] 11.2 Write failing test: `GET /notes?limit=200` is allowed; `limit=201` is clamped to 200
+- [x] 11.3 Write failing test: cursor pagination returns subsequent pages and final page has `next_cursor: null`
+- [x] 11.4 Write failing test: list items omit `content` field
+- [x] 11.5 Write failing test: `POST /notes` with valid body returns 201 and full record with `version: 1`
+- [x] 11.6 Write failing test: `POST /notes` with empty/missing title returns 400
 - [ ] 11.7 Write failing test: `GET /notes/{id}` returns 200 with full record
 - [ ] 11.8 Write failing test: `GET /notes/{id}` returns 404 with `{error:"not_found"}` for unknown id
 - [ ] 11.9 Write failing test: `GET /notes/{id}` includes `lock` when locked
