@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 
 import 'lib/src/config.dart';
+import 'lib/src/config_holder.dart';
 
 /// Custom Dart Frog entrypoint hook.
 ///
@@ -27,6 +28,7 @@ Future<HttpServer> run(
     exit: exit,
     printErr: stderr.writeln,
   );
+  setConfig(config);
 
   final effectivePort = _portFromEnvOverride(config.port, port);
   return serve(handler, ip, effectivePort);

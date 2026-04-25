@@ -29,14 +29,14 @@
 
 ## 4. Auth middleware
 
-- [ ] 4.1 Write failing test: request with no Authorization header → 401 JSON `{error:"unauthorized"}`
-- [ ] 4.2 Write failing test: request with malformed Authorization → 401
-- [ ] 4.3 Write failing test: request with mismatched bearer key → 401
-- [ ] 4.4 Write failing test: request with correct bearer key proceeds to handler
-- [ ] 4.5 Write failing test: `GET /healthz` returns 200 without any auth header
-- [ ] 4.6 Write failing test: comparison is constant-time (use a property test or timing-leak guard)
-- [ ] 4.7 Implement bearer-key middleware to make tests pass
-- [ ] 4.8 Register middleware globally with `/healthz` exempted
+- [x] 4.1 Write failing test: request with no Authorization header → 401 JSON `{error:"unauthorized"}`
+- [x] 4.2 Write failing test: request with malformed Authorization → 401
+- [x] 4.3 Write failing test: request with mismatched bearer key → 401
+- [x] 4.4 Write failing test: request with correct bearer key proceeds to handler
+- [x] 4.5 Write failing test: `GET /healthz` returns 200 without any auth header
+- [x] 4.6 Write failing test: comparison is constant-time (use a property test or timing-leak guard)
+- [x] 4.7 Implement bearer-key middleware to make tests pass
+- [x] 4.8 Register middleware globally with `/healthz` exempted
 
 ## 5. Actor identity middleware
 
