@@ -11,9 +11,6 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - "area:server"
     groups:
       server-minor-and-patch:
         update-types: [minor, patch]
@@ -24,9 +21,6 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - "area:app"
     groups:
       app-minor-and-patch:
         update-types: [minor, patch]
@@ -37,9 +31,6 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 3
-    labels:
-      - dependencies
-      - "area:shared"
     groups:
       shared-minor-and-patch:
         update-types: [minor, patch]
@@ -50,9 +41,6 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - "area:ci"
     groups:
       actions-minor-and-patch:
         update-types: [minor, patch]
@@ -63,10 +51,6 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 3
-    labels:
-      - dependencies
-      - "area:server"
-      - "area:docker"
     groups:
       docker-minor-and-patch:
         update-types: [minor, patch]
