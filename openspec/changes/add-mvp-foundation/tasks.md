@@ -291,11 +291,11 @@
 
 ## 25. Search view
 
-- [ ] 25.1 Write failing widget test: typing triggers a debounced `GET /search` after ~250ms
-- [ ] 25.2 Write failing widget test: emptying input clears results and issues no request
-- [ ] 25.3 Write failing widget test: `<mark>` markers in snippets are visually highlighted
-- [ ] 25.4 Write failing widget test: tapping a result navigates to the note view
-- [ ] 25.5 Implement search view
+- [x] 25.1 Write failing widget test: typing triggers a debounced `GET /search` after ~250ms
+- [x] 25.2 Write failing widget test: emptying input clears results and issues no request
+- [x] 25.3 Write failing widget test: `<mark>` markers in snippets are visually highlighted
+- [x] 25.4 Write failing widget test: tapping a result navigates to the note view
+- [x] 25.5 Implement search view
 
 ## 26. Conventional commits enforcement
 
