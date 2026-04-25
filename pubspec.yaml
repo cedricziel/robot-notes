@@ -18,3 +18,8 @@ dev_dependencies:
 dart_pre_commit:
   format: null
   analyze: null
+  outdated:
+    # sqlite3 3.0.0 swapped DynamicLibrary loading for build hooks. Our
+    # runtime image dlopens libsqlite3 from apt, so we deliberately stay
+    # on the 2.x line — see server/pubspec.yaml.
+    allowed: [sqlite3]

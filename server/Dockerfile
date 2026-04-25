@@ -35,7 +35,7 @@
 #     -H "Accept: application/vnd.oci.image.index.v1+json" \
 #     https://ghcr.io/v2/cirruslabs/flutter/manifests/<TAG> \
 #     | grep -i docker-content-digest
-FROM --platform=$BUILDPLATFORM ghcr.io/cirruslabs/flutter:3.27.0@sha256:3aa235f10b9700466ee5fc92ece03e867c336168ead60ef7449480a38c6cd92e AS web-builder
+FROM --platform=$BUILDPLATFORM ghcr.io/cirruslabs/flutter:3.41.6@sha256:2e5918c0681a1599ca6bf9a4c0a4f78d39e450da673d063a13968265aa87c210 AS web-builder
 
 WORKDIR /workspace
 
