@@ -116,10 +116,13 @@ jobs:
     name: Build web bundle
     needs: [resolve-tag]
     # resolve-tag uses `if: always()` so it can run when release-please was
-    # skipped (workflow_dispatch with a tag input). The default
-    # `if: success()` on this job sees a skipped transitive dep and skips
-    # itself, so we gate explicitly on resolve-tag's output instead.
-    if: needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
+    # skipped (workflow_dispatch with a tag input). Without `always()` here
+    # GitHub Actions propagates "skipped" through the transitive chain
+    # (release-please → resolve-tag → web) regardless of an explicit `if:`
+    # — a status-check function must appear in the condition for GitHub to
+    # evaluate it instead of inheriting the skip. See:
+    # https://docs.github.com/en/actions/using-jobs/using-conditions-to-control-job-execution
+    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,7 +151,7 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     needs: [resolve-tag, web]
-    if: needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
+    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -236,7 +239,7 @@ jobs:
   manifest:
     name: Merge manifests
     needs: [resolve-tag, build]
-    if: needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
+    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
