@@ -1,0 +1,24 @@
+name: app
+description: >-
+  Flutter multi-platform client for robot-notes. Lists, reads, edits, locks,
+  and searches notes against the server API; streams presence/lock/changed
+  events over a WebSocket. Builds for Android, iOS, macOS, Windows, Linux,
+  and Web from a single codebase.
+publish_to: none
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.24.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared:
+    path: ../shared
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

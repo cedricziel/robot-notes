@@ -1,0 +1,19 @@
+name: server
+description: >-
+  Dart Frog server for robot-notes. Authenticates a request, persists notes
+  as markdown files on disk, indexes them for FTS5 search, and broadcasts
+  presence/lock/changed events over a WebSocket.
+publish_to: none
+
+environment:
+  sdk: ^3.6.0
+
+resolution: workspace
+
+dependencies:
+  shared:
+    path: ../shared
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^6.1.0
