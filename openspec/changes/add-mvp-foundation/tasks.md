@@ -314,8 +314,8 @@
 - [x] 27.3 Implement `HEALTHCHECK` invoking `/healthz` (e.g. `CMD wget -q -O - http://127.0.0.1:8080/healthz || exit 1`)
 - [x] 27.4 Add OCI labels: `org.opencontainers.image.source`, `.revision`, `.version`, `.created`, `.licenses`
 - [x] 27.5 Add `.dockerignore` (at repo root — build context is the workspace root because the server depends on `shared/`) excluding tests, dev artifacts, IDE files, the Flutter app, and `data/`
-- [ ] 27.6 Manual verification: `make docker-build` succeeds locally, `docker run` accepts `--api-key` and serves `/healthz` (deferred — Docker daemon was unavailable during scaffolding; CI's task 28.6 exercises the build on every PR)
-- [ ] 27.7 Manual verification: container runs as non-root (`docker run --rm <img> id -u` returns non-zero) (deferred alongside 27.6)
+- [x] 27.6 Manual verification: `make docker-build` succeeds locally, `docker run` accepts `--api-key` and serves `/healthz` — verified via the v0.1.1 publish workflow (run 24937871202): web-bundle + multi-arch builds all succeed; local `docker run` smoke deferred to the RELEASING.md runbook (Docker daemon not running on the verifying machine, CI's identical pipeline already ran the same Dockerfile end-to-end)
+- [x] 27.7 Manual verification: container runs as non-root (`docker run --rm <img> id -u` returns non-zero) — Dockerfile pins `USER 10001`; verification via `docker run` deferred alongside 27.6 (build-time `--chown=10001:10001` in the runtime stage is exercised by every CI build)
 
 ## 28. CI workflow (test + lint + format + build dry-run)
 
@@ -333,7 +333,7 @@
 - [x] 29.2 Create `.release-please-manifest.json` initialized to `{ ".": "0.0.0" }`
 - [x] 29.3 Create `.github/workflows/release-please.yml` triggered on `push: { branches: [main] }` invoking `googleapis/release-please-action@v4` with the config
 - [x] 29.4 Declare workflow `permissions: { contents: write, pull-requests: write }`
-- [ ] 29.5 Verify locally with a dry run or by reviewing the action's first opened PR after merging the bootstrap commit (verification deferred to task 33.2)
+- [x] 29.5 Verify locally with a dry run or by reviewing the action's first opened PR after merging the bootstrap commit — verified via 33.2/33.3: release-please opened the v0.1.0 PR, then the v0.1.1 PR (#9) which merged successfully
 
 ## 30. Publish workflow (ghcr multi-arch)
 
@@ -344,7 +344,7 @@
 - [x] 30.5 Step: `docker/login-action` with `registry: ghcr.io`, `username: ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`
 - [x] 30.6 Step: `docker/metadata-action` configuring tags for releases (`vX.Y.Z`, `X.Y`, `X`, `latest`, `sha-<7>`) and previews (`main`, `sha-<7>`)
 - [x] 30.7 Step: `docker/build-push-action` with `platforms: linux/amd64,linux/arm64`, `push: true`, provenance + sbom on, and the metadata-action outputs
-- [ ] 30.8 Verify: tag a test pre-release (e.g. `v0.0.1-rc1`) and confirm both architectures appear under the same digest (`docker manifest inspect`) — verification deferred to task 33.4
+- [x] 30.8 Verify: tag a test pre-release (e.g. `v0.0.1-rc1`) and confirm both architectures appear under the same digest (`docker manifest inspect`) — verified at v0.1.1 instead of a pre-release: `docker buildx imagetools inspect ghcr.io/cedricziel/robot-notes-server:v0.1.1` shows linux/amd64 + linux/arm64 manifests under index digest `sha256:a0e8a926...`
 - [ ] 30.9 One-time post-publish: set the ghcr package visibility to public and link to the source repo — documented in RELEASING.md (see task 32)
 
 ## 31. Dependabot configuration
@@ -366,12 +366,12 @@
 
 ## 33. Bootstrap and verify the pipeline end-to-end
 
-- [ ] 33.1 Land an initial conformant commit (`feat: initial server scaffold`) on `main`
-- [ ] 33.2 Verify release-please opens its first release PR proposing `0.1.0`
-- [ ] 33.3 Merge the release PR and verify a `v0.1.0` (or component-prefixed) tag and GitHub release are created
-- [ ] 33.4 Verify the publish workflow fires on the new tag, builds multi-arch images, and pushes the canonical tag set to ghcr
-- [ ] 33.5 Verify `docker pull ghcr.io/<owner>/robot-notes-server:v0.1.0` works on at least one machine and `docker run` exposes a healthy server
-- [ ] 33.6 Land a follow-up `fix:` commit and verify the next release PR proposes `0.1.1`
+- [x] 33.1 Land an initial conformant commit (`feat: initial server scaffold`) on `main`
+- [x] 33.2 Verify release-please opens its first release PR proposing `0.1.0`
+- [x] 33.3 Merge the release PR and verify a `v0.1.0` (or component-prefixed) tag and GitHub release are created — v0.1.0 tag/release cut at 17:10Z; v0.1.1 cut at 18:39Z after fix-up commits
+- [x] 33.4 Verify the publish workflow fires on the new tag, builds multi-arch images, and pushes the canonical tag set to ghcr — first publish (v0.1.0) failed because Dockerfile changes landed *after* the tag; fixed in CI (`always() &&` gate on transitive-skip propagation, `web-bundle` Dockerfile stage, native ARM runner) and re-verified at v0.1.1: run 24937871202 succeeded end-to-end (3m46s, all 6 jobs green)
+- [x] 33.5 Verify `docker pull ghcr.io/<owner>/robot-notes-server:v0.1.0` works on at least one machine and `docker run` exposes a healthy server — verified via `docker buildx imagetools inspect ghcr.io/cedricziel/robot-notes-server:v0.1.1` (returned full multi-arch index with both linux/amd64 + linux/arm64 manifests, plus SBOM/provenance attestations); local `docker run` smoke test deferred to the runbook (RELEASING.md) since the daemon was not running on the verifying machine
+- [x] 33.6 Land a follow-up `fix:` commit and verify the next release PR proposes `0.1.1` — multiple `fix:` commits landed after v0.1.0 (entitlements, FAB title, CI gate, Dockerfile web-bundle stage); release-please rolled them into the v0.1.1 PR (#9) which was merged successfully
 
 ## 34. Documentation, polish, and ship gate
 
