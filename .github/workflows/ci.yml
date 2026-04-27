@@ -68,7 +68,7 @@ jobs:
       # the build context is the repo root because the server depends on
       # the shared/ workspace package via path dependency.
       - name: Build server image (linux/amd64, no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: server/Dockerfile
