@@ -83,13 +83,17 @@ class _BootstrapState extends State<_Bootstrap> {
   }
 
   void _onConfigured(AppConfig config) {
-    setState(() => _initial = Future<AppConfig?>.value(config));
+    setState(() {
+      _initial = Future<AppConfig?>.value(config);
+    });
   }
 
   Future<void> _reset() async {
     await _store.clear();
     if (!mounted) return;
-    setState(() => _initial = Future<AppConfig?>.value(null));
+    setState(() {
+      _initial = Future<AppConfig?>.value(null);
+    });
   }
 
   @override
