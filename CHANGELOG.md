@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/cedricziel/robot-notes/compare/v0.1.1...v0.1.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* **app:** don't return a Future from _BootstrapState setState callbacks ([3f1ed81](https://github.com/cedricziel/robot-notes/commit/3f1ed8196920d50c8f814c076d592ca134704227))
+* **app:** grant keychain-access-groups entitlement so secure storage works ([d1b9e31](https://github.com/cedricziel/robot-notes/commit/d1b9e31ad18ad0234877fff174f1a48241d6ef85))
+
 ## [0.1.1](https://github.com/cedricziel/robot-notes/compare/v0.1.0...v0.1.1) (2026-04-25)
 
 
