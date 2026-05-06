@@ -78,7 +78,7 @@ COPY --from=web-builder /workspace/app/build/web/ /
 # ---------------------------------------------------------------------------
 # Server builder
 # ---------------------------------------------------------------------------
-FROM dart:3.11.5-sdk@sha256:44f6f9d3f09e503b1624a7ab3e6e03ccae88503bc5a7abf67eefe6a96d1d9949 AS builder
+FROM dart:3.11.5-sdk@sha256:03b628160f6906098352a6d9c97a147afaa28cf4af97cb588aa33655d6ec3125 AS builder
 
 ENV PATH="/root/.pub-cache/bin:${PATH}"
 
