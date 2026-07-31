@@ -13,7 +13,7 @@ workspace:
   - app
 
 dev_dependencies:
-  dart_pre_commit: ^6.1.2
+  dart_pre_commit: ^6.1.3
 
 dart_pre_commit:
   format: null
