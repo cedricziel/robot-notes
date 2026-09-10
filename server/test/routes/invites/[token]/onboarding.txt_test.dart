@@ -99,6 +99,11 @@ void main() {
       expect(body, contains('orbit-bot'));
       expect(body, contains('http://localhost:8080'));
       expect(body, contains(invite.token));
+      expect(
+        body,
+        contains('ROBOT_NOTES_MCP_URL=http://localhost:8080/mcp'),
+      );
+      expect(body, contains('/mcp'));
 
       // Underlying invite is now burned.
       final reloaded = await store.get(invite.token);
