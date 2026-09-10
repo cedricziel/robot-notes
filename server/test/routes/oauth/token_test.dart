@@ -200,6 +200,61 @@ void main() {
       expect(lookup, isNull);
     });
 
+    test(
+        'a concurrent replay of the same code yields exactly one success '
+        'and the winning grant is revoked', () async {
+      final client = await registerPublic();
+      final code = await mintCode(client);
+      final form = _formEncode({
+        'grant_type': 'authorization_code',
+        'client_id': client.client.clientId,
+        'code': code,
+        'redirect_uri': 'https://agent.example/callback',
+        'code_verifier': _verifier,
+      });
+
+      final results = await Future.wait([
+        route.onRequest(
+          _ctx(
+            clientStore: clientStore,
+            codeStore: codeStore,
+            tokenStore: tokenStore,
+            formBody: form,
+          ),
+        ),
+        route.onRequest(
+          _ctx(
+            clientStore: clientStore,
+            codeStore: codeStore,
+            tokenStore: tokenStore,
+            formBody: form,
+          ),
+        ),
+      ]);
+
+      final statuses = results.map((r) => r.statusCode).toList()..sort();
+      expect(statuses, [HttpStatus.ok, HttpStatus.badRequest]);
+
+      final success = results.singleWhere(
+        (r) => r.statusCode == HttpStatus.ok,
+      );
+      final failure = results.singleWhere(
+        (r) => r.statusCode == HttpStatus.badRequest,
+      );
+      final failureJson = await failure.json() as Map<String, dynamic>;
+      expect(failureJson['error'], 'invalid_grant');
+
+      final successJson = await success.json() as Map<String, dynamic>;
+      final accessToken = successJson['access_token'] as String;
+      final lookup = await tokenStore.lookupAccess(accessToken);
+      expect(
+        lookup,
+        isNull,
+        reason: "the winning exchange's tokens must be revoked once the "
+            'replay is detected, even though they were already issued',
+      );
+    });
+
     test('expired code is rejected', () async {
       final client = await registerPublic();
       final code = await mintCode(client);

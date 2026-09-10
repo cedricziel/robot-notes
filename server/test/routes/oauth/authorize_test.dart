@@ -302,7 +302,7 @@ void main() {
 
       final location = Uri.parse(res.headers[HttpHeaders.locationHeader]!);
       final code = location.queryParameters['code']!;
-      final record = await codeStore.consume(code);
+      final record = await codeStore.consume(code, (code) async => code);
       expect(record.actor, 'Desk Assistant');
     });
 

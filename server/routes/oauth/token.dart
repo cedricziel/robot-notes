@@ -60,33 +60,39 @@ Future<Response> _exchangeCode(
     return oauthError(HttpStatus.badRequest, 'invalid_request');
   }
 
-  final AuthorizationCode record;
+  final requestedResource = form['resource'];
+
+  // Validation and token issuance both run inside the callback, while
+  // CodeStore still holds the per-code mutex. That closes a race where a
+  // concurrent replay of the same code could call `revokeGrant` (below)
+  // before this exchange's tokens exist, leaving them live: the replay
+  // now blocks until this callback — including `TokenStore.issue` — has
+  // fully finished.
   try {
-    record = await context.read<CodeStore>().consume(code);
+    return await context.read<CodeStore>().consume(code, (record) async {
+      final mismatched = record.clientId != client.clientId ||
+          record.redirectUri != redirectUri ||
+          !pkceVerify(challenge: record.codeChallenge, verifier: verifier) ||
+          (requestedResource != null && requestedResource != record.resource);
+      if (mismatched) {
+        return oauthError(HttpStatus.badRequest, 'invalid_grant');
+      }
+
+      final issued = await context.read<TokenStore>().issue(
+            clientId: client.clientId,
+            actor: record.actor,
+            scopes: record.scopes,
+            resource: record.resource,
+            grantId: record.grantId,
+          );
+      return _tokenResponse(issued);
+    });
   } on CodeReusedException catch (e) {
     await context.read<TokenStore>().revokeGrant(e.grantId);
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on CodeNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   }
-
-  final requestedResource = form['resource'];
-  final mismatched = record.clientId != client.clientId ||
-      record.redirectUri != redirectUri ||
-      !pkceVerify(challenge: record.codeChallenge, verifier: verifier) ||
-      (requestedResource != null && requestedResource != record.resource);
-  if (mismatched) {
-    return oauthError(HttpStatus.badRequest, 'invalid_grant');
-  }
-
-  final issued = await context.read<TokenStore>().issue(
-        clientId: client.clientId,
-        actor: record.actor,
-        scopes: record.scopes,
-        resource: record.resource,
-        grantId: record.grantId,
-      );
-  return _tokenResponse(issued);
 }
 
 Future<Response> _refresh(
