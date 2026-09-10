@@ -148,6 +148,52 @@ void main() {
     expect(res.statusCode, HttpStatus.ok);
   });
 
+  test("a client cannot revoke another client's token (RFC 7009 §2.1)",
+      () async {
+    final clientA = await clientStore.register(
+      clientName: 'Client A',
+      redirectUris: ['https://a.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['authorization_code', 'refresh_token'],
+      responseTypes: ['code'],
+    );
+    final clientB = await clientStore.register(
+      clientName: 'Client B',
+      redirectUris: ['https://b.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['authorization_code', 'refresh_token'],
+      responseTypes: ['code'],
+    );
+    final issuedForB = await tokenStore.issue(
+      clientId: clientB.client.clientId,
+      actor: 'desk-assistant',
+      scopes: {'notes:read', 'notes:write'},
+      resource: 'http://localhost/mcp',
+      grantId: 'grant-b',
+    );
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'client_id': clientA.client.clientId,
+          'token': issuedForB.refreshToken,
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.ok);
+    final accessLookup = await tokenStore.lookupAccess(
+      issuedForB.accessToken,
+    );
+    expect(accessLookup, isNotNull);
+    final refreshLookup = await tokenStore.lookupRefresh(
+      issuedForB.refreshToken,
+    );
+    expect(refreshLookup, isNotNull);
+  });
+
   test('a bad client is 401', () async {
     final res = await route.onRequest(
       _ctx(

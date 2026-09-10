@@ -255,9 +255,14 @@ class TokenStore {
   /// Revokes [raw]. An access token is revoked alone; a refresh token
   /// cascades to [revokeGrant] for its whole family. A no-op when [raw]
   /// is unknown.
-  Future<void> revokeToken(String raw) async {
+  ///
+  /// When [clientId] is supplied, it SHALL match the token's own
+  /// `client_id` or this is a no-op: RFC 7009 §2.1 allows a client to
+  /// revoke only tokens it was issued itself.
+  Future<void> revokeToken(String raw, {String? clientId}) async {
     final record = await _readByRaw(raw);
     if (record == null) return;
+    if (clientId != null && record.clientId != clientId) return;
     if (record.kind == OAuthTokenKind.refresh) {
       await revokeGrant(record.grantId);
       return;
