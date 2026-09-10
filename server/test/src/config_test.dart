@@ -178,6 +178,132 @@ void main() {
         throwsA(isA<ConfigError>()),
       );
     });
+
+    test('publicUrl is null when unset', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x'],
+        env: const {},
+      );
+      expect(config.publicUrl, isNull);
+    });
+
+    test('--public-url populates publicUrl without trailing slash', () {
+      final config = Config.fromArgs(
+        const [
+          '--api-key',
+          'rn_x',
+          '--public-url',
+          'https://notes.example.com',
+        ],
+        env: const {},
+      );
+      expect(config.publicUrl, 'https://notes.example.com');
+    });
+
+    test('--public-url strips a bare trailing slash path', () {
+      final config = Config.fromArgs(
+        const [
+          '--api-key',
+          'rn_x',
+          '--public-url',
+          'https://notes.example.com/',
+        ],
+        env: const {},
+      );
+      expect(config.publicUrl, 'https://notes.example.com');
+    });
+
+    test('ROBOT_NOTES_PUBLIC_URL env var populates publicUrl', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x'],
+        env: const {'ROBOT_NOTES_PUBLIC_URL': 'http://10.0.0.5:8080'},
+      );
+      expect(config.publicUrl, 'http://10.0.0.5:8080');
+    });
+
+    test('--public-url CLI flag wins over env var', () {
+      final config = Config.fromArgs(
+        const [
+          '--api-key',
+          'rn_x',
+          '--public-url',
+          'https://cli.example.com',
+        ],
+        env: const {'ROBOT_NOTES_PUBLIC_URL': 'https://env.example.com'},
+      );
+      expect(config.publicUrl, 'https://cli.example.com');
+    });
+
+    test('rejects --public-url with a path', () {
+      expect(
+        () => Config.fromArgs(
+          const ['--api-key', 'rn_x', '--public-url', 'notes.example.com/app'],
+          env: const {},
+        ),
+        throwsA(
+          isA<ConfigError>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('--public-url'), contains('ROBOT_NOTES_PUBLIC_URL')),
+          ),
+        ),
+      );
+    });
+
+    test('rejects --public-url with a query string', () {
+      expect(
+        () => Config.fromArgs(
+          const [
+            '--api-key',
+            'rn_x',
+            '--public-url',
+            'https://notes.example.com?x=1',
+          ],
+          env: const {},
+        ),
+        throwsA(isA<ConfigError>()),
+      );
+    });
+
+    test('rejects --public-url with a fragment', () {
+      expect(
+        () => Config.fromArgs(
+          const [
+            '--api-key',
+            'rn_x',
+            '--public-url',
+            'https://notes.example.com#frag',
+          ],
+          env: const {},
+        ),
+        throwsA(isA<ConfigError>()),
+      );
+    });
+
+    test('rejects --public-url missing a scheme', () {
+      expect(
+        () => Config.fromArgs(
+          const ['--api-key', 'rn_x', '--public-url', 'notes.example.com'],
+          env: const {},
+        ),
+        throwsA(isA<ConfigError>()),
+      );
+    });
+
+    test('rejects --public-url with a non-http(s) scheme', () {
+      expect(
+        () => Config.fromArgs(
+          const [
+            '--api-key',
+            'rn_x',
+            '--public-url',
+            'ftp://notes.example.com',
+          ],
+          env: const {},
+        ),
+        throwsA(isA<ConfigError>()),
+      );
+    });
   });
 
   group('Config.loadOrExit', () {
