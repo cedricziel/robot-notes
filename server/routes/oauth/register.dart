@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:meta/meta.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/oauth_response.dart';
 
@@ -15,6 +16,12 @@ const List<String> _kSupportedGrantTypes = [
 ];
 const List<String> _kSupportedResponseTypes = ['code'];
 const List<String> _kLoopbackHosts = ['localhost', '127.0.0.1', '::1'];
+
+/// Bounds on registrant-supplied fields, to keep a single malicious or
+/// buggy registration from writing an unreasonably large client record.
+const int _kMaxClientNameLength = 256;
+const int _kMaxRedirectUris = 10;
+const int _kMaxRedirectUriLength = 2048;
 
 /// `POST /oauth/register` — Dynamic Client Registration (RFC 7591). Mints
 /// a public or confidential client from an unauthenticated JSON request.
@@ -36,9 +43,10 @@ Future<Response> onRequest(RequestContext context) async {
     return oauthError(HttpStatus.badRequest, 'invalid_client_metadata');
   }
 
-  final redirectUris = _validateRedirectUris(raw['redirect_uris']);
+  final redirectUrisResult = _validateRedirectUris(raw['redirect_uris']);
+  final redirectUris = redirectUrisResult.uris;
   if (redirectUris == null) {
-    return oauthError(HttpStatus.badRequest, 'invalid_redirect_uri');
+    return oauthError(HttpStatus.badRequest, redirectUrisResult.error!);
   }
 
   final authMethod = (raw['token_endpoint_auth_method'] as String?) ?? 'none';
@@ -65,10 +73,13 @@ Future<Response> onRequest(RequestContext context) async {
   }
 
   final clientNameRaw = raw['client_name'];
+  if (clientNameRaw is String && clientNameRaw.length > _kMaxClientNameLength) {
+    return oauthError(HttpStatus.badRequest, 'invalid_client_metadata');
+  }
   final clientName =
       (clientNameRaw is String && clientNameRaw.trim().isNotEmpty)
           ? clientNameRaw.trim()
-          : 'Unnamed client';
+          : 'mcp-client';
 
   final store = context.read<ClientStore>();
   final registered = await store.register(
@@ -100,19 +111,47 @@ Future<Response> onRequest(RequestContext context) async {
   );
 }
 
-List<String>? _validateRedirectUris(Object? raw) {
-  if (raw is! List || raw.isEmpty) return null;
+/// Outcome of [_validateRedirectUris]: either the validated list, or the
+/// OAuth error code the caller should report. Kept distinct from a plain
+/// nullable return because a too-long list or URI is reported as
+/// `invalid_client_metadata`, while every other defect is
+/// `invalid_redirect_uri`.
+@immutable
+class _RedirectUrisResult {
+  const _RedirectUrisResult.ok(this.uris) : error = null;
+  const _RedirectUrisResult.error(this.error) : uris = null;
+
+  final List<String>? uris;
+  final String? error;
+}
+
+_RedirectUrisResult _validateRedirectUris(Object? raw) {
+  if (raw is! List || raw.isEmpty) {
+    return const _RedirectUrisResult.error('invalid_redirect_uri');
+  }
+  if (raw.length > _kMaxRedirectUris) {
+    return const _RedirectUrisResult.error('invalid_client_metadata');
+  }
   final uris = <String>[];
   for (final entry in raw) {
-    if (entry is! String) return null;
+    if (entry is! String) {
+      return const _RedirectUrisResult.error('invalid_redirect_uri');
+    }
+    if (entry.length > _kMaxRedirectUriLength) {
+      return const _RedirectUrisResult.error('invalid_client_metadata');
+    }
     final uri = Uri.tryParse(entry);
-    if (uri == null || !uri.isAbsolute) return null;
+    if (uri == null || !uri.isAbsolute) {
+      return const _RedirectUrisResult.error('invalid_redirect_uri');
+    }
     final allowed = uri.scheme == 'https' ||
         (uri.scheme == 'http' && _kLoopbackHosts.contains(uri.host));
-    if (!allowed) return null;
+    if (!allowed) {
+      return const _RedirectUrisResult.error('invalid_redirect_uri');
+    }
     uris.add(entry);
   }
-  return uris;
+  return _RedirectUrisResult.ok(uris);
 }
 
 /// Validates that [raw] (defaulting to [fallback] when absent) is a list
