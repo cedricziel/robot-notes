@@ -22,5 +22,21 @@ void main() {
       expect(Routes.invite(tok), '/invites/$tok');
       expect(Routes.inviteOnboarding(tok), '/invites/$tok/onboarding.txt');
     });
+
+    test('exposes the MCP and OAuth paths', () {
+      expect(Routes.mcp, '/mcp');
+      expect(Routes.oauthRegister, '/oauth/register');
+      expect(Routes.oauthAuthorize, '/oauth/authorize');
+      expect(Routes.oauthToken, '/oauth/token');
+      expect(Routes.oauthRevoke, '/oauth/revoke');
+      expect(
+        Routes.wellKnownProtectedResource,
+        '/.well-known/oauth-protected-resource',
+      );
+      expect(
+        Routes.wellKnownAuthorizationServer,
+        '/.well-known/oauth-authorization-server',
+      );
+    });
   });
 }

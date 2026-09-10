@@ -6,6 +6,15 @@ abstract final class Routes {
   static const String search = '/search';
   static const String ws = '/ws';
   static const String invites = '/invites';
+  static const String mcp = '/mcp';
+  static const String oauthRegister = '/oauth/register';
+  static const String oauthAuthorize = '/oauth/authorize';
+  static const String oauthToken = '/oauth/token';
+  static const String oauthRevoke = '/oauth/revoke';
+  static const String wellKnownProtectedResource =
+      '/.well-known/oauth-protected-resource';
+  static const String wellKnownAuthorizationServer =
+      '/.well-known/oauth-authorization-server';
 
   static String note(String id) => '/notes/$id';
   static String noteLock(String id) => '/notes/$id/lock';
