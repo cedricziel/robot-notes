@@ -1,17 +1,17 @@
 ## 1. Public base URL and OAuth discovery (PR 1)
 
-- [ ] 1.1 Write failing tests in `server/test/src/config_test.dart`: `--public-url` and `ROBOT_NOTES_PUBLIC_URL` resolve into `Config.publicUrl`; values with a path, query, fragment, missing scheme, or non-http(s) scheme throw `ConfigError` naming both mechanisms; unset yields `null`
-- [ ] 1.2 Implement `Config.publicUrl` (flag, env, validation, usage line) so 1.1 passes; run `cd server && dart test test/src/config_test.dart`
-- [ ] 1.3 Write failing tests in `server/test/src/public_url_test.dart`: resolver returns the configured URL when set; otherwise `X-Forwarded-Proto` + `Host`; otherwise request scheme + `Host`; result never ends with `/`
-- [ ] 1.4 Implement `lib/src/public_url.dart` (`publicBaseUrl(RequestContext)` and `mcpResourceUrl(base)`) so 1.3 passes
-- [ ] 1.5 Switch `routes/invites/index.dart` to the resolver; verify `dart test test/routes/invites` still passes and add one case where a configured public URL changes the invite URL host
-- [ ] 1.6 Add `Routes.mcp`, `Routes.oauthRegister`, `Routes.oauthAuthorize`, `Routes.oauthToken`, `Routes.oauthRevoke`, `Routes.wellKnownProtectedResource`, `Routes.wellKnownAuthorizationServer` to `shared/lib/src/routes.dart` with a failing-then-passing test in `shared/test/routes_test.dart`
-- [ ] 1.7 Write failing tests in `server/test/src/well_known_middleware_test.dart` covering the three discovery paths (fields per the `oauth-authorization` spec), 200 without auth, 404 for other `/.well-known/` paths, and pass-through for unrelated paths
-- [ ] 1.8 Implement `lib/src/oauth/metadata.dart` (pure builders for both documents) and `lib/src/well_known_middleware.dart`; wire it into `routes/_middleware.dart` and `test/integration/_test_app.dart` so 1.7 passes
-- [ ] 1.9 Write failing tests in `server/test/src/auth_middleware_test.dart`: `/oauth/register|authorize|token|revoke`, `/.well-known/oauth-*`, and `/mcp` are exempt from the static key; `/keys`, `/rotate`, `/auth/rotate` still 404 through the app; a made-up `/oauthx` is still 401
-- [ ] 1.10 Extend `bearerAuth` exemptions so 1.9 passes
-- [ ] 1.11 Write failing test in `server/test/src/static_web_middleware_test.dart`: with a web dir, `/mcp`, `/oauth/token`, `/.well-known/oauth-authorization-server` pass through; then add the prefixes so it passes
-- [ ] 1.12 Run `dart format .`, `dart analyze`, `cd server && dart test`, `cd shared && dart test`; commit as `feat(server): add public base URL and OAuth discovery documents`
+- [x] 1.1 Write failing tests in `server/test/src/config_test.dart`: `--public-url` and `ROBOT_NOTES_PUBLIC_URL` resolve into `Config.publicUrl`; values with a path, query, fragment, missing scheme, or non-http(s) scheme throw `ConfigError` naming both mechanisms; unset yields `null`
+- [x] 1.2 Implement `Config.publicUrl` (flag, env, validation, usage line) so 1.1 passes; run `cd server && dart test test/src/config_test.dart`
+- [x] 1.3 Write failing tests in `server/test/src/public_url_test.dart`: resolver returns the configured URL when set; otherwise `X-Forwarded-Proto` + `Host`; otherwise request scheme + `Host`; result never ends with `/`
+- [x] 1.4 Implement `lib/src/public_url.dart` (`publicBaseUrl(RequestContext)` and `mcpResourceUrl(base)`) so 1.3 passes
+- [x] 1.5 Switch `routes/invites/index.dart` to the resolver; verify `dart test test/routes/invites` still passes and add one case where a configured public URL changes the invite URL host
+- [x] 1.6 Add `Routes.mcp`, `Routes.oauthRegister`, `Routes.oauthAuthorize`, `Routes.oauthToken`, `Routes.oauthRevoke`, `Routes.wellKnownProtectedResource`, `Routes.wellKnownAuthorizationServer` to `shared/lib/src/routes.dart` with a failing-then-passing test in `shared/test/routes_test.dart`
+- [x] 1.7 Write failing tests in `server/test/src/well_known_middleware_test.dart` covering the three discovery paths (fields per the `oauth-authorization` spec), 200 without auth, 404 for other `/.well-known/` paths, and pass-through for unrelated paths
+- [x] 1.8 Implement `lib/src/oauth/metadata.dart` (pure builders for both documents) and `lib/src/well_known_middleware.dart`; wire it into `routes/_middleware.dart` and `test/integration/_test_app.dart` so 1.7 passes
+- [x] 1.9 Write failing tests in `server/test/src/auth_middleware_test.dart`: `/oauth/register|authorize|token|revoke`, `/.well-known/oauth-*`, and `/mcp` are exempt from the static key; `/keys`, `/rotate`, `/auth/rotate` still 404 through the app; a made-up `/oauthx` is still 401
+- [x] 1.10 Extend `bearerAuth` exemptions so 1.9 passes
+- [x] 1.11 Write failing test in `server/test/src/static_web_middleware_test.dart`: with a web dir, `/mcp`, `/oauth/token`, `/.well-known/oauth-authorization-server` pass through; then add the prefixes so it passes
+- [x] 1.12 Run `dart format .`, `dart analyze`, `cd server && dart test`, `cd shared && dart test`; commit as `feat(server): add public base URL and OAuth discovery documents`
 
 ## 2. OAuth stores and PKCE (PR 2)
 

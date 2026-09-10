@@ -11,6 +11,9 @@ const _apiPrefixes = <String>{
   '/notes',
   '/search',
   '/invites',
+  '/mcp',
+  '/oauth',
+  '/.well-known',
 };
 
 /// MIME table covering everything `flutter build web` ships, plus a few
