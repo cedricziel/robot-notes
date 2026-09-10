@@ -625,6 +625,30 @@ void main() {
       expect(json['error'], 'invalid_scope');
     });
 
+    test("an empty scope on refresh keeps the grant's existing scope",
+        () async {
+      final client = await registerPublic();
+      final first = await exchange(client);
+
+      final res = await route.onRequest(
+        _ctx(
+          clientStore: clientStore,
+          codeStore: codeStore,
+          tokenStore: tokenStore,
+          formBody: _formEncode({
+            'grant_type': 'refresh_token',
+            'client_id': client.client.clientId,
+            'refresh_token': first['refresh_token'] as String,
+            'scope': '',
+          }),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final json = await res.json() as Map<String, dynamic>;
+      expect(json['scope'], 'notes:read notes:write');
+    });
+
     test('expired refresh token is rejected', () async {
       final client = await registerPublic();
       final first = await exchange(client);

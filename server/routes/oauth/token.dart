@@ -121,8 +121,13 @@ Future<Response> _refresh(
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   }
 
-  final requestedScopes =
-      form['scope']?.split(' ').where((s) => s.isNotEmpty).toSet();
+  // An empty or whitespace-only `scope` is treated as absent — the grant
+  // keeps its existing scopes — rather than as a request to narrow to no
+  // scopes at all.
+  final scopeParam = form['scope'];
+  final requestedScopes = (scopeParam == null || scopeParam.trim().isEmpty)
+      ? null
+      : scopeParam.split(' ').where((s) => s.isNotEmpty).toSet();
 
   try {
     final issued = await tokenStore.rotateRefresh(
