@@ -136,6 +136,22 @@ void main() {
       expect(res.headers.containsKey(HttpHeaders.locationHeader), isFalse);
     });
 
+    test('a path-traversal client_id does not redirect', () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: validQuery()..['client_id'] = '../../decoy',
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.badRequest);
+      expect(res.headers.containsKey(HttpHeaders.locationHeader), isFalse);
+      final body = await res.body();
+      expect(body, contains('<!doctype html>'));
+    });
+
     test('unknown client_id does not redirect', () async {
       final res = await route.onRequest(
         _ctx(
