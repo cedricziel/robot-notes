@@ -15,6 +15,9 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/lock_manager.dart';
+import 'package:server/src/mcp/mcp_auth_middleware.dart';
+import 'package:server/src/mcp/mcp_handler.dart';
+import 'package:server/src/mcp/tools.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/oauth/client_store.dart';
@@ -25,6 +28,7 @@ import 'package:server/src/storage.dart';
 import 'package:server/src/well_known_middleware.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
+import 'package:shared/shared.dart';
 
 import '../../routes/healthz.dart' as healthz_route;
 import '../../routes/index.dart' as root_index;
@@ -32,6 +36,7 @@ import '../../routes/invites/[token]/index.dart' as invites_token_route;
 import '../../routes/invites/[token]/onboarding.txt.dart'
     as invites_token_onboarding_route;
 import '../../routes/invites/index.dart' as invites_index_route;
+import '../../routes/mcp/index.dart' as mcp_route;
 import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
 import '../../routes/notes/index.dart' as notes_index_route;
@@ -76,6 +81,24 @@ Future<HttpServer> startTestServer({
       .addMiddleware(provider<Storage>((_) => deps.storage))
       .addMiddleware(provider<Clock>((_) => deps.clock));
 
+  // `/mcp` gets its own middleware nesting, mirroring
+  // routes/mcp/_middleware.dart: the McpHandler provider and mcpAuth both
+  // scoped to this one route rather than the shared pipeline above, since
+  // mcpAuth's credential rules (static key OR OAuth access token, no
+  // exemptions) would otherwise apply to every other route too. Unlike
+  // the production middleware, [deps] is captured directly instead of
+  // going through `app_deps_holder`, so parallel test servers do not
+  // share global state.
+  final mcpHandler =
+      ((RequestContext c) => mcp_route.onRequest(c)).use(mcpAuth()).use(
+            provider<McpHandler>(
+              (_) => McpHandler(
+                tools: McpToolRegistry.forDeps(deps),
+                serverVersion: robotNotesVersion,
+              ),
+            ),
+          );
+
   final root = Router()
     ..mount('/notes/<id>/lock', _lockMount)
     ..mount('/notes/<id>', _notesIdMount)
@@ -86,6 +109,7 @@ Future<HttpServer> startTestServer({
     ..all('/healthz', healthz_route.onRequest)
     ..all('/search', search_route.onRequest)
     ..all('/ws', ws_route.onRequest)
+    ..all('/mcp', mcpHandler)
     ..all('/oauth/register', oauth_register_route.onRequest)
     ..all('/oauth/authorize', oauth_authorize_route.onRequest)
     ..all('/oauth/token', oauth_token_route.onRequest)
