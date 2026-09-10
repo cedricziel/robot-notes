@@ -42,6 +42,9 @@ Future<Response> onRequest(RequestContext context) async {
     );
   }
   final client = authResult.client!;
+  if (!client.grantTypes.contains(grantType)) {
+    return oauthError(HttpStatus.badRequest, 'unauthorized_client');
+  }
 
   return grantType == 'authorization_code'
       ? _exchangeCode(context, client: client, form: form)

@@ -406,6 +406,81 @@ void main() {
     expect(json['error'], 'unsupported_grant_type');
   });
 
+  test('a client not registered for authorization_code is unauthorized_client',
+      () async {
+    final client = await clientStore.register(
+      clientName: 'Refresh Only',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['refresh_token'],
+      responseTypes: ['code'],
+    );
+    final code = await mintCode(client);
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'grant_type': 'authorization_code',
+          'client_id': client.client.clientId,
+          'code': code,
+          'redirect_uri': 'https://agent.example/callback',
+          'code_verifier': _verifier,
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'unauthorized_client');
+  });
+
+  test('a client not registered for refresh_token is unauthorized_client',
+      () async {
+    final client = await clientStore.register(
+      clientName: 'Code Only',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['authorization_code'],
+      responseTypes: ['code'],
+    );
+    final code = await mintCode(client);
+    final exchangeRes = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'grant_type': 'authorization_code',
+          'client_id': client.client.clientId,
+          'code': code,
+          'redirect_uri': 'https://agent.example/callback',
+          'code_verifier': _verifier,
+        }),
+      ),
+    );
+    final exchangeJson = await exchangeRes.json() as Map<String, dynamic>;
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'grant_type': 'refresh_token',
+          'client_id': client.client.clientId,
+          'refresh_token': exchangeJson['refresh_token'] as String,
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'unauthorized_client');
+  });
+
   group('grant_type=refresh_token', () {
     Future<Map<String, dynamic>> exchange(RegisteredClient client) async {
       final code = await mintCode(client);
