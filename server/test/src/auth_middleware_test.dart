@@ -211,6 +211,183 @@ void main() {
       );
       expect(response.statusCode, HttpStatus.unauthorized);
     });
+
+    test('GET /.well-known/oauth-protected-resource bypasses auth', () async {
+      final ctx = _ctx(
+        path: '/.well-known/oauth-protected-resource',
+        method: HttpMethod.get,
+      );
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response.json(body: const {'ok': true}),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+    });
+
+    test('GET /.well-known/oauth-protected-resource/mcp bypasses auth',
+        () async {
+      final ctx = _ctx(
+        path: '/.well-known/oauth-protected-resource/mcp',
+        method: HttpMethod.get,
+      );
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response.json(body: const {'ok': true}),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+    });
+
+    test('GET /.well-known/oauth-authorization-server bypasses auth', () async {
+      final ctx = _ctx(
+        path: '/.well-known/oauth-authorization-server',
+        method: HttpMethod.get,
+      );
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response.json(body: const {'ok': true}),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+    });
+
+    test('POST /oauth/register bypasses auth', () async {
+      final ctx = _ctx(path: '/oauth/register', method: HttpMethod.post);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response(statusCode: HttpStatus.created),
+      );
+      expect(response.statusCode, HttpStatus.created);
+    });
+
+    test('GET /oauth/register still requires auth', () async {
+      final ctx = _ctx(path: '/oauth/register', method: HttpMethod.get);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
+    test('GET /oauth/authorize bypasses auth', () async {
+      final ctx = _ctx(path: '/oauth/authorize', method: HttpMethod.get);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response(body: 'consent'),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+    });
+
+    test('POST /oauth/authorize bypasses auth', () async {
+      final ctx = _ctx(path: '/oauth/authorize', method: HttpMethod.post);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response(statusCode: HttpStatus.found),
+      );
+      expect(response.statusCode, HttpStatus.found);
+    });
+
+    test('POST /oauth/token bypasses auth', () async {
+      final ctx = _ctx(path: '/oauth/token', method: HttpMethod.post);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response.json(body: const {'access_token': 'x'}),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+    });
+
+    test('GET /oauth/token still requires auth', () async {
+      final ctx = _ctx(path: '/oauth/token', method: HttpMethod.get);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
+    test('POST /oauth/revoke bypasses auth', () async {
+      final ctx = _ctx(path: '/oauth/revoke', method: HttpMethod.post);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response(),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+    });
+
+    test('every method on /mcp bypasses the static key', () async {
+      for (final method in [
+        HttpMethod.get,
+        HttpMethod.post,
+        HttpMethod.delete,
+        HttpMethod.put,
+        HttpMethod.patch,
+        HttpMethod.head,
+        HttpMethod.options,
+      ]) {
+        final ctx = _ctx(path: '/mcp', method: method);
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+          handlerResponse: Response(body: 'mcp'),
+        );
+        expect(response.statusCode, HttpStatus.ok, reason: '$method');
+      }
+    });
+
+    test('a made-up /oauthx path still requires auth', () async {
+      final ctx = _ctx(path: '/oauthx', method: HttpMethod.get);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
+    test('a made-up /oauth/other path still requires auth', () async {
+      final ctx = _ctx(path: '/oauth/other', method: HttpMethod.post);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
+    test(
+        '/keys, /rotate, /auth/rotate are not exempt but reach the app '
+        'unauthenticated calls still 401', () async {
+      for (final path in ['/keys', '/rotate', '/auth/rotate']) {
+        final ctx = _ctx(path: path, method: HttpMethod.get);
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+        );
+        expect(response.statusCode, HttpStatus.unauthorized, reason: path);
+      }
+    });
+
+    test(
+        '/keys, /rotate, /auth/rotate with a valid key reach the app, '
+        'which 404s (no route registered)', () async {
+      for (final path in ['/keys', '/rotate', '/auth/rotate']) {
+        final ctx = _ctx(
+          path: path,
+          method: HttpMethod.get,
+          headers: {'Authorization': 'Bearer $configured'},
+        );
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+          handlerResponse: Response(statusCode: HttpStatus.notFound),
+        );
+        expect(response.statusCode, HttpStatus.notFound, reason: path);
+      }
+    });
   });
 
   group('debugExtractBearer', () {
