@@ -612,6 +612,43 @@ void main() {
     expect(json.containsKey('refresh_token'), isFalse);
   });
 
+  test(
+      'a client without the refresh_token grant never gets a refresh token '
+      'minted for it, not just one withheld from the response', () async {
+    final client = await clientStore.register(
+      clientName: 'Code Only',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['authorization_code'],
+      responseTypes: ['code'],
+    );
+    final code = await mintCode(client);
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'grant_type': 'authorization_code',
+          'client_id': client.client.clientId,
+          'code': code,
+          'redirect_uri': 'https://agent.example/callback',
+          'code_verifier': _verifier,
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.ok);
+    final tokenFiles =
+        Directory('${tmp.path}/tokens').listSync().whereType<File>().toList();
+    expect(
+      tokenFiles,
+      hasLength(1),
+      reason: 'only the access token should ever be persisted',
+    );
+  });
+
   test('a client not registered for refresh_token is unauthorized_client',
       () async {
     final client = await clientStore.register(

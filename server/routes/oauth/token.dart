@@ -104,11 +104,9 @@ Future<Response> _exchangeCode(
           scopes: record.scopes,
           resource: record.resource,
           grantId: record.grantId,
+          withRefresh: client.grantTypes.contains('refresh_token'),
         );
-        return _tokenResponse(
-          issued,
-          includeRefresh: client.grantTypes.contains('refresh_token'),
-        );
+        return _tokenResponse(issued);
       } on Object {
         await tokenStore.revokeGrant(record.grantId);
         rethrow;
@@ -160,7 +158,7 @@ Future<Response> _refresh(
       refreshToken,
       scopes: requestedScopes,
     );
-    return _tokenResponse(issued, includeRefresh: true);
+    return _tokenResponse(issued);
   } on TokenNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on RefreshReuseException {
@@ -170,14 +168,20 @@ Future<Response> _refresh(
   }
 }
 
-Response _tokenResponse(IssuedTokens issued, {required bool includeRefresh}) {
+// `refresh_token` is included only when `issued.refreshToken` is
+// non-null: whether a refresh token was minted at all is decided by the
+// `withRefresh` passed to `TokenStore.issue`/`rotateRefresh`, not by this
+// response shaping — a client not registered for the refresh_token grant
+// never has one persisted in the first place, so there is nothing to
+// withhold here.
+Response _tokenResponse(IssuedTokens issued) {
   return Response.json(
     headers: kNoStoreHeaders,
     body: {
       'access_token': issued.accessToken,
       'token_type': 'Bearer',
       'expires_in': issued.expiresIn,
-      if (includeRefresh) 'refresh_token': issued.refreshToken,
+      if (issued.refreshToken != null) 'refresh_token': issued.refreshToken,
       'scope': (issued.scopes.toList()..sort()).join(' '),
     },
   );
