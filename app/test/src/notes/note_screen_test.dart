@@ -626,4 +626,96 @@ void main() {
     expect(find.byKey(const Key('note.banner.lock')), findsOneWidget);
     expect(find.textContaining('alice'), findsOneWidget);
   });
+
+  group('delete', () {
+    /// Pumps a read-only note, opens the overflow menu, and picks
+    /// "Delete note" so the confirm dialog is showing. Records requests in
+    /// the returned list; `DELETE /notes/01H` answers with [deleteStatus].
+    Future<List<String>> pumpAndOpenDeleteDialog(
+      WidgetTester tester, {
+      required VoidCallback onClose,
+      int deleteStatus = 204,
+    }) async {
+      final calls = <String>[];
+      final mock = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.method == 'GET' && request.url.path == '/notes/01H') {
+          return http.Response(jsonEncode(_noteJson()), 200);
+        }
+        if (request.method == 'DELETE' && request.url.path == '/notes/01H') {
+          return http.Response('', deleteStatus);
+        }
+        return http.Response('unexpected', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NoteScreen(controller: ctrl, onClose: onClose),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('note.menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('note.delete')));
+      await tester.pumpAndSettle();
+      return calls;
+    }
+
+    testWidgets(
+      'confirming deletes the note, closes it, and shows a snackbar',
+      (tester) async {
+        var closed = 0;
+        final calls = await pumpAndOpenDeleteDialog(
+          tester,
+          onClose: () => closed += 1,
+        );
+        expect(find.text('Delete this note?'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('note.delete.confirm')));
+        await tester.pumpAndSettle();
+
+        expect(calls, contains('DELETE /notes/01H'));
+        expect(closed, 1);
+        expect(find.text('Note deleted'), findsOneWidget);
+      },
+    );
+
+    testWidgets('a failed delete keeps the note open and says so', (
+      tester,
+    ) async {
+      var closed = 0;
+      await pumpAndOpenDeleteDialog(
+        tester,
+        onClose: () => closed += 1,
+        deleteStatus: 500,
+      );
+
+      await tester.tap(find.byKey(const Key('note.delete.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(closed, 0);
+      expect(find.byKey(const Key('note.body')), findsOneWidget);
+      expect(find.text("Couldn't delete the note"), findsOneWidget);
+    });
+
+    testWidgets('cancelling keeps the note and sends no request', (
+      tester,
+    ) async {
+      var closed = 0;
+      final calls = await pumpAndOpenDeleteDialog(
+        tester,
+        onClose: () => closed += 1,
+      );
+
+      await tester.tap(find.byKey(const Key('note.delete.cancel')));
+      await tester.pumpAndSettle();
+
+      expect(calls, isNot(contains('DELETE /notes/01H')));
+      expect(closed, 0);
+      expect(find.byKey(const Key('note.body')), findsOneWidget);
+    });
+  });
 }

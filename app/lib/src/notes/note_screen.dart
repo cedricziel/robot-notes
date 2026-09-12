@@ -179,11 +179,58 @@ class _NoteScreenState extends State<NoteScreen> {
                 onPressed: _save,
                 child: const Text('Save'),
               ),
+            if (state.mode == NoteMode.viewing && note != null)
+              PopupMenuButton<void>(
+                key: const Key('note.menu'),
+                itemBuilder: (_) => [
+                  PopupMenuItem<void>(
+                    key: const Key('note.delete'),
+                    onTap: _confirmDelete,
+                    child: const Text('Delete note'),
+                  ),
+                ],
+              ),
           ],
         ),
         body: _buildBody(context, state),
       ),
     );
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete this note?'),
+        content: const Text("This can't be undone."),
+        actions: [
+          TextButton(
+            key: const Key('note.delete.cancel'),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('note.delete.confirm'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    // Resolve the messenger before the screen is popped: the root messenger
+    // outlives this route, so the confirmation still shows on the list.
+    final messenger = ScaffoldMessenger.of(context);
+    await widget.controller.delete();
+    if (!mounted) return;
+    if (widget.controller.value.mode != NoteMode.deleted) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Couldn't delete the note")),
+      );
+      return;
+    }
+    messenger.showSnackBar(const SnackBar(content: Text('Note deleted')));
+    widget.onClose?.call();
   }
 
   Widget _buildBody(BuildContext context, NoteState state) {
