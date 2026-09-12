@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/cedricziel/robot-notes/compare/v0.2.0...v0.2.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* **server:** match lowercase ulids in the legacy layout migration ([#140](https://github.com/cedricziel/robot-notes/issues/140)) ([b3b012a](https://github.com/cedricziel/robot-notes/commit/b3b012ac1cbd8f96f70539cb37c6a259ea2c6ad0))
+
 ## [0.2.0](https://github.com/cedricziel/robot-notes/compare/v0.1.8...v0.2.0) (2026-09-12)
 
 
