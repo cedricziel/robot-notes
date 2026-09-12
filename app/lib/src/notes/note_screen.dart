@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../api/api_exceptions.dart';
 import 'note_controller.dart';
+import 'save_shortcut.dart';
 
 /// Single-note view. Renders three modes off [NoteController]:
 ///
@@ -41,6 +44,8 @@ class _NoteScreenState extends State<NoteScreen> {
     return s.conflictCurrent?.content ?? '';
   }
 
+  late final VoidCallback _uninstallWebSaveShortcut;
+
   @override
   void initState() {
     super.initState();
@@ -48,11 +53,13 @@ class _NoteScreenState extends State<NoteScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _open();
     });
+    _uninstallWebSaveShortcut = installWebSaveShortcut(_saveIfEditing);
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_syncBuffersFromState);
+    _uninstallWebSaveShortcut();
     _title.dispose();
     _content.dispose();
     super.dispose();
@@ -61,6 +68,10 @@ class _NoteScreenState extends State<NoteScreen> {
   Future<void> _edit() async {
     await widget.controller.enterEditMode();
     _announceOutcome(failed: 'Could not start editing');
+  }
+
+  void _saveIfEditing() {
+    if (widget.controller.value.mode == NoteMode.editing) unawaited(_save());
   }
 
   Future<void> _save() async {
