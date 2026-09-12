@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-mvp-foundation. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Operator mints invite via authenticated POST /invites
 
 A `POST /invites` endpoint SHALL allow a holder of the bearer API key to mint a single-use, time-limited invite. The request body MAY include an optional human-readable `label` (used as the suggested `X-Actor` for the agent and as a hint when listing invites) and an optional `ttl_seconds` (default 86400, maximum 2592000). The response SHALL be a JSON object containing `token`, `url`, `expires_at`, `single_use: true`, and the echoed `label`.
@@ -169,3 +171,11 @@ The server SHALL NOT log the full bearer API key, the invite `token`, or the bod
 - **WHEN** an agent fetches an onboarding bundle and the server logs the request
 - **THEN** the log SHALL NOT contain the response body
 
+### Requirement: Onboarding bundle advertises the MCP endpoint
+
+The onboarding bundle SHALL include a `ROBOT_NOTES_MCP_URL=<base>/mcp` line alongside the existing `ROBOT_NOTES_*` lines, and its inline guide SHALL state that the same API key works as the bearer credential for `POST <base>/mcp`.
+
+#### Scenario: Bundle names the MCP URL
+
+- **WHEN** an agent fetches a valid `GET /invites/{token}/onboarding.txt`
+- **THEN** the body SHALL contain a line `ROBOT_NOTES_MCP_URL=<base>/mcp` and the text `/mcp`
