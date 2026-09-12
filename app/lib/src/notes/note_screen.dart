@@ -7,6 +7,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
 import 'link_autocomplete.dart';
+import 'markdown_toolbar.dart';
 import 'note_controller.dart';
 import 'save_shortcut.dart';
 
@@ -540,6 +541,17 @@ class _Editor extends StatelessWidget {
   final LinkAutocompleteController linkAutocomplete;
   final ValueChanged<String> onSelectLink;
 
+  /// Applies [transform] to [content]'s current value and reports the
+  /// result the same way typing does, so undo/dirty-tracking/autocomplete
+  /// all see it as an ordinary content change.
+  void _applyFormat(
+    TextEditingValue Function(TextEditingValue value) transform,
+  ) {
+    final result = transform(content.value);
+    content.value = result;
+    onContent(result.text);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -555,33 +567,137 @@ class _Editor extends StatelessWidget {
             enabled: !saving,
           ),
           const SizedBox(height: 12),
+          _FormattingToolbar(
+            enabled: !saving,
+            onBold: () => _applyFormat((v) => wrapSelection(v, '**')),
+            onItalic: () => _applyFormat((v) => wrapSelection(v, '*')),
+            onHeading: () => _applyFormat((v) => toggleLinePrefix(v, '# ')),
+            onList: () => _applyFormat((v) => toggleLinePrefix(v, '- ')),
+            onLink: () => _applyFormat(insertMarkdownLink),
+          ),
+          const SizedBox(height: 8),
           Expanded(
-            child: Column(
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: const Key('note.editor.content'),
-                    controller: content,
-                    onChanged: onContent,
-                    decoration: const InputDecoration(
-                      labelText: 'Content',
-                      alignLabelWithHint: true,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final contentField = Column(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        key: const Key('note.editor.content'),
+                        controller: content,
+                        onChanged: onContent,
+                        decoration: const InputDecoration(
+                          labelText: 'Content',
+                          alignLabelWithHint: true,
+                        ),
+                        maxLines: null,
+                        expands: true,
+                        textAlignVertical: TextAlignVertical.top,
+                        enabled: !saving,
+                      ),
                     ),
-                    maxLines: null,
-                    expands: true,
-                    textAlignVertical: TextAlignVertical.top,
-                    enabled: !saving,
+                    _LinkSuggestions(
+                      linkAutocomplete: linkAutocomplete,
+                      onSelect: onSelectLink,
+                    ),
+                  ],
+                );
+                final preview = ListenableBuilder(
+                  listenable: content,
+                  builder: (context, _) => Markdown(
+                    key: const Key('note.editor.preview'),
+                    data: content.text,
+                    padding: const EdgeInsets.all(8),
+                    imageBuilder: (uri, title, alt) =>
+                        Text(alt ?? uri.toString()),
                   ),
-                ),
-                _LinkSuggestions(
-                  linkAutocomplete: linkAutocomplete,
-                  onSelect: onSelectLink,
-                ),
-              ],
+                );
+                // Same narrow-screen stacking threshold as the conflict
+                // view's own side-by-side panes.
+                if (constraints.maxWidth < 600) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: contentField),
+                      const SizedBox(height: 8),
+                      Expanded(child: preview),
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: contentField),
+                    const SizedBox(width: 8),
+                    Expanded(child: preview),
+                  ],
+                );
+              },
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Row of formatting actions above the content field: bold/italic wrap
+/// the selection, heading/list toggle a marker on the current line, link
+/// inserts a `[title](url)` template. All operate on the same
+/// [TextEditingController] typing does, via [markdown_toolbar.dart]'s
+/// pure `TextEditingValue` transforms.
+class _FormattingToolbar extends StatelessWidget {
+  const _FormattingToolbar({
+    required this.enabled,
+    required this.onBold,
+    required this.onItalic,
+    required this.onHeading,
+    required this.onList,
+    required this.onLink,
+  });
+
+  final bool enabled;
+  final VoidCallback onBold;
+  final VoidCallback onItalic;
+  final VoidCallback onHeading;
+  final VoidCallback onList;
+  final VoidCallback onLink;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          key: const Key('note.toolbar.bold'),
+          tooltip: 'Bold',
+          icon: const Icon(Icons.format_bold),
+          onPressed: enabled ? onBold : null,
+        ),
+        IconButton(
+          key: const Key('note.toolbar.italic'),
+          tooltip: 'Italic',
+          icon: const Icon(Icons.format_italic),
+          onPressed: enabled ? onItalic : null,
+        ),
+        IconButton(
+          key: const Key('note.toolbar.heading'),
+          tooltip: 'Heading',
+          icon: const Icon(Icons.title),
+          onPressed: enabled ? onHeading : null,
+        ),
+        IconButton(
+          key: const Key('note.toolbar.list'),
+          tooltip: 'List',
+          icon: const Icon(Icons.format_list_bulleted),
+          onPressed: enabled ? onList : null,
+        ),
+        IconButton(
+          key: const Key('note.toolbar.link'),
+          tooltip: 'Link',
+          icon: const Icon(Icons.link),
+          onPressed: enabled ? onLink : null,
+        ),
+      ],
     );
   }
 }
@@ -901,13 +1017,17 @@ class _ConflictView extends StatelessWidget {
 class _DiffPane extends StatelessWidget {
   const _DiffPane({
     required this.label,
-    required this.title,
+    this.title,
     required this.body,
     super.key,
   });
 
   final String label;
-  final Widget title;
+
+  /// Per-pane header content (e.g. the conflicting title fields). `null`
+  /// when the pane doesn't need one of its own — the editor's split view
+  /// has a single title field above both panes instead.
+  final Widget? title;
   final Widget body;
 
   @override
@@ -924,8 +1044,7 @@ class _DiffPane extends StatelessWidget {
           children: [
             Text(label, style: Theme.of(context).textTheme.labelSmall),
             const SizedBox(height: 8),
-            title,
-            const SizedBox(height: 8),
+            if (title != null) ...[title!, const SizedBox(height: 8)],
             Expanded(child: body),
           ],
         ),
