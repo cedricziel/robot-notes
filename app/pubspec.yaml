@@ -32,6 +32,45 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   mocktail: ^1.0.4
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.8
 
 flutter:
   uses-material-design: true
+
+flutter_launcher_icons:
+  image_path: "assets/branding/icon_1024.png"
+  android: true
+  adaptive_icon_background: "#3F51B5"
+  adaptive_icon_foreground: "assets/branding/adaptive_foreground_1024.png"
+  ios: true
+  macos:
+    generate: true
+    image_path: "assets/branding/icon_1024.png"
+  windows:
+    generate: true
+    image_path: "assets/branding/icon_1024.png"
+  linux:
+    generate: true
+    image_path: "assets/branding/icon_1024.png"
+  web:
+    generate: true
+    image_path: "assets/branding/icon_1024.png"
+    background_color: "#3F51B5"
+    theme_color: "#3F51B5"
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: "assets/branding/splash_light_512.png"
+  color_dark: "#1A237E"
+  image_dark: "assets/branding/splash_dark_512.png"
+  android_12:
+    color: "#FFFFFF"
+    image: "assets/branding/splash_light_512.png"
+    icon_background_color: "#FFFFFF"
+    color_dark: "#1A237E"
+    image_dark: "assets/branding/splash_dark_512.png"
+    icon_background_color_dark: "#1A237E"
+  web: true
+  android: true
+  ios: true
