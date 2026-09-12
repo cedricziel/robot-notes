@@ -206,6 +206,38 @@ The note view SHALL confirm a completed save and SHALL show the server's message
 - **WHEN** `POST /notes/{id}/lock` fails with a status other than 423
 - **THEN** the app SHALL show a message containing the server's `message` and remain read-only
 
+### Requirement: Note view can delete the note after confirmation
+
+The note view SHALL offer a "Delete note" action in an overflow menu while the note is in read-only mode. Choosing it SHALL ask the user to confirm before anything is sent. On confirmation the app SHALL `DELETE /notes/{id}`, close the note view, and show a brief "Note deleted" confirmation that outlives the closed view. A 404 from the server SHALL be treated as success, since the note is gone either way. Any other error SHALL keep the note open and surface the failure.
+
+#### Scenario: Delete with confirmation
+
+- **GIVEN** a note is open in read-only mode
+- **WHEN** the user chooses "Delete note" and confirms
+- **THEN** the app SHALL `DELETE /notes/{id}`, close the note view, and show "Note deleted"
+
+#### Scenario: Cancel keeps the note
+
+- **GIVEN** the delete confirmation is showing
+- **WHEN** the user cancels
+- **THEN** the app SHALL NOT send `DELETE /notes/{id}` and the note SHALL stay open unchanged
+
+#### Scenario: Delete while editing releases the lock first
+
+- **GIVEN** the user holds the editor lock on the note
+- **WHEN** the note is deleted
+- **THEN** the app SHALL `DELETE /notes/{id}/lock` before `DELETE /notes/{id}`
+
+#### Scenario: Delete of an already-removed note still closes the view
+
+- **WHEN** `DELETE /notes/{id}` returns 404
+- **THEN** the app SHALL treat the note as deleted and close the view
+
+#### Scenario: Failed delete keeps the note open
+
+- **WHEN** `DELETE /notes/{id}` fails with any other error
+- **THEN** the note view SHALL stay open in read-only mode and the app SHALL surface the error
+
 ### Requirement: Live presence and lock state are surfaced in the note view
 
 While the note view is open the app SHALL display a presence indicator (list of viewers' actor names) and a lock indicator (current holder, if any) updated in real time from `presence` and `lock` WebSocket events.
