@@ -158,4 +158,22 @@ void main() {
     );
     expect(res.statusCode, 401);
   });
+
+  test('OAuth discovery documents are reachable without auth', () async {
+    final res = await http.get(
+      Uri.parse('${app.baseUrl}${Routes.wellKnownAuthorizationServer}'),
+    );
+    expect(res.statusCode, 200, reason: res.body);
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    expect(body['issuer'], app.baseUrl);
+    expect(
+      body['registration_endpoint'],
+      '${app.baseUrl}${Routes.oauthRegister}',
+    );
+  });
+
+  test('a made-up /oauth-shaped path still 401s', () async {
+    final res = await http.get(Uri.parse('${app.baseUrl}/oauth/other'));
+    expect(res.statusCode, 401);
+  });
 }

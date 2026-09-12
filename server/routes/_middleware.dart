@@ -12,6 +12,7 @@ import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/static_web_middleware.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/well_known_middleware.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
 
@@ -22,19 +23,26 @@ import 'package:server/src/ws/presence.dart';
 ///      ([Storage], [MetaIndex], [LockManager], [Broadcaster],
 ///      [PresenceTracker]) so handlers and downstream middleware can
 ///      `read<T>()` them.
-///   2. [bearerAuth] gates traffic on the configured API key (with
-///      `GET /healthz` exempted inside the middleware).
-///   3. [actorIdentity] derives the display actor from `X-Actor` and
+///   2. [wellKnownMiddleware] answers the OAuth discovery documents
+///      unauthenticated. It runs after the `Config` provider (it needs
+///      the public base URL) but before [bearerAuth], since these
+///      documents are how a client discovers the server before it has
+///      any credential.
+///   3. [bearerAuth] gates traffic on the configured API key (with
+///      `GET /healthz` and the other unauthenticated paths — OAuth
+///      discovery/registration/authorize/token, and `/mcp` — exempted
+///      inside the middleware).
+///   4. [actorIdentity] derives the display actor from `X-Actor` and
 ///      provides it via `context.read<Actor>()`. This runs after auth so
 ///      we never expose an actor to a handler that wouldn't otherwise
 ///      execute.
-///   4. [staticWebMiddleware] runs outermost. When [Config.webDir] is
+///   5. [staticWebMiddleware] runs outermost. When [Config.webDir] is
 ///      set, it serves the Flutter web bundle at the root and short-
 ///      circuits before the bearer-key check — the bundle is the same
 ///      static asset for everyone and never contains secrets. Requests
 ///      that match an API path (`/notes`, `/search`, `/ws`,
-///      `/invites`, `/healthz`) pass straight through to the rest of
-///      the chain.
+///      `/invites`, `/healthz`, `/mcp`, `/oauth`, `/.well-known`) pass
+///      straight through to the rest of the chain.
 ///
 /// The chain is built lazily on first request because the dart_frog
 /// generated entrypoint calls `buildRootHandler()` before our
@@ -48,6 +56,7 @@ Handler middleware(Handler handler) {
       return handler
           .use(actorIdentity())
           .use(bearerAuth(configuredKey: config.apiKey))
+          .use(wellKnownMiddleware())
           .use(provider<PresenceTracker>((_) => deps.presence))
           .use(provider<Broadcaster>((_) => deps.broadcaster))
           .use(provider<LockManager>((_) => deps.lockManager))

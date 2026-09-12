@@ -180,6 +180,25 @@ void main() {
       }
     });
 
+    test('passes through to handler for /mcp, /oauth, /.well-known', () async {
+      final dir = _scratchWeb();
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      for (final path in const [
+        '/mcp',
+        '/oauth/token',
+        '/.well-known/oauth-authorization-server',
+      ]) {
+        final ctx = _ctx(path: path);
+        final response = await _run(
+          staticWebMiddleware(webDir: dir.path),
+          ctx,
+          handler: () => Response(body: 'api'),
+        );
+        expect(await response.body(), 'api', reason: 'path=$path');
+      }
+    });
+
     test('non-GET non-HEAD requests pass through to handler', () async {
       final dir = _scratchWeb();
       addTearDown(() => dir.deleteSync(recursive: true));

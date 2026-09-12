@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/config.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:test/test.dart';
 
@@ -12,6 +13,14 @@ class _MockRequestContext extends Mock implements RequestContext {}
 
 class _MockRequest extends Mock implements Request {}
 
+Config _config({String? publicUrl}) => Config(
+      apiKey: 'rn_test',
+      dataDir: '/tmp',
+      port: 8080,
+      lockTtlSeconds: 60,
+      publicUrl: publicUrl,
+    );
+
 RequestContext _ctx({
   required HttpMethod method,
   required InviteStore store,
@@ -19,6 +28,7 @@ RequestContext _ctx({
   Object? body,
   Map<String, String> headers = const {'host': 'localhost:8080'},
   Uri? uri,
+  Config? config,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
@@ -32,6 +42,7 @@ RequestContext _ctx({
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<InviteStore>()).thenReturn(store);
   when(() => ctx.read<Clock>()).thenReturn(clock);
+  when(() => ctx.read<Config>()).thenReturn(config ?? _config());
   return ctx;
 }
 
@@ -175,6 +186,25 @@ void main() {
       expect(
         expiresAt.difference(now).inSeconds,
         closeTo(3600, 5),
+      );
+    });
+
+    test('uses the configured public URL for the invite host', () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          store: store,
+          clock: clock,
+          body: <String, dynamic>{},
+          config: _config(publicUrl: 'https://notes.example.com'),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.created);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(
+        body['url'],
+        startsWith('https://notes.example.com/invites/'),
       );
     });
 

@@ -26,6 +26,7 @@ class Config {
     required this.port,
     required this.lockTtlSeconds,
     this.webDir,
+    this.publicUrl,
   });
 
   /// Resolves a [Config] from CLI [args] and the supplied environment.
@@ -90,12 +91,20 @@ class Config {
       env['ROBOT_NOTES_WEB_DIR'],
     );
 
+    final publicUrl = _resolvePublicUrl(
+      _coalesce(
+        parsed['public-url'] as String?,
+        env['ROBOT_NOTES_PUBLIC_URL'],
+      ),
+    );
+
     return Config(
       apiKey: apiKey,
       dataDir: dataDir,
       port: port,
       lockTtlSeconds: lockTtl,
       webDir: webDir,
+      publicUrl: publicUrl,
     );
   }
 
@@ -129,6 +138,12 @@ class Config {
   /// secrets. `null` disables static serving.
   final String? webDir;
 
+  /// Optional absolute origin (scheme, host, optional port; no path, query,
+  /// or fragment; no trailing slash) pinning the base URL used in OAuth
+  /// metadata, redirects, and invite URLs. `null` means the base is derived
+  /// per request from `X-Forwarded-Proto`/the request scheme and `Host`.
+  final String? publicUrl;
+
   /// Builds an [ArgParser] mirroring the documented CLI surface.
   static ArgParser buildParser() => ArgParser()
     ..addOption('api-key', help: 'Bearer API key required on every request.')
@@ -145,6 +160,12 @@ class Config {
       'web-dir',
       help: 'Path to the Flutter web bundle. When set, the server serves '
           'the bundle at /. Leave empty to run as an API-only server.',
+    )
+    ..addOption(
+      'public-url',
+      help: 'Absolute http(s) origin (no path, query, or fragment) used as '
+          'the public base URL for OAuth metadata and invite links behind '
+          'a reverse proxy.',
     )
     ..addFlag('help', abbr: 'h', negatable: false, help: 'Print usage.');
 
@@ -165,7 +186,7 @@ class Config {
       printErr('');
       printErr('Usage: dart_frog dev [-- --api-key <key>] [--data-dir <path>]');
       printErr('       [--port <int>] [--lock-ttl-seconds <int>]');
-      printErr('       [--web-dir <path>]');
+      printErr('       [--web-dir <path>] [--public-url <origin>]');
       exit(64); // EX_USAGE
       // exit() should not return; rethrow defensively if a test stub does.
       rethrow;
@@ -176,6 +197,30 @@ class Config {
     if (a != null && a.isNotEmpty) return a;
     if (b != null && b.isNotEmpty) return b;
     return null;
+  }
+
+  /// Validates a raw `--public-url` / `ROBOT_NOTES_PUBLIC_URL` value and
+  /// normalizes it to an origin with no trailing slash. Returns `null` when
+  /// [raw] is `null`. Throws [ConfigError] when the value is not an
+  /// absolute `http`/`https` URL with an empty path (or exactly `/`), no
+  /// query, and no fragment.
+  static String? _resolvePublicUrl(String? raw) {
+    if (raw == null) return null;
+    final uri = Uri.tryParse(raw);
+    final valid = uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty &&
+        (uri.path.isEmpty || uri.path == '/') &&
+        !uri.hasQuery &&
+        !uri.hasFragment;
+    if (!valid) {
+      throw ConfigError(
+        'Invalid --public-url / ROBOT_NOTES_PUBLIC_URL value "$raw": must '
+        'be an absolute http or https URL with no path, query, or '
+        'fragment.',
+      );
+    }
+    return uri.replace(path: '').toString();
   }
 
   static int _parseInt(

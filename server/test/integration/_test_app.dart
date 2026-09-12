@@ -19,6 +19,7 @@ import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/well_known_middleware.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
 
@@ -45,7 +46,14 @@ Future<HttpServer> startTestServer({
   required AppDeps deps,
   required Config config,
 }) {
+  // Unlike the `.use()` chain in routes/_middleware.dart (where the last
+  // `.use` is outermost), shelf's Pipeline runs the first-added middleware
+  // first. `provider<Config>` is therefore added first so it is available
+  // to every downstream middleware, including [wellKnownMiddleware], which
+  // must run before [bearerAuth].
   final pipeline = const Pipeline()
+      .addMiddleware(provider<Config>((_) => config))
+      .addMiddleware(wellKnownMiddleware())
       .addMiddleware(actorIdentity())
       .addMiddleware(bearerAuth(configuredKey: config.apiKey))
       .addMiddleware(provider<PresenceTracker>((_) => deps.presence))
@@ -56,8 +64,7 @@ Future<HttpServer> startTestServer({
       .addMiddleware(provider<MetaIndex>((_) => deps.metaIndex))
       .addMiddleware(provider<NoteWriteService>((_) => deps.noteWriteService))
       .addMiddleware(provider<Storage>((_) => deps.storage))
-      .addMiddleware(provider<Clock>((_) => deps.clock))
-      .addMiddleware(provider<Config>((_) => config));
+      .addMiddleware(provider<Clock>((_) => deps.clock));
 
   final root = Router()
     ..mount('/notes/<id>/lock', _lockMount)

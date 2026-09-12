@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/invite_store.dart';
+import 'package:server/src/public_url.dart';
 
 /// `GET  /invites` — list all invites with `expired` flags.
 /// `POST /invites` — mint a new invite.
@@ -103,10 +104,7 @@ Future<Response> _mint(RequestContext context) async {
   final now = context.read<Clock>().nowUtc();
   final summary = invite.toSummary(now: now);
 
-  final scheme =
-      context.request.uri.scheme.isEmpty ? 'http' : context.request.uri.scheme;
-  final host = context.request.headers['host'] ?? 'localhost';
-  final base = '$scheme://$host';
+  final base = publicBaseUrl(context);
   final url = '$base/invites/${invite.token}/onboarding.txt';
 
   return Response.json(
