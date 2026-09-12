@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/cedricziel/robot-notes/compare/v0.2.1...v0.2.2) (2026-09-12)
+
+
+### Bug Fixes
+
+* **app:** use the web sign-in flow on web, not the desktop loopback ([#146](https://github.com/cedricziel/robot-notes/issues/146)) ([5adac3d](https://github.com/cedricziel/robot-notes/commit/5adac3d3a82db87fa1b38c03d8310cac84d937ef))
+
 ## [0.2.1](https://github.com/cedricziel/robot-notes/compare/v0.2.0...v0.2.1) (2026-09-12)
 
 
