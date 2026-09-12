@@ -214,11 +214,18 @@ class MetaIndex {
   /// second sorted index per folder, so this is a linear pre-filter over
   /// the same sorted candidate list [sort] would otherwise page over
   /// directly.
+  ///
+  /// [tag], when non-null, narrows the result the same way to notes
+  /// whose computed [NoteSummary.tags] contains [tag] (case-insensitive,
+  /// matching `tags.dart`'s `computeTags` matching rule) — the identical
+  /// pre-filter mechanism as [pathPrefix], composable with it and with
+  /// either [sort].
   MetaIndexPage page({
     String? after,
     int limit = kDefaultPageSize,
     String sort = kSortId,
     String? pathPrefix,
+    String? tag,
   }) {
     final effectiveLimit = limit.clamp(1, kMaxPageSize);
     switch (sort) {
@@ -227,12 +234,14 @@ class MetaIndex {
           after: after,
           limit: effectiveLimit,
           pathPrefix: pathPrefix,
+          tag: tag,
         );
       case kSortUpdatedDesc:
         return _pageByUpdated(
           after: after,
           limit: effectiveLimit,
           pathPrefix: pathPrefix,
+          tag: tag,
         );
       default:
         throw ArgumentError.value(sort, 'sort', 'unsupported sort');
@@ -245,16 +254,27 @@ class MetaIndex {
         summary.path.startsWith('$pathPrefix/');
   }
 
+  bool _matchesTag(NoteSummary summary, String? tag) {
+    if (tag == null) return true;
+    final lower = tag.toLowerCase();
+    return summary.tags.any((t) => t.toLowerCase() == lower);
+  }
+
+  bool _matchesFilters(NoteSummary summary, String? pathPrefix, String? tag) {
+    return _matchesPathPrefix(summary, pathPrefix) && _matchesTag(summary, tag);
+  }
+
   MetaIndexPage _pageById({
     required String? after,
     required int limit,
     String? pathPrefix,
+    String? tag,
   }) {
-    final candidates = pathPrefix == null
+    final candidates = pathPrefix == null && tag == null
         ? _sortedIds
         : [
             for (final id in _sortedIds)
-              if (_matchesPathPrefix(_byId[id]!, pathPrefix)) id,
+              if (_matchesFilters(_byId[id]!, pathPrefix, tag)) id,
           ];
     int startIdx;
     if (after == null) {
@@ -277,12 +297,13 @@ class MetaIndex {
     required String? after,
     required int limit,
     String? pathPrefix,
+    String? tag,
   }) {
-    final candidates = pathPrefix == null
+    final candidates = pathPrefix == null && tag == null
         ? _sortedByUpdated
         : [
             for (final id in _sortedByUpdated)
-              if (_matchesPathPrefix(_byId[id]!, pathPrefix)) id,
+              if (_matchesFilters(_byId[id]!, pathPrefix, tag)) id,
           ];
     int startIdx;
     if (after == null) {

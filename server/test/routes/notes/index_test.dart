@@ -399,6 +399,55 @@ void main() {
       expect(ids.first, newInFolder.id);
       expect(ids, hasLength(2));
     });
+
+    test('tag filter returns only notes carrying that tag', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: '#urgent');
+      await storage.create(title: 'B', content: '#urgent');
+      await storage.create(title: 'C', content: 'no tags here');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?tag=urgent'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items, hasLength(2));
+      expect(items.map((e) => e['title']), containsAll(['A', 'B']));
+    });
+
+    test('tag filter composes with path filter', () async {
+      final storage = _storage(tmp);
+      await storage.create(
+        title: 'A',
+        content: '#urgent',
+        path: 'Projects/Alpha',
+      );
+      await storage.create(title: 'B', content: '#urgent');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?tag=urgent&path=Projects/Alpha'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items, hasLength(1));
+      expect(items.single['title'], 'A');
+    });
   });
 
   group('POST /notes', () {

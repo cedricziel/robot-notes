@@ -89,11 +89,11 @@
 
 ### 11. Tag API surface
 
-- [ ] 11.1 Write failing route tests: `GET /tags` returns `{items: [{tag, count}]}` sorted by descending count
-- [ ] 11.2 Implement `server/routes/tags.dart`; run tests green
-- [ ] 11.3 Write failing route tests: `GET /notes?tag=x` filters to notes carrying that tag
-- [ ] 11.4 Implement the `tag` filter on the notes list handler; run tests green
-- [ ] 11.5 Commit: `feat(server): expose tag listing and tag filtering`
+- [x] 11.1 Write failing route tests: `GET /tags` returns `{items: [{tag, count}]}` sorted by descending count — `server/test/routes/tags_test.dart`; also added a `MetaIndex.page tag filter` group to `server/test/src/meta_index_test.dart` covering the new `tag` param on `page()` directly (mirroring the existing `pathPrefix filter` group), since 11.3's route test alone wouldn't exercise pagination/sort composition the way the `path` filter's own `MetaIndex`-level tests do
+- [x] 11.2 Implement `server/routes/tags.dart`, iterating `MetaIndex.all` and aggregating via `tags.dart`'s `aggregateTagCounts()` — the same "compute on demand from the always-current index" idiom `notes/tree.dart` already uses for folder counts, rather than a cached/persisted count table; run tests green
+- [x] 11.3 Write failing route tests: `GET /notes?tag=x` filters to notes carrying that tag — added to the existing `group('GET /notes', ...)` in `server/test/routes/notes/index_test.dart`, alongside a case composing `tag` with `path`
+- [x] 11.4 Implement the `tag` filter on the notes list handler (`server/routes/notes/index.dart` reads `query['tag']` and passes it to `MetaIndex.page(tag: ...)`, which pre-filters case-insensitively against `NoteSummary.tags` exactly like `pathPrefix` pre-filters against `path` — see task 10's note on where `tags` lives); run tests green
+- [x] 11.5 Commit: `feat(server): expose tag listing and tag filtering`
 
 ## Phase 4 — Search, MCP, realtime, and client catch-up
 

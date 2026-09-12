@@ -15,6 +15,7 @@ NoteSummary _summary(
   int version = 1,
   String title = 't',
   String path = '',
+  Set<String> tags = const <String>{},
 }) {
   final t = DateTime.utc(2026, 4, 25, 10);
   return NoteSummary(
@@ -24,6 +25,7 @@ NoteSummary _summary(
     version: version,
     createdAt: t,
     updatedAt: t,
+    tags: tags,
   );
 }
 
@@ -340,6 +342,72 @@ void main() {
     });
   });
 
+  group('MetaIndex.page tag filter', () {
+    test('null tag returns everything (default sort)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A'))
+        ..upsert(_summary('B', tags: {'urgent'}));
+      final page = idx.page(limit: 10);
+      expect(page.items.map((s) => s.id), ['A', 'B']);
+    });
+
+    test('only notes carrying the tag are returned', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', tags: {'urgent'}))
+        ..upsert(_summary('B', tags: {'later'}))
+        ..upsert(_summary('C'));
+      final page = idx.page(limit: 10, tag: 'urgent');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('matching is case-insensitive', () {
+      final idx = MetaIndex()..upsert(_summary('A', tags: {'Urgent'}));
+      final page = idx.page(limit: 10, tag: 'urgent');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('composes with pathPrefix', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Folder', tags: {'urgent'}))
+        ..upsert(_summary('B', tags: {'urgent'}));
+      final page = idx.page(limit: 10, pathPrefix: 'Folder', tag: 'urgent');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('pagination composes with the filter (sort=id)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', tags: {'urgent'}))
+        ..upsert(_summary('B'))
+        ..upsert(_summary('C', tags: {'urgent'}))
+        ..upsert(_summary('D', tags: {'urgent'}));
+      final p1 = idx.page(limit: 2, tag: 'urgent');
+      expect(p1.items.map((s) => s.id), ['A', 'C']);
+      expect(p1.nextCursor, 'C');
+      final p2 = idx.page(after: p1.nextCursor, limit: 2, tag: 'urgent');
+      expect(p2.items.map((s) => s.id), ['D']);
+      expect(p2.nextCursor, isNull);
+    });
+
+    test('pagination composes with the filter (sort=updated_desc)', () {
+      final now = DateTime.utc(2026);
+      final idx = MetaIndex()
+        ..upsert(
+          _summary('A', tags: {'urgent'}).copyWithUpdated(now),
+        )
+        ..upsert(
+          _summary('B').copyWithUpdated(now.add(const Duration(minutes: 1))),
+        )
+        ..upsert(
+          _summary(
+            'C',
+            tags: {'urgent'},
+          ).copyWithUpdated(now.add(const Duration(minutes: 2))),
+        );
+      final page = idx.page(sort: 'updated_desc', limit: 10, tag: 'urgent');
+      expect(page.items.map((s) => s.id), ['C', 'A']);
+    });
+  });
+
   group('MetaIndex.resolveTitle', () {
     test('resolves a title that matches exactly one note', () {
       final idx = MetaIndex()..upsert(_summary('A', title: 'Project Alpha'));
@@ -424,5 +492,6 @@ extension _WithUpdated on NoteSummary {
         version: version,
         createdAt: createdAt,
         updatedAt: updatedAt,
+        tags: tags,
       );
 }

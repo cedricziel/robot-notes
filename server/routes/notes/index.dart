@@ -35,6 +35,7 @@ Response _list(RequestContext context) {
   final rawLimit = query['limit'];
   final sort = query['sort'] ?? kSortId;
   final pathPrefix = query['path'];
+  final tag = query['tag'];
 
   if (!kSupportedSorts.contains(sort)) {
     return Response.json(
@@ -69,6 +70,7 @@ Response _list(RequestContext context) {
       limit: effectiveLimit,
       sort: sort,
       pathPrefix: pathPrefix,
+      tag: tag,
     );
   } on InvalidCursorException {
     return Response.json(
