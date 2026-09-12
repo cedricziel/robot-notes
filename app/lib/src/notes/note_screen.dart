@@ -20,6 +20,7 @@ class NoteScreen extends StatefulWidget {
     required this.controller,
     this.onClose,
     this.startEditing = false,
+    @visibleForTesting this.installSaveShortcut = installWebSaveShortcut,
     super.key,
   });
 
@@ -29,6 +30,13 @@ class NoteScreen extends StatefulWidget {
   /// Open straight into the editor with the title selected, so typing
   /// replaces a placeholder title.
   final bool startEditing;
+
+  /// Overridable seam for tests: production code always uses
+  /// [installWebSaveShortcut] (a no-op off web). Tests substitute a fake
+  /// that captures the callback so they can invoke it directly, since the
+  /// real one only ever fires from a live browser's `keydown` event.
+  @visibleForTesting
+  final VoidCallback Function(VoidCallback onSave) installSaveShortcut;
 
   @override
   State<NoteScreen> createState() => _NoteScreenState();
@@ -53,7 +61,7 @@ class _NoteScreenState extends State<NoteScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _open();
     });
-    _uninstallWebSaveShortcut = installWebSaveShortcut(_saveIfEditing);
+    _uninstallWebSaveShortcut = widget.installSaveShortcut(_saveIfEditing);
   }
 
   @override
@@ -70,8 +78,16 @@ class _NoteScreenState extends State<NoteScreen> {
     _announceOutcome(failed: 'Could not start editing');
   }
 
+  /// The raw `keydown` listener behind [installSaveShortcut] is attached to
+  /// the browser `window`, not scoped to this widget's place in the
+  /// Navigator stack — so with two note routes pushed, both screens' web
+  /// listeners fire on the same keypress. Guard on [ModalRoute.isCurrent] so
+  /// only the top-most note saves; a background note stays untouched, same
+  /// as native `CallbackShortcuts` (which only fires for the focused route).
   void _saveIfEditing() {
-    if (widget.controller.value.mode == NoteMode.editing) unawaited(_save());
+    if (widget.controller.value.mode != NoteMode.editing) return;
+    if (ModalRoute.of(context)?.isCurrent == false) return;
+    unawaited(_save());
   }
 
   Future<void> _save() async {
