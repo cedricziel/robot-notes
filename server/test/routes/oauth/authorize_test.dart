@@ -6,6 +6,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/oauth/authorize.dart' as route;
@@ -28,15 +29,19 @@ RequestContext _ctx({
   required ClientStore clientStore,
   required CodeStore codeStore,
   Map<String, String> queryParameters = const {},
+  String? rawQuery,
   String? formBody,
   Config? config,
+  ConsentThrottle? consentThrottle,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
-  final uri = Uri.parse('http://localhost/oauth/authorize').replace(
-    queryParameters: queryParameters.isEmpty ? null : queryParameters,
-  );
+  final uri = rawQuery != null
+      ? Uri.parse('http://localhost/oauth/authorize?$rawQuery')
+      : Uri.parse('http://localhost/oauth/authorize').replace(
+          queryParameters: queryParameters.isEmpty ? null : queryParameters,
+        );
   when(() => req.uri).thenReturn(uri);
   when(() => req.headers).thenReturn(
     formBody == null
@@ -48,6 +53,8 @@ RequestContext _ctx({
   when(() => ctx.read<ClientStore>()).thenReturn(clientStore);
   when(() => ctx.read<CodeStore>()).thenReturn(codeStore);
   when(() => ctx.read<Config>()).thenReturn(config ?? _config());
+  when(() => ctx.read<ConsentThrottle>())
+      .thenReturn(consentThrottle ?? ConsentThrottle());
   return ctx;
 }
 
@@ -166,6 +173,34 @@ void main() {
       expect(res.headers.containsKey(HttpHeaders.locationHeader), isFalse);
     });
 
+    test(
+        'an unknown client_id and an unregistered redirect_uri render the '
+        'same generic error, so the page never reveals which one was wrong',
+        () async {
+      final unknownClientRes = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: validQuery()..['client_id'] = 'does-not-exist',
+        ),
+      );
+      final unregisteredRedirectRes = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: validQuery()
+            ..['redirect_uri'] = 'https://not-registered.example/callback',
+        ),
+      );
+
+      expect(
+        await unknownClientRes.body(),
+        await unregisteredRedirectRes.body(),
+      );
+    });
+
     test('missing PKCE challenge redirects with invalid_request', () async {
       final query = validQuery(state: 'xyz')..remove('code_challenge');
       final res = await route.onRequest(
@@ -260,6 +295,54 @@ void main() {
       expect(location.queryParameters['state'], 'xyz');
     });
 
+    test(
+        'an unsupported response_type takes priority over a client not '
+        'registered for the code response type', () async {
+      final restricted = await clientStore.register(
+        clientName: 'No Code Response Type',
+        redirectUris: ['https://restricted.example/callback'],
+        tokenEndpointAuthMethod: 'none',
+        grantTypes: ['authorization_code'],
+        responseTypes: const [],
+      );
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: {
+            'client_id': restricted.client.clientId,
+            'redirect_uri': restricted.client.redirectUris.first,
+            'response_type': 'token',
+            'code_challenge': 'challenge-abc',
+            'code_challenge_method': 'S256',
+            'state': 'xyz',
+          },
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.found);
+      final location = Uri.parse(res.headers[HttpHeaders.locationHeader]!);
+      expect(location.queryParameters['error'], 'unsupported_response_type');
+      expect(location.queryParameters['state'], 'xyz');
+    });
+
+    test('a malformed percent-escape in the query renders an error page',
+        () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          rawQuery: 'client_id=${client.client.clientId}&resource=%FF',
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.body();
+      expect(body, contains('<!doctype html>'));
+    });
+
     test('unsupported response_type redirects with error', () async {
       final query = validQuery(state: 'xyz')..['response_type'] = 'token';
       final res = await route.onRequest(
@@ -300,6 +383,62 @@ void main() {
       expect(location.queryParameters['iss'], 'http://localhost');
     });
 
+    test(
+        'preserves a duplicate query key on the redirect_uri and encodes a '
+        'space in state as %20, not +', () async {
+      final withQuery = await clientStore.register(
+        clientName: 'Query Client',
+        redirectUris: ['https://agent.example/callback?x=1&x=2'],
+        tokenEndpointAuthMethod: 'none',
+        grantTypes: ['authorization_code', 'refresh_token'],
+        responseTypes: ['code'],
+      );
+      final form = {
+        'client_id': withQuery.client.clientId,
+        'redirect_uri': withQuery.client.redirectUris.first,
+        'response_type': 'code',
+        'code_challenge': 'challenge-abc',
+        'code_challenge_method': 'S256',
+        'state': 'a b',
+        'api_key': _apiKey,
+        'actor': 'desk-assistant',
+      };
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(form),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.found);
+      final rawLocation = res.headers[HttpHeaders.locationHeader]!;
+      expect(rawLocation, contains('x=1&x=2'));
+      expect(rawLocation, isNot(contains('state=a+b')));
+      final location = Uri.parse(rawLocation);
+      expect(location.queryParametersAll['x'], ['1', '2']);
+      expect(location.queryParameters['state'], 'a b');
+      expect(location.queryParameters['code'], isNotEmpty);
+    });
+
+    test('a malformed percent-escape in the form body renders an error page',
+        () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: 'client_id=${client.client.clientId}&resource=%FF',
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.body();
+      expect(body, contains('<!doctype html>'));
+    });
+
     test('wrong key re-renders without minting a code', () async {
       final form = validQuery()..['api_key'] = 'wrong';
 
@@ -316,6 +455,89 @@ void main() {
       expect(res.headers.containsKey(HttpHeaders.locationHeader), isFalse);
       final body = await res.body();
       expect(body, contains('class="error"'));
+    });
+
+    test(
+        'more than 10 failed submissions within the window are throttled '
+        'with 429, and the throttled response never checks the key', () async {
+      final throttle = ConsentThrottle();
+      final wrongForm = validQuery()..['api_key'] = 'wrong';
+      final correctForm = validQuery()
+        ..['api_key'] = _apiKey
+        ..['actor'] = 'desk-assistant';
+
+      for (var i = 0; i < 10; i++) {
+        final res = await route.onRequest(
+          _ctx(
+            method: HttpMethod.post,
+            clientStore: clientStore,
+            codeStore: codeStore,
+            formBody: _formEncode(wrongForm),
+            consentThrottle: throttle,
+          ),
+        );
+        expect(res.statusCode, HttpStatus.ok, reason: 'attempt $i');
+      }
+
+      final blockedWrong = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(wrongForm),
+          consentThrottle: throttle,
+        ),
+      );
+      expect(blockedWrong.statusCode, HttpStatus.tooManyRequests);
+
+      final blockedCorrect = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(correctForm),
+          consentThrottle: throttle,
+        ),
+      );
+      expect(
+        blockedCorrect.statusCode,
+        HttpStatus.tooManyRequests,
+        reason: 'the throttle blocks even a correct key once tripped',
+      );
+      expect(
+        blockedCorrect.headers.containsKey(HttpHeaders.locationHeader),
+        isFalse,
+        reason: 'a throttled request must never mint a code',
+      );
+    });
+
+    test('a throttled consent submission is not cacheable', () async {
+      final throttle = ConsentThrottle();
+      final wrongForm = validQuery()..['api_key'] = 'wrong';
+      for (var i = 0; i < 10; i++) {
+        await route.onRequest(
+          _ctx(
+            method: HttpMethod.post,
+            clientStore: clientStore,
+            codeStore: codeStore,
+            formBody: _formEncode(wrongForm),
+            consentThrottle: throttle,
+          ),
+        );
+      }
+
+      final blocked = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(wrongForm),
+          consentThrottle: throttle,
+        ),
+      );
+
+      expect(blocked.statusCode, HttpStatus.tooManyRequests);
+      expect(blocked.headers[HttpHeaders.cacheControlHeader], 'no-store');
     });
 
     test('empty actor falls back to the client name', () async {

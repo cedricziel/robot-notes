@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
@@ -16,12 +17,14 @@ RequestContext _ctx({
   required HttpMethod method,
   required ClientStore store,
   Object? body,
+  String? rawBody,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.headers).thenReturn(const {});
-  when(req.json).thenAnswer((_) async => body);
+  final encoded = utf8.encode(rawBody ?? jsonEncode(body));
+  when(req.bytes).thenAnswer((_) => Stream.value(encoded));
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<ClientStore>()).thenReturn(store);
   return ctx;
@@ -250,6 +253,78 @@ void main() {
     expect(json['client_name'], 'mcp-client');
   });
 
+  test('rejects an out-of-set grant_types entry', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'x',
+          'redirect_uris': ['https://agent.example/callback'],
+          'grant_types': ['authorization_code', 'client_credentials'],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
+  test('rejects an empty grant_types list', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'x',
+          'redirect_uris': ['https://agent.example/callback'],
+          'grant_types': <String>[],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
+  test('rejects an out-of-set response_types entry', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'x',
+          'redirect_uris': ['https://agent.example/callback'],
+          'response_types': ['code', 'token'],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
+  test('rejects an empty response_types list', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'x',
+          'redirect_uris': ['https://agent.example/callback'],
+          'response_types': <String>[],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
   test('rejects an unsupported token_endpoint_auth_method', () async {
     final res = await route.onRequest(
       _ctx(
@@ -260,6 +335,60 @@ void main() {
           'redirect_uris': ['https://agent.example/callback'],
           'token_endpoint_auth_method': 'private_key_jwt',
         },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
+  test('accepts a body of exactly 16 KiB', () async {
+    final base = {
+      'client_name': 'Padded',
+      'redirect_uris': ['https://agent.example/callback'],
+      'padding': '',
+    };
+    final baseLength = jsonEncode(base).length;
+    final padded = {...base, 'padding': 'a' * (16 * 1024 - baseLength)};
+    expect(jsonEncode(padded).length, 16 * 1024);
+
+    final res = await route.onRequest(
+      _ctx(method: HttpMethod.post, store: store, body: padded),
+    );
+
+    expect(res.statusCode, HttpStatus.created);
+  });
+
+  test('stops reading an unbounded body once it passes 16 KiB', () async {
+    var chunksRead = 0;
+    Stream<List<int>> endless() async* {
+      while (true) {
+        chunksRead++;
+        yield List<int>.filled(1024, 0x78);
+      }
+    }
+
+    final ctx = _MockRequestContext();
+    final req = _MockRequest();
+    when(() => req.method).thenReturn(HttpMethod.post);
+    when(() => req.headers).thenReturn(const {});
+    when(req.bytes).thenAnswer((_) => endless());
+    when(() => ctx.request).thenReturn(req);
+    when(() => ctx.read<ClientStore>()).thenReturn(store);
+
+    final res = await route.onRequest(ctx);
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    expect(chunksRead, lessThanOrEqualTo(18));
+  });
+
+  test('rejects a body larger than 16 KiB', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        rawBody: 'x' * (16 * 1024 + 1),
       ),
     );
 

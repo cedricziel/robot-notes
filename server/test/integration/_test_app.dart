@@ -20,6 +20,7 @@ import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
@@ -63,8 +64,8 @@ Future<HttpServer> startTestServer({
   final pipeline = const Pipeline()
       .addMiddleware(provider<Config>((_) => config))
       .addMiddleware(wellKnownMiddleware())
-      .addMiddleware(actorIdentity())
       .addMiddleware(bearerAuth(configuredKey: config.apiKey))
+      .addMiddleware(actorIdentity())
       .addMiddleware(provider<PresenceTracker>((_) => deps.presence))
       .addMiddleware(provider<Broadcaster>((_) => deps.broadcaster))
       .addMiddleware(provider<LockManager>((_) => deps.lockManager))
@@ -73,6 +74,7 @@ Future<HttpServer> startTestServer({
       .addMiddleware(provider<ClientStore>((_) => deps.clientStore))
       .addMiddleware(provider<CodeStore>((_) => deps.codeStore))
       .addMiddleware(provider<TokenStore>((_) => deps.tokenStore))
+      .addMiddleware(provider<ConsentThrottle>((_) => deps.consentThrottle))
       .addMiddleware(provider<MetaIndex>((_) => deps.metaIndex))
       .addMiddleware(provider<NoteWriteService>((_) => deps.noteWriteService))
       .addMiddleware(provider<Storage>((_) => deps.storage))

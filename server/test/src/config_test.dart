@@ -304,6 +304,21 @@ void main() {
         throwsA(isA<ConfigError>()),
       );
     });
+
+    test('rejects --public-url with userinfo', () {
+      expect(
+        () => Config.fromArgs(
+          const [
+            '--api-key',
+            'rn_x',
+            '--public-url',
+            'https://user:pw@notes.example.com',
+          ],
+          env: const {},
+        ),
+        throwsA(isA<ConfigError>()),
+      );
+    });
   });
 
   group('Config.loadOrExit', () {

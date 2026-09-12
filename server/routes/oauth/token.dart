@@ -24,16 +24,15 @@ Future<Response> onRequest(RequestContext context) async {
     form = await parseFormBody(context.request);
   } on UnsupportedFormContentTypeException {
     return oauthError(HttpStatus.badRequest, 'invalid_request');
-  }
-
-  final grantType = form['grant_type'];
-  if (grantType == null || grantType.isEmpty) {
+  } on MalformedFormBodyException {
     return oauthError(HttpStatus.badRequest, 'invalid_request');
   }
-  if (grantType != 'authorization_code' && grantType != 'refresh_token') {
-    return oauthError(HttpStatus.badRequest, 'unsupported_grant_type');
-  }
 
+  // Client authentication is checked before any grant_type validation, so
+  // an unauthenticated caller can't distinguish "unknown client" from
+  // "known client, bad grant_type" by watching which error code comes
+  // back, and never learns anything about a grant's shape before proving
+  // it owns the client.
   final authResult = await authenticateClient(context, form);
   if (!authResult.isSuccess) {
     return oauthError(
@@ -45,6 +44,14 @@ Future<Response> onRequest(RequestContext context) async {
     );
   }
   final client = authResult.client!;
+
+  final grantType = form['grant_type'];
+  if (grantType == null || grantType.isEmpty) {
+    return oauthError(HttpStatus.badRequest, 'invalid_request');
+  }
+  if (grantType != 'authorization_code' && grantType != 'refresh_token') {
+    return oauthError(HttpStatus.badRequest, 'unsupported_grant_type');
+  }
   if (!client.grantTypes.contains(grantType)) {
     return oauthError(HttpStatus.badRequest, 'unauthorized_client');
   }
@@ -84,23 +91,34 @@ Future<Response> _exchangeCode(
         return oauthError(HttpStatus.badRequest, 'invalid_grant');
       }
 
-      final issued = await context.read<TokenStore>().issue(
-            clientId: client.clientId,
-            actor: record.actor,
-            scopes: record.scopes,
-            resource: record.resource,
-            grantId: record.grantId,
-          );
-      return _tokenResponse(
-        issued,
-        includeRefresh: client.grantTypes.contains('refresh_token'),
-      );
+      final tokenStore = context.read<TokenStore>();
+      // A failure here (e.g. a filesystem error) can strike after the
+      // access token file is already written but before the response is
+      // built, leaving a half-issued grant with no refresh token minted
+      // for it. Revoke whatever was written before letting the error
+      // propagate, rather than leaving it live and unreachable.
+      try {
+        final issued = await tokenStore.issue(
+          clientId: client.clientId,
+          actor: record.actor,
+          scopes: record.scopes,
+          resource: record.resource,
+          grantId: record.grantId,
+          withRefresh: client.grantTypes.contains('refresh_token'),
+        );
+        return _tokenResponse(issued);
+      } on Object {
+        await tokenStore.revokeGrant(record.grantId);
+        rethrow;
+      }
     });
   } on CodeReusedException catch (e) {
     await context.read<TokenStore>().revokeGrant(e.grantId);
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on CodeNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
+  } on Object {
+    return oauthError(HttpStatus.internalServerError, 'server_error');
   }
 }
 
@@ -140,7 +158,7 @@ Future<Response> _refresh(
       refreshToken,
       scopes: requestedScopes,
     );
-    return _tokenResponse(issued, includeRefresh: true);
+    return _tokenResponse(issued);
   } on TokenNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on RefreshReuseException {
@@ -150,14 +168,20 @@ Future<Response> _refresh(
   }
 }
 
-Response _tokenResponse(IssuedTokens issued, {required bool includeRefresh}) {
+// `refresh_token` is included only when `issued.refreshToken` is
+// non-null: whether a refresh token was minted at all is decided by the
+// `withRefresh` passed to `TokenStore.issue`/`rotateRefresh`, not by this
+// response shaping — a client not registered for the refresh_token grant
+// never has one persisted in the first place, so there is nothing to
+// withhold here.
+Response _tokenResponse(IssuedTokens issued) {
   return Response.json(
     headers: kNoStoreHeaders,
     body: {
       'access_token': issued.accessToken,
       'token_type': 'Bearer',
       'expires_in': issued.expiresIn,
-      if (includeRefresh) 'refresh_token': issued.refreshToken,
+      if (issued.refreshToken != null) 'refresh_token': issued.refreshToken,
       'scope': (issued.scopes.toList()..sort()).join(' '),
     },
   );

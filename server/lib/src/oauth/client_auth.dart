@@ -77,9 +77,7 @@ Future<ClientAuthResult> authenticateClient(
       }
       return ClientAuthResult.success(client);
     case 'client_secret_basic':
-      if (basic == null ||
-          basic.clientId != clientId ||
-          !store.verifySecret(client, basic.clientSecret)) {
+      if (basic == null || !store.verifySecret(client, basic.clientSecret)) {
         return const ClientAuthResult.failure(
           'invalid_client',
           wwwAuthenticate: _kBasicRealm,
@@ -100,8 +98,13 @@ class _BasicCredentials {
 
 _BasicCredentials? _tryParseBasic(String? header) {
   if (header == null) return null;
-  const prefix = 'Basic ';
-  if (!header.startsWith(prefix)) return null;
+  // The auth scheme token is case-insensitive (RFC 7235 §2.1); only the
+  // base64 payload after it is case-sensitive.
+  const prefix = 'basic ';
+  if (header.length < prefix.length ||
+      header.substring(0, prefix.length).toLowerCase() != prefix) {
+    return null;
+  }
   final String decoded;
   try {
     decoded = utf8.decode(base64.decode(header.substring(prefix.length)));
@@ -110,8 +113,23 @@ _BasicCredentials? _tryParseBasic(String? header) {
   }
   final sep = decoded.indexOf(':');
   if (sep < 0) return null;
-  return _BasicCredentials(
-    decoded.substring(0, sep),
-    decoded.substring(sep + 1),
-  );
+  // RFC 6749 §2.3.1: the client id and secret are each encoded with the
+  // application/x-www-form-urlencoded algorithm before being joined with
+  // ":" and base64-encoded, so they must be form-urldecoded back before
+  // use — not just base64-decoded.
+  try {
+    return _BasicCredentials(
+      Uri.decodeQueryComponent(decoded.substring(0, sep)),
+      Uri.decodeQueryComponent(decoded.substring(sep + 1)),
+    );
+  } on FormatException {
+    return null;
+  } catch (e) {
+    // `Uri.decodeQueryComponent` throws a plain `ArgumentError` (not a
+    // `FormatException`) for some malformed percent-escapes, even though
+    // the input is an untrusted header rather than a programming mistake;
+    // narrow the catch to that case and let anything else propagate.
+    if (e is ArgumentError) return null;
+    rethrow;
+  }
 }

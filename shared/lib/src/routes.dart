@@ -13,6 +13,8 @@ abstract final class Routes {
   static const String oauthRevoke = '/oauth/revoke';
   static const String wellKnownProtectedResource =
       '/.well-known/oauth-protected-resource';
+  static const String wellKnownProtectedResourceMcp =
+      '$wellKnownProtectedResource/mcp';
   static const String wellKnownAuthorizationServer =
       '/.well-known/oauth-authorization-server';
 

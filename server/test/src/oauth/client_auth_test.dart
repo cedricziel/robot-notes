@@ -5,6 +5,9 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/oauth/client_auth.dart';
 import 'package:server/src/oauth/client_store.dart';
+import 'package:server/src/oauth/oauth_crypto.dart';
+import 'package:server/src/oauth/oauth_records.dart';
+import 'package:server/src/oauth/store_support.dart';
 import 'package:test/test.dart';
 
 class _MockRequestContext extends Mock implements RequestContext {}
@@ -143,6 +146,67 @@ void main() {
 
     expect(result.isSuccess, isTrue);
     expect(result.client!.clientId, registered.client.clientId);
+  });
+
+  test('resolves client_secret_basic with a lower-case "basic" scheme',
+      () async {
+    final registered = await store.register(
+      clientName: 'Basic',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'client_secret_basic',
+      grantTypes: ['authorization_code', 'refresh_token'],
+      responseTypes: ['code'],
+    );
+    final credentials = base64Encode(
+      utf8.encode('${registered.client.clientId}:${registered.clientSecret}'),
+    );
+
+    final result = await authenticateClient(
+      _ctx(
+        store: store,
+        headers: {'authorization': 'basic $credentials'},
+      ),
+      const {},
+    );
+
+    expect(result.isSuccess, isTrue);
+  });
+
+  test(
+      'form-urldecodes the client_secret before comparing it '
+      '(RFC 6749 §2.3.1)', () async {
+    // client_id can't itself carry reserved characters (ClientStore only
+    // ever mints base64url ids and rejects anything else as unsafe), but a
+    // compliant client still form-encodes the secret before building the
+    // Basic header, so the server must decode it back before comparing.
+    const clientId = 'form-encoded-secret-client';
+    const rawSecret = 'sec ret+with@chars';
+    final client = OAuthClient(
+      clientId: clientId,
+      clientName: 'Form Encoded',
+      redirectUris: const ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'client_secret_basic',
+      grantTypes: const ['authorization_code'],
+      responseTypes: const ['code'],
+      clientSecretHash: hashSecret(rawSecret),
+      createdAt: DateTime.utc(2026),
+    );
+    await atomicWriteJsonFile(
+      File('${tmp.path}/clients/$clientId.json'),
+      client.toJson(),
+    );
+    final encodedSecret = Uri.encodeQueryComponent(rawSecret);
+    final credentials = base64Encode(utf8.encode('$clientId:$encodedSecret'));
+
+    final result = await authenticateClient(
+      _ctx(
+        store: store,
+        headers: {'authorization': 'Basic $credentials'},
+      ),
+      const {},
+    );
+
+    expect(result.isSuccess, isTrue);
   });
 
   test('client_secret_basic without the header fails', () async {

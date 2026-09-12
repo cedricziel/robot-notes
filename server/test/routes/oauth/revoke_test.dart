@@ -148,6 +148,29 @@ void main() {
     expect(res.statusCode, HttpStatus.ok);
   });
 
+  test('a successful revocation carries Cache-Control: no-store', () async {
+    final client = await clientStore.register(
+      clientName: 'Public',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['authorization_code', 'refresh_token'],
+      responseTypes: ['code'],
+    );
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'client_id': client.client.clientId,
+          'token': 'never-issued',
+        }),
+      ),
+    );
+
+    expect(res.headers['Cache-Control'], 'no-store');
+  });
+
   test("a client cannot revoke another client's token (RFC 7009 §2.1)",
       () async {
     final clientA = await clientStore.register(
@@ -194,6 +217,21 @@ void main() {
     expect(refreshLookup, isNotNull);
   });
 
+  test('a malformed percent-escape in the form body is invalid_request',
+      () async {
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        tokenStore: tokenStore,
+        formBody: 'client_id=does-not-exist&token=%FF',
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_request');
+  });
+
   test('a bad client is 401', () async {
     final res = await route.onRequest(
       _ctx(
@@ -207,6 +245,7 @@ void main() {
     );
 
     expect(res.statusCode, HttpStatus.unauthorized);
+    expect(res.headers['Cache-Control'], 'no-store');
     final json = await res.json() as Map<String, dynamic>;
     expect(json['error'], 'invalid_client');
   });

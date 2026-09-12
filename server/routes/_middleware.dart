@@ -11,6 +11,7 @@ import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/static_web_middleware.dart';
@@ -24,8 +25,9 @@ import 'package:server/src/ws/presence.dart';
 /// Order is bottom-up (last `.use` runs first):
 ///   1. `provider<Config>` and the long-lived dependency providers
 ///      ([Storage], [MetaIndex], [LockManager], [Broadcaster],
-///      [PresenceTracker], [ClientStore], [CodeStore], [TokenStore]) so
-///      handlers and downstream middleware can `read<T>()` them.
+///      [PresenceTracker], [ClientStore], [CodeStore], [TokenStore],
+///      [ConsentThrottle]) so handlers and downstream middleware can
+///      `read<T>()` them.
 ///   2. [wellKnownMiddleware] answers the OAuth discovery documents
 ///      unauthenticated. It runs after the `Config` provider (it needs
 ///      the public base URL) but before [bearerAuth], since these
@@ -68,6 +70,7 @@ Handler middleware(Handler handler) {
           .use(provider<ClientStore>((_) => deps.clientStore))
           .use(provider<CodeStore>((_) => deps.codeStore))
           .use(provider<TokenStore>((_) => deps.tokenStore))
+          .use(provider<ConsentThrottle>((_) => deps.consentThrottle))
           .use(provider<MetaIndex>((_) => deps.metaIndex))
           .use(provider<NoteWriteService>((_) => deps.noteWriteService))
           .use(provider<Storage>((_) => deps.storage))

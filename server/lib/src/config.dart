@@ -203,21 +203,22 @@ class Config {
   /// normalizes it to an origin with no trailing slash. Returns `null` when
   /// [raw] is `null`. Throws [ConfigError] when the value is not an
   /// absolute `http`/`https` URL with an empty path (or exactly `/`), no
-  /// query, and no fragment.
+  /// query, no fragment, and no userinfo.
   static String? _resolvePublicUrl(String? raw) {
     if (raw == null) return null;
     final uri = Uri.tryParse(raw);
     final valid = uri != null &&
         (uri.scheme == 'http' || uri.scheme == 'https') &&
         uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty &&
         (uri.path.isEmpty || uri.path == '/') &&
         !uri.hasQuery &&
         !uri.hasFragment;
     if (!valid) {
       throw ConfigError(
         'Invalid --public-url / ROBOT_NOTES_PUBLIC_URL value "$raw": must '
-        'be an absolute http or https URL with no path, query, or '
-        'fragment.',
+        'be an absolute http or https URL with no userinfo, path, query, '
+        'or fragment.',
       );
     }
     return uri.replace(path: '').toString();

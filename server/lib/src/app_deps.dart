@@ -10,6 +10,7 @@ import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
@@ -35,6 +36,7 @@ class AppDeps {
     required this.clientStore,
     required this.codeStore,
     required this.tokenStore,
+    required this.consentThrottle,
     required this.lockManager,
     required this.broadcaster,
     required this.presence,
@@ -59,6 +61,7 @@ class AppDeps {
   /// - [ClientStore], [CodeStore], [TokenStore] rooted at
   ///   `<dataDir>/oauth/{clients,codes,tokens}`, with expired codes and
   ///   tokens purged before the bundle is returned
+  /// - [ConsentThrottle], sharing [clock] with everything else
   static Future<AppDeps> bootstrap(
     Config config, {
     Clock clock = const Clock(),
@@ -96,6 +99,7 @@ class AppDeps {
       clock: clock,
       onGrantRevoked: codeStore.revokeGrant,
     );
+    final consentThrottle = ConsentThrottle(clock: clock);
     final purgedCodes = await codeStore.purgeExpired();
     final purgedTokens = await tokenStore.purgeExpired();
     log.info(
@@ -110,6 +114,7 @@ class AppDeps {
       clientStore: clientStore,
       codeStore: codeStore,
       tokenStore: tokenStore,
+      consentThrottle: consentThrottle,
       lockManager: lockManager,
       broadcaster: Broadcaster(),
       presence: PresenceTracker(),
@@ -137,6 +142,10 @@ class AppDeps {
 
   /// Filesystem-backed OAuth access/refresh token store.
   final TokenStore tokenStore;
+
+  /// Process-local rate limit on failed `/oauth/authorize` consent
+  /// submissions.
+  final ConsentThrottle consentThrottle;
 
   /// Soft editor lock manager (process-local).
   final LockManager lockManager;

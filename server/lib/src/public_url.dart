@@ -1,5 +1,6 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/config.dart';
+import 'package:shared/shared.dart';
 
 /// Resolves the absolute public base URL (`<base>`) used for OAuth
 /// metadata, redirects, and invite URLs.
@@ -13,16 +14,29 @@ String publicBaseUrl(RequestContext context) {
   if (configured != null) return configured;
 
   final request = context.request;
-  final forwardedProto = request.headers['x-forwarded-proto'];
-  final scheme = (forwardedProto != null && forwardedProto.isNotEmpty)
-      ? forwardedProto.split(',').first.trim()
-      : (request.uri.scheme.isNotEmpty ? request.uri.scheme : 'http');
+  final forwardedProto = _firstForwardedProto(
+    request.headers['x-forwarded-proto'],
+  );
+  final scheme = forwardedProto ??
+      (request.uri.scheme.isNotEmpty ? request.uri.scheme : 'http');
   final host = request.headers['host'] ?? 'localhost';
   return '$scheme://$host';
 }
 
 /// The canonical MCP resource identifier for the given public [base] URL.
-String mcpResourceUrl(String base) => '$base/mcp';
+String mcpResourceUrl(String base) => '$base${Routes.mcp}';
+
+/// Parses the first comma-separated value of an `X-Forwarded-Proto` header
+/// as a scheme, returning it only when it is exactly `http` or `https`
+/// (case-insensitively, surrounding whitespace trimmed); `null` otherwise
+/// (including a `null` or empty [header]), so a reverse proxy that forwards
+/// an unexpected or attacker-controlled value can never inject anything
+/// beyond those two schemes into the derived base URL.
+String? _firstForwardedProto(String? header) {
+  if (header == null || header.isEmpty) return null;
+  final candidate = header.split(',').first.trim().toLowerCase();
+  return candidate == 'http' || candidate == 'https' ? candidate : null;
+}
 
 /// Operator warning logged at startup when no public URL is configured,
 /// since the OAuth issuer and resource are then derived from request

@@ -65,6 +65,36 @@ class _MutableClock implements Clock {
   void advance(Duration duration) => _now = _now.add(duration);
 }
 
+/// A [TokenStore] that mints a real token pair and then throws, simulating
+/// a downstream failure (e.g. a broken filesystem) after the grant has
+/// already been half-issued. [lastIssued] captures what was minted so a
+/// test can confirm it was rolled back.
+class _ThrowingAfterIssueTokenStore extends TokenStore {
+  _ThrowingAfterIssueTokenStore({required super.dir, required super.clock});
+
+  IssuedTokens? lastIssued;
+
+  @override
+  Future<IssuedTokens> issue({
+    required String clientId,
+    required String actor,
+    required Set<String> scopes,
+    required String resource,
+    required String grantId,
+    bool withRefresh = true,
+  }) async {
+    lastIssued = await super.issue(
+      clientId: clientId,
+      actor: actor,
+      scopes: scopes,
+      resource: resource,
+      grantId: grantId,
+      withRefresh: withRefresh,
+    );
+    throw StateError('simulated downstream failure after token issuance');
+  }
+}
+
 void main() {
   late Directory tmp;
   late ClientStore clientStore;
@@ -198,6 +228,44 @@ void main() {
 
       final lookup = await tokenStore.lookupAccess(accessToken);
       expect(lookup, isNull);
+    });
+
+    test(
+        'a non-OAuth exception from TokenStore.issue revokes the grant and '
+        'maps to a 500 server_error, without exposing the raw error', () async {
+      final client = await registerPublic();
+      final code = await mintCode(client);
+      final throwingStore = _ThrowingAfterIssueTokenStore(
+        dir: Directory('${tmp.path}/tokens'),
+        clock: clock,
+      );
+
+      final res = await route.onRequest(
+        _ctx(
+          clientStore: clientStore,
+          codeStore: codeStore,
+          tokenStore: throwingStore,
+          formBody: _formEncode({
+            'grant_type': 'authorization_code',
+            'client_id': client.client.clientId,
+            'code': code,
+            'redirect_uri': 'https://agent.example/callback',
+            'code_verifier': _verifier,
+          }),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.internalServerError);
+      final json = await res.json() as Map<String, dynamic>;
+      expect(json, {'error': 'server_error'});
+
+      final issued = throwingStore.lastIssued!;
+      final lookup = await throwingStore.lookupAccess(issued.accessToken);
+      expect(
+        lookup,
+        isNull,
+        reason: 'the half-issued grant must be revoked, not left live',
+      );
     });
 
     test(
@@ -387,6 +455,64 @@ void main() {
     });
   });
 
+  test('a malformed percent-escape in the form body is invalid_request',
+      () async {
+    final client = await registerPublic();
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: 'grant_type=authorization_code'
+            '&client_id=${client.client.clientId}'
+            '&code=%FF',
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_request');
+  });
+
+  test(
+      'client authentication is checked before grant_type, so an unknown '
+      'client with a missing grant_type is 401 invalid_client, not 400',
+      () async {
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({'client_id': 'does-not-exist'}),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.unauthorized);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client');
+  });
+
+  test(
+      'client authentication is checked before grant_type, so an unknown '
+      'client with an unsupported grant_type is still 401 invalid_client',
+      () async {
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'client_id': 'does-not-exist',
+          'grant_type': 'password',
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.unauthorized);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client');
+  });
+
   test('unsupported grant type', () async {
     final client = await registerPublic();
     final res = await route.onRequest(
@@ -484,6 +610,43 @@ void main() {
     final json = await res.json() as Map<String, dynamic>;
     expect(json['access_token'], isNotEmpty);
     expect(json.containsKey('refresh_token'), isFalse);
+  });
+
+  test(
+      'a client without the refresh_token grant never gets a refresh token '
+      'minted for it, not just one withheld from the response', () async {
+    final client = await clientStore.register(
+      clientName: 'Code Only',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['authorization_code'],
+      responseTypes: ['code'],
+    );
+    final code = await mintCode(client);
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'grant_type': 'authorization_code',
+          'client_id': client.client.clientId,
+          'code': code,
+          'redirect_uri': 'https://agent.example/callback',
+          'code_verifier': _verifier,
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.ok);
+    final tokenFiles =
+        Directory('${tmp.path}/tokens').listSync().whereType<File>().toList();
+    expect(
+      tokenFiles,
+      hasLength(1),
+      reason: 'only the access token should ever be persisted',
+    );
   });
 
   test('a client not registered for refresh_token is unauthorized_client',

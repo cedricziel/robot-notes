@@ -7,6 +7,7 @@ import 'package:server/src/constant_time.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/consent_page.dart';
+import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/form_body.dart';
 import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oauth/oauth_crypto.dart';
@@ -43,7 +44,12 @@ Future<Response> onRequest(RequestContext context) async {
 }
 
 Future<Response> _get(RequestContext context) async {
-  final params = context.request.uri.queryParameters;
+  final Map<String, String> params;
+  try {
+    params = context.request.uri.queryParameters;
+  } on FormatException {
+    return _errorPage('Malformed query string.');
+  }
   final validation = await _validate(context, params);
   return switch (validation) {
     _ClientError(:final message) => _errorPage(message),
@@ -66,6 +72,8 @@ Future<Response> _post(RequestContext context) async {
     return _errorPage(
       'Request body must be application/x-www-form-urlencoded.',
     );
+  } on MalformedFormBodyException {
+    return _errorPage('Malformed request body.');
   }
 
   final validation = await _validate(context, form);
@@ -82,9 +90,18 @@ Future<Response> _submitConsent(
   required _Valid valid,
   required Map<String, String> form,
 }) async {
+  final throttle = context.read<ConsentThrottle>();
+  if (throttle.isBlocked) {
+    return _errorPage(
+      'Too many failed attempts. Try again later.',
+      statusCode: HttpStatus.tooManyRequests,
+    );
+  }
+
   final config = context.read<Config>();
   final apiKey = form['api_key'] ?? '';
   if (!constantTimeEquals(config.apiKey, apiKey)) {
+    throttle.recordFailure(valid.client.clientId);
     return _renderConsent(
       client: valid.client,
       redirectUri: valid.redirectUri,
@@ -149,8 +166,12 @@ Response _renderConsent({
   );
 }
 
-Response _errorPage(String message) => Response(
-      statusCode: HttpStatus.badRequest,
+Response _errorPage(
+  String message, {
+  int statusCode = HttpStatus.badRequest,
+}) =>
+    Response(
+      statusCode: statusCode,
       body:
           '<!doctype html><html lang="en"><body><p>$message</p></body></html>',
       headers: _kConsentPageHeaders,
@@ -179,9 +200,23 @@ Response _redirectWithError(
   );
 }
 
+// Built by hand rather than via `Uri.replace(queryParameters: ...)`: that
+// constructor rebuilds the query from `base.queryParameters`, which
+// collapses a repeated key to its last value and re-encodes with
+// `Uri.encodeQueryComponent` (space -> `+`) instead of the `%20` form
+// expected of a URL fragment appended to an opaque, client-controlled
+// query string. Concatenating the raw query verbatim and appending only
+// the new parameters keeps every existing key (duplicates included) and
+// uses `Uri.encodeComponent` (space -> `%20`) for the ones we add.
 Uri _appendQuery(String uri, Map<String, String> extra) {
   final base = Uri.parse(uri);
-  return base.replace(queryParameters: {...base.queryParameters, ...extra});
+  final added = extra.entries
+      .map(
+        (e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}',
+      )
+      .join('&');
+  final query = base.query.isEmpty ? added : '${base.query}&$added';
+  return base.replace(query: query);
 }
 
 /// Outcome of validating an authorization request, shared by the GET and
@@ -238,30 +273,33 @@ Future<_Validation> _validate(
     return const _ClientError('client_id and redirect_uri are required.');
   }
 
+  // Both failures render the same generic message: distinguishing them
+  // would let a caller enumerate valid client ids by observing which
+  // wording comes back.
+  const clientOrRedirectError =
+      _ClientError('Unknown client_id or unregistered redirect_uri.');
   final client = await context.read<ClientStore>().get(clientId);
   if (client == null) {
-    return const _ClientError('Unknown client_id.');
+    return clientOrRedirectError;
   }
   if (!client.redirectUris.contains(redirectUri)) {
-    return const _ClientError(
-      'redirect_uri is not registered for this client.',
-    );
+    return clientOrRedirectError;
   }
 
   final state = params['state'];
-
-  if (!client.responseTypes.contains('code')) {
-    return _RedirectError(
-      redirectUri: redirectUri,
-      error: 'unauthorized_client',
-      state: state,
-    );
-  }
 
   if (params['response_type'] != 'code') {
     return _RedirectError(
       redirectUri: redirectUri,
       error: 'unsupported_response_type',
+      state: state,
+    );
+  }
+
+  if (!client.responseTypes.contains('code')) {
+    return _RedirectError(
+      redirectUri: redirectUri,
+      error: 'unauthorized_client',
       state: state,
     );
   }

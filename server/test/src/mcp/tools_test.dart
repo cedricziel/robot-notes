@@ -12,6 +12,7 @@ import 'package:server/src/mcp/tools.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
@@ -136,6 +137,7 @@ Future<AppDeps> _bootstrapFlaky(
     clientStore: ClientStore(dir: Directory('${tmp.path}/oauth/clients')),
     codeStore: CodeStore(dir: Directory('${tmp.path}/oauth/codes')),
     tokenStore: TokenStore(dir: Directory('${tmp.path}/oauth/tokens')),
+    consentThrottle: ConsentThrottle(),
     lockManager: LockManager(),
     broadcaster: Broadcaster(),
     presence: PresenceTracker(),

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/bounded_body.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/mcp/json_rpc.dart';
 import 'package:server/src/mcp/mcp_handler.dart';
@@ -37,16 +38,8 @@ Future<Response> onRequest(RequestContext context) async {
     return mcpUnsupportedProtocolVersion();
   }
 
-  // Buffered by hand — rather than `request.json()` — so an oversized body
-  // is rejected as soon as it crosses the cap instead of being fully
-  // decoded into memory first.
-  final bodyBytes = <int>[];
-  await for (final chunk in request.bytes()) {
-    bodyBytes.addAll(chunk);
-    if (bodyBytes.length > kMaxMcpBodyBytes) {
-      return mcpPayloadTooLarge();
-    }
-  }
+  final bodyBytes = await readBoundedBody(request, maxBytes: kMaxMcpBodyBytes);
+  if (bodyBytes == null) return mcpPayloadTooLarge();
 
   Object? decoded;
   try {
