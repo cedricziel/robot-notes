@@ -14,25 +14,32 @@ workspace:
 
 # flutter_otel's packages are unpublished (git-only), so its own version
 # constraints on its sibling packages (e.g. flutter_otel: ^0.1.0 on
-# flutter_otel_api) can't be resolved from pub.dev. These overrides pin the
-# whole family to one commit; bump all four refs together.
+# flutter_otel_api) can't be resolved from pub.dev. These overrides pin
+# the pure-Dart siblings to one commit; bump alongside app/pubspec.yaml's
+# flutter_otel_sdk override (same commit).
 #
-# NOTE: this block must stay ABOVE dev_dependencies/dart_pre_commit below —
-# server/Dockerfile strips everything from `dev_dependencies:` to end of
-# file when building the web/server images, and would silently drop these
-# overrides (breaking the web bundle's flutter_otel resolution) if they
-# were ordered after it.
+# flutter_otel_sdk itself is NOT overridden here, deliberately: pub pulls
+# every dependency_overrides entry into the root package's own resolution
+# set even when nothing in scope requires it, and flutter_otel_sdk needs
+# the Flutter SDK — which server/Dockerfile's server-builder stage (a
+# plain `dart:*-sdk` image, no Flutter) doesn't have. That stage strips
+# `app` from the workspace but still resolves this root pubspec, so an
+# override here for a Flutter-only package breaks its `dart pub get`
+# even though the server itself never touches flutter_otel_sdk. Scoped
+# instead to app/pubspec.yaml, which is only ever resolved with Flutter
+# tooling (fastlane, the Docker web-builder stage).
+#
+# NOTE: this block must stay ABOVE dev_dependencies/dart_pre_commit below
+# — server/Dockerfile strips everything from `dev_dependencies:` to end
+# of file when building the web/server images, and would silently drop
+# these overrides (breaking the web bundle's flutter_otel resolution) if
+# they were ordered after it.
 dependency_overrides:
   flutter_otel_api:
     git:
       url: https://github.com/cedricziel/flutter-otel
       ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
       path: packages/flutter_otel_api
-  flutter_otel_sdk:
-    git:
-      url: https://github.com/cedricziel/flutter-otel
-      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
-      path: packages/flutter_otel_sdk
   flutter_otel_exporter_otlp_http:
     git:
       url: https://github.com/cedricziel/flutter-otel
