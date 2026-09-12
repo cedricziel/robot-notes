@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../config/config_store.dart';
+import '../otel/otel_http_client.dart';
 import 'loopback_redirect.dart';
 import 'oauth_client.dart';
 import 'web_oauth_callback.dart';
@@ -58,7 +59,7 @@ class OidcSignInController extends ValueNotifier<OidcSignInState> {
   /// real browser/tab.
   OidcSignInController({
     required ConfigStore store,
-    http.Client Function() clientFactory = http.Client.new,
+    http.Client Function() clientFactory = tracingHttpClient,
     required this.launchUri,
   }) : _store = store,
        _clientFactory = clientFactory,

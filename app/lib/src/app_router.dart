@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared/shared.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -19,6 +18,7 @@ import 'notes/note_controller.dart';
 import 'notes/note_screen.dart';
 import 'notes/notes_list_controller.dart';
 import 'notes/notes_list_screen.dart';
+import 'otel/otel_http_client.dart';
 import 'realtime/connection_status.dart';
 import 'realtime/ws_client.dart';
 import 'search/search_controller.dart';
@@ -69,7 +69,7 @@ class ConfigHolder extends ChangeNotifier {
 
   final ConfigStore _store;
   final OidcSessionRefresher _refresher = OidcSessionRefresher(
-    clientFactory: http.Client.new,
+    clientFactory: tracingHttpClient,
   );
 
   /// The store backing this holder, so callers that already have a
@@ -581,7 +581,10 @@ class _SessionHostState extends State<SessionHost> {
   @override
   void initState() {
     super.initState();
-    _api = RobotNotesClient(config: widget.config);
+    _api = RobotNotesClient(
+      config: widget.config,
+      httpClient: tracingHttpClient(),
+    );
     _ws = RobotNotesWsClient(config: widget.config);
     _list = NotesListController(api: _api, events: _ws.events);
     _tree = FolderTreeController(api: _api, events: _ws.events);
