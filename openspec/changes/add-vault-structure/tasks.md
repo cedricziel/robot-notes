@@ -83,9 +83,9 @@
 
 ### 10. Tag computation
 
-- [ ] 10.1 Write failing tests: computed tag set merges frontmatter `tags: [...]` and inline `#tag`/`#parent/child` tokens, de-duplicated, case-insensitive matching with first-seen casing displayed
-- [ ] 10.2 Implement tag computation (new small module or addition to `links.dart`); run tests green
-- [ ] 10.3 Commit: `feat(server): compute merged tag set from frontmatter and inline tags`
+- [x] 10.1 Write failing tests: computed tag set merges frontmatter `tags: [...]` and inline `#tag`/`#parent/child` tokens, de-duplicated, case-insensitive matching with first-seen casing displayed — `server/test/src/tags_test.dart`; also added a `Storage.list computes tags` case to `server/test/src/storage_test.dart` covering the end-to-end wiring (see 10.2)
+- [x] 10.2 Implement tag computation as a new module `server/lib/src/tags.dart` (`computeTags()` plus an `aggregateTagCounts()` helper used by task 11's `GET /tags`), not an addition to `links.dart` — tags and links are unrelated pure computations over the same note shape, and keeping them in separate files matches the one-concern-per-module pattern `note_path.dart`/`links.dart` already establish. ~~Where to store the computed set for querying~~ — no separate index class: `NoteSummary` (and thus `MetaIndex`, which already tracks `path` the same way) gains a `tags` field, computed by `StoredNote.toSummary()` via `computeTags(extra: extra, content: content)`. Since every write path already calls `toSummary()` on create/update (`NoteWriteService`) and on startup scan (`Storage.list` → `MetaIndex.scan`), tags are recalculated on every write and startup rebuild for free, with no new wiring needed in `note_write_service.dart` or `app_deps.dart` — the existing `path`-lifecycle precedent already satisfies the "kept live via scan/upsert/remove" requirement; run tests green
+- [x] 10.3 Commit: `feat(server): compute merged tag set from frontmatter and inline tags`
 
 ### 11. Tag API surface
 

@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/frontmatter.dart';
 import 'package:server/src/note_path.dart';
+import 'package:server/src/tags.dart';
 import 'package:ulid/ulid.dart';
 
 /// Stable, sortable identifier for a note. Ulids are 26-character
@@ -23,6 +24,7 @@ class NoteSummary {
     required this.version,
     required this.createdAt,
     required this.updatedAt,
+    this.tags = const <String>{},
   });
 
   /// Note identifier (ULID).
@@ -43,6 +45,13 @@ class NoteSummary {
 
   /// Most recent write time, in UTC.
   final DateTime updatedAt;
+
+  /// Computed tag set (frontmatter `tags` merged with inline `#tag`
+  /// tokens; see `tags.dart`'s `computeTags`). Derived, not its own
+  /// source of truth: [Storage] never persists this separately from the
+  /// note's frontmatter/content, so it is always recomputed by
+  /// [StoredNote.toSummary] from whatever is currently on disk.
+  final Set<String> tags;
 }
 
 /// Full on-disk view of a note: required metadata + body + any extra
@@ -89,7 +98,12 @@ class StoredNote {
   /// losing data. Insertion order matches the source file.
   final Map<String, Object?> extra;
 
-  /// Returns a [NoteSummary] derived from this note.
+  /// Returns a [NoteSummary] derived from this note, recomputing its tag
+  /// set from [extra]/[content] (see [computeTags]) rather than caching
+  /// it anywhere — this is what makes the tag set "recalculated on every
+  /// write and on startup index rebuild" per `notes-storage` spec: every
+  /// caller of `toSummary()` (`Storage.list`, and `NoteWriteService` on
+  /// every create/update) gets a fresh computation for free.
   NoteSummary toSummary() => NoteSummary(
         id: id,
         title: title,
@@ -97,6 +111,7 @@ class StoredNote {
         version: version,
         createdAt: createdAt,
         updatedAt: updatedAt,
+        tags: computeTags(extra: extra, content: content),
       );
 }
 

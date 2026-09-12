@@ -71,6 +71,20 @@ void main() {
       final nestedSummary = summaries.firstWhere((s) => s.id == nested.id);
       expect(nestedSummary.path, 'Projects/Alpha');
     });
+
+    test('summaries carry the computed tag set from content', () async {
+      final storage = _storage(
+        tmp,
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final note = await storage.create(
+        title: 'Tagged',
+        content: 'remember #urgent work',
+      );
+      final summaries = await storage.list();
+      final summary = summaries.firstWhere((s) => s.id == note.id);
+      expect(summary.tags, {'urgent'});
+    });
   });
 
   group('Storage.create', () {
