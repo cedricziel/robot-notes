@@ -194,8 +194,9 @@ class RobotNotesWsClient {
         // server confirms the session with `auth_ok` (see below).
         _emit(const WsConnected());
 
-        // Auth first, then re-subscribe. AuthMsg goes out synchronously so the
-        // 100ms post-open budget is trivially met.
+        // Auth first, then re-subscribe. AuthMsg goes out synchronously, well
+        // inside the spec's 2-second post-connect auth budget
+        // (openspec/specs/realtime-sync/spec.md).
         conn.send(
           jsonEncode(
             AuthMsg(key: _config.apiKey, actor: _config.actor).toJson(),
