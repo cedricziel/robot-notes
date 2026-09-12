@@ -1,15 +1,17 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/auth_middleware.dart';
+import 'package:shared/shared.dart';
 
 /// Path prefixes that are unambiguously the API's — never reachable as a
 /// client-side route — so they short-circuit through the static layer
 /// regardless of `Authorization`.
 const _alwaysApiPrefixes = <String>{
-  '/healthz',
-  '/ws',
-  '/invites',
-  '/mcp',
+  Routes.healthz,
+  Routes.ws,
+  Routes.invites,
+  Routes.mcp,
   '/oauth',
   '/.well-known',
 };
@@ -113,7 +115,7 @@ bool _isApiPath(Request request) {
   }
   // Bare `GET /notes` (the list endpoint) isn't one of the app's routes, so
   // it stays API-only regardless of `Authorization`.
-  if (path == '/notes') return true;
+  if (path == Routes.notes) return true;
 
   // `/notes/{id}` and `/search` are *also* client-side routes in the
   // Flutter app (the note view and the search screen), reached by a plain
@@ -127,10 +129,11 @@ bool _isApiPath(Request request) {
   // `Authorization` at all but an `Accept` the app wouldn't send — stays on
   // the API pipeline and gets the documented 401, not HTML.
   final sharesPathWithAClientRoute =
-      path == '/search' || path.startsWith('/notes/');
+      path == Routes.search || path.startsWith('${Routes.notes}/');
   if (sharesPathWithAClientRoute) {
-    final looksLikeBrowserNavigation =
-        request.headers['authorization'] == null && _acceptsHtml(request);
+    final hasBearerAuth =
+        extractBearerToken(request.headers['authorization']) != null;
+    final looksLikeBrowserNavigation = !hasBearerAuth && _acceptsHtml(request);
     return !looksLikeBrowserNavigation;
   }
   return false;
