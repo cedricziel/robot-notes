@@ -388,6 +388,18 @@ jobs:
           bundler-cache: true
           working-directory: app
 
+      # bundler-cache installs gems under app/vendor/bundle, whose executables
+      # are not on the PATH even inside `bundle exec`. Flutter shells out to
+      # `pod`, so without this it finds the runner's preinstalled CocoaPods,
+      # which is broken once setup-ruby has switched Ruby.
+      - name: Put the bundled CocoaPods on the PATH
+        if: env.SUBMIT != 'true'
+        working-directory: app
+        run: |
+          bundle binstubs cocoapods --path bin
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+          bin/pod --version
+
       - name: Fetch release notes
         id: notes
         env:
