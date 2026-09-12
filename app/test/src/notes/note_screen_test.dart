@@ -26,14 +26,17 @@ Map<String, Object?> _noteJson({
   String title = 'hello',
   String content = 'world',
   int version = 1,
+  String path = '',
   List<String> tags = const <String>[],
+  String updatedAt = _now,
 }) => <String, Object?>{
   'id': id,
   'title': title,
   'content': content,
   'version': version,
+  'path': path,
   'created_at': _now,
-  'updated_at': _now,
+  'updated_at': updatedAt,
   'tags': tags,
 };
 
@@ -186,6 +189,9 @@ Future<void> _pumpViewer(
   WidgetTester tester, {
   required String content,
   List<String> tags = const <String>[],
+  String path = '',
+  int version = 1,
+  String updatedAt = _now,
   List<Object?>? backlinksItems,
   ValueChanged<String>? onOpenNote,
   ValueChanged<String>? onTagTap,
@@ -198,7 +204,15 @@ Future<void> _pumpViewer(
       );
     }
     return http.Response(
-      jsonEncode(_noteJson(content: content, tags: tags)),
+      jsonEncode(
+        _noteJson(
+          content: content,
+          tags: tags,
+          path: path,
+          version: version,
+          updatedAt: updatedAt,
+        ),
+      ),
       200,
     );
   });
@@ -247,6 +261,45 @@ void main() {
       tester.getSize(heading).height,
       greaterThan(tester.getSize(item).height),
     );
+  });
+
+  group('metadata line', () {
+    testWidgets('shows the folder path, version, and a relative time', (
+      tester,
+    ) async {
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        path: 'Personal/Trip Planning',
+        version: 4,
+        updatedAt: _now,
+      );
+
+      expect(find.textContaining('Personal/Trip Planning'), findsOneWidget);
+      expect(find.textContaining('v4'), findsOneWidget);
+    });
+
+    testWidgets('omits the path segment for a root note', (tester) async {
+      await _pumpViewer(tester, content: 'hello', version: 2);
+
+      expect(find.byKey(const Key('note.metadata')), findsOneWidget);
+      expect(find.textContaining('v2'), findsOneWidget);
+    });
+  });
+
+  group('reading column width', () {
+    testWidgets('clamps the body to a max width on a wide window', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await _pumpViewer(tester, content: 'hello');
+
+      final width = tester.getSize(find.byKey(const Key('note.body'))).width;
+      expect(width, lessThan(900));
+    });
   });
 
   testWidgets('read-only view shows image alt text instead of loading images', (
@@ -1228,6 +1281,32 @@ void main() {
         expect(find.byKey(const Key('note.backlinks.empty')), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'collapses to a compact pill instead of a full panel when empty',
+      (tester) async {
+        await _pumpViewer(tester, content: 'hello');
+
+        // No separate "Backlinks" heading claiming footer space when
+        // there's nothing to show — just the compact empty-state pill.
+        expect(find.text('Backlinks'), findsNothing);
+        expect(find.byKey(const Key('note.backlinks.empty')), findsOneWidget);
+      },
+    );
+
+    testWidgets('shows the "Backlinks" heading when there are entries', (
+      tester,
+    ) async {
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        backlinksItems: [
+          {'id': '02H', 'title': 'Referencing note', 'snippet': 'a snippet'},
+        ],
+      );
+
+      expect(find.text('Backlinks'), findsOneWidget);
+    });
 
     testWidgets('tapping an entry opens that note', (tester) async {
       String? opened;
