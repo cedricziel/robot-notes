@@ -531,7 +531,7 @@ class AppRouterShell extends StatelessWidget {
         final config = configHolder.config;
         if (config == null) return content;
         return SessionHost(
-          key: ValueKey<String>('${config.baseUrl}|${config.actor}'),
+          key: ValueKey<AppConfig>(config),
           config: config,
           onReset: configHolder.reset,
           child: content,
