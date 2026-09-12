@@ -364,4 +364,20 @@ void main() {
       },
     );
   });
+
+  group('method and auth ordering', () {
+    test(
+      'unauthenticated GET is 401, not 405 — auth runs before the '
+      'method check',
+      () async {
+        final app = await TestApp.start();
+        addTearDown(app.close);
+
+        final res = await http.get(Uri.parse('${app.baseUrl}/mcp'));
+
+        expect(res.statusCode, 401);
+        expect(res.headers['www-authenticate'], contains('resource_metadata='));
+      },
+    );
+  });
 }
