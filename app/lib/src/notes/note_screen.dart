@@ -338,6 +338,9 @@ class _ReadOnlyView extends StatelessWidget {
         key: const Key('note.body'),
         data: content,
         padding: const EdgeInsets.all(16),
+        // Never fetch images: a note can come from any actor, and loading a
+        // remote URL would leak the reader's IP to whoever wrote it.
+        imageBuilder: (uri, title, alt) => Text(alt ?? uri.toString()),
       ),
     );
   }

@@ -207,6 +207,18 @@ void main() {
     );
   });
 
+  testWidgets('read-only view shows image alt text instead of loading images', (
+    tester,
+  ) async {
+    await _pumpViewer(
+      tester,
+      content: '![tracker pixel](https://example.com/pixel.png)',
+    );
+
+    expect(find.byType(Image), findsNothing);
+    expect(find.text('tracker pixel'), findsOneWidget);
+  });
+
   testWidgets('tapping edit acquires the lock and reveals the editor', (
     tester,
   ) async {
