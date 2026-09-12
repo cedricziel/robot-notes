@@ -45,9 +45,9 @@
 
 ## 7. Full verification
 
-- [ ] 7.1 Run `make test` (shared + server + app) and confirm everything passes.
-- [ ] 7.2 Run `make lint` (or `dart analyze` per workspace) and `dart format .` across the repo; fix any findings.
-- [ ] 7.3 Manually sanity-check in a running app (wide window: new row layout, hover-delete, toolbar button; narrow window: unchanged) if feasible in this environment.
+- [x] 7.1 Run `make test` (shared + server + app) and confirm everything passes.
+- [x] 7.2 Run `make lint` (or `dart analyze` per workspace) and `dart format .` across the repo; fix any findings.
+- [x] 7.3 Manually sanity-check in a running app — not feasible in this headless environment (no display); covered instead by the widget tests added in section 5/6, which exercise the wide/narrow layouts, hover-delete, and toolbar/FAB placement directly.
 
 ## 8. Spec and PR
 
