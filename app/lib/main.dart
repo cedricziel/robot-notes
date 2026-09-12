@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared/shared.dart';
@@ -21,7 +22,10 @@ import 'src/setup/setup_screen.dart';
 import 'src/widgets/connection_banner.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
+  final binding = WidgetsFlutterBinding.ensureInitialized();
+  // Web leaves the semantics tree off until the user finds a hidden
+  // enable-accessibility control; native platforms turn it on themselves.
+  if (kIsWeb) binding.ensureSemantics();
   runApp(const ProviderScope(child: RobotNotesApp()));
 }
 
