@@ -68,6 +68,8 @@ Future<NoteController> _pumpEditor(
   WidgetTester tester, {
   http.Response Function(http.Request)? onLock,
   http.Response Function(http.Request)? onSave,
+  http.Response Function(http.Request)? onSearch,
+  ValueChanged<String>? onOpenNote,
   bool startEditing = false,
 }) async {
   final mock = MockClient((request) async {
@@ -80,6 +82,13 @@ Future<NoteController> _pumpEditor(
     }
     if (request.method == 'PUT' && request.url.path == '/notes/01H') {
       return onSave?.call(request) ?? http.Response('unexpected', 500);
+    }
+    if (request.method == 'GET' && request.url.path == '/search') {
+      return onSearch?.call(request) ??
+          http.Response(
+            jsonEncode(<String, Object?>{'items': <Object?>[]}),
+            200,
+          );
     }
     return http.Response('unexpected', 500);
   });
@@ -94,7 +103,12 @@ Future<NoteController> _pumpEditor(
 
   await tester.pumpWidget(
     MaterialApp(
-      home: NoteScreen(controller: ctrl, startEditing: startEditing),
+      home: NoteScreen(
+        controller: ctrl,
+        startEditing: startEditing,
+        onOpenNote: onOpenNote,
+        linkAutocompleteScheduler: (_) async {},
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -165,15 +179,31 @@ Future<void> _pumpConflict(
 }
 
 /// Pumps a [NoteScreen] showing a note with [content] in read-only mode.
-Future<void> _pumpViewer(WidgetTester tester, {required String content}) async {
+/// [backlinksItems] answers `GET /notes/01H/backlinks` (empty by default).
+Future<void> _pumpViewer(
+  WidgetTester tester, {
+  required String content,
+  List<Object?>? backlinksItems,
+  ValueChanged<String>? onOpenNote,
+}) async {
   final mock = MockClient((request) async {
+    if (request.method == 'GET' && request.url.path == '/notes/01H/backlinks') {
+      return http.Response(
+        jsonEncode(<String, Object?>{'items': backlinksItems ?? <Object?>[]}),
+        200,
+      );
+    }
     return http.Response(jsonEncode(_noteJson(content: content)), 200);
   });
   final api = RobotNotesClient(config: _config, httpClient: mock);
   final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
   addTearDown(ctrl.dispose);
 
-  await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+  await tester.pumpWidget(
+    MaterialApp(
+      home: NoteScreen(controller: ctrl, onOpenNote: onOpenNote),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -1014,6 +1044,195 @@ void main() {
       expect(calls, isNot(contains('DELETE /notes/01H')));
       expect(closed, 0);
       expect(find.byKey(const Key('note.body')), findsOneWidget);
+    });
+  });
+
+  group('link autocomplete', () {
+    testWidgets('typing [[ opens a list filtered by subsequent characters', (
+      tester,
+    ) async {
+      await _pumpEditor(
+        tester,
+        onSearch: (request) => http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[
+              {
+                'id': '02H',
+                'title': 'Project Alpha',
+                'snippet': 's',
+                'rank': 1.0,
+                'updated_at': _now,
+              },
+              {
+                'id': '03H',
+                'title': 'Project Beta',
+                'snippet': 's',
+                'rank': 0.5,
+                'updated_at': _now,
+              },
+            ],
+          }),
+          200,
+        ),
+      );
+
+      await tester.enterText(find.byKey(_contentField), '[[Proj');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Beta')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('selecting an entry inserts [[Title]] at the cursor', (
+      tester,
+    ) async {
+      await _pumpEditor(
+        tester,
+        onSearch: (request) => http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[
+              {
+                'id': '02H',
+                'title': 'Project Alpha',
+                'snippet': 's',
+                'rank': 1.0,
+                'updated_at': _now,
+              },
+            ],
+          }),
+          200,
+        ),
+      );
+
+      await tester.enterText(find.byKey(_contentField), '[[Proj');
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_fieldController(tester, _contentField).text, '[[Project Alpha]]');
+    });
+
+    testWidgets(
+      'selecting an entry preserves a typed alias as [[Title|Alias]]',
+      (tester) async {
+        await _pumpEditor(
+          tester,
+          onSearch: (request) => http.Response(
+            jsonEncode(<String, Object?>{
+              'items': <Object?>[
+                {
+                  'id': '02H',
+                  'title': 'Project Alpha',
+                  'snippet': 's',
+                  'rank': 1.0,
+                  'updated_at': _now,
+                },
+              ],
+            }),
+            200,
+          ),
+        );
+
+        await tester.enterText(find.byKey(_contentField), '[[Proj|Alias');
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          _fieldController(tester, _contentField).text,
+          '[[Project Alpha|Alias]]',
+        );
+      },
+    );
+
+    testWidgets('the list closes once the link is closed with ]]', (
+      tester,
+    ) async {
+      await _pumpEditor(
+        tester,
+        onSearch: (request) => http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[
+              {
+                'id': '02H',
+                'title': 'Project Alpha',
+                'snippet': 's',
+                'rank': 1.0,
+                'updated_at': _now,
+              },
+            ],
+          }),
+          200,
+        ),
+      );
+
+      await tester.enterText(find.byKey(_contentField), '[[Proj');
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+        findsOneWidget,
+      );
+
+      await tester.enterText(find.byKey(_contentField), '[[Project Alpha]]');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+        findsNothing,
+      );
+    });
+  });
+
+  group('backlinks panel', () {
+    testWidgets('lists referencing notes with a snippet', (tester) async {
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        backlinksItems: [
+          {'id': '02H', 'title': 'Referencing note', 'snippet': 'a snippet'},
+        ],
+      );
+
+      expect(find.byKey(const Key('note.backlinks')), findsOneWidget);
+      expect(find.text('Referencing note'), findsOneWidget);
+      expect(find.text('a snippet'), findsOneWidget);
+    });
+
+    testWidgets(
+      'shows an empty state rather than an error when there are none',
+      (tester) async {
+        await _pumpViewer(tester, content: 'hello');
+
+        expect(find.byKey(const Key('note.backlinks')), findsOneWidget);
+        expect(find.byKey(const Key('note.backlinks.empty')), findsOneWidget);
+      },
+    );
+
+    testWidgets('tapping an entry opens that note', (tester) async {
+      String? opened;
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        backlinksItems: [
+          {'id': '02H', 'title': 'Referencing note', 'snippet': 'a snippet'},
+        ],
+        onOpenNote: (id) => opened = id,
+      );
+
+      await tester.tap(find.byKey(const Key('note.backlinks.item.02H')));
+      await tester.pumpAndSettle();
+
+      expect(opened, '02H');
     });
   });
 

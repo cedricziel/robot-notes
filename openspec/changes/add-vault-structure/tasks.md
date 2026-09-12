@@ -138,13 +138,13 @@
 
 ### 16. Flutter: link autocomplete and backlinks panel
 
-- [ ] 16.1 Write a failing test: typing `[[` opens an autocomplete list filtered by subsequent characters against known titles
-- [ ] 16.2 Implement the autocomplete trigger and title lookup (via `GET /search` or `GET /notes`); run tests green
-- [ ] 16.3 Write a failing test: selecting an autocomplete entry inserts `[[Title]]` (or `[[Title|Alias]]`) at the cursor
-- [ ] 16.4 Implement the insertion; run tests green
-- [ ] 16.5 Write a failing test: the note view's backlinks panel lists entries from `GET /notes/{id}/backlinks`, with an empty state when there are none
-- [ ] 16.6 Implement the backlinks panel; run tests green
-- [ ] 16.7 Commit: `feat(app): add link autocomplete and a backlinks panel to the editor`
+- [x] 16.1 Write a failing test: typing `[[` opens an autocomplete list filtered by subsequent characters against known titles — pure-function tests for the trigger detector in `app/test/src/notes/link_autocomplete_test.dart`, plus a `note_screen_test.dart` case driving it through the real content field
+- [x] 16.2 Implement the autocomplete trigger and title lookup (via `GET /search` or `GET /notes`) — `app/lib/src/notes/link_autocomplete.dart` (`detectLinkTrigger`, `LinkAutocompleteController`, debounced like `NotesSearchController`) plus `NoteController.searchLinkTitles()` (delegates to `GET /search`, matching this codebase's rule that all HTTP goes through the note's controller); the suggestion list renders inline below the content field rather than in a floating overlay (`CompositedTransformTarget`/`OverlayEntry`), which needed no cursor-position-tracking plumbing and is simpler to test; run tests green
+- [x] 16.3 Write a failing test: selecting an autocomplete entry inserts `[[Title]]` (or `[[Title|Alias]]`) at the cursor — same two files' insertion cases, including one preserving a typed `|alias`
+- [x] 16.4 Implement the insertion — pure `insertLink()` in `link_autocomplete.dart`, wired via `_NoteScreenState._insertLink()`; run tests green
+- [x] 16.5 Write a failing test: the note view's backlinks panel lists entries from `GET /notes/{id}/backlinks`, with an empty state when there are none — `note_controller_test.dart`'s new `backlinks` group plus `note_screen_test.dart`'s `backlinks panel` group (list, empty state, tap-to-open)
+- [x] 16.6 Implement the backlinks panel — `NoteController` loads backlinks alongside `open()` (best-effort: any failure also renders the empty state, since the two are indistinguishable to the user) and exposes them via `NoteState.backlinks`; `_BacklinksPanel` in `note_screen.dart`, shown below the read-only body (not while editing, to keep the editor uncluttered); tapping an entry calls the new `NoteScreen.onOpenNote`, wired in `app_router.dart` to push `/notes/{id}`; run tests green
+- [x] 16.7 Commit: `feat(app): add link autocomplete and a backlinks panel to the editor`
 
 ### 17. Flutter: tags UI
 

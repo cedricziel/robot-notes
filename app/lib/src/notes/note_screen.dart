@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
+import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import 'link_autocomplete.dart';
 import 'note_controller.dart';
 import 'save_shortcut.dart';
 
@@ -19,13 +21,19 @@ class NoteScreen extends StatefulWidget {
   const NoteScreen({
     required this.controller,
     this.onClose,
+    this.onOpenNote,
     this.startEditing = false,
     @visibleForTesting this.installSaveShortcut = installWebSaveShortcut,
+    @visibleForTesting this.linkAutocompleteScheduler,
     super.key,
   });
 
   final NoteController controller;
   final VoidCallback? onClose;
+
+  /// Called when the user taps a backlink entry, with the referencing
+  /// note's id. `null` renders the backlinks panel non-interactive.
+  final ValueChanged<String>? onOpenNote;
 
   /// Open straight into the editor with the title selected, so typing
   /// replaces a placeholder title.
@@ -38,6 +46,12 @@ class NoteScreen extends StatefulWidget {
   @visibleForTesting
   final VoidCallback Function(VoidCallback onSave) installSaveShortcut;
 
+  /// Overridable seam for tests: production code debounces the `[[`-link
+  /// title lookup with a real delay; tests substitute a synchronous one so
+  /// they don't need to fake-advance a timer.
+  @visibleForTesting
+  final Future<void> Function(Duration)? linkAutocompleteScheduler;
+
   @override
   State<NoteScreen> createState() => _NoteScreenState();
 }
@@ -45,6 +59,7 @@ class NoteScreen extends StatefulWidget {
 class _NoteScreenState extends State<NoteScreen> {
   final TextEditingController _title = TextEditingController();
   late final _DiffTextController _content = _DiffTextController(_serverContent);
+  late final LinkAutocompleteController _linkAutocomplete;
 
   String? _serverContent() {
     final s = widget.controller.value;
@@ -58,6 +73,10 @@ class _NoteScreenState extends State<NoteScreen> {
   void initState() {
     super.initState();
     widget.controller.addListener(_syncBuffersFromState);
+    _linkAutocomplete = LinkAutocompleteController(
+      search: widget.controller.searchLinkTitles,
+      scheduler: widget.linkAutocompleteScheduler,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _open();
     });
@@ -70,7 +89,25 @@ class _NoteScreenState extends State<NoteScreen> {
     _uninstallWebSaveShortcut();
     _title.dispose();
     _content.dispose();
+    _linkAutocomplete.dispose();
     super.dispose();
+  }
+
+  void _onContentChanged(String value) {
+    widget.controller.setEditContent(value);
+    _linkAutocomplete.onChanged(value, _content.selection.baseOffset);
+  }
+
+  void _insertLink(String title) {
+    final trigger = _linkAutocomplete.value.trigger;
+    if (trigger == null) return;
+    final result = insertLink(_content.text, trigger, title);
+    _content.value = TextEditingValue(
+      text: result.text,
+      selection: TextSelection.collapsed(offset: result.cursor),
+    );
+    widget.controller.setEditContent(result.text);
+    _linkAutocomplete.close();
   }
 
   Future<void> _edit() async {
@@ -423,20 +460,33 @@ class _NoteScreenState extends State<NoteScreen> {
       );
     }
 
+    final editing =
+        state.mode == NoteMode.editing || state.mode == NoteMode.saving;
     return Column(
       children: [
         ...banners,
         Expanded(
-          child: state.mode == NoteMode.editing || state.mode == NoteMode.saving
+          child: editing
               ? _Editor(
                   title: _title,
                   autofocusTitle: widget.startEditing,
                   content: _content,
                   onTitle: widget.controller.setEditTitle,
-                  onContent: widget.controller.setEditContent,
+                  onContent: _onContentChanged,
                   saving: state.mode == NoteMode.saving,
+                  linkAutocomplete: _linkAutocomplete,
+                  onSelectLink: _insertLink,
                 )
-              : _ReadOnlyView(content: note.content),
+              : Column(
+                  children: [
+                    Expanded(child: _ReadOnlyView(content: note.content)),
+                    _BacklinksPanel(
+                      backlinks: state.backlinks,
+                      loading: state.backlinksLoading,
+                      onOpen: widget.onOpenNote,
+                    ),
+                  ],
+                ),
         ),
       ],
     );
@@ -470,6 +520,8 @@ class _Editor extends StatelessWidget {
     required this.onTitle,
     required this.onContent,
     required this.saving,
+    required this.linkAutocomplete,
+    required this.onSelectLink,
   });
 
   final TextEditingController title;
@@ -478,6 +530,8 @@ class _Editor extends StatelessWidget {
   final ValueChanged<String> onTitle;
   final ValueChanged<String> onContent;
   final bool saving;
+  final LinkAutocompleteController linkAutocomplete;
+  final ValueChanged<String> onSelectLink;
 
   @override
   Widget build(BuildContext context) {
@@ -495,20 +549,146 @@ class _Editor extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: TextField(
-              key: const Key('note.editor.content'),
-              controller: content,
-              onChanged: onContent,
-              decoration: const InputDecoration(
-                labelText: 'Content',
-                alignLabelWithHint: true,
-              ),
-              maxLines: null,
-              expands: true,
-              textAlignVertical: TextAlignVertical.top,
-              enabled: !saving,
+            child: Column(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const Key('note.editor.content'),
+                    controller: content,
+                    onChanged: onContent,
+                    decoration: const InputDecoration(
+                      labelText: 'Content',
+                      alignLabelWithHint: true,
+                    ),
+                    maxLines: null,
+                    expands: true,
+                    textAlignVertical: TextAlignVertical.top,
+                    enabled: !saving,
+                  ),
+                ),
+                _LinkSuggestions(
+                  linkAutocomplete: linkAutocomplete,
+                  onSelect: onSelectLink,
+                ),
+              ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dropdown-like list of matching note titles shown while the cursor sits
+/// inside an open `[[...` trigger. Renders nothing when closed or empty,
+/// so it costs no layout space the rest of the time.
+class _LinkSuggestions extends StatelessWidget {
+  const _LinkSuggestions({
+    required this.linkAutocomplete,
+    required this.onSelect,
+  });
+
+  final LinkAutocompleteController linkAutocomplete;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<LinkAutocompleteState>(
+      valueListenable: linkAutocomplete,
+      builder: (context, state, _) {
+        if (!state.isOpen || state.suggestions.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Container(
+          key: const Key('note.editor.linkSuggestions'),
+          constraints: const BoxConstraints(maxHeight: 160),
+          decoration: BoxDecoration(
+            border: Border.all(color: Theme.of(context).dividerColor),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              for (final title in state.suggestions)
+                ListTile(
+                  key: Key('note.editor.linkSuggestion.$title'),
+                  dense: true,
+                  title: Text(title),
+                  onTap: () => onSelect(title),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Backlinks panel: notes that link to the one currently open, from
+/// `GET /notes/{id}/backlinks`. Shows an empty-state message (not an error)
+/// when there are none, since a fetch failure and "genuinely no backlinks"
+/// look the same to [NoteController].
+class _BacklinksPanel extends StatelessWidget {
+  const _BacklinksPanel({
+    required this.backlinks,
+    required this.loading,
+    this.onOpen,
+  });
+
+  final List<BacklinkHit> backlinks;
+  final bool loading;
+  final ValueChanged<String>? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('note.backlinks'),
+      constraints: const BoxConstraints(maxHeight: 180),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text(
+              'Backlinks',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+          ),
+          if (loading && backlinks.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (backlinks.isEmpty)
+            const Padding(
+              key: Key('note.backlinks.empty'),
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Text('No notes link to this one yet.'),
+            )
+          else
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final hit in backlinks)
+                    ListTile(
+                      key: Key('note.backlinks.item.${hit.id}'),
+                      dense: true,
+                      title: Text(hit.title.isEmpty ? '(untitled)' : hit.title),
+                      subtitle: Text(
+                        hit.snippet,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: onOpen == null ? null : () => onOpen!(hit.id),
+                    ),
+                ],
+              ),
+            ),
         ],
       ),
     );

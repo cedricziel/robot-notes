@@ -301,6 +301,9 @@ Widget _buildNotePage(BuildContext context, GoRouterState state) {
     noteId: state.pathParameters['id']!,
     startEditing: state.uri.queryParameters['edit'] == '1',
     onClosed: (saved) => _handleNoteClosed(context, session, saved),
+    // Backlinks open the referencing note on top of the current one, same
+    // as tapping a note in the list — a further close pops back here.
+    onOpenNote: (id) => unawaited(context.push('/notes/$id')),
   );
 }
 
@@ -416,6 +419,7 @@ class NoteRoute extends StatefulWidget {
     required this.noteId,
     this.startEditing = false,
     this.onClosed,
+    this.onOpenNote,
     super.key,
   });
 
@@ -424,6 +428,10 @@ class NoteRoute extends StatefulWidget {
   final String actor;
   final String noteId;
   final bool startEditing;
+
+  /// Called when the user taps a backlink entry in the note view, with the
+  /// referencing note's id.
+  final ValueChanged<String>? onOpenNote;
 
   /// Called once the note view is dismissed (close, delete, or a system
   /// back gesture) with whether the open note's version changed since it
@@ -489,6 +497,7 @@ class _NoteRouteState extends State<NoteRoute> {
       controller: _controller,
       onClose: _close,
       startEditing: widget.startEditing,
+      onOpenNote: widget.onOpenNote,
     );
   }
 }

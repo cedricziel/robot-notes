@@ -53,6 +53,8 @@ class NoteState {
     this.error,
     this.conflictCurrent,
     this.lockedByOtherBanner,
+    this.backlinks = const <BacklinkHit>[],
+    this.backlinksLoading = false,
   });
 
   static const initial = NoteState();
@@ -79,6 +81,13 @@ class NoteState {
   /// for another holder). UI surfaces this as a banner over a read-only view.
   final String? lockedByOtherBanner;
 
+  /// Notes that link to this one, from `GET /notes/{id}/backlinks`. Loaded
+  /// alongside the note itself; empty (never an error state) when there are
+  /// none or the fetch failed — the backlinks panel renders that as an
+  /// empty state, not an error.
+  final List<BacklinkHit> backlinks;
+  final bool backlinksLoading;
+
   /// True while the edit buffers differ from the loaded note.
   bool get isDirty {
     final note = this.note;
@@ -97,6 +106,8 @@ class NoteState {
     Object? error = _sentinel,
     Object? conflictCurrent = _sentinel,
     Object? lockedByOtherBanner = _sentinel,
+    List<BacklinkHit>? backlinks,
+    bool? backlinksLoading,
   }) {
     return NoteState(
       mode: mode ?? this.mode,
@@ -113,6 +124,8 @@ class NoteState {
       conflictCurrent: identical(conflictCurrent, _sentinel)
           ? this.conflictCurrent
           : conflictCurrent as Note?,
+      backlinks: backlinks ?? this.backlinks,
+      backlinksLoading: backlinksLoading ?? this.backlinksLoading,
       lockedByOtherBanner: identical(lockedByOtherBanner, _sentinel)
           ? this.lockedByOtherBanner
           : lockedByOtherBanner as String?,
@@ -186,9 +199,44 @@ class NoteController extends ValueNotifier<NoteState> {
         note: note,
         lock: note.lock,
       );
+      unawaited(_loadBacklinks());
     } on ApiException catch (e) {
       if (_disposed) return;
       value = value.copyWith(error: e);
+    }
+  }
+
+  /// Loads notes that link to this one for the backlinks panel. Best-effort:
+  /// a failure just leaves the list empty (the panel's empty state and an
+  /// error state look the same to the user — there's nothing actionable to
+  /// tell them apart), rather than surfacing via [NoteState.error].
+  Future<void> _loadBacklinks() async {
+    if (_disposed) return;
+    value = value.copyWith(backlinksLoading: true);
+    try {
+      final hits = await _api.getBacklinks(_noteId);
+      if (_disposed) return;
+      value = value.copyWith(backlinks: hits, backlinksLoading: false);
+    } catch (_) {
+      // Best-effort: the panel's empty state and "couldn't load" would look
+      // identical to the user, so any failure (network, decode, ...) just
+      // leaves the list empty rather than surfacing via NoteState.error.
+      if (_disposed) return;
+      value = value.copyWith(backlinksLoading: false);
+    }
+  }
+
+  /// Looks up note titles matching [query] for the `[[`-link autocomplete,
+  /// via `GET /search`. Returns no titles (and issues no request) for a
+  /// blank query, and swallows request failures — autocomplete has nothing
+  /// useful to show for an error beyond "no matches".
+  Future<List<String>> searchLinkTitles(String query) async {
+    if (query.trim().isEmpty) return const <String>[];
+    try {
+      final hits = await _api.search(q: query);
+      return <String>{for (final h in hits) h.title}.toList();
+    } on ApiException {
+      return const <String>[];
     }
   }
 
