@@ -23,6 +23,28 @@ const McpPrincipal writeOnly = McpPrincipal(
 );
 const McpPrincipal bob = McpPrincipal.staticKey('bob');
 
+/// A well-formed note file, used to plant a canary outside `content/` when
+/// proving a path-traversal id cannot reach it — if the id check were
+/// missing, `storage.read`/`update`/`delete` would happily follow `..` to
+/// this file since `Storage` builds paths by string interpolation.
+const String _canaryNoteFile = '---\n'
+    'id: canary\n'
+    'title: Canary\n'
+    'version: 1\n'
+    'created_at: 2024-01-01T00:00:00.000Z\n'
+    'updated_at: 2024-01-01T00:00:00.000Z\n'
+    '---\n'
+    'top secret';
+
+/// Plants [_canaryNoteFile] at `<tmp>/x.md`, one level above `content/`.
+/// The OS only resolves a `..` path segment through a directory that
+/// exists, so this also creates `content/` first — mirroring a server
+/// that already has at least one note on disk.
+File _plantCanary(Directory tmp) {
+  Directory('${tmp.path}/content').createSync(recursive: true);
+  return File('${tmp.path}/x.md')..writeAsStringSync(_canaryNoteFile);
+}
+
 Directory _tempDir() =>
     Directory.systemTemp.createTempSync('robot-notes-mcp-tools-test-');
 
@@ -118,6 +140,18 @@ void main() {
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], ErrorCode.notFound.wire);
     });
+
+    test(
+      'rejects a path-traversal id as not_found without reading the file',
+      () async {
+        _plantCanary(tmp);
+
+        final result = await call('get_note', {'id': '../x'});
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+      },
+    );
   });
 
   group('search_notes', () {
@@ -247,6 +281,23 @@ void main() {
     });
 
     test(
+      'rejects a path-traversal id as not_found without writing the file',
+      () async {
+        final canary = _plantCanary(tmp);
+
+        final result = await call('update_note', {
+          'id': '../x',
+          'version': 1,
+          'content': 'pwned',
+        });
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+        expect(canary.readAsStringSync(), _canaryNoteFile);
+      },
+    );
+
+    test(
       'returns locked with holder when another actor holds the lock',
       () async {
         final note = await deps.noteWriteService.create(
@@ -256,15 +307,12 @@ void main() {
         );
         await deps.lockManager.acquire(noteId: note.id, actor: 'alice');
 
-        final result = await call(
-          'update_note',
-          {
-            'id': note.id,
-            'version': note.version,
-            'content': 'v2',
-          },
-          bob,
-        );
+        final args = {
+          'id': note.id,
+          'version': note.version,
+          'content': 'v2',
+        };
+        final result = await call('update_note', args, bob);
         expect(result['isError'], isTrue);
         final s = _structured(result);
         expect(s['error'], ErrorCode.locked.wire);
@@ -320,6 +368,19 @@ void main() {
     });
 
     test(
+      'rejects a path-traversal id as not_found without deleting the file',
+      () async {
+        final canary = _plantCanary(tmp);
+
+        final result = await call('delete_note', {'id': '../x'});
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+        expect(canary.existsSync(), isTrue);
+      },
+    );
+
+    test(
       'returns locked with holder when another actor holds the lock',
       () async {
         final note = await deps.noteWriteService.create(
@@ -329,13 +390,7 @@ void main() {
         );
         await deps.lockManager.acquire(noteId: note.id, actor: 'alice');
 
-        final result = await call(
-          'delete_note',
-          {
-            'id': note.id,
-          },
-          bob,
-        );
+        final result = await call('delete_note', {'id': note.id}, bob);
         expect(result['isError'], isTrue);
         final s = _structured(result);
         expect(s['error'], ErrorCode.locked.wire);
@@ -396,13 +451,26 @@ void main() {
         actor: 'x',
       );
 
-      final result = await call('append_to_note', {
-        'id': note.id,
-        'text': '',
-      });
+      final result = await call('append_to_note', {'id': note.id, 'text': ''});
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
+
+    test(
+      'rejects a path-traversal id as not_found without writing the file',
+      () async {
+        final canary = _plantCanary(tmp);
+
+        final result = await call('append_to_note', {
+          'id': '../x',
+          'text': 'pwned',
+        });
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+        expect(canary.readAsStringSync(), _canaryNoteFile);
+      },
+    );
 
     test(
       'returns locked with holder when another actor holds the lock',
@@ -414,14 +482,8 @@ void main() {
         );
         await deps.lockManager.acquire(noteId: note.id, actor: 'alice');
 
-        final result = await call(
-          'append_to_note',
-          {
-            'id': note.id,
-            'text': 'line two',
-          },
-          bob,
-        );
+        final args = {'id': note.id, 'text': 'line two'};
+        final result = await call('append_to_note', args, bob);
         expect(result['isError'], isTrue);
         final s = _structured(result);
         expect(s['error'], ErrorCode.locked.wire);

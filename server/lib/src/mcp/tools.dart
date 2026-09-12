@@ -17,6 +17,22 @@ const int kMcpSearchDefaultLimit = 20;
 /// losing a version race before giving up with a `version_conflict`.
 const int kMcpAppendMaxRetries = 3;
 
+/// Case-insensitive Crockford base-32 ULID charset, matching the ids
+/// `package:ulid` generates for [Storage] (which itself always stores them
+/// lowercase).
+final RegExp _ulidPattern = RegExp(r'^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$');
+
+/// Validates `args['id']` as a well-formed ULID before any tool touches
+/// [Storage], which builds file paths by plain string interpolation and
+/// would otherwise follow an id like `../secret` outside `content/`.
+/// Returns the id when valid, `null` otherwise — callers must treat `null`
+/// as a `not_found` tool error rather than a distinguishable one, so a
+/// probing client learns nothing about why the id was rejected.
+String? _requiredNoteId(Map<String, Object?> args) {
+  final id = args['id']! as String;
+  return _ulidPattern.hasMatch(id) ? id : null;
+}
+
 /// Signature every tool handler implements. [args] have already passed
 /// schema validation; [principal] is the authenticated caller.
 typedef McpToolHandler = Future<Map<String, Object?>> Function(
@@ -261,7 +277,8 @@ McpTool _getNoteTool(Storage storage, LockManager lockManager) => McpTool(
       },
       requiresWrite: false,
       handler: (args, principal) async {
-        final id = args['id']! as String;
+        final id = _requiredNoteId(args);
+        if (id == null) return toolFail(ErrorCode.notFound.wire);
         try {
           final note = await storage.read(id);
           final lock = lockManager.lockOf(id);
@@ -385,7 +402,8 @@ McpTool _updateNoteTool(
       },
       requiresWrite: true,
       handler: (args, principal) async {
-        final id = args['id']! as String;
+        final id = _requiredNoteId(args);
+        if (id == null) return toolFail(ErrorCode.notFound.wire);
         final version = args['version']! as int;
         final titleArg = args['title'] as String?;
         final contentArg = args['content'] as String?;
@@ -446,7 +464,8 @@ McpTool _appendToNoteTool(
       },
       requiresWrite: true,
       handler: (args, principal) async {
-        final id = args['id']! as String;
+        final id = _requiredNoteId(args);
+        if (id == null) return toolFail(ErrorCode.notFound.wire);
         final text = args['text']! as String;
         if (text.isEmpty) {
           return toolFail(
@@ -513,7 +532,8 @@ McpTool _deleteNoteTool(NoteWriteService writes, LockManager lockManager) =>
       },
       requiresWrite: true,
       handler: (args, principal) async {
-        final id = args['id']! as String;
+        final id = _requiredNoteId(args);
+        if (id == null) return toolFail(ErrorCode.notFound.wire);
         final conflict = _lockConflict(lockManager, id, principal.actor);
         if (conflict != null) return conflict;
         try {
