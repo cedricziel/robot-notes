@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.5](https://github.com/cedricziel/robot-notes/compare/v0.1.4...v0.1.5) (2026-09-12)
+
+
+### Features
+
+* Add RN lettermark logo and native splash screen ([#123](https://github.com/cedricziel/robot-notes/issues/123)) ([6fd8969](https://github.com/cedricziel/robot-notes/commit/6fd8969d7e8129e5dba4e26f4cc7fcf78199b871))
+
+
+### Bug Fixes
+
+* **app:** reflect pushed routes in the browser URL bar ([#124](https://github.com/cedricziel/robot-notes/issues/124)) ([37f2fcf](https://github.com/cedricziel/robot-notes/commit/37f2fcf898ee8f0e0e58b1346c91f20fcd08ddfe))
+* **setup:** reject http:// server URLs before validating the API key ([#122](https://github.com/cedricziel/robot-notes/issues/122)) ([46fc216](https://github.com/cedricziel/robot-notes/commit/46fc216686112d8263e4c55cb2d255784cbe628a)), closes [#119](https://github.com/cedricziel/robot-notes/issues/119)
+* **tooling:** install pre-commit hook from git worktrees ([#120](https://github.com/cedricziel/robot-notes/issues/120)) ([4d90bb7](https://github.com/cedricziel/robot-notes/commit/4d90bb7583ef8e979a400870f6252d157b8e2a17))
+* **tooling:** unset git env vars before pre-commit checks ([#118](https://github.com/cedricziel/robot-notes/issues/118)) ([dd0748c](https://github.com/cedricziel/robot-notes/commit/dd0748c28db4c4a4f79cf4684b0ee959a9a31304))
+
 ## [0.1.4](https://github.com/cedricziel/robot-notes/compare/v0.1.3...v0.1.4) (2026-09-12)
 
 
