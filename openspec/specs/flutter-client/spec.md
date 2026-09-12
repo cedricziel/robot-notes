@@ -90,6 +90,12 @@ When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS
 - **WHEN** roughly half the TTL elapses between keystrokes
 - **THEN** the app SHALL `PUT /notes/{id}/lock` to extend it
 
+#### Scenario: Typing mid-text keeps the caret in place
+
+- **GIVEN** the user is in edit mode with the caret placed inside the title or content
+- **WHEN** the user types
+- **THEN** the characters SHALL be inserted at the caret and the caret SHALL stay right after them; syncing the edit buffers back into the fields SHALL NOT move it
+
 #### Scenario: Save uses If-Match
 
 - **GIVEN** a note loaded at version 5
