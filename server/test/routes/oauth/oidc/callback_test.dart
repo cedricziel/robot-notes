@@ -206,6 +206,30 @@ void main() {
     expect(record.actor, 'alice@example.com');
   });
 
+  test('falls back to sub when both name and email are absent', () async {
+    final pending = startPendingLogin();
+    final idToken = signRs256(
+      idTokenPayload(pending, sub: 'user-only-sub'),
+      rsa,
+    );
+
+    final res = await route.onRequest(
+      _ctx(
+        queryParameters: {'code': 'provider-code', 'state': pending.state},
+        clientStore: clientStore,
+        codeStore: codeStore,
+        pendingLoginStore: pendingLoginStore,
+        jwksCache: jwksCache,
+        httpPostForm: tokenEndpointReturning(idToken),
+      ),
+    );
+
+    final location = Uri.parse(res.headers[HttpHeaders.locationHeader]!);
+    final code = location.queryParameters['code']!;
+    final record = await codeStore.consume(code, (c) async => c);
+    expect(record.actor, 'user-only-sub');
+  });
+
   test('a state matching no pending login is rejected without minting',
       () async {
     final res = await route.onRequest(
