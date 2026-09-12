@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:app/src/config/config_store.dart';
 import 'package:app/src/setup/setup_controller.dart';
@@ -65,7 +64,7 @@ void main() {
       'unreachable server surfaces network failure and does not persist',
       () async {
         final mock = MockClient((request) async {
-          throw const SocketException('Connection refused');
+          throw http.ClientException('Connection refused', request.url);
         });
 
         final controller = controllerWith(mock);
@@ -139,7 +138,7 @@ void main() {
         return http.Response(jsonEncode({'error': 'unauthorized'}), 401);
       });
       final clientDown = MockClient((request) async {
-        throw const SocketException('Connection refused');
+        throw http.ClientException('Connection refused', request.url);
       });
 
       final clients = <http.Client>[clientOk, client401, clientDown];

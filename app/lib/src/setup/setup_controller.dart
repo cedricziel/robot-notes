@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -108,13 +107,6 @@ class SetupController extends ValueNotifier<SetupState> {
           'Server did not respond. Check the URL and your network.',
         );
         return;
-      } on SocketException {
-        _log.warning('setup.healthz socket-error');
-        value = const SetupFailed(
-          SetupFailureReason.network,
-          'Could not reach server. Check the URL and your network.',
-        );
-        return;
       } on http.ClientException {
         _log.warning('setup.healthz client-error');
         value = const SetupFailed(
@@ -141,13 +133,6 @@ class SetupController extends ValueNotifier<SetupState> {
         value = const SetupFailed(
           SetupFailureReason.network,
           'Server did not respond. Check the URL and your network.',
-        );
-        return;
-      } on SocketException {
-        _log.warning('setup.notes socket-error');
-        value = const SetupFailed(
-          SetupFailureReason.network,
-          'Could not reach server. Check the URL and your network.',
         );
         return;
       } on http.ClientException {
