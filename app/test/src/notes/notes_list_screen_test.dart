@@ -246,4 +246,77 @@ void main() {
     final expected = formatNoteTimestamp(DateTime.parse(_now));
     expect(find.text('v1 · $expected'), findsOneWidget);
   });
+
+  group('delete', () {
+    testWidgets('long-press opens the menu; confirming deletes the note', (
+      tester,
+    ) async {
+      final calls = <String>[];
+      final mock = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.url.path == '/notes') {
+          return _page(<Object?>[_metaJson(id: '01H', title: 'byebye')]);
+        }
+        if (request.method == 'DELETE' && request.url.path == '/notes/01H') {
+          return http.Response('', 204);
+        }
+        return http.Response('unexpected: ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.byKey(const Key('notes.tile.01H')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.tile.01H.delete')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('notes.tile.01H.delete')));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete this note?'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('notes.delete.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(calls, contains('DELETE /notes/01H'));
+      expect(find.text('byebye'), findsNothing);
+      expect(find.text('Note deleted'), findsOneWidget);
+    });
+
+    testWidgets('cancelling the confirm dialog sends no request', (
+      tester,
+    ) async {
+      final calls = <String>[];
+      final mock = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.url.path == '/notes') {
+          return _page(<Object?>[_metaJson(id: '01H', title: 'stays')]);
+        }
+        return http.Response('unexpected: ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.byKey(const Key('notes.tile.01H')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.tile.01H.delete')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.delete.cancel')));
+      await tester.pumpAndSettle();
+
+      expect(calls, isNot(contains('DELETE /notes/01H')));
+      expect(find.text('stays'), findsOneWidget);
+    });
+  });
 }

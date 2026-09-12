@@ -44,6 +44,15 @@ Map<String, Object?> _noteJson({
   'updated_at': _now,
 };
 
+http.Response _page(List<Object?> items) => http.Response(
+  jsonEncode(<String, Object?>{
+    'items': items,
+    'limit': 50,
+    'next_cursor': null,
+  }),
+  200,
+);
+
 void main() {
   group('NotesListController', () {
     test('refresh fetches the first page and exposes items', () async {
@@ -289,6 +298,80 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(ctrl.value.items.map((n) => n.id), <String>['02H']);
+    });
+  });
+
+  group('NotesListController.delete', () {
+    test('issues DELETE and removes the item on success', () async {
+      final calls = <String>[];
+      final mock = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.url.path == '/notes') {
+          return _page(<Object?>[_metaJson(id: '01H'), _metaJson(id: '02H')]);
+        }
+        if (request.method == 'DELETE' && request.url.path == '/notes/01H') {
+          return http.Response('', 204);
+        }
+        return http.Response('unexpected: ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.refresh();
+      final result = await ctrl.delete('01H');
+
+      expect(result, isTrue);
+      expect(calls, contains('DELETE /notes/01H'));
+      expect(ctrl.value.items.map((n) => n.id), <String>['02H']);
+      expect(ctrl.value.error, isNull);
+    });
+
+    test('a 404 is treated as success and removes the item', () async {
+      final mock = MockClient((request) async {
+        if (request.url.path == '/notes') {
+          return _page(<Object?>[_metaJson(id: '01H')]);
+        }
+        if (request.method == 'DELETE' && request.url.path == '/notes/01H') {
+          return http.Response('', 404);
+        }
+        return http.Response('unexpected: ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.refresh();
+      final result = await ctrl.delete('01H');
+
+      expect(result, isTrue);
+      expect(ctrl.value.items, isEmpty);
+      expect(ctrl.value.error, isNull);
+    });
+
+    test('a 500 leaves the item in place and sets error', () async {
+      final mock = MockClient((request) async {
+        if (request.url.path == '/notes') {
+          return _page(<Object?>[_metaJson(id: '01H')]);
+        }
+        if (request.method == 'DELETE' && request.url.path == '/notes/01H') {
+          return http.Response(
+            jsonEncode(<String, Object?>{'message': 'database is locked'}),
+            500,
+          );
+        }
+        return http.Response('unexpected: ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.refresh();
+      final result = await ctrl.delete('01H');
+
+      expect(result, isFalse);
+      expect(ctrl.value.items.map((n) => n.id), <String>['01H']);
+      expect(ctrl.value.error, isNotNull);
     });
   });
 }
