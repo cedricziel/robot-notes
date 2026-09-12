@@ -84,9 +84,9 @@ List notes, paginated by ULID cursor. Authenticated.
 
 Query parameters:
 
-| Param   | Type | Default | Notes |
-| ------- | ---- | ------- | ----- |
-| `limit` | int  | 50      | Clamped to `[1, 200]`. |
+| Param   | Type | Default | Notes                                                                          |
+| ------- | ---- | ------- | ------------------------------------------------------------------------------ |
+| `limit` | int  | 50      | Clamped to `[1, 200]`.                                                         |
 | `after` | ULID | —       | Returns notes whose id is lexicographically greater than `after` (i.e. newer). |
 
 Response:
@@ -184,11 +184,11 @@ Successful response `200 OK`:
 
 Failure modes:
 
-| Status | Meaning |
-| ------ | ------- |
-| `400 Bad Request` | `If-Match` missing or malformed. |
-| `409 Conflict` | Version stale. Body includes `current_version` and `current_content`. |
-| `423 Locked` | Another actor holds the editor lock. Body includes the current lock object. |
+| Status            | Meaning                                                                     |
+| ----------------- | --------------------------------------------------------------------------- |
+| `400 Bad Request` | `If-Match` missing or malformed.                                            |
+| `409 Conflict`    | Version stale. Body includes `current_version` and `current_content`.       |
+| `423 Locked`      | Another actor holds the editor lock. Body includes the current lock object. |
 
 Successful writes broadcast `changed { id, version, by, action: "updated" }`.
 
@@ -241,10 +241,10 @@ Full-text search backed by SQLite FTS5. Authenticated.
 
 Query parameters:
 
-| Param   | Type   | Default | Notes |
-| ------- | ------ | ------- | ----- |
+| Param   | Type   | Default | Notes                                                       |
+| ------- | ------ | ------- | ----------------------------------------------------------- |
 | `q`     | string | —       | Required. Empty/whitespace returns `400 validation_failed`. |
-| `limit` | int    | 50      | Clamped to `[1, 200]`. |
+| `limit` | int    | 50      | Clamped to `[1, 200]`.                                      |
 
 Response:
 
@@ -398,6 +398,85 @@ Real-time editing convergence is intentionally out of scope for v1.
 Client sends `{ "type": "ping" }` periodically; server replies
 `{ "type": "pong" }`. The server closes idle connections after the
 configured grace period.
+
+---
+
+## Connecting an MCP client
+
+`POST <base>/mcp` exposes the note workspace as an MCP (Streamable
+HTTP) endpoint: one JSON-RPC 2.0 message per request, one JSON response
+per request, no sessions, no server-sent events. `GET`/`DELETE /mcp`
+return `405 Method Not Allowed`.
+
+### Authentication
+
+Either credential is accepted as `Authorization: Bearer <credential>`:
+
+- The configured static API key — same as every other endpoint. The
+  actor comes from `X-Actor` (defaulting to `unknown`), same as the
+  REST API.
+- An OAuth access token issued by this server's own authorization
+  server (see below). The actor is whichever name was captured at
+  consent; `X-Actor` is ignored so a token cannot be used to spoof a
+  different actor by header.
+
+A missing or rejected credential returns `401` with
+`{ "error": "unauthorized" }` and a `WWW-Authenticate` header pointing
+at `<base>/.well-known/oauth-protected-resource/mcp`; a rejected (as
+opposed to absent) credential additionally carries
+`error="invalid_token"`.
+
+### OAuth discovery and registration
+
+A client that doesn't already hold the static key discovers everything
+it needs from two unauthenticated metadata documents and registers
+itself without any operator involvement:
+
+| Endpoint                                          | Purpose                                                                                                                                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728 resource metadata: the resource URL, the authorization server, supported scopes.                                                                                      |
+| `GET /.well-known/oauth-authorization-server`     | RFC 8414 AS metadata: authorization/token/registration/revocation endpoints, supported PKCE methods and scopes.                                                                |
+| `POST /oauth/register`                            | RFC 7591 Dynamic Client Registration. No auth required; returns a `client_id` (and a `client_secret` for confidential clients).                                                |
+| `GET`/`POST /oauth/authorize`                     | Renders, then processes, a browser consent page. The page asks for the workspace API key (proof of ownership) and a display name — the actor the resulting grant writes under. |
+| `POST /oauth/token`                               | Authorization-code (with PKCE) and refresh-token exchange.                                                                                                                     |
+| `POST /oauth/revoke`                              | Revokes an access or refresh token; revoking a refresh token revokes the whole grant.                                                                                          |
+
+Access tokens are valid for 1 hour; refresh tokens for 30 days and
+rotate on each use. Tokens are bound to the resource
+`<base>/mcp` and to a scope set drawn from `notes:read` and
+`notes:write`; a token missing `notes:write` gets an
+`insufficient_scope` tool error from any write tool.
+
+### Tool catalog
+
+`tools/list` always returns the same seven tools, regardless of scope
+(scope is enforced per call, not per listing):
+
+| Tool             | What it does                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| `list_notes`     | Paginated note metadata (id, title, version, timestamps) — mirrors `GET /notes`.             |
+| `get_note`       | Full content of one note by id, including lock status — mirrors `GET /notes/{id}`.           |
+| `search_notes`   | Full-text search with `<mark>` snippets — mirrors `GET /search`.                             |
+| `create_note`    | Create a note — mirrors `POST /notes`.                                                       |
+| `update_note`    | Update a note under optimistic concurrency (`version` required) — mirrors `PUT /notes/{id}`. |
+| `append_to_note` | Server-side read-append-write; retries on a lost version race.                               |
+| `delete_note`    | Delete a note — mirrors `DELETE /notes/{id}`.                                                |
+
+Every successful call returns both a `content[0].text` (JSON string)
+and an identical `structuredContent` object. Domain failures (not
+found, version conflict, locked, validation, insufficient scope) come
+back as an ordinary JSON-RPC result with `isError: true` — never as a
+JSON-RPC protocol error — so a client can tell "the server is broken"
+apart from "the operation was refused". Every successful write
+broadcasts the same `changed` event over `/ws` that the equivalent
+REST call would, with `by` set to the calling actor.
+
+### Security
+
+Run the server behind HTTPS wherever it's reachable over an untrusted
+network: the consent form submits the workspace API key over that
+connection, with the same exposure as the `Authorization` header on
+every other endpoint.
 
 ---
 

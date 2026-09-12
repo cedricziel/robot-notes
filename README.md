@@ -12,11 +12,11 @@ on disk, indexed by SQLite FTS5 and broadcast over a WebSocket.
 
 This repo is a single Dart pub workspace.
 
-| Package    | Kind        | Purpose                                                                  |
-| ---------- | ----------- | ------------------------------------------------------------------------ |
-| `shared/`  | pure Dart   | API-contract DTOs, WS envelopes, error codes, route constants            |
-| `server/`  | Dart Frog   | HTTP + WebSocket server, atomic markdown storage, FTS5 search, locks     |
-| `app/`     | Flutter     | Multi-platform client (mobile, desktop, web)                             |
+| Package   | Kind      | Purpose                                                              |
+| --------- | --------- | -------------------------------------------------------------------- |
+| `shared/` | pure Dart | API-contract DTOs, WS envelopes, error codes, route constants        |
+| `server/` | Dart Frog | HTTP + WebSocket server, atomic markdown storage, FTS5 search, locks |
+| `app/`    | Flutter   | Multi-platform client (mobile, desktop, web)                         |
 
 ## Quickstart
 
@@ -53,12 +53,13 @@ cd server && dart_frog dev -- --api-key rn_your_secret --data-dir ./data
 
 Other knobs (with their env equivalents):
 
-| Flag | Env var | Default | What it controls |
-| --- | --- | --- | --- |
-| `--api-key`  | `ROBOT_NOTES_API_KEY`  | _(required)_ | Bearer token for every request. |
-| `--data-dir` | `ROBOT_NOTES_DATA_DIR` | `./data`     | Root for `content/`, `invites/`, `search.db`. |
-| `--port`     | `ROBOT_NOTES_PORT`     | `8080`       | Listen port. |
-| `--web-dir`  | `ROBOT_NOTES_WEB_DIR`  | _(unset)_    | When set, serve a Flutter web bundle at `/`. The published Docker image sets this automatically. |
+| Flag           | Env var                  | Default      | What it controls                                                                                                                                                                                                                                             |
+| -------------- | ------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--api-key`    | `ROBOT_NOTES_API_KEY`    | _(required)_ | Bearer token for every request.                                                                                                                                                                                                                              |
+| `--data-dir`   | `ROBOT_NOTES_DATA_DIR`   | `./data`     | Root for `content/`, `invites/`, `oauth/`, `search.db`.                                                                                                                                                                                                      |
+| `--port`       | `ROBOT_NOTES_PORT`       | `8080`       | Listen port.                                                                                                                                                                                                                                                 |
+| `--web-dir`    | `ROBOT_NOTES_WEB_DIR`    | _(unset)_    | When set, serve a Flutter web bundle at `/`. The published Docker image sets this automatically.                                                                                                                                                             |
+| `--public-url` | `ROBOT_NOTES_PUBLIC_URL` | _(unset)_    | Absolute origin (scheme + host + optional port, no path) used in OAuth metadata, invite URLs, and MCP resource identifiers. Recommended whenever the server sits behind a reverse proxy; otherwise it's derived per request from `X-Forwarded-Proto`/`Host`. |
 
 Every HTTP request must carry `Authorization: Bearer <key>`. Clients
 self-declare their display name with the `X-Actor: <name>` header (defaulting
@@ -93,10 +94,17 @@ container image for every release at `ghcr.io/<owner>/robot-notes-server`:
 ```sh
 docker run --rm \
   -e ROBOT_NOTES_API_KEY=rn_your_secret \
+  -e ROBOT_NOTES_PUBLIC_URL=https://notes.example.com \
   -v "$(pwd)/data:/data" \
   -p 8080:8080 \
   ghcr.io/<owner>/robot-notes-server:latest
 ```
+
+Set `ROBOT_NOTES_PUBLIC_URL` whenever the container sits behind a reverse
+proxy or a different externally visible host/port than the one it binds
+to — it pins the origin used in OAuth metadata, invite URLs, and the MCP
+resource identifier instead of trusting `X-Forwarded-Proto`/`Host` on
+each request.
 
 The image is plug-and-play: open `http://localhost:8080/` in a browser
 and the bundled Flutter web UI loads. The setup screen pre-fills the
@@ -145,6 +153,56 @@ over an encrypted channel, and revoke proactively if you suspect leakage
 [`RELEASING.md`](RELEASING.md#operating-agent-onboarding-invites) and the
 spec at
 `openspec/changes/add-mvp-foundation/specs/agent-onboarding/spec.md`.
+
+### Connecting an MCP client
+
+The server exposes the note workspace as a stateless MCP (Streamable
+HTTP) endpoint at `<base>/mcp`, e.g. `https://notes.example.com/mcp`.
+
+Most hosted or desktop MCP clients only need that one URL: they discover
+the OAuth endpoints automatically from
+`/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-authorization-server`, register themselves via
+Dynamic Client Registration (`POST /oauth/register`), and open a browser
+consent page. That page asks the person completing setup for the
+workspace API key (proof they're allowed to grant access) and a display
+name — the actor every note the agent writes will be attributed to.
+Approving the page redirects the client back with an access token
+scoped to `notes:read` and/or `notes:write`.
+
+Agents that already hold the static key — for example ones onboarded
+through the invite flow described above — can skip OAuth entirely and
+call `/mcp` the same way they call the rest of the API:
+
+```
+Authorization: Bearer <api-key>
+X-Actor: <name>
+```
+
+Both credentials are accepted on the same endpoint, so the two
+onboarding paths coexist.
+
+The tool catalog is fixed and identical for every caller:
+
+| Tool             | What it does                                                                    |
+| ---------------- | ------------------------------------------------------------------------------- |
+| `list_notes`     | Paginated note metadata (id, title, version, timestamps) — no content.          |
+| `get_note`       | Fetch one note's full content by id, including lock status.                     |
+| `search_notes`   | Full-text search over titles and content, ranked, with `<mark>` snippets.       |
+| `create_note`    | Create a note with a title and optional content.                                |
+| `update_note`    | Update a note, enforcing the note's current `version` (optimistic concurrency). |
+| `append_to_note` | Append text to a note's end without a read-modify-write race.                   |
+| `delete_note`    | Permanently delete a note by id.                                                |
+
+An OAuth grant's scopes gate the write tools (`create_note`,
+`update_note`, `append_to_note`, `delete_note`) separately from the read
+tools; the static key always holds both scopes.
+
+**Security:** run the server behind HTTPS in any deployment reachable
+over an untrusted network — the consent form submits the workspace API
+key over that connection, with the same exposure as the bearer check
+everywhere else in the API. See `--public-url` above for pinning the
+origin OAuth metadata advertises when the server sits behind a proxy.
 
 ## Conventions
 

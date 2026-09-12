@@ -63,20 +63,20 @@
 
 ## 5. Serve MCP at /mcp (PR 5)
 
-- [ ] 5.1 Write failing tests in `server/test/src/mcp/mcp_auth_middleware_test.dart`: missing header 401 with `WWW-Authenticate` carrying `resource_metadata` and no `error`; bad token 401 with `error="invalid_token"`; static key yields a principal with `X-Actor` and both scopes; valid access token yields the grant's actor and scopes and ignores `X-Actor`; refresh token rejected; token for another resource rejected; query-string token ignored
-- [ ] 5.2 Implement `lib/src/mcp/mcp_auth_middleware.dart` and `routes/mcp/_middleware.dart` so 5.1 passes
-- [ ] 5.3 Write failing route tests in `server/test/routes/mcp/index_test.dart`: GET and DELETE 405 with `Allow: POST`; `Mcp-Session-Id` ignored and never emitted; foreign `Origin` 403 before body parsing, own origin and loopback accepted, absent origin accepted; unsupported `MCP-Protocol-Version` 400; malformed JSON 400 with -32700; batch 400 with -32600; notification 202 empty; request 200 `application/json`
-- [ ] 5.4 Implement `routes/mcp/index.dart` so 5.3 passes
-- [ ] 5.5 Add `/mcp` and its middleware to `test/integration/_test_app.dart`; write `server/test/integration/mcp_flow_test.dart`: register, consent, token, then `initialize`, `tools/list`, `create_note`, `append_to_note`, `search_notes`, `delete_note` over HTTP, asserting the `changed` events on a WebSocket subscriber carry the consented actor
-- [ ] 5.6 Extend `mcp_flow_test.dart`: expired access token rejected (injected clock), refresh then success, revoke then 401, and token accepted after closing and re-bootstrapping `AppDeps` on the same data dir
-- [ ] 5.7 Write failing test in `server/test/routes/invites/[token]/onboarding.txt_test.dart` for the `ROBOT_NOTES_MCP_URL` line and `/mcp` mention; update `lib/src/onboarding_bundle.dart`
-- [ ] 5.8 Document in `README.md` and `server/API.md`: connecting an MCP client (URL, OAuth consent flow, static-key header alternative), `--public-url`, the tool catalog, and the security notes on HTTPS and the consent form
-- [ ] 5.9 Run `dart format .`, `dart analyze`, `make test`; commit as `feat(server): serve MCP at /mcp with OAuth and static-key auth`
+- [x] 5.1 Write failing tests in `server/test/src/mcp/mcp_auth_middleware_test.dart`: missing header 401 with `WWW-Authenticate` carrying `resource_metadata` and no `error`; bad token 401 with `error="invalid_token"`; static key yields a principal with `X-Actor` and both scopes; valid access token yields the grant's actor and scopes and ignores `X-Actor`; refresh token rejected; token for another resource rejected; query-string token ignored
+- [x] 5.2 Implement `lib/src/mcp/mcp_auth_middleware.dart` and `routes/mcp/_middleware.dart` so 5.1 passes
+- [x] 5.3 Write failing route tests in `server/test/routes/mcp/index_test.dart`: GET and DELETE 405 with `Allow: POST`; `Mcp-Session-Id` ignored and never emitted; foreign `Origin` 403 before body parsing, own origin and loopback accepted, absent origin accepted; unsupported `MCP-Protocol-Version` 400; malformed JSON 400 with -32700; batch 400 with -32600; notification 202 empty; request 200 `application/json`
+- [x] 5.4 Implement `routes/mcp/index.dart` so 5.3 passes
+- [x] 5.5 Add `/mcp` and its middleware to `test/integration/_test_app.dart`; write `server/test/integration/mcp_flow_test.dart`: register, consent, token, then `initialize`, `tools/list`, `create_note`, `append_to_note`, `search_notes`, `delete_note` over HTTP, asserting the `changed` events on a WebSocket subscriber carry the consented actor
+- [x] 5.6 Extend `mcp_flow_test.dart`: expired access token rejected (injected clock), refresh then success, revoke then 401, and token accepted after closing and re-bootstrapping `AppDeps` on the same data dir
+- [x] 5.7 Write failing test in `server/test/routes/invites/[token]/onboarding.txt_test.dart` for the `ROBOT_NOTES_MCP_URL` line and `/mcp` mention; update `lib/src/onboarding_bundle.dart`
+- [x] 5.8 Document in `README.md` and `server/API.md`: connecting an MCP client (URL, OAuth consent flow, static-key header alternative), `--public-url`, the tool catalog, and the security notes on HTTPS and the consent form
+- [x] 5.9 Run `dart format .`, `dart analyze`, `make test`; commit as `feat(server): serve MCP at /mcp with OAuth and static-key auth`
 
 ## 6. Definition of Done
 
-- [ ] 6.1 Every scenario in `specs/mcp-server`, `specs/oauth-authorization`, and the `auth` and `agent-onboarding` deltas maps to at least one test that fails before and passes after its implementation task
-- [ ] 6.2 `dart format --set-exit-if-changed .` and `dart analyze` are clean; `make test` passes on the top of the stack
-- [ ] 6.3 `npx @fission-ai/openspec validate add-mcp-server --strict` passes
+- [x] 6.1 Every scenario in `specs/mcp-server`, `specs/oauth-authorization`, and the `auth` and `agent-onboarding` deltas maps to at least one test that fails before and passes after its implementation task
+- [x] 6.2 `dart format --set-exit-if-changed .` and `dart analyze` are clean; `make test` passes on the top of the stack
+- [x] 6.3 `npx @fission-ai/openspec validate add-mcp-server --strict` passes
 - [ ] 6.4 A manual smoke run: `make run-server`, register a client with `curl`, complete consent in a browser, call `tools/list` with the issued token
 - [ ] 6.5 Five PRs opened as a stack in dependency order, each under 500 changed lines, each green on CI

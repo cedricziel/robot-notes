@@ -24,7 +24,7 @@ Middleware bearerAuth({required String configuredKey}) {
         return handler(context);
       }
 
-      final supplied = _extractBearer(request.headers['authorization']);
+      final supplied = extractBearerToken(request.headers['authorization']);
       if (supplied == null) {
         return _unauthorized();
       }
@@ -84,7 +84,14 @@ bool _isExempt(Request request) {
   }
 }
 
-String? _extractBearer(String? header) {
+/// Parses an `Authorization` header value, returning the bearer credential
+/// when the header is a well-formed `Bearer <token>` value and `null`
+/// otherwise (missing header, wrong scheme, or empty token).
+///
+/// Shared by [bearerAuth] and the `/mcp`-specific auth middleware
+/// (`lib/src/mcp/mcp_auth_middleware.dart`), which accepts the same static
+/// key alongside OAuth access tokens.
+String? extractBearerToken(String? header) {
   if (header == null) return null;
   final trimmed = header.trim();
   if (trimmed.isEmpty) return null;
@@ -107,4 +114,4 @@ Response _unauthorized() {
 /// Test-only handle on the bearer-token parser; lets the unit tests assert
 /// "malformed Authorization" cases without driving a full middleware chain.
 @visibleForTesting
-String? debugExtractBearer(String? header) => _extractBearer(header);
+String? debugExtractBearer(String? header) => extractBearerToken(header);

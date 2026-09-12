@@ -26,9 +26,17 @@ once for token `${invite.token}` and will not be served again.
 API key (Bearer): $apiKey
 Recommended X-Actor: $actor
 Server base URL: $base
+ROBOT_NOTES_MCP_URL=$base/mcp
 
 Send `Authorization: Bearer $apiKey` on every HTTP request and
 include `X-Actor: $actor` so your edits are attributed correctly.
+
+## MCP
+
+If your agent host speaks MCP, connect it to $base/mcp instead of
+calling the HTTP API by hand. The same API key works as the bearer
+credential: send `Authorization: Bearer $apiKey` on
+`POST $base/mcp`.
 
 ## API surface
 
