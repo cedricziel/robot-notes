@@ -44,3 +44,6 @@ server/data/
 **/fastlane/test_output/
 **/.bundle/
 **/vendor/bundle/
+
+# bundler binstubs generated on CI (bundle binstubs cocoapods --path bin)
+app/bin/
