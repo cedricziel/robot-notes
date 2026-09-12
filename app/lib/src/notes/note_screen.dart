@@ -60,52 +60,84 @@ class _NoteScreenState extends State<NoteScreen> {
     if (field.text != next) field.text = next;
   }
 
+  Future<bool> _confirmDiscard() async {
+    if (!widget.controller.value.isDirty) return true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard changes?'),
+        content: const Text('Your edits to this note have not been saved.'),
+        actions: [
+          TextButton(
+            key: const Key('note.discard.keep'),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep editing'),
+          ),
+          FilledButton.tonal(
+            key: const Key('note.discard.confirm'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    return discard ?? false;
+  }
+
+  Future<void> _close() async {
+    if (!await _confirmDiscard()) return;
+    await widget.controller.exitEditing();
+    if (mounted) widget.onClose?.call();
+  }
+
+  Future<void> _onPopInvoked(bool didPop, Object? result) async {
+    if (!didPop) await _close();
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = widget.controller.value;
     final note = state.note;
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          key: const Key('note.close'),
-          icon: const Icon(Icons.close),
-          onPressed: () async {
-            if (state.mode == NoteMode.editing ||
-                state.mode == NoteMode.conflict) {
-              await widget.controller.exitEditing();
-            }
-            widget.onClose?.call();
-          },
-        ),
-        title: Text(
-          note?.title.isEmpty == true ? '(untitled)' : note?.title ?? '',
-        ),
-        actions: [
-          if (state.viewers.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Center(
-                child: Text(
-                  '${state.viewers.length} viewer${state.viewers.length == 1 ? '' : 's'}',
-                  key: const Key('note.presence'),
+    return PopScope(
+      canPop: !state.isDirty,
+      onPopInvokedWithResult: _onPopInvoked,
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            key: const Key('note.close'),
+            icon: const Icon(Icons.close),
+            onPressed: _close,
+          ),
+          title: Text(
+            note?.title.isEmpty == true ? '(untitled)' : note?.title ?? '',
+          ),
+          actions: [
+            if (state.viewers.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Center(
+                  child: Text(
+                    '${state.viewers.length} viewer${state.viewers.length == 1 ? '' : 's'}',
+                    key: const Key('note.presence'),
+                  ),
                 ),
               ),
-            ),
-          if (state.mode == NoteMode.viewing && note != null)
-            IconButton(
-              key: const Key('note.edit'),
-              icon: const Icon(Icons.edit),
-              onPressed: widget.controller.enterEditMode,
-            ),
-          if (state.mode == NoteMode.editing)
-            TextButton(
-              key: const Key('note.save'),
-              onPressed: widget.controller.save,
-              child: const Text('Save'),
-            ),
-        ],
+            if (state.mode == NoteMode.viewing && note != null)
+              IconButton(
+                key: const Key('note.edit'),
+                icon: const Icon(Icons.edit),
+                onPressed: widget.controller.enterEditMode,
+              ),
+            if (state.mode == NoteMode.editing)
+              TextButton(
+                key: const Key('note.save'),
+                onPressed: widget.controller.save,
+                child: const Text('Save'),
+              ),
+          ],
+        ),
+        body: _buildBody(context, state),
       ),
-      body: _buildBody(context, state),
     );
   }
 

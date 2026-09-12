@@ -141,8 +141,9 @@ class _NoteTile extends StatelessWidget {
     return ListTile(
       key: Key('notes.tile.${note.id}'),
       title: Text(note.title.isEmpty ? '(untitled)' : note.title),
-      subtitle:
-          Text('v${note.version} · ${formatNoteTimestamp(note.updatedAt)}'),
+      subtitle: Text(
+        'v${note.version} · ${formatNoteTimestamp(note.updatedAt)}',
+      ),
       onTap: onTap,
     );
   }

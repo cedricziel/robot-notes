@@ -69,6 +69,14 @@ class NoteState {
   /// for another holder). UI surfaces this as a banner over a read-only view.
   final String? lockedByOtherBanner;
 
+  /// True while the edit buffers differ from the loaded note.
+  bool get isDirty {
+    final note = this.note;
+    if (note == null) return false;
+    if (mode != NoteMode.editing && mode != NoteMode.conflict) return false;
+    return editTitle != note.title || editContent != note.content;
+  }
+
   NoteState copyWith({
     NoteMode? mode,
     Object? note = _sentinel,
