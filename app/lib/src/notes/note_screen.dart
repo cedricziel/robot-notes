@@ -11,10 +11,19 @@ import 'note_controller.dart';
 ///
 /// Locking is handled by the controller; this widget just dispatches.
 class NoteScreen extends StatefulWidget {
-  const NoteScreen({required this.controller, this.onClose, super.key});
+  const NoteScreen({
+    required this.controller,
+    this.onClose,
+    this.startEditing = false,
+    super.key,
+  });
 
   final NoteController controller;
   final VoidCallback? onClose;
+
+  /// Open straight into the editor with the title selected, so typing
+  /// replaces a placeholder title.
+  final bool startEditing;
 
   @override
   State<NoteScreen> createState() => _NoteScreenState();
@@ -35,8 +44,7 @@ class _NoteScreenState extends State<NoteScreen> {
     super.initState();
     widget.controller.addListener(_syncBuffersFromState);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      widget.controller.open();
+      _open();
     });
   }
 
@@ -83,6 +91,22 @@ class _NoteScreenState extends State<NoteScreen> {
 
   static String _describe(ApiException e) =>
       e.message ?? 'HTTP ${e.statusCode}';
+
+  Future<void> _open() async {
+    if (!mounted) return;
+    await widget.controller.open();
+    if (!mounted || !widget.startEditing) return;
+    await _edit();
+    if (!mounted || widget.controller.value.mode != NoteMode.editing) return;
+    // The title field mounts on the rebuild that follows the mode change.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _title.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _title.text.length,
+      );
+    });
+  }
 
   /// Sync the TextField contents whenever the controller's edit buffers
   /// change underneath us — e.g. after a save sets them to the server's
@@ -289,6 +313,7 @@ class _NoteScreenState extends State<NoteScreen> {
           child: state.mode == NoteMode.editing || state.mode == NoteMode.saving
               ? _Editor(
                   title: _title,
+                  autofocusTitle: widget.startEditing,
                   content: _content,
                   onTitle: widget.controller.setEditTitle,
                   onContent: widget.controller.setEditContent,
@@ -317,6 +342,7 @@ class _ReadOnlyView extends StatelessWidget {
 class _Editor extends StatelessWidget {
   const _Editor({
     required this.title,
+    required this.autofocusTitle,
     required this.content,
     required this.onTitle,
     required this.onContent,
@@ -324,6 +350,7 @@ class _Editor extends StatelessWidget {
   });
 
   final TextEditingController title;
+  final bool autofocusTitle;
   final TextEditingController content;
   final ValueChanged<String> onTitle;
   final ValueChanged<String> onContent;
@@ -338,6 +365,7 @@ class _Editor extends StatelessWidget {
           TextField(
             key: const Key('note.editor.title'),
             controller: title,
+            autofocus: autofocusTitle,
             onChanged: onTitle,
             decoration: const InputDecoration(labelText: 'Title'),
             enabled: !saving,

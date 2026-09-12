@@ -59,13 +59,15 @@ List<String> _markedLines(InlineSpan span) {
   return marked;
 }
 
-/// Pumps a [NoteScreen] and taps edit. [onLock] answers the
+/// Pumps a [NoteScreen] into edit mode, by tapping edit or, with
+/// [startEditing], by opening straight into it. [onLock] answers the
 /// `POST /notes/{id}/lock` (granted by default); [onSave] answers the
 /// `PUT /notes/{id}` the save button sends.
 Future<NoteController> _pumpEditor(
   WidgetTester tester, {
   http.Response Function(http.Request)? onLock,
   http.Response Function(http.Request)? onSave,
+  bool startEditing = false,
 }) async {
   final mock = MockClient((request) async {
     if (request.method == 'GET' && request.url.path == '/notes/01H') {
@@ -89,8 +91,13 @@ Future<NoteController> _pumpEditor(
   );
   addTearDown(ctrl.dispose);
 
-  await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+  await tester.pumpWidget(
+    MaterialApp(
+      home: NoteScreen(controller: ctrl, startEditing: startEditing),
+    ),
+  );
   await tester.pumpAndSettle();
+  if (startEditing) return ctrl;
   await tester.tap(find.byKey(const Key('note.edit')));
   await tester.pumpAndSettle();
   return ctrl;
@@ -234,6 +241,25 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_fieldController(tester, _contentField).text, 'theirs');
+  });
+
+  testWidgets('startEditing opens the editor with the title selected', (
+    tester,
+  ) async {
+    await _pumpEditor(tester, startEditing: true);
+
+    expect(find.byKey(_titleField), findsOneWidget);
+    final editable = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byKey(_titleField),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(editable.focusNode.hasFocus, isTrue);
+    expect(
+      _fieldController(tester, _titleField).selection,
+      const TextSelection(baseOffset: 0, extentOffset: 'hello'.length),
+    );
   });
 
   testWidgets('tapping close in viewing mode calls onClose', (tester) async {
