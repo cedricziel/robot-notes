@@ -21,6 +21,7 @@ void main() {
     int? exp,
     String? iss,
     Object? aud,
+    String? azp,
     String? tokenNonce,
   }) {
     final now = DateTime.now().toUtc();
@@ -34,6 +35,7 @@ void main() {
       'nonce': tokenNonce ?? nonce,
       if (name != null) 'name': name,
       if (email != null) 'email': email,
+      if (azp != null) 'azp': azp,
     };
   }
 
@@ -79,9 +81,10 @@ void main() {
       expect(claims.name, 'Bob Example');
     });
 
-    test('aud as an array containing our client id verifies', () async {
+    test('aud as an array containing our client id verifies when azp matches',
+        () async {
       final token = signRs256(
-        validPayload(aud: ['other-client', audience]),
+        validPayload(aud: ['other-client', audience], azp: audience),
         rsa,
       );
       final claims = await verifyIdToken(
@@ -212,6 +215,55 @@ void main() {
 
     test('wrong audience is rejected', () async {
       final token = signRs256(validPayload(aud: 'someone-else'), rsa);
+      await expectLater(
+        verifyIdToken(
+          token,
+          issuer: issuer,
+          audience: audience,
+          nonce: nonce,
+          jwks: jwksFor([rsa.jwk]),
+        ),
+        throwsA(
+          isA<IdTokenVerificationException>().having(
+            (e) => e.failure,
+            'failure',
+            IdTokenVerificationFailure.wrongAudience,
+          ),
+        ),
+      );
+    });
+
+    test('a multi-audience token with no azp is rejected', () async {
+      final token = signRs256(
+        validPayload(aud: ['other-client', audience]),
+        rsa,
+      );
+      await expectLater(
+        verifyIdToken(
+          token,
+          issuer: issuer,
+          audience: audience,
+          nonce: nonce,
+          jwks: jwksFor([rsa.jwk]),
+        ),
+        throwsA(
+          isA<IdTokenVerificationException>().having(
+            (e) => e.failure,
+            'failure',
+            IdTokenVerificationFailure.wrongAudience,
+          ),
+        ),
+      );
+    });
+
+    test('a multi-audience token with a mismatched azp is rejected', () async {
+      final token = signRs256(
+        validPayload(
+          aud: ['other-client', audience],
+          azp: 'other-client',
+        ),
+        rsa,
+      );
       await expectLater(
         verifyIdToken(
           token,

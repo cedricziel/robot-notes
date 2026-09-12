@@ -68,7 +68,7 @@ Starting an OIDC login (from a pending `/oauth/authorize` consent request) SHALL
 
 ### Requirement: Callback exchanges the code and verifies the ID token before completing consent
 
-The callback endpoint SHALL reject any request whose `state` does not match a pending login exactly, without revealing whether a similar `state` exists. On a state match, it SHALL exchange the authorization `code` at the provider's `token_endpoint` using the bound PKCE verifier and the configured client credentials, then verify the returned ID token: signature verification SHALL use only `RS256` or `ES256` against a key fetched from the provider's `jwks_uri` matching the token's `kid`, and SHALL reject tokens using `alg=none` or any other algorithm. The server SHALL additionally verify `iss` equals the configured issuer, `aud` includes the configured `client_id`, `exp` is in the future, and `nonce` matches the value bound to the pending login. Any verification failure SHALL abandon the pending consent request and respond with an error page; it SHALL NOT complete consent or mint an authorization code. On success, the server SHALL complete the pending `/oauth/authorize` consent exactly as a valid `api_key` submission would, using the ID token's `name` claim (falling back to `email`, then to the token's `sub`) as the actor.
+The callback endpoint SHALL reject any request whose `state` does not match a pending login exactly, without revealing whether a similar `state` exists. On a state match, it SHALL exchange the authorization `code` at the provider's `token_endpoint` using the bound PKCE verifier and the configured client credentials, then verify the returned ID token: signature verification SHALL use only `RS256` or `ES256` against a key fetched from the provider's `jwks_uri` matching the token's `kid`, and SHALL reject tokens using `alg=none` or any other algorithm. The server SHALL additionally verify `iss` equals the configured issuer, `aud` includes the configured `client_id`, `exp` is in the future, and `nonce` matches the value bound to the pending login. When `aud` has more than one value, the server SHALL additionally require an `azp` claim equal to the configured `client_id`, rejecting the token when `azp` is absent or names a different client (OpenID Connect Core 1.0 §3.1.3.7). Any verification failure SHALL abandon the pending consent request and respond with an error page; it SHALL NOT complete consent or mint an authorization code. On success, the server SHALL complete the pending `/oauth/authorize` consent exactly as a valid `api_key` submission would, using the ID token's `name` claim (falling back to `email`, then to the token's `sub`) as the actor.
 
 #### Scenario: Mismatched state is rejected
 
@@ -93,6 +93,16 @@ The callback endpoint SHALL reject any request whose `state` does not match a pe
 #### Scenario: Wrong audience is rejected
 
 - **WHEN** the returned ID token's `aud` does not include the configured `client_id`
+- **THEN** the server SHALL reject it and SHALL NOT complete consent
+
+#### Scenario: Multi-valued audience with no azp is rejected
+
+- **WHEN** the returned ID token's `aud` includes the configured `client_id` alongside another audience, and no `azp` claim is present
+- **THEN** the server SHALL reject it and SHALL NOT complete consent
+
+#### Scenario: Multi-valued audience with mismatched azp is rejected
+
+- **WHEN** the returned ID token's `aud` includes the configured `client_id` alongside another audience, and `azp` names a different client
 - **THEN** the server SHALL reject it and SHALL NOT complete consent
 
 #### Scenario: Expired ID token is rejected

@@ -25,7 +25,8 @@ enum IdTokenVerificationFailure {
   /// `iss` does not equal the configured issuer.
   wrongIssuer,
 
-  /// `aud` does not include the configured client id.
+  /// `aud` does not include the configured client id, or `aud` has more
+  /// than one value and `azp` is absent or does not equal it.
   wrongAudience,
 
   /// `exp` is in the past.
@@ -171,6 +172,15 @@ Future<IdTokenClaims> verifyIdToken(
     throw IdTokenVerificationException(
       IdTokenVerificationFailure.wrongAudience,
       'aud does not include "$audience".',
+    );
+  }
+  // Per OpenID Connect Core 1.0 §3.1.3.7 (11): a multi-valued aud requires
+  // azp naming this client, so a token also valid for another audience
+  // can't be replayed here without that audience's cooperation.
+  if (aud is List && aud.length > 1 && payload['azp'] != audience) {
+    throw IdTokenVerificationException(
+      IdTokenVerificationFailure.wrongAudience,
+      'Multi-valued aud requires azp == "$audience".',
     );
   }
 
