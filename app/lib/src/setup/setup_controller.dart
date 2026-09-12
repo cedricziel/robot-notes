@@ -12,6 +12,15 @@ import '../config/config_store.dart';
 /// the exact wording.
 enum SetupFailureReason { unauthorized, network, server, insecureUrl }
 
+/// Whether [baseUrl] is `https://` — the one rule the setup screen must
+/// share between "can we advance to the login step" and "will [submit]
+/// actually accept this", so the two can't drift apart. A plain `http://`
+/// URL that redirects to `https` causes `package:http` to drop the
+/// `Authorization` header on the follow-up request, which then reports a
+/// spurious "API key was rejected" instead of the real problem.
+bool isSecureBaseUrl(String baseUrl) =>
+    baseUrl.trim().toLowerCase().startsWith('https://');
+
 /// Sealed state machine for the setup screen.
 ///
 /// `idle` → `submitting` → (`success` | `failed`) and back to `submitting`
@@ -88,7 +97,7 @@ class SetupController extends ValueNotifier<SetupState> {
       actor: actor,
     ).normalized();
 
-    if (!draft.baseUrl.toLowerCase().startsWith('https://')) {
+    if (!isSecureBaseUrl(draft.baseUrl)) {
       _log.warning('setup.submit rejected non-https baseUrl');
       value = const SetupFailed(
         SetupFailureReason.insecureUrl,

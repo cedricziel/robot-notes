@@ -92,6 +92,73 @@ void main() {
     expect(enabledButton.onPressed, isNotNull);
   });
 
+  testWidgets('Continue stays disabled for a non-https URL', (tester) async {
+    final controller = SetupController(
+      store: InMemoryConfigStore(),
+      clientFactory: () => MockClient((_) async => http.Response('', 200)),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SetupScreen(controller: controller, onConfigured: (_) {}),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('setup.baseUrl')),
+      'http://notes.example',
+    );
+    await tester.pump();
+
+    final button = tester.widget<FilledButton>(
+      find.byKey(const Key('setup.continue')),
+    );
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets('Change server clears a stale error from the previous attempt', (
+    tester,
+  ) async {
+    final mock = MockClient((request) async {
+      if (request.url.path == '/healthz') {
+        return http.Response('{"status":"ok"}', 200);
+      }
+      return http.Response(jsonEncode({'error': 'unauthorized'}), 401);
+    });
+    final controller = SetupController(
+      store: InMemoryConfigStore(),
+      clientFactory: () => mock,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SetupScreen(controller: controller, onConfigured: (_) {}),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('setup.baseUrl')),
+      'https://notes.example',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('setup.continue')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('setup.apiKey')), 'wrong');
+    await tester.enterText(find.byKey(const Key('setup.actor')), 'cedric');
+    await tester.tap(find.byKey(const Key('setup.submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('API key was rejected by the server.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('setup.changeServer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('setup.continue')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('API key was rejected by the server.'), findsNothing);
+  });
+
   testWidgets('Change server returns to step 1 with the URL preserved', (
     tester,
   ) async {

@@ -99,9 +99,6 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   void _onBaseUrlChanged() {
-    // Rebuilds so the Continue button's enabled state tracks the field
-    // live, not just after the capabilities debounce fires.
-    setState(() {});
     _capabilitiesDebounce?.cancel();
     _capabilitiesDebounce = Timer(
       widget.capabilitiesDebounce,
@@ -114,6 +111,14 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   void _changeServer() {
+    // A stale failure from the previous server shouldn't reappear once the
+    // user has pointed the form at a different one.
+    if (widget.controller.value is SetupFailed) {
+      widget.controller.value = const SetupIdle();
+    }
+    if (widget.oidcController?.value is OidcSignInFailed) {
+      widget.oidcController!.value = const OidcSignInIdle();
+    }
     setState(() => _step = _SetupStep.server);
   }
 
@@ -185,7 +190,6 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Widget _buildServerStep(BuildContext context) {
-    final canContinue = _baseUrl.text.trim().isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -199,10 +203,15 @@ class _SetupScreenState extends State<SetupScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        FilledButton(
-          key: const Key('setup.continue'),
-          onPressed: canContinue ? _continue : null,
-          child: const Text('Continue'),
+        // Scoped to just the button so typing doesn't rebuild the whole
+        // step — only the enabled state needs to track the field live.
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _baseUrl,
+          builder: (context, value, _) => FilledButton(
+            key: const Key('setup.continue'),
+            onPressed: isSecureBaseUrl(value.text) ? _continue : null,
+            child: const Text('Continue'),
+          ),
         ),
       ],
     );
