@@ -108,6 +108,40 @@ void main() {
       expect(await store.get('does-not-exist'), isNull);
     });
 
+    test(
+        'rejects a path-traversal client id without touching the '
+        'filesystem', () async {
+      final store = _store(tmp);
+      // The clients directory must already exist for the traversal to be
+      // meaningful: `File('a/../b')` silently fails to resolve when `a`
+      // does not exist, which would make this test pass for the wrong
+      // reason. Registering a real client first guarantees it.
+      await store.register(
+        clientName: 'Real Client',
+        redirectUris: ['https://agent.example/callback'],
+        tokenEndpointAuthMethod: 'none',
+        grantTypes: ['authorization_code'],
+        responseTypes: ['code'],
+      );
+      final decoy = File('${tmp.path}/decoy.json')
+        ..writeAsStringSync(
+          jsonEncode({
+            'client_id': 'decoy',
+            'client_name': 'Decoy',
+            'redirect_uris': ['https://evil.example/callback'],
+            'token_endpoint_auth_method': 'none',
+            'grant_types': ['authorization_code'],
+            'response_types': ['code'],
+            'client_secret_hash': null,
+            'created_at': DateTime.utc(2026, 4, 25, 10).toIso8601String(),
+          }),
+        );
+
+      expect(await store.get('../decoy'), isNull);
+      expect(await store.get('../../decoy'), isNull);
+      expect(decoy.existsSync(), isTrue);
+    });
+
     test('skips a malformed file and logs a warning', () async {
       final logs = <LogRecord>[];
       final store = ClientStore(

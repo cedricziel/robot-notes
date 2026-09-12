@@ -62,6 +62,12 @@ void main() {
       expect(body['resource_name'], 'robot-notes');
     });
 
+    test('protected-resource metadata is not cacheable', () async {
+      final ctx = _ctx(path: '/.well-known/oauth-protected-resource');
+      final response = await _run(wellKnownMiddleware(), ctx);
+      expect(response.headers['Cache-Control'], 'no-store');
+    });
+
     test('the /mcp variant matches the root document', () async {
       final rootRes = await _run(
         wellKnownMiddleware(),
@@ -106,6 +112,12 @@ void main() {
         ['none', 'client_secret_post', 'client_secret_basic'],
       );
       expect(body['scopes_supported'], ['notes:read', 'notes:write']);
+    });
+
+    test('authorization-server metadata is not cacheable', () async {
+      final ctx = _ctx(path: '/.well-known/oauth-authorization-server');
+      final response = await _run(wellKnownMiddleware(), ctx);
+      expect(response.headers['Cache-Control'], 'no-store');
     });
 
     test('respects a configured public URL', () async {

@@ -23,3 +23,14 @@ String publicBaseUrl(RequestContext context) {
 
 /// The canonical MCP resource identifier for the given public [base] URL.
 String mcpResourceUrl(String base) => '$base/mcp';
+
+/// Operator warning logged at startup when no public URL is configured,
+/// since the OAuth issuer and resource are then derived from request
+/// headers. `null` when [Config.publicUrl] is set.
+String? publicUrlStartupWarning(Config config) {
+  if (config.publicUrl != null) return null;
+  return 'No public URL configured; the OAuth issuer and MCP resource are '
+      'derived from the Host and X-Forwarded-Proto headers of each request. '
+      'Set --public-url or ROBOT_NOTES_PUBLIC_URL for any deployment that '
+      'is not loopback-only.';
+}

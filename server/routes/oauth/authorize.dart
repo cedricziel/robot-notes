@@ -250,6 +250,14 @@ Future<_Validation> _validate(
 
   final state = params['state'];
 
+  if (!client.responseTypes.contains('code')) {
+    return _RedirectError(
+      redirectUri: redirectUri,
+      error: 'unauthorized_client',
+      state: state,
+    );
+  }
+
   if (params['response_type'] != 'code') {
     return _RedirectError(
       redirectUri: redirectUri,

@@ -78,5 +78,5 @@
 - [x] 6.1 Every scenario in `specs/mcp-server`, `specs/oauth-authorization`, and the `auth` and `agent-onboarding` deltas maps to at least one test that fails before and passes after its implementation task
 - [x] 6.2 `dart format --set-exit-if-changed .` and `dart analyze` are clean; `make test` passes on the top of the stack
 - [x] 6.3 `npx @fission-ai/openspec validate add-mcp-server --strict` passes
-- [ ] 6.4 A manual smoke run: `make run-server`, register a client with `curl`, complete consent in a browser, call `tools/list` with the issued token
-- [ ] 6.5 Five PRs opened as a stack in dependency order, each under 500 changed lines, each green on CI
+- [x] 6.4 A manual smoke run: `make run-server`, register a client with `curl`, complete consent in a browser, call `tools/list` with the issued token
+- [x] 6.5 Five PRs opened as a stack in dependency order, each under 500 changed lines, each green on CI

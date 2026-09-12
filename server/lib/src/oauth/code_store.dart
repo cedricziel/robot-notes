@@ -98,13 +98,27 @@ class CodeStore {
     return raw;
   }
 
-  /// Marks [rawCode] as consumed and returns the record.
+  /// Marks [rawCode] as consumed, then runs [onConsumed] with the consumed
+  /// record while still holding the per-code mutex, returning whatever it
+  /// returns.
+  ///
+  /// Running [onConsumed] under the same lock that guards consumption is
+  /// what makes this safe against replay: a concurrent `consume` call for
+  /// the same code blocks until [onConsumed] finishes, so it can only ever
+  /// observe the code as already consumed — never a state where the code
+  /// is marked used but the caller's own side effects (e.g. minting
+  /// tokens) have not happened yet. Without that, a racing caller could
+  /// call [CodeReusedException]'s revocation before the first caller's
+  /// tokens exist, leaving them live.
   ///
   /// Throws [CodeNotFoundException] when the code is unknown or expired,
   /// and [CodeReusedException] when it has already been consumed —
   /// checked before expiry so a reused code is always caught even once
-  /// its TTL has since passed.
-  Future<AuthorizationCode> consume(String rawCode) {
+  /// its TTL has since passed. [onConsumed] does not run in either case.
+  Future<T> consume<T>(
+    String rawCode,
+    Future<T> Function(AuthorizationCode code) onConsumed,
+  ) {
     final hash = hashSecret(rawCode);
     return _mutex.run(hash, () async {
       final file = _fileFor(hash);
@@ -123,7 +137,7 @@ class CodeStore {
       if (record.isExpired(now)) throw const CodeNotFoundException();
       final consumed = record.consumedCopy(now);
       await _write(consumed);
-      return consumed;
+      return onConsumed(consumed);
     });
   }
 
