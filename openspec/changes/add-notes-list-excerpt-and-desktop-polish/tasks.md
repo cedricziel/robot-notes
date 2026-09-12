@@ -19,22 +19,22 @@
 - [x] 3.1 Write/extend a failing test in `shared/test/dtos_test.dart` asserting `NoteMeta.fromJson`/`toJson` round-trip `excerpt` and `tags`, defaulting to `''`/`const []` when absent.
 - [x] 3.2 Add `excerpt` and `tags` to `NoteMeta` (`shared/lib/src/dtos.dart`), matching `Note`'s existing `tags` handling in `fromJson`/`toJson`/`==`/`hashCode`.
 - [x] 3.3 `dart test` (shared), `dart analyze`, `dart format` clean.
-- [ ] 3.4 Commit: `feat(shared): add excerpt and tags to NoteMeta`.
+- [x] 3.4 Commit: `feat(shared): add excerpt and tags to NoteMeta`.
 
 ## 4. Client: relative time helper
 
-- [ ] 4.1 Write a failing test for a new `formatRelativeNoteTime(DateTime, {DateTime? now})` in `app/test/src/notes/notes_list_screen_test.dart` (or wherever `formatNoteTimestamp` is tested) covering seconds/minutes/hours/days-ago boundaries.
-- [ ] 4.2 Implement `formatRelativeNoteTime` in `notes_list_screen.dart` alongside (not replacing) `formatNoteTimestamp` — confirm `search_screen.dart`'s use of `formatNoteTimestamp` is untouched.
+- [x] 4.1 Write a failing test for a new `formatRelativeNoteTime(DateTime, {DateTime? now})` in `app/test/src/notes/notes_list_screen_test.dart` (or wherever `formatNoteTimestamp` is tested) covering seconds/minutes/hours/days-ago boundaries.
+- [x] 4.2 Implement `formatRelativeNoteTime` in `notes_list_screen.dart` alongside (not replacing) `formatNoteTimestamp` — confirm `search_screen.dart`'s use of `formatNoteTimestamp` is untouched.
 
 ## 5. Client: redesigned desktop row
 
-- [ ] 5.1 Write failing widget tests for `_NoteTile` (or promote it to a named, testable widget if needed) covering: folder path shown trailing the title, excerpt line rendered, a `Chip` per tag rendered, relative time shown, and version number no longer shown.
-- [ ] 5.2 Update `_NoteTile` in `notes_list_screen.dart` to render path/excerpt/tags/relative-time per the design.
-- [ ] 5.3 Write a failing widget test asserting the existing long-press and right-click (`onSecondaryTap`) delete menu still opens and works unchanged.
-- [ ] 5.4 Write a failing widget test asserting a delete icon appears on `MouseRegion` hover at wide layout and calls the same delete flow.
-- [ ] 5.5 Implement hover-to-reveal delete (`MouseRegion` + local hover state + `IconButton`) additive to the existing `MenuAnchor`, confirming 5.3 and 5.4 both pass.
-- [ ] 5.6 `flutter test`, `flutter analyze`, `dart format` clean for the app.
-- [ ] 5.7 Commit: `feat(app): show excerpt, tags, and path on desktop note rows`.
+- [x] 5.1 Write failing widget tests for `_NoteTile` (or promote it to a named, testable widget if needed) covering: folder path shown trailing the title, excerpt line rendered, a `Chip` per tag rendered, relative time shown, and version number no longer shown.
+- [x] 5.2 Update `_NoteTile` in `notes_list_screen.dart` to render path/excerpt/tags/relative-time per the design.
+- [x] 5.3 Write a failing widget test asserting the existing long-press and right-click (`onSecondaryTap`) delete menu still opens and works unchanged.
+- [x] 5.4 Write a failing widget test asserting a delete icon appears on `MouseRegion` hover at wide layout and calls the same delete flow.
+- [x] 5.5 Implement hover-to-reveal delete (`MouseRegion` + local hover state + `IconButton`) additive to the existing `MenuAnchor`, confirming 5.3 and 5.4 both pass.
+- [x] 5.6 `flutter test`, `flutter analyze`, `dart format` clean for the app.
+- [x] 5.7 Commit: `feat(app): show excerpt, tags, and path on desktop note rows`.
 
 ## 6. Client: labelled New-note action and FAB placement
 

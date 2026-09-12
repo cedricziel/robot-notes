@@ -4,6 +4,7 @@ import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/notes/notes_list_controller.dart';
 import 'package:app/src/notes/notes_list_screen.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -21,12 +22,19 @@ Map<String, Object?> _metaJson({
   required String id,
   String title = 'note',
   int version = 1,
+  String path = '',
+  String excerpt = '',
+  List<String> tags = const [],
+  String updatedAt = _now,
 }) => <String, Object?>{
   'id': id,
   'title': title,
   'version': version,
+  'path': path,
+  'excerpt': excerpt,
+  'tags': tags,
   'created_at': _now,
-  'updated_at': _now,
+  'updated_at': updatedAt,
 };
 
 http.Response _page(List<Object?> items) => http.Response(
@@ -318,21 +326,187 @@ void main() {
     });
   });
 
-  testWidgets('the tile subtitle uses formatNoteTimestamp', (tester) async {
-    final mock = MockClient((request) async {
-      return _page(<Object?>[_metaJson(id: '01H')]);
+  group('formatRelativeNoteTime', () {
+    final now = DateTime.utc(2026, 9, 12, 12, 0, 0);
+
+    test('just now for less than a minute ago', () {
+      expect(
+        formatRelativeNoteTime(
+          now.subtract(const Duration(seconds: 30)),
+          now: now,
+        ),
+        'just now',
+      );
     });
-    final api = RobotNotesClient(config: _config, httpClient: mock);
-    final ctrl = NotesListController(api: api);
-    addTearDown(ctrl.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(home: NotesListScreen(controller: ctrl)),
-    );
-    await tester.pumpAndSettle();
+    test('singular minute', () {
+      expect(
+        formatRelativeNoteTime(
+          now.subtract(const Duration(minutes: 1)),
+          now: now,
+        ),
+        '1 minute ago',
+      );
+    });
 
-    final expected = formatNoteTimestamp(DateTime.parse(_now));
-    expect(find.text('v1 · $expected'), findsOneWidget);
+    test('plural minutes', () {
+      expect(
+        formatRelativeNoteTime(
+          now.subtract(const Duration(minutes: 5)),
+          now: now,
+        ),
+        '5 minutes ago',
+      );
+    });
+
+    test('singular hour', () {
+      expect(
+        formatRelativeNoteTime(
+          now.subtract(const Duration(hours: 1)),
+          now: now,
+        ),
+        '1 hour ago',
+      );
+    });
+
+    test('plural hours', () {
+      expect(
+        formatRelativeNoteTime(
+          now.subtract(const Duration(hours: 5)),
+          now: now,
+        ),
+        '5 hours ago',
+      );
+    });
+
+    test('singular day', () {
+      expect(
+        formatRelativeNoteTime(now.subtract(const Duration(days: 1)), now: now),
+        '1 day ago',
+      );
+    });
+
+    test('plural days', () {
+      expect(
+        formatRelativeNoteTime(now.subtract(const Duration(days: 3)), now: now),
+        '3 days ago',
+      );
+    });
+
+    test('falls back to the absolute timestamp beyond a week', () {
+      final then = now.subtract(const Duration(days: 8));
+      expect(formatRelativeNoteTime(then, now: now), formatNoteTimestamp(then));
+    });
+  });
+
+  group('note row content', () {
+    testWidgets('shows a relative time and no version number', (tester) async {
+      final mock = MockClient((request) async {
+        return _page(<Object?>[_metaJson(id: '01H')]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      // _now (2025) is well past the one-week relative-time cutoff, so the
+      // widget falls back to the absolute timestamp — this still proves
+      // the "v1 · " prefix is gone without needing a fake clock.
+      final expected = formatNoteTimestamp(DateTime.parse(_now));
+      expect(find.text(expected), findsOneWidget);
+      expect(find.textContaining('v1'), findsNothing);
+    });
+
+    testWidgets('shows the folder path trailing the title', (tester) async {
+      final mock = MockClient((request) async {
+        return _page(<Object?>[
+          _metaJson(id: '01H', title: 'Weekend Trip', path: 'Personal/Trip'),
+        ]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Personal/Trip'), findsOneWidget);
+    });
+
+    testWidgets('does not show a path line for a root note', (tester) async {
+      final mock = MockClient((request) async {
+        return _page(<Object?>[_metaJson(id: '01H', title: 'Root note')]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('notes.tile.01H.path')), findsNothing);
+    });
+
+    testWidgets('shows the excerpt', (tester) async {
+      final mock = MockClient((request) async {
+        return _page(<Object?>[
+          _metaJson(id: '01H', excerpt: 'Leaving Friday evening'),
+        ]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Leaving Friday evening'), findsOneWidget);
+    });
+
+    testWidgets('shows a chip per tag', (tester) async {
+      final mock = MockClient((request) async {
+        return _page(<Object?>[
+          _metaJson(id: '01H', tags: ['travel', 'urgent']),
+        ]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(Chip, 'travel'), findsOneWidget);
+      expect(find.widgetWithText(Chip, 'urgent'), findsOneWidget);
+    });
+
+    testWidgets('shows no tag chips when the note has no tags', (tester) async {
+      final mock = MockClient((request) async {
+        return _page(<Object?>[_metaJson(id: '01H')]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Chip), findsNothing);
+    });
   });
 
   group('delete', () {
@@ -406,6 +580,65 @@ void main() {
       expect(calls, isNot(contains('DELETE /notes/01H')));
       expect(find.text('stays'), findsOneWidget);
     });
+
+    testWidgets(
+      'hovering a row on a wide screen reveals a delete button that works',
+      (tester) async {
+        tester.view.physicalSize = const Size(1200, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final calls = <String>[];
+        final mock = MockClient((request) async {
+          calls.add('${request.method} ${request.url.path}');
+          if (request.url.path == '/notes') {
+            return _page(<Object?>[_metaJson(id: '01H', title: 'byebye')]);
+          }
+          if (request.method == 'DELETE' && request.url.path == '/notes/01H') {
+            return http.Response('', 204);
+          }
+          return http.Response('unexpected: ${request.url.path}', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NotesListController(api: api);
+        addTearDown(ctrl.dispose);
+
+        await tester.pumpWidget(
+          MaterialApp(home: NotesListScreen(controller: ctrl)),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('notes.tile.01H.hoverDelete')),
+          findsNothing,
+        );
+
+        final gesture = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await gesture.addPointer(location: Offset.zero);
+        addTearDown(gesture.removePointer);
+        await tester.pump();
+        await gesture.moveTo(
+          tester.getCenter(find.byKey(const Key('notes.tile.01H'))),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('notes.tile.01H.hoverDelete')),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byKey(const Key('notes.tile.01H.hoverDelete')));
+        await tester.pumpAndSettle();
+        expect(find.text('Delete this note?'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('notes.delete.confirm')));
+        await tester.pumpAndSettle();
+
+        expect(calls, contains('DELETE /notes/01H'));
+        expect(find.text('byebye'), findsNothing);
+      },
+    );
   });
 
   testWidgets('the create FAB has a tooltip naming its action', (tester) async {

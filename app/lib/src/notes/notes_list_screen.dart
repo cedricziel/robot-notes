@@ -108,13 +108,17 @@ class _NotesListScreenState extends State<NotesListScreen> {
     final sidebar = widget.sidebar;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = sidebar != null && constraints.maxWidth >= _wideBreakpoint;
+        // Wide-layout affordances (hover-delete, the toolbar's "New note"
+        // action) are keyed off screen width alone; the sidebar's own
+        // inline-vs-drawer placement additionally requires one to exist.
+        final isWide = constraints.maxWidth >= _wideBreakpoint;
+        final showSidebarInline = sidebar != null && isWide;
         return Scaffold(
           appBar: AppBar(
             title: const Text('Notes'),
             actions: widget.appBarActions,
           ),
-          drawer: sidebar == null || wide
+          drawer: sidebar == null || showSidebarInline
               ? null
               : Drawer(key: const Key('notes.sidebar.drawer'), child: sidebar),
           floatingActionButton: widget.onCreate == null
@@ -125,7 +129,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
                   onPressed: widget.onCreate,
                   child: const Icon(Icons.add),
                 ),
-          body: wide
+          body: showSidebarInline
               ? Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -135,16 +139,16 @@ class _NotesListScreenState extends State<NotesListScreen> {
                       child: sidebar,
                     ),
                     const VerticalDivider(width: 1),
-                    Expanded(child: _buildListBody(context)),
+                    Expanded(child: _buildListBody(context, wide: isWide)),
                   ],
                 )
-              : _buildListBody(context),
+              : _buildListBody(context, wide: isWide),
         );
       },
     );
   }
 
-  Widget _buildListBody(BuildContext context) {
+  Widget _buildListBody(BuildContext context, {required bool wide}) {
     return Column(
       children: [
         Expanded(
@@ -201,6 +205,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
                           final note = state.items[index];
                           return _NoteTile(
                             note: note,
+                            wide: wide,
                             onTap: widget.onNoteTap == null
                                 ? null
                                 : () => widget.onNoteTap!(note.id),
@@ -220,29 +225,106 @@ class _NotesListScreenState extends State<NotesListScreen> {
   }
 }
 
-class _NoteTile extends StatelessWidget {
-  const _NoteTile({required this.note, this.onTap, required this.onDelete});
+class _NoteTile extends StatefulWidget {
+  const _NoteTile({
+    required this.note,
+    required this.wide,
+    this.onTap,
+    required this.onDelete,
+  });
 
   final NoteMeta note;
+
+  /// Whether the row is laid out wide enough for hover-to-reveal delete —
+  /// on narrow/touch layouts, long-press/right-click (via [MenuAnchor])
+  /// remains the only delete affordance.
+  final bool wide;
   final VoidCallback? onTap;
   final VoidCallback onDelete;
 
   @override
+  State<_NoteTile> createState() => _NoteTileState();
+}
+
+class _NoteTileState extends State<_NoteTile> {
+  bool _hovering = false;
+
+  @override
   Widget build(BuildContext context) {
+    final note = widget.note;
+    final theme = Theme.of(context);
+    final path = note.path;
     final tile = ListTile(
       key: Key('notes.tile.${note.id}'),
-      title: Text(note.title.isEmpty ? '(untitled)' : note.title),
-      subtitle: Text(
-        'v${note.version} · ${formatNoteTimestamp(note.updatedAt)}',
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              note.title.isEmpty ? '(untitled)' : note.title,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (path.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Text(
+                path,
+                key: Key('notes.tile.${note.id}.path'),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+        ],
       ),
-      onTap: onTap,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (note.excerpt.isNotEmpty)
+            Text(note.excerpt, overflow: TextOverflow.ellipsis),
+          Row(
+            children: [
+              if (note.tags.isNotEmpty)
+                Expanded(
+                  child: Wrap(
+                    spacing: 4,
+                    children: [
+                      for (final tag in note.tags)
+                        Chip(
+                          label: Text(tag),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                    ],
+                  ),
+                )
+              else
+                const Spacer(),
+              Text(
+                formatRelativeNoteTime(note.updatedAt),
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ],
+      ),
+      onTap: widget.onTap,
+      trailing: widget.wide && _hovering
+          ? IconButton(
+              key: Key('notes.tile.${note.id}.hoverDelete'),
+              tooltip: 'Delete note',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: widget.onDelete,
+            )
+          : null,
     );
-    return MenuAnchor(
+    final menu = MenuAnchor(
       key: Key('notes.tile.${note.id}.menu'),
       menuChildren: [
         MenuItemButton(
           key: Key('notes.tile.${note.id}.delete'),
-          onPressed: onDelete,
+          onPressed: widget.onDelete,
           child: const Text('Delete note'),
         ),
       ],
@@ -254,6 +336,12 @@ class _NoteTile extends StatelessWidget {
         );
       },
       child: tile,
+    );
+    if (!widget.wide) return menu;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: menu,
     );
   }
 }
@@ -267,3 +355,23 @@ String formatNoteTimestamp(DateTime dt) {
 }
 
 String _two(int n) => n.toString().padLeft(2, '0');
+
+/// Formats [dt] relative to [now] (defaulting to the current instant) as
+/// "just now" / "N minute(s) ago" / "N hour(s) ago" / "N day(s) ago", or
+/// falls back to [formatNoteTimestamp] beyond a week — an absolute date is
+/// more useful than "N days ago" once the gap gets that wide.
+String formatRelativeNoteTime(DateTime dt, {DateTime? now}) {
+  final reference = now ?? DateTime.now();
+  final diff = reference.difference(dt);
+  if (diff.inDays >= 7) return formatNoteTimestamp(dt);
+  if (diff.inDays >= 1) {
+    return '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
+  }
+  if (diff.inHours >= 1) {
+    return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
+  }
+  if (diff.inMinutes >= 1) {
+    return '${diff.inMinutes} minute${diff.inMinutes == 1 ? '' : 's'} ago';
+  }
+  return 'just now';
+}
