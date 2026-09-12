@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/oauth_crypto.dart';
 import 'package:test/test.dart';
 
 Directory _tempDir() =>
@@ -199,6 +201,29 @@ void main() {
           ),
         ),
       );
+    });
+
+    test(
+        'a wrong-typed field throws a TypeError, which is treated like '
+        'any other malformed file', () async {
+      final logs = <LogRecord>[];
+      final store = CodeStore(
+        dir: Directory('${tmp.path}/codes'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        logger: Logger.detached('test')..onRecord.listen(logs.add),
+      );
+      const rawCode = 'not-a-real-code';
+      final dir = Directory('${tmp.path}/codes')..createSync(recursive: true);
+      File(
+        '${dir.path}/${hashSecret(rawCode)}.json',
+      ).writeAsStringSync('{"client_id":123}');
+
+      await expectLater(
+        store.consume(rawCode, (record) async => record),
+        throwsA(isA<CodeNotFoundException>()),
+      );
+      expect(logs, isNotEmpty);
+      expect(logs.single.level, Level.WARNING);
     });
   });
 }

@@ -100,7 +100,7 @@ class ClientStore {
     if (!file.existsSync()) return null;
     try {
       return await _readFile(file);
-    } on Exception catch (e) {
+    } on Object catch (e) {
       _log.warning('Skipping malformed OAuth client ${file.path}: $e');
       return null;
     }

@@ -126,7 +126,7 @@ class CodeStore {
       AuthorizationCode record;
       try {
         record = await _readFile(file);
-      } on Exception catch (e) {
+      } on Object catch (e) {
         _log.warning('Skipping malformed OAuth code ${file.path}: $e');
         throw const CodeNotFoundException();
       }
@@ -152,7 +152,7 @@ class CodeStore {
       AuthorizationCode record;
       try {
         record = await _readFile(entity);
-      } on Exception catch (e) {
+      } on Object catch (e) {
         _log.warning('Skipping malformed OAuth code ${entity.path}: $e');
         continue;
       }

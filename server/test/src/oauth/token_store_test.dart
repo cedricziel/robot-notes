@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/oauth/oauth_crypto.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:test/test.dart';
 
@@ -106,6 +108,26 @@ void main() {
     test('returns null for an unknown token', () async {
       final store = _store(tmp);
       expect(await store.lookupAccess('does-not-exist'), isNull);
+    });
+
+    test(
+        'a wrong-typed field throws a TypeError, which is treated like '
+        'any other malformed file', () async {
+      final logs = <LogRecord>[];
+      final store = TokenStore(
+        dir: Directory('${tmp.path}/tokens'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        logger: Logger.detached('test')..onRecord.listen(logs.add),
+      );
+      const rawToken = 'not-a-real-token';
+      final dir = Directory('${tmp.path}/tokens')..createSync(recursive: true);
+      File(
+        '${dir.path}/${hashSecret(rawToken)}.json',
+      ).writeAsStringSync('{"client_id":123}');
+
+      expect(await store.lookupAccess(rawToken), isNull);
+      expect(logs, isNotEmpty);
+      expect(logs.single.level, Level.WARNING);
     });
   });
 

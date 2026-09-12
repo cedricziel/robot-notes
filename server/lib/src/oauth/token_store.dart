@@ -190,7 +190,7 @@ class TokenStore {
       OAuthToken record;
       try {
         record = await _readFile(file);
-      } on Exception catch (e) {
+      } on Object catch (e) {
         _log.warning('Skipping malformed OAuth token ${file.path}: $e');
         throw const TokenNotFoundException();
       }
@@ -234,7 +234,7 @@ class TokenStore {
       OAuthToken record;
       try {
         record = await _readFile(entity);
-      } on Exception catch (e) {
+      } on Object catch (e) {
         _log.warning('Skipping malformed OAuth token ${entity.path}: $e');
         continue;
       }
@@ -283,7 +283,7 @@ class TokenStore {
       OAuthToken record;
       try {
         record = await _readFile(entity);
-      } on Exception catch (e) {
+      } on Object catch (e) {
         _log.warning('Skipping malformed OAuth token ${entity.path}: $e');
         continue;
       }
@@ -300,7 +300,7 @@ class TokenStore {
     if (!file.existsSync()) return null;
     try {
       return await _readFile(file);
-    } on Exception catch (e) {
+    } on Object catch (e) {
       _log.warning('Skipping malformed OAuth token ${file.path}: $e');
       return null;
     }
