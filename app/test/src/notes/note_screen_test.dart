@@ -7,6 +7,7 @@ import 'package:app/src/notes/note_controller.dart';
 import 'package:app/src/notes/note_screen.dart';
 import 'package:app/src/realtime/ws_client.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -461,6 +462,52 @@ void main() {
       expect(find.byKey(const Key('note.editor.content')), findsNothing);
       expect(find.byKey(const Key('open')), findsOneWidget);
       expect(lockReleases, 1);
+    });
+  });
+
+  group('keyboard shortcuts', () {
+    testWidgets('Cmd+S saves while a text field has focus', (tester) async {
+      await _pumpEditor(
+        tester,
+        onSave: (_) => http.Response(jsonEncode(_noteJson(version: 2)), 200),
+      );
+      await tester.tap(find.byKey(_contentField));
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Saved (v2)'), findsOneWidget);
+    });
+
+    testWidgets('Ctrl+S saves while a text field has focus', (tester) async {
+      await _pumpEditor(
+        tester,
+        onSave: (_) => http.Response(jsonEncode(_noteJson(version: 3)), 200),
+      );
+      await tester.tap(find.byKey(_titleField));
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Saved (v3)'), findsOneWidget);
+    });
+
+    testWidgets('Escape while dirty shows the discard prompt', (tester) async {
+      await _pumpEditor(tester);
+      await tester.tap(find.byKey(_contentField));
+      await tester.enterText(find.byKey(_contentField), 'edited');
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard changes?'), findsOneWidget);
     });
   });
 
