@@ -45,38 +45,38 @@
 
 ## 4. MCP JSON-RPC core and note tools (PR 4)
 
-- [ ] 4.1 Write failing tests in `server/test/src/mcp/json_rpc_test.dart`: parse a request, a notification, a client response, reject arrays, reject missing `jsonrpc`, reject non-object; build result and error envelopes that echo `id`; error code constants -32700/-32600/-32601/-32602
-- [ ] 4.2 Implement `lib/src/mcp/json_rpc.dart` so 4.1 passes
-- [ ] 4.3 Write failing tests in `server/test/src/mcp/tool_results_test.dart`: `ok(payload)` yields one text item with the JSON string plus identical `structuredContent`; `fail(code, details)` sets `isError`, text starting with the code, and `structuredContent.error`
-- [ ] 4.4 Implement `lib/src/mcp/tool_results.dart` and `lib/src/mcp/principal.dart` (`McpPrincipal` with actor, scopes, `isStaticKey`) so 4.3 passes
-- [ ] 4.5 Write failing tests in `server/test/src/mcp/tools_test.dart` (real `AppDeps` on a temp dir): `list_notes` pagination and clamping, `get_note` including `lock` when held and `not_found`, `search_notes` hit with `<mark>` and `validation_failed` on blank or invalid FTS query
-- [ ] 4.6 Implement `lib/src/mcp/tools.dart` registry with schemas plus the three read tools so 4.5 passes
-- [ ] 4.7 Write failing tests for the write tools: `create_note` success and empty title, `update_note` success, stale version with `current_version`/`current_content`, neither title nor content, `locked` with holder, `delete_note` success and `locked`, each write broadcasting `changed` with the principal's actor
-- [ ] 4.8 Implement `create_note`, `update_note`, `delete_note` so 4.7 passes
-- [ ] 4.9 Write failing tests for `append_to_note`: newline separation, empty existing content, existing trailing newline not doubled, empty text rejected, `locked`, and two concurrent appends both landing
-- [ ] 4.10 Implement `append_to_note` with the retry loop so 4.9 passes
-- [ ] 4.11 Write failing tests for scope gating: read-only principal calling a write tool gets `insufficient_scope`; write-only principal calling a read tool gets `insufficient_scope`; static-key principal passes both
-- [ ] 4.12 Implement scope checks in the registry dispatch so 4.11 passes
-- [ ] 4.13 Write failing tests in `server/test/src/mcp/mcp_handler_test.dart`: `initialize` result shape and version negotiation (echo supported, fall back to 2025-06-18), `ping` returns `{}`, `tools/list` returns the seven tools with `required` arrays, `tools/call` routes to the registry, unknown tool is -32602, unknown method is -32601, notifications yield no response
-- [ ] 4.14 Implement `lib/src/mcp/mcp_handler.dart` (pure: message in, optional message out) so 4.13 passes
-- [ ] 4.15 Run `dart format .`, `dart analyze`, `cd server && dart test`; commit as `feat(server): add MCP JSON-RPC core and note tools`
+- [x] 4.1 Write failing tests in `server/test/src/mcp/json_rpc_test.dart`: parse a request, a notification, a client response, reject arrays, reject missing `jsonrpc`, reject non-object; build result and error envelopes that echo `id`; error code constants -32700/-32600/-32601/-32602
+- [x] 4.2 Implement `lib/src/mcp/json_rpc.dart` so 4.1 passes
+- [x] 4.3 Write failing tests in `server/test/src/mcp/tool_results_test.dart`: `ok(payload)` yields one text item with the JSON string plus identical `structuredContent`; `fail(code, details)` sets `isError`, text starting with the code, and `structuredContent.error`
+- [x] 4.4 Implement `lib/src/mcp/tool_results.dart` and `lib/src/mcp/principal.dart` (`McpPrincipal` with actor, scopes, `isStaticKey`) so 4.3 passes
+- [x] 4.5 Write failing tests in `server/test/src/mcp/tools_test.dart` (real `AppDeps` on a temp dir): `list_notes` pagination and clamping, `get_note` including `lock` when held and `not_found`, `search_notes` hit with `<mark>` and `validation_failed` on blank or invalid FTS query
+- [x] 4.6 Implement `lib/src/mcp/tools.dart` registry with schemas plus the three read tools so 4.5 passes
+- [x] 4.7 Write failing tests for the write tools: `create_note` success and empty title, `update_note` success, stale version with `current_version`/`current_content`, neither title nor content, `locked` with holder, `delete_note` success and `locked`, each write broadcasting `changed` with the principal's actor
+- [x] 4.8 Implement `create_note`, `update_note`, `delete_note` so 4.7 passes
+- [x] 4.9 Write failing tests for `append_to_note`: newline separation, empty existing content, existing trailing newline not doubled, empty text rejected, `locked`, and two concurrent appends both landing
+- [x] 4.10 Implement `append_to_note` with the retry loop so 4.9 passes
+- [x] 4.11 Write failing tests for scope gating: read-only principal calling a write tool gets `insufficient_scope`; write-only principal calling a read tool gets `insufficient_scope`; static-key principal passes both
+- [x] 4.12 Implement scope checks in the registry dispatch so 4.11 passes
+- [x] 4.13 Write failing tests in `server/test/src/mcp/mcp_handler_test.dart`: `initialize` result shape and version negotiation (echo supported, fall back to 2025-06-18), `ping` returns `{}`, `tools/list` returns the seven tools with `required` arrays, `tools/call` routes to the registry, unknown tool is -32602, unknown method is -32601, notifications yield no response
+- [x] 4.14 Implement `lib/src/mcp/mcp_handler.dart` (pure: message in, optional message out) so 4.13 passes
+- [x] 4.15 Run `dart format .`, `dart analyze`, `cd server && dart test`; commit as `feat(server): add MCP JSON-RPC core and note tools`
 
 ## 5. Serve MCP at /mcp (PR 5)
 
-- [ ] 5.1 Write failing tests in `server/test/src/mcp/mcp_auth_middleware_test.dart`: missing header 401 with `WWW-Authenticate` carrying `resource_metadata` and no `error`; bad token 401 with `error="invalid_token"`; static key yields a principal with `X-Actor` and both scopes; valid access token yields the grant's actor and scopes and ignores `X-Actor`; refresh token rejected; token for another resource rejected; query-string token ignored
-- [ ] 5.2 Implement `lib/src/mcp/mcp_auth_middleware.dart` and `routes/mcp/_middleware.dart` so 5.1 passes
-- [ ] 5.3 Write failing route tests in `server/test/routes/mcp/index_test.dart`: GET and DELETE 405 with `Allow: POST`; `Mcp-Session-Id` ignored and never emitted; foreign `Origin` 403 before body parsing, own origin and loopback accepted, absent origin accepted; unsupported `MCP-Protocol-Version` 400; malformed JSON 400 with -32700; batch 400 with -32600; notification 202 empty; request 200 `application/json`
-- [ ] 5.4 Implement `routes/mcp/index.dart` so 5.3 passes
-- [ ] 5.5 Add `/mcp` and its middleware to `test/integration/_test_app.dart`; write `server/test/integration/mcp_flow_test.dart`: register, consent, token, then `initialize`, `tools/list`, `create_note`, `append_to_note`, `search_notes`, `delete_note` over HTTP, asserting the `changed` events on a WebSocket subscriber carry the consented actor
-- [ ] 5.6 Extend `mcp_flow_test.dart`: expired access token rejected (injected clock), refresh then success, revoke then 401, and token accepted after closing and re-bootstrapping `AppDeps` on the same data dir
-- [ ] 5.7 Write failing test in `server/test/routes/invites/[token]/onboarding.txt_test.dart` for the `ROBOT_NOTES_MCP_URL` line and `/mcp` mention; update `lib/src/onboarding_bundle.dart`
-- [ ] 5.8 Document in `README.md` and `server/API.md`: connecting an MCP client (URL, OAuth consent flow, static-key header alternative), `--public-url`, the tool catalog, and the security notes on HTTPS and the consent form
-- [ ] 5.9 Run `dart format .`, `dart analyze`, `make test`; commit as `feat(server): serve MCP at /mcp with OAuth and static-key auth`
+- [x] 5.1 Write failing tests in `server/test/src/mcp/mcp_auth_middleware_test.dart`: missing header 401 with `WWW-Authenticate` carrying `resource_metadata` and no `error`; bad token 401 with `error="invalid_token"`; static key yields a principal with `X-Actor` and both scopes; valid access token yields the grant's actor and scopes and ignores `X-Actor`; refresh token rejected; token for another resource rejected; query-string token ignored
+- [x] 5.2 Implement `lib/src/mcp/mcp_auth_middleware.dart` and `routes/mcp/_middleware.dart` so 5.1 passes
+- [x] 5.3 Write failing route tests in `server/test/routes/mcp/index_test.dart`: GET and DELETE 405 with `Allow: POST`; `Mcp-Session-Id` ignored and never emitted; foreign `Origin` 403 before body parsing, own origin and loopback accepted, absent origin accepted; unsupported `MCP-Protocol-Version` 400; malformed JSON 400 with -32700; batch 400 with -32600; notification 202 empty; request 200 `application/json`
+- [x] 5.4 Implement `routes/mcp/index.dart` so 5.3 passes
+- [x] 5.5 Add `/mcp` and its middleware to `test/integration/_test_app.dart`; write `server/test/integration/mcp_flow_test.dart`: register, consent, token, then `initialize`, `tools/list`, `create_note`, `append_to_note`, `search_notes`, `delete_note` over HTTP, asserting the `changed` events on a WebSocket subscriber carry the consented actor
+- [x] 5.6 Extend `mcp_flow_test.dart`: expired access token rejected (injected clock), refresh then success, revoke then 401, and token accepted after closing and re-bootstrapping `AppDeps` on the same data dir
+- [x] 5.7 Write failing test in `server/test/routes/invites/[token]/onboarding.txt_test.dart` for the `ROBOT_NOTES_MCP_URL` line and `/mcp` mention; update `lib/src/onboarding_bundle.dart`
+- [x] 5.8 Document in `README.md` and `server/API.md`: connecting an MCP client (URL, OAuth consent flow, static-key header alternative), `--public-url`, the tool catalog, and the security notes on HTTPS and the consent form
+- [x] 5.9 Run `dart format .`, `dart analyze`, `make test`; commit as `feat(server): serve MCP at /mcp with OAuth and static-key auth`
 
 ## 6. Definition of Done
 
-- [ ] 6.1 Every scenario in `specs/mcp-server`, `specs/oauth-authorization`, and the `auth` and `agent-onboarding` deltas maps to at least one test that fails before and passes after its implementation task
-- [ ] 6.2 `dart format --set-exit-if-changed .` and `dart analyze` are clean; `make test` passes on the top of the stack
-- [ ] 6.3 `npx @fission-ai/openspec validate add-mcp-server --strict` passes
+- [x] 6.1 Every scenario in `specs/mcp-server`, `specs/oauth-authorization`, and the `auth` and `agent-onboarding` deltas maps to at least one test that fails before and passes after its implementation task
+- [x] 6.2 `dart format --set-exit-if-changed .` and `dart analyze` are clean; `make test` passes on the top of the stack
+- [x] 6.3 `npx @fission-ai/openspec validate add-mcp-server --strict` passes
 - [ ] 6.4 A manual smoke run: `make run-server`, register a client with `curl`, complete consent in a browser, call `tools/list` with the issued token
 - [ ] 6.5 Five PRs opened as a stack in dependency order, each under 500 changed lines, each green on CI

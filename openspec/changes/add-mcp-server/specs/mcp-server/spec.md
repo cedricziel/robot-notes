@@ -187,7 +187,7 @@ Every successful `tools/call` SHALL return a result with `content` containing on
 
 ### Requirement: Read tools mirror the HTTP API
 
-`list_notes` SHALL return `{ items: [{ id, title, version, created_at, updated_at }], next_cursor }` following the same pagination rules as `GET /notes` (`limit` defaults to 50, clamped to 1..200). `get_note` SHALL return `{ id, title, content, version, created_at, updated_at, lock? }` with `lock` present only while an editor lock is active. `search_notes` SHALL return `{ items: [{ id, title, snippet, rank }] }` using the same ranking, snippet markup, and default limit (20) as `GET /search`; an empty or FTS-invalid `query` SHALL be a `validation_failed` tool error.
+`list_notes` SHALL return `{ items: [{ id, title, version, created_at, updated_at }], next_cursor }` following the same pagination rules as `GET /notes` (`limit` defaults to 50; values outside 1..200 are rejected as invalid params). `get_note` SHALL return `{ id, title, content, version, created_at, updated_at, lock? }` with `lock` present only while an editor lock is active. `search_notes` SHALL return `{ items: [{ id, title, snippet, rank }] }` using the same ranking, snippet markup, and default limit (20) as `GET /search`; an empty or FTS-invalid `query` SHALL be a `validation_failed` tool error.
 
 #### Scenario: Pagination cursor
 
