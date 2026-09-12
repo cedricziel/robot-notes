@@ -40,6 +40,22 @@ class RefreshReuseException implements Exception {
   String toString() => 'RefreshReuseException($grantId)';
 }
 
+/// Thrown by [TokenStore.issue] when [grantId] already has a revoked
+/// record on disk. Grant revocation is terminal: once any token of a
+/// grant has been revoked, no further token may be minted for it, even
+/// if the mint raced the revocation.
+@immutable
+class GrantRevokedException implements Exception {
+  /// Creates the exception for the grant that was already revoked.
+  const GrantRevokedException(this.grantId);
+
+  /// Grant id that was already revoked.
+  final String grantId;
+
+  @override
+  String toString() => 'GrantRevokedException($grantId)';
+}
+
 /// Thrown by [TokenStore.rotateRefresh] when the requested scopes are not
 /// a subset of the grant's existing scopes.
 @immutable
@@ -164,6 +180,13 @@ class TokenStore {
     required String grantId,
     bool withRefresh = true,
   }) async {
+    // Grant revocation is terminal: a grant that already has a revoked
+    // record on disk must never gain a fresh, live token, even if this
+    // mint raced the revocation and won the race for the grant lock
+    // before the revocation was requested.
+    if (await _grantHasRevokedRecord(grantId)) {
+      throw GrantRevokedException(grantId);
+    }
     final now = _clock.nowUtc();
     final rawAccess = generateRandomToken(_random, kOAuthTokenBytes);
     final access = OAuthToken(
@@ -334,6 +357,26 @@ class TokenStore {
       count++;
     }
     return count;
+  }
+
+  /// Whether any persisted record of [grantId] is already revoked. Called
+  /// under the grant's lock, so it sees every record a concurrent
+  /// [revokeGrant] for the same grant has written by the time either
+  /// operation acquires the lock.
+  Future<bool> _grantHasRevokedRecord(String grantId) async {
+    if (!dir.existsSync()) return false;
+    await for (final entity in dir.list()) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      OAuthToken record;
+      try {
+        record = await _readFile(entity);
+      } on Object catch (e) {
+        _log.warning('Skipping malformed OAuth token ${entity.path}: $e');
+        continue;
+      }
+      if (record.grantId == grantId && record.isRevoked) return true;
+    }
+    return false;
   }
 
   /// Revokes [raw]. An access token is revoked alone; a refresh token

@@ -391,6 +391,57 @@ void main() {
     });
   });
 
+  group('TokenStore.issue racing TokenStore.revokeGrant', () {
+    test('revokeGrant winning the race leaves no live token behind', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+
+      Object? issueOutcome;
+      await Future.wait<void>([
+        store.revokeGrant('grant-1'),
+        _issue(store).then(
+          (tokens) => issueOutcome = tokens,
+          onError: (Object e) => issueOutcome = e,
+        ),
+      ]);
+
+      expect(await store.lookupAccess(issued.accessToken), isNull);
+      expect(await store.lookupRefresh(issued.refreshToken), isNull);
+      if (issueOutcome is IssuedTokens) {
+        final raced = issueOutcome! as IssuedTokens;
+        expect(await store.lookupAccess(raced.accessToken), isNull);
+        expect(await store.lookupRefresh(raced.refreshToken), isNull);
+      } else {
+        expect(issueOutcome, isA<GrantRevokedException>());
+      }
+    });
+
+    test('issue winning the race is still revoked once revokeGrant runs',
+        () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+
+      Object? issueOutcome;
+      await Future.wait<void>([
+        _issue(store).then(
+          (tokens) => issueOutcome = tokens,
+          onError: (Object e) => issueOutcome = e,
+        ),
+        store.revokeGrant('grant-1'),
+      ]);
+
+      expect(await store.lookupAccess(issued.accessToken), isNull);
+      expect(await store.lookupRefresh(issued.refreshToken), isNull);
+      if (issueOutcome is IssuedTokens) {
+        final raced = issueOutcome! as IssuedTokens;
+        expect(await store.lookupAccess(raced.accessToken), isNull);
+        expect(await store.lookupRefresh(raced.refreshToken), isNull);
+      } else {
+        expect(issueOutcome, isA<GrantRevokedException>());
+      }
+    });
+  });
+
   group('TokenStore.revokeToken', () {
     test('revoking an access token only revokes itself', () async {
       final store = _store(tmp);
