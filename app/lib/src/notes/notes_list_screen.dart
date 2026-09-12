@@ -19,16 +19,12 @@ class NotesListScreen extends StatefulWidget {
     this.onNoteTap,
     this.onCreate,
     this.appBarActions,
-    this.banner,
     super.key,
   });
 
   final NotesListController controller;
   final ValueChanged<String>? onNoteTap;
   final VoidCallback? onCreate;
-
-  /// Optional strip between the AppBar and the list, e.g. connection state.
-  final Widget? banner;
 
   /// Optional widgets rendered as the AppBar actions (e.g. search + reset
   /// affordances supplied by the host shell). When `null` the AppBar
@@ -110,7 +106,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
             ),
       body: Column(
         children: [
-          if (widget.banner != null) widget.banner!,
           Expanded(
             child: ValueListenableBuilder<NotesListState>(
               valueListenable: widget.controller,
