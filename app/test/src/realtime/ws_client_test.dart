@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/realtime/ws_client.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared/shared.dart';
 
@@ -194,6 +195,29 @@ void main() {
 
       await sub.cancel();
       await client.dispose();
+    });
+
+    test('reports a failed connect attempt via debugPrint', () async {
+      final printed = <String>[];
+      final originalDebugPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message != null) printed.add(message);
+      };
+      addTearDown(() => debugPrint = originalDebugPrint);
+
+      final client = RobotNotesWsClient(
+        config: _config,
+        connect: (uri) async => throw UnsupportedError('no dart:io here'),
+        delay: (d) => Future<void>.delayed(Duration.zero),
+      );
+
+      await client.start();
+      await Future<void>.delayed(Duration.zero);
+      await client.dispose();
+
+      expect(printed, isNotEmpty);
+      expect(printed.first, contains('wss://notes.example/ws'));
+      expect(printed.first, contains('no dart:io here'));
     });
 
     test('emits WsStale when offline duration exceeds staleThreshold',
