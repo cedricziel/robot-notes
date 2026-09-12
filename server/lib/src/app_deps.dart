@@ -163,6 +163,7 @@ class AppDeps {
       dbFile: File('${config.dataDir}/search.db'),
       storage: storage,
       logger: Logger('search_index'),
+      tracer: tracer,
     );
     final inviteStore = InviteStore(
       inviteDir: Directory('${config.dataDir}/invites'),

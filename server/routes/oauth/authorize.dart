@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:logging/logging.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/constant_time.dart';
 import 'package:server/src/oauth/authorize_request.dart';
@@ -9,6 +10,8 @@ import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/error_page.dart';
 import 'package:server/src/oauth/form_body.dart';
 import 'package:server/src/oauth/oauth_records.dart';
+
+final Logger _log = Logger('oauth.authorize');
 
 /// `GET  /oauth/authorize` — validates the request and renders the
 /// consent page.
@@ -96,6 +99,9 @@ Future<Response> _submitConsent(
   final config = context.read<Config>();
   final apiKey = form['api_key'] ?? '';
   if (!constantTimeEquals(config.apiKey, apiKey)) {
+    _log.warning(
+      'Incorrect API key submitted for client ${valid.client.clientId}',
+    );
     throttle.recordFailure(valid.client.clientId);
     return _renderConsent(
       context: context,

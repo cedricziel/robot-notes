@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:logging/logging.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/oauth/authorize_request.dart';
 import 'package:server/src/oauth/client_store.dart';
@@ -11,6 +12,8 @@ import 'package:server/src/oidc/jwks.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
 import 'package:server/src/oidc/token_exchange.dart';
 import 'package:server/src/public_url.dart';
+
+final Logger _log = Logger('oauth.oidc.callback');
 
 /// `GET /oauth/oidc/callback` — the redirect target the configured OIDC
 /// provider sends the user agent back to after login. Exchanges the
@@ -65,7 +68,8 @@ Future<Response> onRequest(RequestContext context) async {
       clientSecret: oidcConfig.clientSecret,
       httpPost: context.read<HttpPostForm>(),
     );
-  } on OidcTokenExchangeException {
+  } on OidcTokenExchangeException catch (e) {
+    _log.warning(e.message);
     return oauthErrorPage('Could not exchange the authorization code.');
   }
 
@@ -78,7 +82,8 @@ Future<Response> onRequest(RequestContext context) async {
       nonce: pending.nonce,
       jwks: jwks,
     );
-  } on IdTokenVerificationException {
+  } on IdTokenVerificationException catch (e) {
+    _log.warning('${e.failure}: ${e.message}');
     return oauthErrorPage("Could not verify the identity provider's response.");
   }
 
