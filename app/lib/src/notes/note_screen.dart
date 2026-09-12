@@ -22,6 +22,7 @@ class NoteScreen extends StatefulWidget {
     required this.controller,
     this.onClose,
     this.onOpenNote,
+    this.onTagTap,
     this.startEditing = false,
     @visibleForTesting this.installSaveShortcut = installWebSaveShortcut,
     @visibleForTesting this.linkAutocompleteScheduler,
@@ -34,6 +35,10 @@ class NoteScreen extends StatefulWidget {
   /// Called when the user taps a backlink entry, with the referencing
   /// note's id. `null` renders the backlinks panel non-interactive.
   final ValueChanged<String>? onOpenNote;
+
+  /// Called when the user taps a tag chip, with that tag. `null` renders
+  /// the chips non-interactive.
+  final ValueChanged<String>? onTagTap;
 
   /// Open straight into the editor with the title selected, so typing
   /// replaces a placeholder title.
@@ -480,6 +485,8 @@ class _NoteScreenState extends State<NoteScreen> {
               : Column(
                   children: [
                     Expanded(child: _ReadOnlyView(content: note.content)),
+                    if (note.tags.isNotEmpty)
+                      _TagChips(tags: note.tags, onTap: widget.onTagTap),
                     _BacklinksPanel(
                       backlinks: state.backlinks,
                       loading: state.backlinksLoading,
@@ -620,6 +627,36 @@ class _LinkSuggestions extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Row of chips for the note's computed tags (per `notes-storage`). Tapping
+/// a chip (when [onTap] is supplied) is how the notes list gets filtered by
+/// tag — see the `Tags are visible and filterable in the UI` requirement.
+class _TagChips extends StatelessWidget {
+  const _TagChips({required this.tags, this.onTap});
+
+  final List<String> tags;
+  final ValueChanged<String>? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      key: const Key('note.tags'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (final tag in tags)
+            ActionChip(
+              key: Key('note.tags.chip.$tag'),
+              label: Text(tag),
+              onPressed: onTap == null ? null : () => onTap!(tag),
+            ),
+        ],
+      ),
     );
   }
 }

@@ -26,6 +26,7 @@ Map<String, Object?> _noteJson({
   String title = 'hello',
   String content = 'world',
   int version = 1,
+  List<String> tags = const <String>[],
 }) => <String, Object?>{
   'id': id,
   'title': title,
@@ -33,6 +34,7 @@ Map<String, Object?> _noteJson({
   'version': version,
   'created_at': _now,
   'updated_at': _now,
+  'tags': tags,
 };
 
 Map<String, Object?> _lockJson({
@@ -183,8 +185,10 @@ Future<void> _pumpConflict(
 Future<void> _pumpViewer(
   WidgetTester tester, {
   required String content,
+  List<String> tags = const <String>[],
   List<Object?>? backlinksItems,
   ValueChanged<String>? onOpenNote,
+  ValueChanged<String>? onTagTap,
 }) async {
   final mock = MockClient((request) async {
     if (request.method == 'GET' && request.url.path == '/notes/01H/backlinks') {
@@ -193,7 +197,10 @@ Future<void> _pumpViewer(
         200,
       );
     }
-    return http.Response(jsonEncode(_noteJson(content: content)), 200);
+    return http.Response(
+      jsonEncode(_noteJson(content: content, tags: tags)),
+      200,
+    );
   });
   final api = RobotNotesClient(config: _config, httpClient: mock);
   final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
@@ -201,7 +208,11 @@ Future<void> _pumpViewer(
 
   await tester.pumpWidget(
     MaterialApp(
-      home: NoteScreen(controller: ctrl, onOpenNote: onOpenNote),
+      home: NoteScreen(
+        controller: ctrl,
+        onOpenNote: onOpenNote,
+        onTagTap: onTagTap,
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -1233,6 +1244,45 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(opened, '02H');
+    });
+  });
+
+  group('tags', () {
+    testWidgets('renders chips for the note\'s computed tags', (tester) async {
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        tags: const ['urgent', 'planning'],
+      );
+
+      expect(find.byKey(const Key('note.tags')), findsOneWidget);
+      expect(find.text('urgent'), findsOneWidget);
+      expect(find.text('planning'), findsOneWidget);
+    });
+
+    testWidgets('renders no chip row when the note has no tags', (
+      tester,
+    ) async {
+      await _pumpViewer(tester, content: 'hello');
+
+      expect(find.byKey(const Key('note.tags')), findsNothing);
+    });
+
+    testWidgets('tapping a tag chip calls onTagTap with that tag', (
+      tester,
+    ) async {
+      String? tapped;
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        tags: const ['urgent', 'planning'],
+        onTagTap: (tag) => tapped = tag,
+      );
+
+      await tester.tap(find.text('urgent'));
+      await tester.pumpAndSettle();
+
+      expect(tapped, 'urgent');
     });
   });
 

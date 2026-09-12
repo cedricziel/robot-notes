@@ -304,6 +304,12 @@ Widget _buildNotePage(BuildContext context, GoRouterState state) {
     // Backlinks open the referencing note on top of the current one, same
     // as tapping a note in the list — a further close pops back here.
     onOpenNote: (id) => unawaited(context.push('/notes/$id')),
+    // Tag filtering is a list-view concern: scope the list, then go there
+    // directly (replacing this route, like a search-result tap does).
+    onTagTap: (tag) {
+      unawaited(session.list.selectTag(tag));
+      context.go('/');
+    },
   );
 }
 
@@ -420,6 +426,7 @@ class NoteRoute extends StatefulWidget {
     this.startEditing = false,
     this.onClosed,
     this.onOpenNote,
+    this.onTagTap,
     super.key,
   });
 
@@ -432,6 +439,9 @@ class NoteRoute extends StatefulWidget {
   /// Called when the user taps a backlink entry in the note view, with the
   /// referencing note's id.
   final ValueChanged<String>? onOpenNote;
+
+  /// Called when the user taps a tag chip in the note view, with that tag.
+  final ValueChanged<String>? onTagTap;
 
   /// Called once the note view is dismissed (close, delete, or a system
   /// back gesture) with whether the open note's version changed since it
@@ -498,6 +508,7 @@ class _NoteRouteState extends State<NoteRoute> {
       onClose: _close,
       startEditing: widget.startEditing,
       onOpenNote: widget.onOpenNote,
+      onTagTap: widget.onTagTap,
     );
   }
 }

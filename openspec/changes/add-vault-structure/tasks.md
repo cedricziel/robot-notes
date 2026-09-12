@@ -148,11 +148,11 @@
 
 ### 17. Flutter: tags UI
 
-- [ ] 17.1 Write a failing test: the note view renders tag chips from the note's computed tags
-- [ ] 17.2 Implement the chip row; run tests green
-- [ ] 17.3 Write a failing test: tapping a tag chip filters the notes list via `GET /notes?tag=<tag>`
-- [ ] 17.4 Implement the tap-to-filter behavior; run tests green
-- [ ] 17.5 Commit: `feat(app): show note tags and filter the notes list by tag`
+- [x] 17.1 Write a failing test: the note view renders tag chips from the note's computed tags — `note_screen_test.dart`'s new `tags` group
+- [x] 17.2 Implement the chip row; run tests green — `_TagChips` in `note_screen.dart`, a `Wrap` of `ActionChip`s below the read-only body (`note.tags`, now populated per the API-groundwork commit's `Note.tags` field), rendered only in viewing mode and only when non-empty
+- [x] 17.3 Write a failing test: tapping a tag chip filters the notes list via `GET /notes?tag=<tag>` — same group's tap case, asserting `NoteScreen.onTagTap` fires with the tag (the `GET /notes?tag=` request itself is `NotesListController.selectTag`'s concern, already covered by task group 14's controller tests, which this reuses rather than re-testing the HTTP call from the note view). ~~a tag browser backed by `GET /tags`~~ — not built: tapping a chip already satisfies the requirement's "e.g. tapping a chip, or a tag browser" either/or, and needed no new screen
+- [x] 17.4 Implement the tap-to-filter behavior — `NoteScreen.onTagTap`, wired in `app_router.dart` to `session.list.selectTag(tag)` followed by `context.go('/')` (same replace-not-push pattern as a search-result tap), so the user lands on the now-tag-scoped list; run tests green
+- [x] 17.5 Commit: `feat(app): show note tags and filter the notes list by tag`
 
 ### 18. End-to-end check
 
