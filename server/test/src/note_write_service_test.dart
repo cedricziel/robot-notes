@@ -1,15 +1,30 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_otel_api/flutter_otel_api.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
+import 'package:server/src/otel/sdk_tracer.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
+
+class _RecordingSpanProcessor implements SpanProcessor {
+  final List<SpanData> ended = [];
+
+  @override
+  void onEnd(SpanData span) => ended.add(span);
+
+  @override
+  Future<void> forceFlush() async {}
+
+  @override
+  Future<void> shutdown() async {}
+}
 
 class _CapturingBroadcaster implements Broadcaster {
   final List<ChangedEvent> changed = [];
@@ -356,6 +371,142 @@ void main() {
       expect(s.search.search('death').single.id, note.id);
       expect(s.meta.length, 1);
       expect(captured, contains(Level.WARNING));
+    });
+  });
+
+  group('NoteWriteService tracing and logging', () {
+    // Bundles a fresh traced service with the processor recording its
+    // spans, and — since update/delete need a note to already exist — an
+    // optional seed note created through an untraced sibling service
+    // first, so its own `note.write.create` span doesn't pollute the
+    // recording.
+    Future<
+        ({
+          _RecordingSpanProcessor processor,
+          NoteWriteService traced,
+          StoredNote? seed,
+        })> tracedFixture(
+      ({Storage storage, MetaIndex meta, SearchIndex search}) s, {
+      bool withSeedNote = false,
+    }) async {
+      StoredNote? seed;
+      if (withSeedNote) {
+        final bare = NoteWriteService(
+          storage: s.storage,
+          metaIndex: s.meta,
+          searchIndex: s.search,
+          broadcaster: _CapturingBroadcaster(),
+        );
+        seed = await bare.create(title: 'V1', content: 'c', actor: 'a');
+      }
+      final processor = _RecordingSpanProcessor();
+      final tracer =
+          SdkTracer(name: 'test', version: null, processor: processor);
+      final traced = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        tracer: tracer,
+      );
+      return (processor: processor, traced: traced, seed: seed);
+    }
+
+    test('create starts a note.write.create span naming the new note',
+        () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final f = await tracedFixture(s);
+
+      final note = await f.traced.create(
+        title: 'Traced',
+        content: 'body',
+        actor: 'a',
+      );
+
+      final span = f.processor.ended.single;
+      expect(span.name, 'note.write.create');
+      expect(span.attributes['note.id'], note.id);
+      expect(span.statusCode, StatusCode.unset);
+    });
+
+    test('create logs an info record naming the new note', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final logger = Logger.detached('write-svc-test')..level = Level.ALL;
+      final records = <LogRecord>[];
+      final sub = logger.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        logger: logger,
+      );
+
+      final note = await svc.create(
+        title: 'Logged',
+        content: 'body',
+        actor: 'orbit-bot',
+      );
+
+      final info =
+          records.where((r) => r.level == Level.INFO).map((r) => r.message);
+      expect(info, contains(contains(note.id)));
+      expect(info, contains(contains('orbit-bot')));
+    });
+
+    test('update starts a note.write.update span naming the note', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final f = await tracedFixture(s, withSeedNote: true);
+
+      await f.traced.update(
+        id: f.seed!.id,
+        title: 'V2',
+        content: 'c2',
+        ifMatch: f.seed!.version,
+        actor: 'a',
+      );
+
+      final span = f.processor.ended.single;
+      expect(span.name, 'note.write.update');
+      expect(span.attributes['note.id'], f.seed!.id);
+    });
+
+    test('a failed update records the exception on the span', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final f = await tracedFixture(s, withSeedNote: true);
+
+      await expectLater(
+        f.traced.update(
+          id: f.seed!.id,
+          title: 'V2',
+          content: 'c2',
+          ifMatch: f.seed!.version + 1,
+          actor: 'a',
+        ),
+        throwsA(isA<VersionConflictException>()),
+      );
+
+      final span = f.processor.ended.single;
+      expect(span.statusCode, StatusCode.error);
+      expect(span.events.single.name, 'exception');
+    });
+
+    test('delete starts a note.write.delete span naming the note', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final f = await tracedFixture(s, withSeedNote: true);
+
+      await f.traced.delete(id: f.seed!.id, actor: 'a');
+
+      final span = f.processor.ended.single;
+      expect(span.name, 'note.write.delete');
+      expect(span.attributes['note.id'], f.seed!.id);
+      expect(span.statusCode, StatusCode.unset);
     });
   });
 }

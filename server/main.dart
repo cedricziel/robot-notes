@@ -47,7 +47,10 @@ Future<HttpServer> run(
   final effectivePort = _portFromEnvOverride(config.port, port);
   _logResolvedConfig(config, effectivePort);
 
-  final deps = await AppDeps.bootstrap(config);
+  final deps = await AppDeps.bootstrap(
+    config,
+    tracer: otelTracerProvider.getTracer(name: 'robot-notes-server'),
+  );
   setAppDeps(deps);
 
   final server = await serve(handler, ip, effectivePort);
