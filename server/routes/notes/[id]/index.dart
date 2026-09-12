@@ -191,6 +191,11 @@ Future<Response> _update(RequestContext context, String id) async {
       statusCode: HttpStatus.conflict,
       body: const {'error': 'path_conflict'},
     );
+  } on InvalidPathException catch (e) {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: {'error': 'bad_request', 'message': e.message},
+    );
   } on VersionConflictException catch (e) {
     final current = e.current;
     return Response.json(

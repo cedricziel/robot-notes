@@ -460,6 +460,17 @@ void main() {
       expect(_structured(result)['error'], kErrorPathConflict);
     });
 
+    test(
+        'a path-traversal path is a validation_failed tool error, not '
+        'a crash', () async {
+      final result = await call('create_note', {
+        'title': 'Escape',
+        'path': '../../../tmp/escaped',
+      });
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'validation_failed');
+    });
+
     test('broadcasts a created event with the principal actor', () async {
       final received = <WsMessage>[];
       deps.broadcaster
@@ -634,6 +645,28 @@ void main() {
         });
         expect(result['isError'], isTrue);
         expect(_structured(result)['error'], kErrorPathConflict);
+      },
+    );
+
+    test(
+      'a path-traversal path is a validation_failed tool error, not a crash',
+      () async {
+        final canary = _plantCanary(tmp);
+        final note = await deps.noteWriteService.create(
+          title: 'Note',
+          content: '',
+          actor: 'x',
+        );
+
+        final result = await call('update_note', {
+          'id': note.id,
+          'version': note.version,
+          'path': '../../../tmp/escaped',
+        });
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], 'validation_failed');
+        expect(canary.readAsStringSync(), _canaryNoteFile);
       },
     );
 
@@ -1046,6 +1079,28 @@ void main() {
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], kErrorPathConflict);
     });
+
+    test(
+      'a path-traversal path is a validation_failed tool error, not a crash',
+      () async {
+        final canary = _plantCanary(tmp);
+        final note = await deps.noteWriteService.create(
+          title: 'Note',
+          content: '',
+          actor: 'x',
+        );
+
+        final result = await call('move_note', {
+          'id': note.id,
+          'version': note.version,
+          'path': '../../../tmp/escaped',
+        });
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], 'validation_failed');
+        expect(canary.readAsStringSync(), _canaryNoteFile);
+      },
+    );
 
     test(
       'returns locked with holder when another actor holds the lock',

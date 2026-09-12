@@ -31,15 +31,47 @@ String sanitizeFilenameSegment(String segment) =>
 String sanitizedTitleForFilename(String title) =>
     sanitizeFilenameSegment(normalizeToNfc(title));
 
+/// Thrown by [sanitizedPathSegments] when [path] contains a segment that
+/// would let a write escape the content directory: `.`, `..`, or a
+/// segment that sanitizes down to the empty string.
+class InvalidPathException implements Exception {
+  /// Creates an exception naming the offending [path] and [segment].
+  const InvalidPathException({required this.path, required this.segment});
+
+  /// The full `path` that was rejected.
+  final String path;
+
+  /// The specific segment (after normalization and sanitization) that
+  /// triggered the rejection.
+  final String segment;
+
+  /// Human-readable explanation suitable for an API error body.
+  String get message =>
+      'path segment "$segment" is not allowed (resolved from "$path")';
+
+  @override
+  String toString() => 'InvalidPathException: $message';
+}
+
 /// Normalizes and sanitizes a `/`-separated `path` into the folder
 /// segments it should be stored under. An empty [path] (vault root)
 /// yields an empty list.
+///
+/// Throws [InvalidPathException] if any segment is `.`, `..`, or empty
+/// once normalized and sanitized — each of which could otherwise let a
+/// note or attachment write escape `contentDir` (`.`/`..`) or produce a
+/// malformed double-slash path (empty). The check runs *after*
+/// sanitization so a segment that only becomes `..` once illegal
+/// characters are stripped (e.g. `.:.`) is still caught.
 List<String> sanitizedPathSegments(String path) {
   if (path.isEmpty) return const [];
-  return path
-      .split('/')
-      .map((segment) => sanitizeFilenameSegment(normalizeToNfc(segment)))
-      .toList();
+  return path.split('/').map((raw) {
+    final segment = sanitizeFilenameSegment(normalizeToNfc(raw));
+    if (segment.isEmpty || segment == '.' || segment == '..') {
+      throw InvalidPathException(path: path, segment: segment);
+    }
+    return segment;
+  }).toList();
 }
 
 /// A comparison key for detecting filesystem-level collisions between two

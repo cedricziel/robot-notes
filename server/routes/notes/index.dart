@@ -182,5 +182,10 @@ Future<Response> _create(RequestContext context) async {
       statusCode: HttpStatus.conflict,
       body: const {'error': 'path_conflict'},
     );
+  } on InvalidPathException catch (e) {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: {'error': 'bad_request', 'message': e.message},
+    );
   }
 }

@@ -601,6 +601,32 @@ void main() {
       final body = await res.json() as Map<String, dynamic>;
       expect(body['error'], 'path_conflict');
     });
+
+    test('a path-traversal attempt is rejected, not written to disk', () async {
+      final storage = _storage(tmp);
+      final index = MetaIndex();
+      final writes = await _writeService(tmp, storage, index);
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          storage: storage,
+          metaIndex: index,
+          writes: writes,
+          body: {'title': 'Escape', 'path': '../../../tmp/escaped'},
+        ),
+      );
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['error'], 'bad_request');
+      final contentDir = Directory('${tmp.path}/content');
+      expect(
+        contentDir.existsSync()
+            ? contentDir.listSync(recursive: true)
+            : const <FileSystemEntity>[],
+        isEmpty,
+        reason: 'the traversal must not write any file anywhere',
+      );
+    });
   });
 
   group('disallowed methods', () {

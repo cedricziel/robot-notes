@@ -9,6 +9,8 @@ import 'package:server/src/note_path.dart';
 import 'package:server/src/tags.dart';
 import 'package:ulid/ulid.dart';
 
+export 'package:server/src/note_path.dart' show InvalidPathException;
+
 /// Stable, sortable identifier for a note. Ulids are 26-character
 /// Crockford base-32 strings.
 typedef NoteId = String;
