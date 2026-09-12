@@ -537,6 +537,106 @@ void main() {
       expect(putCalls, 0);
       expect(find.byType(SnackBar), findsNothing);
     });
+
+    testWidgets('the web save shortcut only saves the top-most note route', (
+      tester,
+    ) async {
+      // The real listener behind `installSaveShortcut` attaches to the
+      // browser `window`, not to this widget's place in the Navigator
+      // stack, so every mounted NoteScreen's handler fires on the same
+      // keypress. Capture each screen's handler instead of relying on a
+      // real `keydown` (unreachable from a VM test) to prove the guard in
+      // `_saveIfEditing` — not the DOM listener itself — is what keeps a
+      // background note from saving.
+      final saveHandlers = <String, VoidCallback>{};
+      VoidCallback Function(VoidCallback) captureInstall(String id) =>
+          (onSave) {
+            saveHandlers[id] = onSave;
+            return () {};
+          };
+
+      var putsForA = 0;
+      var putsForB = 0;
+      final mock = MockClient((request) async {
+        final path = request.url.path;
+        if (request.method == 'GET' &&
+            (path == '/notes/01A' || path == '/notes/01B')) {
+          return http.Response(
+            jsonEncode(_noteJson(id: path.split('/').last)),
+            200,
+          );
+        }
+        if (path.endsWith('/lock') &&
+            (request.method == 'POST' || request.method == 'PUT')) {
+          return http.Response(jsonEncode(_lockJson()), 200);
+        }
+        if (request.method == 'PUT' && path == '/notes/01A') {
+          putsForA += 1;
+          return http.Response(
+            jsonEncode(_noteJson(id: '01A', version: 2)),
+            200,
+          );
+        }
+        if (request.method == 'PUT' && path == '/notes/01B') {
+          putsForB += 1;
+          return http.Response(
+            jsonEncode(_noteJson(id: '01B', version: 2)),
+            200,
+          );
+        }
+        return http.Response('unexpected', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrlA = NoteController(
+        api: api,
+        noteId: '01A',
+        actor: 'cedric',
+        scheduler: (_) => Completer<void>().future,
+      );
+      final ctrlB = NoteController(
+        api: api,
+        noteId: '01B',
+        actor: 'cedric',
+        scheduler: (_) => Completer<void>().future,
+      );
+      addTearDown(ctrlA.dispose);
+      addTearDown(ctrlB.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NoteScreen(
+            controller: ctrlA,
+            startEditing: true,
+            installSaveShortcut: captureInstall('A'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      unawaited(
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => NoteScreen(
+              controller: ctrlB,
+              startEditing: true,
+              installSaveShortcut: captureInstall('B'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(saveHandlers.keys, containsAll(<String>['A', 'B']));
+
+      saveHandlers['A']!();
+      await tester.pumpAndSettle();
+      expect(putsForA, 0, reason: 'the background note must not save');
+
+      saveHandlers['B']!();
+      await tester.pumpAndSettle();
+      expect(putsForB, 1, reason: 'the current note saves as usual');
+    });
   });
 
   group('feedback', () {

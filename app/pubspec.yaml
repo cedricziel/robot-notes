@@ -36,6 +36,7 @@ dependencies:
   logging: ^1.3.0
   shared:
     path: ../shared
+  web: ^1.1.1
   web_socket_channel: ^3.0.3
 
 dev_dependencies:
