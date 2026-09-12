@@ -55,7 +55,10 @@ const _mimeTypes = <String, String>{
 ///      names `text/html`, the signature of a plain browser navigation
 ///      (reload, bookmark, shared link). Any other request to those paths,
 ///      including one with no `Authorization` at all, stays on the API
-///      pipeline.
+///      pipeline. Either way, the response carries `Vary: Accept,
+///      Authorization` and a `Cache-Control` matching the branch served
+///      (`no-cache` for the SPA, `no-store` for the API) so a cache can't
+///      replay one representation in place of the other.
 ///   3. If `<webDir>/<path>` exists → serve it with the inferred MIME type.
 ///   4. If the path looks like an SPA route (no file extension) → fall
 ///      back to `<webDir>/index.html`.
@@ -85,20 +88,35 @@ Middleware staticWebMiddleware({String? webDir}) {
         return handler(context);
       }
       final path = request.uri.path;
+      final isDualUsePath = _isDualUsePath(path);
       if (_isApiPath(request)) {
-        return handler(context);
+        final response = await handler(context);
+        // `/notes/{id}` and `/search` serve different bodies (HTML vs JSON)
+        // from the same URL depending on `Accept`/`Authorization`; without
+        // `Vary`, a cache (including the browser's own bfcache) can replay
+        // one representation for a request that should get the other — this
+        // is what let a back-navigation render raw JSON after a hard reload.
+        return isDualUsePath
+            ? _withDualUseHeaders(response, api: true)
+            : response;
       }
 
       final candidate = _resolveSafePath(webDir, path);
       if (candidate != null) {
         final file = File(candidate);
         if (file.existsSync()) {
-          return _serveFile(file, request.method);
+          final response = _serveFile(file, request.method);
+          return isDualUsePath
+              ? _withDualUseHeaders(response, api: false)
+              : response;
         }
       }
 
       if (_looksLikeSpaPath(path) && indexFile.existsSync()) {
-        return _serveFile(indexFile, request.method);
+        final response = _serveFile(indexFile, request.method);
+        return isDualUsePath
+            ? _withDualUseHeaders(response, api: false)
+            : response;
       }
 
       return Response(statusCode: HttpStatus.notFound);
@@ -128,9 +146,7 @@ bool _isApiPath(Request request) {
   // `text/html`). Anything else — including a request with no
   // `Authorization` at all but an `Accept` the app wouldn't send — stays on
   // the API pipeline and gets the documented 401, not HTML.
-  final sharesPathWithAClientRoute =
-      path == Routes.search || path.startsWith('${Routes.notes}/');
-  if (sharesPathWithAClientRoute) {
+  if (_isDualUsePath(path)) {
     final hasBearerAuth =
         extractBearerToken(request.headers['authorization']) != null;
     final looksLikeBrowserNavigation = !hasBearerAuth && _acceptsHtml(request);
@@ -139,9 +155,36 @@ bool _isApiPath(Request request) {
   return false;
 }
 
+/// `/notes/{id}` and `/search` — not bare `/notes` — serve both the SPA and
+/// the JSON API at the same URL; see [_isApiPath].
+bool _isDualUsePath(String path) =>
+    path == Routes.search || path.startsWith('${Routes.notes}/');
+
 bool _acceptsHtml(Request request) {
   final accept = request.headers['accept'];
   return accept != null && accept.contains('text/html');
+}
+
+/// Adds `Vary: Accept, Authorization` (merged with any existing `Vary`) so a
+/// cache never serves one representation of a dual-use path in place of the
+/// other — the browser's own bfcache doing exactly that, on a back
+/// navigation, is what motivated this. The SPA branch also gets a
+/// must-revalidate `Cache-Control` so deploys take effect immediately; the
+/// API branch gets `no-store` since note content is private, per-key data.
+Response _withDualUseHeaders(Response response, {required bool api}) {
+  final existingVary = response.headers['vary'];
+  final vary = [
+    if (existingVary != null && existingVary.isNotEmpty) existingVary,
+    'Accept',
+    'Authorization',
+  ].join(', ');
+  return response.copyWith(
+    headers: {
+      ...response.headers,
+      'vary': vary,
+      'cache-control': api ? 'no-store' : 'no-cache',
+    },
+  );
 }
 
 /// Joins [requestPath] onto [root], rejecting traversal. `/` resolves to

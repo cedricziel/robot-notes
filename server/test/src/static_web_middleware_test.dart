@@ -71,6 +71,8 @@ void main() {
       expect(response.statusCode, HttpStatus.ok);
       expect(response.headers['content-type'], contains('text/html'));
       expect(await response.body(), '<html>app</html>');
+      // Not a dual-use path, so no Vary is added here — see the dedicated
+      // dual-use-path tests below for that behavior.
     });
 
     test('serves an existing static asset with the right Content-Type',
@@ -153,6 +155,31 @@ void main() {
           handler: () => Response(body: 'api'),
         );
         expect(await response.body(), 'api', reason: 'path=$path');
+        if (path == '/notes') {
+          // Bare /notes isn't a dual-use path, so it's left alone.
+          expect(response.headers['vary'], isNull, reason: 'path=$path');
+          expect(
+            response.headers['cache-control'],
+            isNull,
+            reason: 'path=$path',
+          );
+        } else {
+          expect(
+            response.headers['vary'],
+            contains('Accept'),
+            reason: 'path=$path',
+          );
+          expect(
+            response.headers['vary'],
+            contains('Authorization'),
+            reason: 'path=$path',
+          );
+          expect(
+            response.headers['cache-control'],
+            'no-store',
+            reason: 'path=$path',
+          );
+        }
       }
     });
 
@@ -172,6 +199,9 @@ void main() {
         handler: () => Response(body: 'api'),
       );
       expect(await response.body(), 'api', reason: 'path=/search');
+      expect(response.headers['vary'], contains('Accept'));
+      expect(response.headers['vary'], contains('Authorization'));
+      expect(response.headers['cache-control'], 'no-store');
 
       for (final path in const ['/ws', '/invites/abc']) {
         final unauthed = _ctx(path: path);
@@ -181,6 +211,16 @@ void main() {
           handler: () => Response(body: 'api'),
         );
         expect(await unauthedResponse.body(), 'api', reason: 'path=$path');
+        expect(
+          unauthedResponse.headers['vary'],
+          isNull,
+          reason: 'path=$path',
+        );
+        expect(
+          unauthedResponse.headers['cache-control'],
+          isNull,
+          reason: 'path=$path',
+        );
       }
     });
 
@@ -204,6 +244,21 @@ void main() {
         );
         expect(response.statusCode, HttpStatus.ok, reason: 'path=$path');
         expect(await response.body(), '<html>app</html>', reason: 'path=$path');
+        expect(
+          response.headers['vary'],
+          contains('Accept'),
+          reason: 'path=$path',
+        );
+        expect(
+          response.headers['vary'],
+          contains('Authorization'),
+          reason: 'path=$path',
+        );
+        expect(
+          response.headers['cache-control'],
+          'no-cache',
+          reason: 'path=$path',
+        );
       }
     });
 
@@ -232,6 +287,16 @@ void main() {
             'api',
             reason: 'path=$path headers=$headers',
           );
+          expect(
+            response.headers['vary'],
+            contains('Accept'),
+            reason: 'path=$path headers=$headers',
+          );
+          expect(
+            response.headers['cache-control'],
+            'no-store',
+            reason: 'path=$path headers=$headers',
+          );
         }
       }
     });
@@ -249,6 +314,8 @@ void main() {
         handler: () => Response(body: 'api'),
       );
       expect(await response.body(), 'api');
+      expect(response.headers['vary'], isNull);
+      expect(response.headers['cache-control'], isNull);
     });
 
     test('passes through to handler for /healthz, /mcp, /oauth, /.well-known',
@@ -269,7 +336,28 @@ void main() {
           handler: () => Response(body: 'api'),
         );
         expect(await response.body(), 'api', reason: 'path=$path');
+        expect(response.headers['vary'], isNull, reason: 'path=$path');
+        expect(
+          response.headers['cache-control'],
+          isNull,
+          reason: 'path=$path',
+        );
       }
+    });
+
+    test('serving a hashed static asset is unaffected by dual-use headers',
+        () async {
+      final dir = _scratchWeb();
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      final ctx = _ctx(path: '/main.dart.js');
+      final response = await _run(
+        staticWebMiddleware(webDir: dir.path),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.ok);
+      expect(response.headers['vary'], isNull);
+      expect(response.headers['cache-control'], isNull);
     });
 
     test('non-GET non-HEAD requests pass through to handler', () async {
