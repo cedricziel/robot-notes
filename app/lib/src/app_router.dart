@@ -1,11 +1,16 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared/shared.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'api/api_client.dart';
 import 'api/api_exceptions.dart';
+import 'auth/oidc_session_refresher.dart';
+import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
 import 'notes/note_controller.dart';
@@ -60,10 +65,20 @@ class ConfigHolder extends ChangeNotifier {
       loaded = true;
 
   final ConfigStore _store;
+  final OidcSessionRefresher _refresher = OidcSessionRefresher(
+    clientFactory: http.Client.new,
+  );
 
   /// The store backing this holder, so callers that already have a
   /// [ConfigHolder] don't need it threaded through separately.
   ConfigStore get store => _store;
+
+  /// Drives the setup screen's "Sign in" option and, on web, resumes a
+  /// same-origin sign-in redirect on startup (see [_loadAndRefresh]).
+  late final OidcSignInController oidcSignIn = OidcSignInController(
+    store: _store,
+    launchUri: launchOidcUri,
+  );
 
   AppConfig? config;
 
@@ -73,9 +88,42 @@ class ConfigHolder extends ChangeNotifier {
   bool loaded = false;
 
   Future<void> _load() async {
-    config = await _store.read();
+    config = await _loadAndRefresh();
     loaded = true;
     notifyListeners();
+  }
+
+  /// Reads the persisted config and, for an OIDC session, refreshes its
+  /// access token before use (refreshing unconditionally on load is
+  /// simpler than tracking expiry). A rejected refresh token means the
+  /// session is no longer valid: the stored config is cleared and the
+  /// caller falls back to the setup screen exactly as if nothing had ever
+  /// been persisted.
+  ///
+  /// On web, when nothing is persisted, this also resumes a web sign-in
+  /// left in progress by a same-origin redirect back to the app (see
+  /// [OidcSignInController.resumeWebSignInIfPending]) before falling back
+  /// to the setup screen.
+  Future<AppConfig?> _loadAndRefresh() async {
+    final stored = await _store.read();
+    if (stored != null) {
+      if (!stored.isOidcSession) return stored;
+      try {
+        final refreshed = await _refresher.refresh(stored);
+        await _store.write(refreshed);
+        return refreshed;
+      } on OidcRefreshException {
+        await _store.clear();
+        return null;
+      }
+    }
+
+    if (kIsWeb) {
+      await oidcSignIn.resumeWebSignInIfPending(Uri.base);
+      final resumed = oidcSignIn.value;
+      if (resumed is OidcSignInSuccess) return resumed.config;
+    }
+    return null;
   }
 
   void set(AppConfig value) {
@@ -89,7 +137,24 @@ class ConfigHolder extends ChangeNotifier {
     config = null;
     notifyListeners();
   }
+
+  @override
+  void dispose() {
+    oidcSignIn.dispose();
+    super.dispose();
+  }
 }
+
+/// Opens [uri] for the user during OIDC sign-in: the system browser as an
+/// external application on desktop/mobile, or a same-tab navigation
+/// (`_self`) on web so the reload-based flow in
+/// [OidcSignInController.resumeWebSignInIfPending] sees the redirect back
+/// on the same tab rather than a new one.
+Future<void> launchOidcUri(Uri uri) => launchUrl(
+  uri,
+  mode: LaunchMode.externalApplication,
+  webOnlyWindowName: kIsWeb ? '_self' : null,
+);
 
 /// Redirects any location to `/setup` while no config is stored, remembering
 /// the originally requested location in a `from` query parameter; once setup
@@ -139,6 +204,7 @@ GoRouter buildAppRouter({
         path: '/setup',
         builder: (context, state) => _SetupRoute(
           store: configHolder.store,
+          oidcController: configHolder.oidcSignIn,
           onConfigured: configHolder.set,
         ),
       ),
@@ -285,9 +351,14 @@ class _SearchRoutePageState extends State<_SearchRoutePage> {
 /// The controller persists the validated [AppConfig] itself; this widget
 /// just relays the [SetupSuccess] up to the [ConfigHolder].
 class _SetupRoute extends StatefulWidget {
-  const _SetupRoute({required this.store, required this.onConfigured});
+  const _SetupRoute({
+    required this.store,
+    required this.oidcController,
+    required this.onConfigured,
+  });
 
   final ConfigStore store;
+  final OidcSignInController oidcController;
   final ValueChanged<AppConfig> onConfigured;
 
   @override
@@ -313,6 +384,7 @@ class _SetupRouteState extends State<_SetupRoute> {
   Widget build(BuildContext context) {
     return SetupScreen(
       controller: _controller,
+      oidcController: widget.oidcController,
       onConfigured: widget.onConfigured,
     );
   }
