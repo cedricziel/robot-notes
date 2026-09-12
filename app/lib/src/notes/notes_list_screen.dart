@@ -155,8 +155,23 @@ class _NotesListScreenState extends State<NotesListScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               final error = state.error;
+              final tag = state.selectedTag;
               return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (tag != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: Chip(
+                        key: const Key('notes.filter.tag'),
+                        label: Text('Tag: $tag'),
+                        deleteIcon: const Icon(
+                          Icons.close,
+                          key: Key('notes.filter.tag.clear'),
+                        ),
+                        onDeleted: () => widget.controller.selectTag(null),
+                      ),
+                    ),
                   if (error != null)
                     ErrorStrip(
                       key: const Key('notes.error'),
