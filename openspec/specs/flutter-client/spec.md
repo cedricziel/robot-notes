@@ -185,6 +185,27 @@ When the user leaves the note view — via the close button, the browser back bu
 - **WHEN** they tap close or trigger back navigation
 - **THEN** the app SHALL release the lock and leave without prompting
 
+### Requirement: Save and lock outcomes are surfaced in the note view
+
+The note view SHALL confirm a completed save and SHALL show the server's message when a save or lock acquisition fails, so the user is never left silently in the editor. Outcomes the view already renders — 409 (conflict view) and 423 (lock banner) — SHALL NOT additionally produce a message.
+
+#### Scenario: Successful save is confirmed
+
+- **GIVEN** the user is editing a note
+- **WHEN** the save returns 200 with version 7
+- **THEN** the app SHALL show a brief "Saved (v7)" confirmation and stay in edit mode
+
+#### Scenario: Failed save shows the server message
+
+- **GIVEN** the user is editing a note
+- **WHEN** the save fails with a status other than 409 or 423 (for example 400 for an empty title)
+- **THEN** the app SHALL show a message containing the server's `message` and SHALL stay in edit mode with the edits intact
+
+#### Scenario: Failed lock acquisition shows the server message
+
+- **WHEN** `POST /notes/{id}/lock` fails with a status other than 423
+- **THEN** the app SHALL show a message containing the server's `message` and remain read-only
+
 ### Requirement: Live presence and lock state are surfaced in the note view
 
 While the note view is open the app SHALL display a presence indicator (list of viewers' actor names) and a lock indicator (current holder, if any) updated in real time from `presence` and `lock` WebSocket events.
