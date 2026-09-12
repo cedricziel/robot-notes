@@ -27,14 +27,12 @@ class SearchState {
     List<SearchHit>? hits,
     bool? isLoading,
     Object? error = _sentinel,
-  }) =>
-      SearchState(
-        query: query ?? this.query,
-        hits: hits ?? this.hits,
-        isLoading: isLoading ?? this.isLoading,
-        error:
-            identical(error, _sentinel) ? this.error : error as ApiException?,
-      );
+  }) => SearchState(
+    query: query ?? this.query,
+    hits: hits ?? this.hits,
+    isLoading: isLoading ?? this.isLoading,
+    error: identical(error, _sentinel) ? this.error : error as ApiException?,
+  );
 }
 
 const Object _sentinel = Object();
@@ -53,10 +51,10 @@ class NotesSearchController extends ValueNotifier<SearchState> {
     required RobotNotesClient api,
     Duration debounce = const Duration(milliseconds: 250),
     Future<void> Function(Duration)? scheduler,
-  })  : _api = api,
-        _debounce = debounce,
-        _scheduler = scheduler ?? Future<void>.delayed,
-        super(SearchState.empty);
+  }) : _api = api,
+       _debounce = debounce,
+       _scheduler = scheduler ?? Future<void>.delayed,
+       super(SearchState.empty);
 
   final RobotNotesClient _api;
   final Duration _debounce;

@@ -62,11 +62,11 @@ class SetupController extends ValueNotifier<SetupState> {
     http.Client Function()? clientFactory,
     Logger? logger,
     Duration timeout = const Duration(seconds: 10),
-  })  : _store = store,
-        _clientFactory = clientFactory ?? http.Client.new,
-        _log = logger ?? Logger('robot_notes.setup'),
-        _timeout = timeout,
-        super(const SetupIdle());
+  }) : _store = store,
+       _clientFactory = clientFactory ?? http.Client.new,
+       _log = logger ?? Logger('robot_notes.setup'),
+       _timeout = timeout,
+       super(const SetupIdle());
 
   final ConfigStore _store;
   final http.Client Function() _clientFactory;
@@ -127,13 +127,15 @@ class SetupController extends ValueNotifier<SetupState> {
       final notesUri = Uri.parse('${draft.baseUrl}/notes?limit=1');
       final http.Response notes;
       try {
-        notes = await client.get(
-          notesUri,
-          headers: {
-            'Authorization': 'Bearer ${draft.apiKey}',
-            'X-Actor': draft.actor,
-          },
-        ).timeout(_timeout);
+        notes = await client
+            .get(
+              notesUri,
+              headers: {
+                'Authorization': 'Bearer ${draft.apiKey}',
+                'X-Actor': draft.actor,
+              },
+            )
+            .timeout(_timeout);
       } on TimeoutException {
         _log.warning('setup.notes timeout');
         value = const SetupFailed(

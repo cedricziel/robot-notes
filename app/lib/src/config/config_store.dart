@@ -21,7 +21,7 @@ abstract class ConfigStore {
 /// in plaintext on disk on any first-class platform.
 class SecureConfigStore implements ConfigStore {
   SecureConfigStore({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   static const _keyBaseUrl = 'robot_notes.base_url';
   static const _keyApiKey = 'robot_notes.api_key';

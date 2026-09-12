@@ -11,7 +11,8 @@ sealed class ApiException implements Exception {
   final String? message;
 
   @override
-  String toString() => '$runtimeType(status: $statusCode'
+  String toString() =>
+      '$runtimeType(status: $statusCode'
       '${message == null ? '' : ', message: $message'})';
 }
 
@@ -37,7 +38,7 @@ class BadRequestException extends ApiException {
 /// take theirs" prompt without a second round-trip.
 class VersionConflictException extends ApiException {
   const VersionConflictException({required this.current, super.message})
-      : super(statusCode: 409);
+    : super(statusCode: 409);
 
   final Note current;
 }
@@ -46,7 +47,7 @@ class VersionConflictException extends ApiException {
 /// when the lock expires, so the UI can show "Alice is editing (3:42 left)".
 class LockedException extends ApiException {
   const LockedException({required this.lock, super.message})
-      : super(statusCode: 423);
+    : super(statusCode: 423);
 
   final Lock lock;
 }

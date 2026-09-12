@@ -38,9 +38,7 @@ class _SetupScreenState extends State<SetupScreen> {
     // has to enter the API key + display name. The field is still
     // editable in case they want to point a same-origin web build at a
     // different backend (rare, but cheap to allow).
-    _baseUrl = TextEditingController(
-      text: kIsWeb ? Uri.base.origin : '',
-    );
+    _baseUrl = TextEditingController(text: kIsWeb ? Uri.base.origin : '');
     _apiKey = TextEditingController();
     _actor = TextEditingController();
     widget.controller.addListener(_onState);
@@ -114,9 +112,7 @@ class _SetupScreenState extends State<SetupScreen> {
               key: const Key('setup.apiKey'),
               controller: _apiKey,
               obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'API key',
-              ),
+              decoration: const InputDecoration(labelText: 'API key'),
             ),
             const SizedBox(height: 12),
             TextField(

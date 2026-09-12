@@ -28,10 +28,10 @@ void main() {
     });
 
     SetupController controllerWith(http.Client client) => SetupController(
-          store: store,
-          clientFactory: () => client,
-          logger: logger,
-        );
+      store: store,
+      clientFactory: () => client,
+      logger: logger,
+    );
 
     test('401 surfaces unauthorized state and does not persist', () async {
       // Two calls: first /healthz (200), then /notes?limit=1 (401).
@@ -43,10 +43,7 @@ void main() {
           return http.Response('{"status":"ok"}', 200);
         }
         expect(request.url.path, '/notes');
-        return http.Response(
-          jsonEncode({'error': 'unauthorized'}),
-          401,
-        );
+        return http.Response(jsonEncode({'error': 'unauthorized'}), 401);
       });
 
       final controller = controllerWith(mock);
@@ -86,38 +83,40 @@ void main() {
       },
     );
 
-    test('successful validation persists normalized config and reports success',
-        () async {
-      final mock = MockClient((request) async {
-        if (request.url.path == '/healthz') {
-          return http.Response('{"status":"ok"}', 200);
-        }
-        expect(request.url.path, '/notes');
-        expect(request.headers['Authorization'], 'Bearer good-key');
-        expect(request.headers['X-Actor'], 'cedric');
-        return http.Response(
-          jsonEncode(<String, Object?>{'items': <Object?>[], 'next': null}),
-          200,
+    test(
+      'successful validation persists normalized config and reports success',
+      () async {
+        final mock = MockClient((request) async {
+          if (request.url.path == '/healthz') {
+            return http.Response('{"status":"ok"}', 200);
+          }
+          expect(request.url.path, '/notes');
+          expect(request.headers['Authorization'], 'Bearer good-key');
+          expect(request.headers['X-Actor'], 'cedric');
+          return http.Response(
+            jsonEncode(<String, Object?>{'items': <Object?>[], 'next': null}),
+            200,
+          );
+        });
+
+        final controller = controllerWith(mock);
+
+        await controller.submit(
+          baseUrl: 'https://notes.example/',
+          apiKey: 'good-key',
+          actor: '  cedric  ',
         );
-      });
 
-      final controller = controllerWith(mock);
-
-      await controller.submit(
-        baseUrl: 'https://notes.example/',
-        apiKey: 'good-key',
-        actor: '  cedric  ',
-      );
-
-      final state = controller.value;
-      expect(state, isA<SetupSuccess>());
-      final stored = await store.read();
-      expect(stored, isNotNull);
-      // Normalized: trailing slash stripped, actor trimmed.
-      expect(stored!.baseUrl, 'https://notes.example');
-      expect(stored.actor, 'cedric');
-      expect(stored.apiKey, 'good-key');
-    });
+        final state = controller.value;
+        expect(state, isA<SetupSuccess>());
+        final stored = await store.read();
+        expect(stored, isNotNull);
+        // Normalized: trailing slash stripped, actor trimmed.
+        expect(stored!.baseUrl, 'https://notes.example');
+        expect(stored.actor, 'cedric');
+        expect(stored.apiKey, 'good-key');
+      },
+    );
 
     test('api key never appears in any log record', () async {
       // Run all three branches (success, 401, network) so every log code path

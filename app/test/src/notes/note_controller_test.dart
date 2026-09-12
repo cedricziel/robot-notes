@@ -25,52 +25,52 @@ Map<String, Object?> _noteJson({
   String content = 'world',
   int version = 1,
   Map<String, Object?>? lock,
-}) =>
-    <String, Object?>{
-      'id': id,
-      'title': title,
-      'content': content,
-      'version': version,
-      'created_at': _now,
-      'updated_at': _now,
-      if (lock != null) 'lock': lock,
-    };
+}) => <String, Object?>{
+  'id': id,
+  'title': title,
+  'content': content,
+  'version': version,
+  'created_at': _now,
+  'updated_at': _now,
+  'lock': ?lock,
+};
 
 Map<String, Object?> _lockJson({
   String holder = 'cedric',
   String expiresAt = '2025-01-01T00:01:00.000Z',
-}) =>
-    <String, Object?>{'holder': holder, 'expires_at': expiresAt};
+}) => <String, Object?>{'holder': holder, 'expires_at': expiresAt};
 
 void main() {
   group('NoteController', () {
-    test('open() fetches the note and asks the WS layer to subscribe',
-        () async {
-      var listGets = 0;
-      final mock = MockClient((request) async {
-        if (request.method == 'GET' && request.url.path == '/notes/01H') {
-          listGets += 1;
-          return http.Response(jsonEncode(_noteJson()), 200);
-        }
-        return http.Response('unexpected', 500);
-      });
-      final api = RobotNotesClient(config: _config, httpClient: mock);
-      final subscribed = <String>[];
-      final ctrl = NoteController(
-        api: api,
-        noteId: '01H',
-        actor: 'cedric',
-        onSubscribe: subscribed.add,
-      );
-      addTearDown(ctrl.dispose);
+    test(
+      'open() fetches the note and asks the WS layer to subscribe',
+      () async {
+        var listGets = 0;
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            listGets += 1;
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final subscribed = <String>[];
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          onSubscribe: subscribed.add,
+        );
+        addTearDown(ctrl.dispose);
 
-      await ctrl.open();
+        await ctrl.open();
 
-      expect(listGets, 1);
-      expect(subscribed, <String>['01H']);
-      expect(ctrl.value.mode, NoteMode.viewing);
-      expect(ctrl.value.note?.id, '01H');
-    });
+        expect(listGets, 1);
+        expect(subscribed, <String>['01H']);
+        expect(ctrl.value.mode, NoteMode.viewing);
+        expect(ctrl.value.note?.id, '01H');
+      },
+    );
 
     test('enterEditMode acquires the lock and switches to editing', () async {
       final mock = MockClient((request) async {
@@ -100,58 +100,61 @@ void main() {
       expect(ctrl.value.editContent, 'world');
     });
 
-    test('enterEditMode re-fetches the note after the lock is acquired',
-        () async {
-      final calls = <String>[];
-      var gets = 0;
-      final mock = MockClient((request) async {
-        calls.add('${request.method} ${request.url.path}');
-        if (request.method == 'GET' && request.url.path == '/notes/01H') {
-          gets += 1;
-          return http.Response(
-            jsonEncode(
-              gets == 1
-                  ? _noteJson(version: 1)
-                  : _noteJson(
-                      version: 2,
-                      title: 'fresh',
-                      content: 'server moved on',
-                      lock: _lockJson(),
-                    ),
-            ),
-            200,
-          );
-        }
-        if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
-          return http.Response(jsonEncode(_lockJson()), 200);
-        }
-        return http.Response('unexpected ${request.url.path}', 500);
-      });
-      final api = RobotNotesClient(config: _config, httpClient: mock);
-      final ctrl = NoteController(
-        api: api,
-        noteId: '01H',
-        actor: 'cedric',
-        scheduler: (_) => Completer<void>().future,
-      );
-      addTearDown(ctrl.dispose);
+    test(
+      'enterEditMode re-fetches the note after the lock is acquired',
+      () async {
+        final calls = <String>[];
+        var gets = 0;
+        final mock = MockClient((request) async {
+          calls.add('${request.method} ${request.url.path}');
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            gets += 1;
+            return http.Response(
+              jsonEncode(
+                gets == 1
+                    ? _noteJson(version: 1)
+                    : _noteJson(
+                        version: 2,
+                        title: 'fresh',
+                        content: 'server moved on',
+                        lock: _lockJson(),
+                      ),
+              ),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          return http.Response('unexpected ${request.url.path}', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
 
-      await ctrl.open();
-      expect(ctrl.value.note?.version, 1);
+        await ctrl.open();
+        expect(ctrl.value.note?.version, 1);
 
-      await ctrl.enterEditMode();
+        await ctrl.enterEditMode();
 
-      expect(calls, <String>[
-        'GET /notes/01H',
-        'POST /notes/01H/lock',
-        'GET /notes/01H',
-      ]);
-      expect(ctrl.value.mode, NoteMode.editing);
-      expect(ctrl.value.note?.version, 2);
-      expect(ctrl.value.lock?.holder, 'cedric');
-      expect(ctrl.value.editTitle, 'fresh');
-      expect(ctrl.value.editContent, 'server moved on');
-    });
+        expect(calls, <String>[
+          'GET /notes/01H',
+          'POST /notes/01H/lock',
+          'GET /notes/01H',
+        ]);
+        expect(ctrl.value.mode, NoteMode.editing);
+        expect(ctrl.value.note?.version, 2);
+        expect(ctrl.value.lock?.holder, 'cedric');
+        expect(ctrl.value.editTitle, 'fresh');
+        expect(ctrl.value.editContent, 'server moved on');
+      },
+    );
 
     test('enterEditMode releases the lock when the re-fetch fails', () async {
       final calls = <String>[];
@@ -195,38 +198,37 @@ void main() {
       expect(ctrl.value.note?.version, 1);
     });
 
-    test('enterEditMode on 423 stays in viewing mode with holder banner',
-        () async {
-      final mock = MockClient((request) async {
-        if (request.method == 'GET' && request.url.path == '/notes/01H') {
-          return http.Response(jsonEncode(_noteJson()), 200);
-        }
-        if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
-          return http.Response(
-            jsonEncode(<String, Object?>{
-              'error': 'locked',
-              'lock': _lockJson(holder: 'alice'),
-            }),
-            423,
-          );
-        }
-        return http.Response('unexpected', 500);
-      });
-      final api = RobotNotesClient(config: _config, httpClient: mock);
-      final ctrl = NoteController(
-        api: api,
-        noteId: '01H',
-        actor: 'cedric',
-      );
-      addTearDown(ctrl.dispose);
+    test(
+      'enterEditMode on 423 stays in viewing mode with holder banner',
+      () async {
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'error': 'locked',
+                'lock': _lockJson(holder: 'alice'),
+              }),
+              423,
+            );
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+        addTearDown(ctrl.dispose);
 
-      await ctrl.open();
-      await ctrl.enterEditMode();
+        await ctrl.open();
+        await ctrl.enterEditMode();
 
-      expect(ctrl.value.mode, NoteMode.viewing);
-      expect(ctrl.value.lock?.holder, 'alice');
-      expect(ctrl.value.error, isA<LockedException>());
-    });
+        expect(ctrl.value.mode, NoteMode.viewing);
+        expect(ctrl.value.lock?.holder, 'alice');
+        expect(ctrl.value.error, isA<LockedException>());
+      },
+    );
 
     test('heartbeat fires at half the lock TTL while editing', () async {
       final scheduledDelays = <Duration>[];
@@ -326,45 +328,48 @@ void main() {
       expect(ctrl.value.note?.content, 'updated');
     });
 
-    test('save 409 puts the controller into conflict mode with server state',
-        () async {
-      final mock = MockClient((request) async {
-        if (request.method == 'GET' && request.url.path == '/notes/01H') {
-          return http.Response(jsonEncode(_noteJson(version: 1)), 200);
-        }
-        if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
-          return http.Response(jsonEncode(_lockJson()), 200);
-        }
-        if (request.method == 'PUT' && request.url.path == '/notes/01H') {
-          return http.Response(
-            jsonEncode(<String, Object?>{
-              'error': 'version_conflict',
-              'current': _noteJson(version: 7, content: 'theirs'),
-            }),
-            409,
-          );
-        }
-        return http.Response('unexpected', 500);
-      });
-      final api = RobotNotesClient(config: _config, httpClient: mock);
-      final ctrl = NoteController(
-        api: api,
-        noteId: '01H',
-        actor: 'cedric',
-        scheduler: (_) => Completer<void>().future,
-      );
-      addTearDown(ctrl.dispose);
+    test(
+      'save 409 puts the controller into conflict mode with server state',
+      () async {
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson(version: 1)), 200);
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'error': 'version_conflict',
+                'current': _noteJson(version: 7, content: 'theirs'),
+              }),
+              409,
+            );
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
 
-      await ctrl.open();
-      await ctrl.enterEditMode();
-      ctrl.setEditContent('mine');
-      await ctrl.save();
+        await ctrl.open();
+        await ctrl.enterEditMode();
+        ctrl.setEditContent('mine');
+        await ctrl.save();
 
-      expect(ctrl.value.mode, NoteMode.conflict);
-      expect(ctrl.value.conflictCurrent?.version, 7);
-      expect(ctrl.value.conflictCurrent?.content, 'theirs');
-      expect(ctrl.value.editContent, 'mine');
-    });
+        expect(ctrl.value.mode, NoteMode.conflict);
+        expect(ctrl.value.conflictCurrent?.version, 7);
+        expect(ctrl.value.conflictCurrent?.content, 'theirs');
+        expect(ctrl.value.editContent, 'mine');
+      },
+    );
 
     test('save 423 mid-edit forces read-only with holder banner', () async {
       final mock = MockClient((request) async {
@@ -466,46 +471,46 @@ void main() {
       expect(ctrl.value.viewers, <String>['cedric', 'alice']);
     });
 
-    test('lock events update lock state without disturbing the editor',
-        () async {
-      final mock = MockClient((request) async {
-        if (request.method == 'GET' && request.url.path == '/notes/01H') {
-          return http.Response(jsonEncode(_noteJson()), 200);
-        }
-        return http.Response('unexpected', 500);
-      });
-      final api = RobotNotesClient(config: _config, httpClient: mock);
-      final events = StreamController<RealtimeEvent>.broadcast();
-      addTearDown(events.close);
-      final ctrl = NoteController(
-        api: api,
-        noteId: '01H',
-        actor: 'cedric',
-        events: events.stream,
-      );
-      addTearDown(ctrl.dispose);
+    test(
+      'lock events update lock state without disturbing the editor',
+      () async {
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final events = StreamController<RealtimeEvent>.broadcast();
+        addTearDown(events.close);
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          events: events.stream,
+        );
+        addTearDown(ctrl.dispose);
 
-      await ctrl.open();
-      events.add(
-        RealtimeMessage(
-          LockEvent(
-            noteId: '01H',
-            holder: 'alice',
-            expiresAt: DateTime.utc(2025, 1, 1, 0, 1),
+        await ctrl.open();
+        events.add(
+          RealtimeMessage(
+            LockEvent(
+              noteId: '01H',
+              holder: 'alice',
+              expiresAt: DateTime.utc(2025, 1, 1, 0, 1),
+            ),
           ),
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      expect(ctrl.value.mode, NoteMode.viewing);
-      expect(ctrl.value.lock?.holder, 'alice');
+        expect(ctrl.value.mode, NoteMode.viewing);
+        expect(ctrl.value.lock?.holder, 'alice');
 
-      // Now an unlock event clears it.
-      events.add(
-        const RealtimeMessage(LockEvent(noteId: '01H')),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(ctrl.value.lock, isNull);
-    });
+        // Now an unlock event clears it.
+        events.add(const RealtimeMessage(LockEvent(noteId: '01H')));
+        await Future<void>.delayed(Duration.zero);
+        expect(ctrl.value.lock, isNull);
+      },
+    );
   });
 }

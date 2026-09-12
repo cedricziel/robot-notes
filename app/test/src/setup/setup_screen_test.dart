@@ -10,8 +10,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
-  testWidgets('renders three inputs (URL, key, actor) and a submit button',
-      (tester) async {
+  testWidgets('renders three inputs (URL, key, actor) and a submit button', (
+    tester,
+  ) async {
     final controller = SetupController(
       store: InMemoryConfigStore(),
       clientFactory: () => MockClient((_) async => http.Response('', 200)),
@@ -29,8 +30,9 @@ void main() {
     expect(find.byKey(const Key('setup.submit')), findsOneWidget);
   });
 
-  testWidgets('successful submit calls onConfigured with normalized config',
-      (tester) async {
+  testWidgets('successful submit calls onConfigured with normalized config', (
+    tester,
+  ) async {
     final store = InMemoryConfigStore();
     final mock = MockClient((request) async {
       if (request.url.path == '/healthz') {
@@ -41,10 +43,7 @@ void main() {
         200,
       );
     });
-    final controller = SetupController(
-      store: store,
-      clientFactory: () => mock,
-    );
+    final controller = SetupController(store: store, clientFactory: () => mock);
 
     AppConfig? configured;
     await tester.pumpWidget(
@@ -60,14 +59,8 @@ void main() {
       find.byKey(const Key('setup.baseUrl')),
       'https://notes.example/',
     );
-    await tester.enterText(
-      find.byKey(const Key('setup.apiKey')),
-      'good-key',
-    );
-    await tester.enterText(
-      find.byKey(const Key('setup.actor')),
-      'cedric',
-    );
+    await tester.enterText(find.byKey(const Key('setup.apiKey')), 'good-key');
+    await tester.enterText(find.byKey(const Key('setup.actor')), 'cedric');
 
     await tester.tap(find.byKey(const Key('setup.submit')));
     await tester.pumpAndSettle();
@@ -77,8 +70,9 @@ void main() {
     expect(configured!.actor, 'cedric');
   });
 
-  testWidgets('401 surfaces an inline error and does not call onConfigured',
-      (tester) async {
+  testWidgets('401 surfaces an inline error and does not call onConfigured', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       if (request.url.path == '/healthz') {
         return http.Response('{"status":"ok"}', 200);
@@ -104,14 +98,8 @@ void main() {
       find.byKey(const Key('setup.baseUrl')),
       'https://notes.example',
     );
-    await tester.enterText(
-      find.byKey(const Key('setup.apiKey')),
-      'wrong',
-    );
-    await tester.enterText(
-      find.byKey(const Key('setup.actor')),
-      'cedric',
-    );
+    await tester.enterText(find.byKey(const Key('setup.apiKey')), 'wrong');
+    await tester.enterText(find.byKey(const Key('setup.actor')), 'cedric');
     await tester.tap(find.byKey(const Key('setup.submit')));
     await tester.pumpAndSettle();
 

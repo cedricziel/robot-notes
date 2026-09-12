@@ -22,16 +22,15 @@ Map<String, Object?> _noteJson({
   String content = 'body',
   int version = 1,
   Map<String, Object?>? lock,
-}) =>
-    <String, Object?>{
-      'id': id,
-      'title': title,
-      'content': content,
-      'version': version,
-      'created_at': _now,
-      'updated_at': _now,
-      if (lock != null) 'lock': lock,
-    };
+}) => <String, Object?>{
+  'id': id,
+  'title': title,
+  'content': content,
+  'version': version,
+  'created_at': _now,
+  'updated_at': _now,
+  'lock': ?lock,
+};
 
 void main() {
   group('RobotNotesClient', () {
@@ -111,8 +110,13 @@ void main() {
     });
 
     test('423 surfaces Locked with holder and expires_at', () async {
-      final expiresAt =
-          DateTime.utc(2025, 1, 1, 0, 5).toUtc().toIso8601String();
+      final expiresAt = DateTime.utc(
+        2025,
+        1,
+        1,
+        0,
+        5,
+      ).toUtc().toIso8601String();
       final mock = MockClient((request) async {
         return http.Response(
           jsonEncode(<String, Object?>{
@@ -138,17 +142,15 @@ void main() {
         fail('expected LockedException');
       } on LockedException catch (e) {
         expect(e.lock.holder, 'alice');
-        expect(
-          e.lock.expiresAt.toUtc().toIso8601String(),
-          expiresAt,
-        );
+        expect(e.lock.expiresAt.toUtc().toIso8601String(), expiresAt);
       }
     });
 
     test('list/read/create/update/delete/lock/search end-to-end', () async {
       final calls = <String>[];
       final mock = MockClient((request) async {
-        final tag = '${request.method} ${request.url.path}'
+        final tag =
+            '${request.method} ${request.url.path}'
             '${request.url.query.isEmpty ? '' : '?${request.url.query}'}';
         calls.add(tag);
 

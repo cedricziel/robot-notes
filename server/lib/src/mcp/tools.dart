@@ -47,8 +47,8 @@ typedef McpToolHandler = Future<Map<String, Object?>> Function(
 );
 
 /// One entry in the fixed `tools/list` catalog: its name, description,
-/// JSON Schema `inputSchema`, whether it requires `notes:write`, and the
-/// handler that implements it.
+/// JSON Schema `inputSchema`, MCP spec `annotations`, whether it requires
+/// `notes:write`, and the handler that implements it.
 @immutable
 class McpTool {
   /// Creates a tool definition.
@@ -56,6 +56,7 @@ class McpTool {
     required this.name,
     required this.description,
     required this.inputSchema,
+    required this.annotations,
     required this.requiresWrite,
     required this.handler,
   });
@@ -69,6 +70,13 @@ class McpTool {
 
   /// JSON Schema (type `object`) describing the accepted `arguments`.
   final Map<String, Object?> inputSchema;
+
+  /// MCP's optional tool-behavior hints (`title`, `readOnlyHint`,
+  /// `destructiveHint`, `idempotentHint`, `openWorldHint`) — advisory only,
+  /// per the spec: a client must not rely on them for enforcement in place
+  /// of the `notes:read`/`notes:write` scope check [McpToolRegistry.call]
+  /// already does.
+  final Map<String, Object?> annotations;
 
   /// Whether this tool requires the `notes:write` scope (as opposed to
   /// `notes:read`).
@@ -154,6 +162,7 @@ class McpToolRegistry {
               'name': tool.name,
               'description': tool.description,
               'inputSchema': tool.inputSchema,
+              'annotations': tool.annotations,
             },
         ],
       };
@@ -230,6 +239,32 @@ class McpToolRegistry {
   }
 }
 
+/// The `annotations` object for a read-only tool: never mutates state, so
+/// repeat calls are always safe to retry.
+Map<String, Object?> _readOnlyAnnotations(String title) => {
+      'title': title,
+      'readOnlyHint': true,
+      'destructiveHint': false,
+      'idempotentHint': true,
+      'openWorldHint': false,
+    };
+
+/// The `annotations` object for a tool that requires `notes:write`.
+/// [destructive] and [idempotent] describe what a repeat call with the same
+/// arguments does — see each tool's own annotations for the specific value.
+Map<String, Object?> _writeAnnotations(
+  String title, {
+  required bool destructive,
+  required bool idempotent,
+}) =>
+    {
+      'title': title,
+      'readOnlyHint': false,
+      'destructiveHint': destructive,
+      'idempotentHint': idempotent,
+      'openWorldHint': false,
+    };
+
 McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
       name: 'list_notes',
       description:
@@ -245,6 +280,7 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
         },
         'required': <String>[],
       },
+      annotations: _readOnlyAnnotations('List notes'),
       requiresWrite: false,
       handler: (args, principal) async {
         final limit = (args['limit'] as int?) ?? kDefaultPageSize;
@@ -278,6 +314,7 @@ McpTool _getNoteTool(Storage storage, LockManager lockManager) => McpTool(
         },
         'required': ['id'],
       },
+      annotations: _readOnlyAnnotations('Get note'),
       requiresWrite: false,
       handler: (args, principal) async {
         final id = _requiredNoteId(args);
@@ -316,6 +353,7 @@ McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
         },
         'required': ['query'],
       },
+      annotations: _readOnlyAnnotations('Search notes'),
       requiresWrite: false,
       handler: (args, principal) async {
         final query = _requiredString(args, 'query').trim();
@@ -361,6 +399,11 @@ McpTool _createNoteTool(NoteWriteService writes) => McpTool(
         },
         'required': ['title'],
       },
+      annotations: _writeAnnotations(
+        'Create note',
+        destructive: false,
+        idempotent: false,
+      ),
       requiresWrite: true,
       handler: (args, principal) async {
         final title = _requiredString(args, 'title');
@@ -402,6 +445,11 @@ McpTool _updateNoteTool(
         },
         'required': ['id', 'version'],
       },
+      annotations: _writeAnnotations(
+        'Update note',
+        destructive: true,
+        idempotent: true,
+      ),
       requiresWrite: true,
       handler: (args, principal) async {
         final id = _requiredNoteId(args);
@@ -464,6 +512,11 @@ McpTool _appendToNoteTool(
         },
         'required': ['id', 'text'],
       },
+      annotations: _writeAnnotations(
+        'Append to note',
+        destructive: false,
+        idempotent: false,
+      ),
       requiresWrite: true,
       handler: (args, principal) async {
         final id = _requiredNoteId(args);
@@ -532,6 +585,11 @@ McpTool _deleteNoteTool(NoteWriteService writes, LockManager lockManager) =>
         },
         'required': ['id'],
       },
+      annotations: _writeAnnotations(
+        'Delete note',
+        destructive: true,
+        idempotent: true,
+      ),
       requiresWrite: true,
       handler: (args, principal) async {
         final id = _requiredNoteId(args);

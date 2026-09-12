@@ -31,16 +31,16 @@ class AppConfig {
   }
 
   Map<String, String> toJson() => {
-        'base_url': baseUrl,
-        'api_key': apiKey,
-        'actor': actor,
-      };
+    'base_url': baseUrl,
+    'api_key': apiKey,
+    'actor': actor,
+  };
 
   factory AppConfig.fromJson(Map<String, String> json) => AppConfig(
-        baseUrl: json['base_url'] ?? '',
-        apiKey: json['api_key'] ?? '',
-        actor: json['actor'] ?? '',
-      );
+    baseUrl: json['base_url'] ?? '',
+    apiKey: json['api_key'] ?? '',
+    actor: json['actor'] ?? '',
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -54,6 +54,7 @@ class AppConfig {
 
   /// Intentionally redacts [apiKey] so no caller can `print(config)` the key.
   @override
-  String toString() => 'AppConfig(baseUrl: $baseUrl, actor: $actor, '
+  String toString() =>
+      'AppConfig(baseUrl: $baseUrl, actor: $actor, '
       'apiKey: <redacted>)';
 }

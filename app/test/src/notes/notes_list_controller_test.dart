@@ -22,29 +22,27 @@ Map<String, Object?> _metaJson({
   required String id,
   String title = 'note',
   int version = 1,
-}) =>
-    <String, Object?>{
-      'id': id,
-      'title': title,
-      'version': version,
-      'created_at': _now,
-      'updated_at': _now,
-    };
+}) => <String, Object?>{
+  'id': id,
+  'title': title,
+  'version': version,
+  'created_at': _now,
+  'updated_at': _now,
+};
 
 Map<String, Object?> _noteJson({
   required String id,
   String title = 'note',
   String content = 'body',
   int version = 1,
-}) =>
-    <String, Object?>{
-      'id': id,
-      'title': title,
-      'content': content,
-      'version': version,
-      'created_at': _now,
-      'updated_at': _now,
-    };
+}) => <String, Object?>{
+  'id': id,
+  'title': title,
+  'content': content,
+  'version': version,
+  'created_at': _now,
+  'updated_at': _now,
+};
 
 void main() {
   group('NotesListController', () {
@@ -160,57 +158,59 @@ void main() {
       expect(calls, 1);
     });
 
-    test('changed{updated} replaces entry in place without manual refresh',
-        () async {
-      var listCalls = 0;
-      final mock = MockClient((request) async {
-        if (request.url.path == '/notes' && request.method == 'GET') {
-          listCalls += 1;
-          return http.Response(
-            jsonEncode(<String, Object?>{
-              'items': <Object?>[_metaJson(id: '01H', version: 1)],
-              'limit': 50,
-              'next_cursor': null,
-            }),
-            200,
-          );
-        }
-        if (request.url.path == '/notes/01H' && request.method == 'GET') {
-          return http.Response(
-            jsonEncode(_noteJson(id: '01H', title: 'edited', version: 7)),
-            200,
-          );
-        }
-        return http.Response('unexpected: ${request.url.path}', 500);
-      });
-      final api = RobotNotesClient(config: _config, httpClient: mock);
-      final events = StreamController<RealtimeEvent>.broadcast();
-      addTearDown(events.close);
-      final ctrl = NotesListController(api: api, events: events.stream);
-      addTearDown(ctrl.dispose);
+    test(
+      'changed{updated} replaces entry in place without manual refresh',
+      () async {
+        var listCalls = 0;
+        final mock = MockClient((request) async {
+          if (request.url.path == '/notes' && request.method == 'GET') {
+            listCalls += 1;
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'items': <Object?>[_metaJson(id: '01H', version: 1)],
+                'limit': 50,
+                'next_cursor': null,
+              }),
+              200,
+            );
+          }
+          if (request.url.path == '/notes/01H' && request.method == 'GET') {
+            return http.Response(
+              jsonEncode(_noteJson(id: '01H', title: 'edited', version: 7)),
+              200,
+            );
+          }
+          return http.Response('unexpected: ${request.url.path}', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final events = StreamController<RealtimeEvent>.broadcast();
+        addTearDown(events.close);
+        final ctrl = NotesListController(api: api, events: events.stream);
+        addTearDown(ctrl.dispose);
 
-      await ctrl.refresh();
-      expect(ctrl.value.items.single.version, 1);
+        await ctrl.refresh();
+        expect(ctrl.value.items.single.version, 1);
 
-      events.add(
-        const RealtimeMessage(
-          ChangedEvent(
-            noteId: '01H',
-            version: 7,
-            by: 'alice',
-            action: ChangeAction.updated,
+        events.add(
+          const RealtimeMessage(
+            ChangedEvent(
+              noteId: '01H',
+              version: 7,
+              by: 'alice',
+              action: ChangeAction.updated,
+            ),
           ),
-        ),
-      );
-      // Let the stream subscription + the controller's getNote complete.
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+        );
+        // Let the stream subscription + the controller's getNote complete.
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
 
-      expect(listCalls, 1, reason: 'no manual list refresh should have run');
-      expect(ctrl.value.items, hasLength(1));
-      expect(ctrl.value.items.single.version, 7);
-      expect(ctrl.value.items.single.title, 'edited');
-    });
+        expect(listCalls, 1, reason: 'no manual list refresh should have run');
+        expect(ctrl.value.items, hasLength(1));
+        expect(ctrl.value.items.single.version, 7);
+        expect(ctrl.value.items.single.title, 'edited');
+      },
+    );
 
     test('changed{created} prepends the new entry', () async {
       final mock = MockClient((request) async {
@@ -260,10 +260,7 @@ void main() {
         if (request.url.path == '/notes' && request.method == 'GET') {
           return http.Response(
             jsonEncode(<String, Object?>{
-              'items': <Object?>[
-                _metaJson(id: '01H'),
-                _metaJson(id: '02H'),
-              ],
+              'items': <Object?>[_metaJson(id: '01H'), _metaJson(id: '02H')],
               'limit': 50,
               'next_cursor': null,
             }),

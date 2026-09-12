@@ -65,9 +65,9 @@ class NotesListController extends ValueNotifier<NotesListState> {
     required RobotNotesClient api,
     Stream<RealtimeEvent>? events,
     int pageSize = 50,
-  })  : _api = api,
-        _pageSize = pageSize,
-        super(NotesListState.empty) {
+  }) : _api = api,
+       _pageSize = pageSize,
+       super(NotesListState.empty) {
     if (events != null) {
       _sub = events.listen(_onEvent);
     }
@@ -103,8 +103,10 @@ class NotesListController extends ValueNotifier<NotesListState> {
     if (value.isLoadingMore || !value.hasMore) return;
     value = value.copyWith(isLoadingMore: true, error: null);
     try {
-      final page =
-          await _api.listNotes(after: value.nextCursor, limit: _pageSize);
+      final page = await _api.listNotes(
+        after: value.nextCursor,
+        limit: _pageSize,
+      );
       if (_disposed) return;
       value = value.copyWith(
         items: <NoteMeta>[...value.items, ...page.items],

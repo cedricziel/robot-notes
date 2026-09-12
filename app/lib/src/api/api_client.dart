@@ -35,11 +35,11 @@ class SearchHit {
   final double rank;
 
   factory SearchHit.fromJson(Map<String, dynamic> json) => SearchHit(
-        id: json['id'] as String,
-        title: json['title'] as String,
-        snippet: json['snippet'] as String,
-        rank: (json['rank'] as num).toDouble(),
-      );
+    id: json['id'] as String,
+    title: json['title'] as String,
+    snippet: json['snippet'] as String,
+    rank: (json['rank'] as num).toDouble(),
+  );
 }
 
 /// HTTP client for the robot-notes v1 API.
@@ -53,11 +53,9 @@ class SearchHit {
 /// [http.Client] is injectable so tests can drive a [MockClient] without
 /// hitting the network.
 class RobotNotesClient {
-  RobotNotesClient({
-    required AppConfig config,
-    http.Client? httpClient,
-  })  : _config = config.normalized(),
-        _http = httpClient ?? http.Client();
+  RobotNotesClient({required AppConfig config, http.Client? httpClient})
+    : _config = config.normalized(),
+      _http = httpClient ?? http.Client();
 
   final AppConfig _config;
   final http.Client _http;
@@ -66,24 +64,21 @@ class RobotNotesClient {
   void close() => _http.close();
 
   Map<String, String> get _baseHeaders => <String, String>{
-        'Authorization': 'Bearer ${_config.apiKey}',
-        'X-Actor': _config.actor,
-      };
+    'Authorization': 'Bearer ${_config.apiKey}',
+    'X-Actor': _config.actor,
+  };
 
   Uri _uri(String path, [Map<String, String>? query]) {
     final base = Uri.parse('${_config.baseUrl}$path');
     if (query == null || query.isEmpty) return base;
     return base.replace(
-      queryParameters: <String, String>{
-        ...base.queryParameters,
-        ...query,
-      },
+      queryParameters: <String, String>{...base.queryParameters, ...query},
     );
   }
 
   Future<NotePage> listNotes({String? after, int? limit}) async {
     final query = <String, String>{
-      if (after != null) 'after': after,
+      'after': ?after,
       if (limit != null) 'limit': '$limit',
     };
     final res = await _http.get(_uri('/notes', query), headers: _baseHeaders);
@@ -148,10 +143,7 @@ class RobotNotesClient {
   }
 
   Future<Lock> heartbeatLock(String id) async {
-    final res = await _http.put(
-      _uri('/notes/$id/lock'),
-      headers: _baseHeaders,
-    );
+    final res = await _http.put(_uri('/notes/$id/lock'), headers: _baseHeaders);
     return Lock.fromJson(_ok(res));
   }
 
@@ -234,20 +226,14 @@ class RobotNotesClient {
       case 423:
         final lock = body?['lock'];
         if (lock is Map<String, dynamic>) {
-          return LockedException(
-            lock: Lock.fromJson(lock),
-            message: message,
-          );
+          return LockedException(lock: Lock.fromJson(lock), message: message);
         }
         return ApiServerException(
           statusCode: 423,
           message: message ?? 'locked body missing "lock"',
         );
       default:
-        return ApiServerException(
-          statusCode: res.statusCode,
-          message: message,
-        );
+        return ApiServerException(statusCode: res.statusCode, message: message);
     }
   }
 }

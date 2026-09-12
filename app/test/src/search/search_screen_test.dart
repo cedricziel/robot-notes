@@ -17,32 +17,30 @@ const _config = AppConfig(
 );
 
 http.Response _hits(List<String> ids) => http.Response(
-      jsonEncode(<String, Object?>{
-        'items': <Object?>[
-          for (final id in ids)
-            <String, Object?>{
-              'id': id,
-              'title': 'doc $id',
-              'snippet': 'hi',
-              'rank': -1.0,
-            },
-        ],
-        'limit': 50,
-      }),
-      200,
-    );
+  jsonEncode(<String, Object?>{
+    'items': <Object?>[
+      for (final id in ids)
+        <String, Object?>{
+          'id': id,
+          'title': 'doc $id',
+          'snippet': 'hi',
+          'rank': -1.0,
+        },
+    ],
+    'limit': 50,
+  }),
+  200,
+);
 
 http.Response _badRequest(String message) => http.Response(
-      jsonEncode(<String, Object?>{
-        'error': 'bad_request',
-        'message': message,
-      }),
-      400,
-    );
+  jsonEncode(<String, Object?>{'error': 'bad_request', 'message': message}),
+  400,
+);
 
 void main() {
-  testWidgets('typing produces results and tapping invokes onResultTap',
-      (tester) async {
+  testWidgets('typing produces results and tapping invokes onResultTap', (
+    tester,
+  ) async {
     String? capturedPath;
     String? capturedQ;
     final mock = MockClient((request) async {
@@ -74,10 +72,7 @@ void main() {
     String? tapped;
     await tester.pumpWidget(
       MaterialApp(
-        home: SearchScreen(
-          controller: ctrl,
-          onResultTap: (id) => tapped = id,
-        ),
+        home: SearchScreen(controller: ctrl, onResultTap: (id) => tapped = id),
       ),
     );
     await tester.pump();
@@ -100,8 +95,9 @@ void main() {
     expect(tapped, '01H');
   });
 
-  testWidgets('emptying the field returns the prompt and issues no request',
-      (tester) async {
+  testWidgets('emptying the field returns the prompt and issues no request', (
+    tester,
+  ) async {
     var calls = 0;
     final mock = MockClient((request) async {
       calls += 1;
@@ -124,9 +120,7 @@ void main() {
     final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
     addTearDown(ctrl.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(home: SearchScreen(controller: ctrl)),
-    );
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
     await tester.pump();
 
     await tester.enterText(find.byKey(const Key('search.input')), 'hello');
@@ -141,16 +135,15 @@ void main() {
     expect(find.text('Type to search.'), findsOneWidget);
   });
 
-  testWidgets('an API error with no results shows the message centred',
-      (tester) async {
+  testWidgets('an API error with no results shows the message centred', (
+    tester,
+  ) async {
     final mock = MockClient((request) async => _badRequest('unbalanced "'));
     final api = RobotNotesClient(config: _config, httpClient: mock);
     final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
     addTearDown(ctrl.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(home: SearchScreen(controller: ctrl)),
-    );
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
     await tester.pump();
 
     await tester.enterText(find.byKey(const Key('search.input')), 'zfs "');
@@ -162,8 +155,9 @@ void main() {
     expect(find.text('No matches.'), findsNothing);
   });
 
-  testWidgets('an API error over stale results shows a strip above them',
-      (tester) async {
+  testWidgets('an API error over stale results shows a strip above them', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       final q = request.url.queryParameters['q'];
       return q == 'zfs' ? _hits(<String>['01H']) : _badRequest('bad query');
@@ -172,9 +166,7 @@ void main() {
     final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
     addTearDown(ctrl.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(home: SearchScreen(controller: ctrl)),
-    );
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
     await tester.pump();
 
     await tester.enterText(find.byKey(const Key('search.input')), 'zfs');
@@ -192,8 +184,9 @@ void main() {
     expect(find.byKey(const Key('search.hit.01H')), findsOneWidget);
   });
 
-  testWidgets('a new query over old results shows a progress bar',
-      (tester) async {
+  testWidgets('a new query over old results shows a progress bar', (
+    tester,
+  ) async {
     final second = Completer<http.Response>();
     var calls = 0;
     final mock = MockClient((request) async {
@@ -204,9 +197,7 @@ void main() {
     final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
     addTearDown(ctrl.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(home: SearchScreen(controller: ctrl)),
-    );
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
     await tester.pump();
 
     await tester.enterText(find.byKey(const Key('search.input')), 'zfs');
@@ -228,8 +219,9 @@ void main() {
     expect(find.byKey(const Key('search.hit.02H')), findsOneWidget);
   });
 
-  testWidgets('parseSnippet emits bold spans for <mark>…</mark>',
-      (tester) async {
+  testWidgets('parseSnippet emits bold spans for <mark>…</mark>', (
+    tester,
+  ) async {
     late List<InlineSpan> spans;
     await tester.pumpWidget(
       MaterialApp(

@@ -12,11 +12,7 @@ import 'search_controller.dart';
 /// request shows the server's message; earlier results stay on screen
 /// beneath it until the next query replaces them.
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({
-    required this.controller,
-    this.onResultTap,
-    super.key,
-  });
+  const SearchScreen({required this.controller, this.onResultTap, super.key});
 
   final NotesSearchController controller;
   final ValueChanged<String>? onResultTap;
@@ -53,9 +49,7 @@ class _SearchScreenState extends State<SearchScreen> {
         valueListenable: widget.controller,
         builder: (context, state, _) {
           if (state.query.trim().isEmpty) {
-            return const Center(
-              child: Text('Type to search.'),
-            );
+            return const Center(child: Text('Type to search.'));
           }
           final error = state.error;
           if (state.hits.isEmpty) {
@@ -88,7 +82,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: ListView.separated(
                   key: const Key('search.results'),
                   itemCount: state.hits.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final hit = state.hits[index];
                     return _HitTile(

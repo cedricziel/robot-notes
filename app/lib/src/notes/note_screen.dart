@@ -10,11 +10,7 @@ import 'note_controller.dart';
 ///
 /// Locking is handled by the controller; this widget just dispatches.
 class NoteScreen extends StatefulWidget {
-  const NoteScreen({
-    required this.controller,
-    this.onClose,
-    super.key,
-  });
+  const NoteScreen({required this.controller, this.onClose, super.key});
 
   final NoteController controller;
   final VoidCallback? onClose;
@@ -144,10 +140,7 @@ class _NoteScreenState extends State<NoteScreen> {
     }
 
     if (state.mode == NoteMode.conflict) {
-      return _ConflictView(
-        controller: widget.controller,
-        state: state,
-      );
+      return _ConflictView(controller: widget.controller, state: state);
     }
 
     return Column(
@@ -177,10 +170,7 @@ class _ReadOnlyView extends StatelessWidget {
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-      child: SelectableText(
-        content,
-        key: const Key('note.body'),
-      ),
+      child: SelectableText(content, key: const Key('note.body')),
     );
   }
 }
@@ -317,9 +307,7 @@ class _DiffPane extends StatelessWidget {
           children: [
             Text(label, style: Theme.of(context).textTheme.labelSmall),
             const SizedBox(height: 8),
-            Expanded(
-              child: SingleChildScrollView(child: SelectableText(body)),
-            ),
+            Expanded(child: SingleChildScrollView(child: SelectableText(body))),
           ],
         ),
       ),

@@ -68,10 +68,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Notes'),
-        actions: widget.appBarActions,
-      ),
+      appBar: AppBar(title: const Text('Notes'), actions: widget.appBarActions),
       floatingActionButton: widget.onCreate == null
           ? null
           : FloatingActionButton(
@@ -106,7 +103,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     itemCount:
                         state.items.length + (state.isLoadingMore ? 1 : 0),
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       if (index >= state.items.length) {
                         return const Padding(

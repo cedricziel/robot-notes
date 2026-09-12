@@ -18,13 +18,13 @@ const _config = AppConfig(
 const _now = '2025-01-01T00:00:00.000Z';
 
 Map<String, Object?> _noteJson() => <String, Object?>{
-      'id': '01H',
-      'title': 'hello',
-      'content': 'world',
-      'version': 1,
-      'created_at': _now,
-      'updated_at': _now,
-    };
+  'id': '01H',
+  'title': 'hello',
+  'content': 'world',
+  'version': 1,
+  'created_at': _now,
+  'updated_at': _now,
+};
 
 void main() {
   testWidgets('the close button pops the note route', (tester) async {

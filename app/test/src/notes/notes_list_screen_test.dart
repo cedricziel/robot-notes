@@ -21,23 +21,22 @@ Map<String, Object?> _metaJson({
   required String id,
   String title = 'note',
   int version = 1,
-}) =>
-    <String, Object?>{
-      'id': id,
-      'title': title,
-      'version': version,
-      'created_at': _now,
-      'updated_at': _now,
-    };
+}) => <String, Object?>{
+  'id': id,
+  'title': title,
+  'version': version,
+  'created_at': _now,
+  'updated_at': _now,
+};
 
 http.Response _page(List<Object?> items) => http.Response(
-      jsonEncode(<String, Object?>{
-        'items': items,
-        'limit': 50,
-        'next_cursor': null,
-      }),
-      200,
-    );
+  jsonEncode(<String, Object?>{
+    'items': items,
+    'limit': 50,
+    'next_cursor': null,
+  }),
+  200,
+);
 
 void main() {
   testWidgets('initial render fetches the first page', (tester) async {
@@ -64,8 +63,9 @@ void main() {
     expect(find.text('world'), findsOneWidget);
   });
 
-  testWidgets('tapping a note tile invokes onNoteTap with the id',
-      (tester) async {
+  testWidgets('tapping a note tile invokes onNoteTap with the id', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       return _page(<Object?>[_metaJson(id: '01H', title: 'tap me')]);
     });
@@ -76,10 +76,7 @@ void main() {
     String? tapped;
     await tester.pumpWidget(
       MaterialApp(
-        home: NotesListScreen(
-          controller: ctrl,
-          onNoteTap: (id) => tapped = id,
-        ),
+        home: NotesListScreen(controller: ctrl, onNoteTap: (id) => tapped = id),
       ),
     );
     await tester.pumpAndSettle();
@@ -94,9 +91,7 @@ void main() {
     var calls = 0;
     final mock = MockClient((request) async {
       calls += 1;
-      return _page(<Object?>[
-        _metaJson(id: '01H', title: 'after-$calls'),
-      ]);
+      return _page(<Object?>[_metaJson(id: '01H', title: 'after-$calls')]);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
     final ctrl = NotesListController(api: api);
@@ -118,8 +113,9 @@ void main() {
     expect(find.text('after-2'), findsOneWidget);
   });
 
-  testWidgets('a refresh action in the AppBar re-fetches the first page',
-      (tester) async {
+  testWidgets('a refresh action in the AppBar re-fetches the first page', (
+    tester,
+  ) async {
     var calls = 0;
     final mock = MockClient((request) async {
       calls += 1;
@@ -154,8 +150,9 @@ void main() {
     expect(find.text('after-2'), findsOneWidget);
   });
 
-  testWidgets('a failed refresh shows a banner and keeps loaded items',
-      (tester) async {
+  testWidgets('a failed refresh shows a banner and keeps loaded items', (
+    tester,
+  ) async {
     var calls = 0;
     final mock = MockClient((request) async {
       calls += 1;
@@ -185,8 +182,9 @@ void main() {
     expect(find.text('still here'), findsOneWidget);
   });
 
-  testWidgets('the error banner retry re-fetches and clears the banner',
-      (tester) async {
+  testWidgets('the error banner retry re-fetches and clears the banner', (
+    tester,
+  ) async {
     var calls = 0;
     final mock = MockClient((request) async {
       calls += 1;

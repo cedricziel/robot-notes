@@ -134,8 +134,10 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       // First connection: auth + 2 subscribes.
-      final firstFrames =
-          conns[0].sent.map(jsonDecode).cast<Map<String, dynamic>>().toList();
+      final firstFrames = conns[0].sent
+          .map(jsonDecode)
+          .cast<Map<String, dynamic>>()
+          .toList();
       expect(firstFrames[0]['type'], 'auth');
       expect(firstFrames[1]['type'], 'subscribe');
       expect(firstFrames[2]['type'], 'subscribe');
@@ -146,8 +148,10 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(conns.length, greaterThanOrEqualTo(2));
-      final secondFrames =
-          conns[1].sent.map(jsonDecode).cast<Map<String, dynamic>>().toList();
+      final secondFrames = conns[1].sent
+          .map(jsonDecode)
+          .cast<Map<String, dynamic>>()
+          .toList();
       expect(secondFrames.first['type'], 'auth');
       final resubs = secondFrames
           .where((m) => m['type'] == 'subscribe')
@@ -220,49 +224,51 @@ void main() {
       expect(printed.first, contains('no dart:io here'));
     });
 
-    test('emits WsStale when offline duration exceeds staleThreshold',
-        () async {
-      // First connection succeeds; all subsequent attempts throw so the
-      // client stays "offline" indefinitely. With a fake clock we step the
-      // wall-clock past the stale threshold and assert the signal fires.
-      var now = DateTime.utc(2025, 1, 1, 0, 0, 0);
-      var attempts = 0;
-      late FakeConnection initial;
-      final client = RobotNotesWsClient(
-        config: _config,
-        connect: (uri) async {
-          attempts += 1;
-          if (attempts == 1) {
-            initial = FakeConnection();
-            return initial;
-          }
-          // Advance the clock 6s on each retry so the loop crosses 5s.
-          now = now.add(const Duration(seconds: 6));
-          throw StateError('still offline');
-        },
-        delay: (d) => Future<void>.delayed(Duration.zero),
-        clock: () => now,
-        staleThreshold: const Duration(seconds: 5),
-      );
+    test(
+      'emits WsStale when offline duration exceeds staleThreshold',
+      () async {
+        // First connection succeeds; all subsequent attempts throw so the
+        // client stays "offline" indefinitely. With a fake clock we step the
+        // wall-clock past the stale threshold and assert the signal fires.
+        var now = DateTime.utc(2025, 1, 1, 0, 0, 0);
+        var attempts = 0;
+        late FakeConnection initial;
+        final client = RobotNotesWsClient(
+          config: _config,
+          connect: (uri) async {
+            attempts += 1;
+            if (attempts == 1) {
+              initial = FakeConnection();
+              return initial;
+            }
+            // Advance the clock 6s on each retry so the loop crosses 5s.
+            now = now.add(const Duration(seconds: 6));
+            throw StateError('still offline');
+          },
+          delay: (d) => Future<void>.delayed(Duration.zero),
+          clock: () => now,
+          staleThreshold: const Duration(seconds: 5),
+        );
 
-      final stale = <RealtimeEvent>[];
-      final sub = client.events.where((e) => e is WsStale).listen(stale.add);
+        final stale = <RealtimeEvent>[];
+        final sub = client.events.where((e) => e is WsStale).listen(stale.add);
 
-      await client.start();
-      await Future<void>.delayed(Duration.zero);
-      // Drop the live connection so the loop starts retrying.
-      initial.closeRemote();
-
-      // Pump the loop a few times; reconnect attempts will keep failing.
-      for (var i = 0; i < 5; i++) {
+        await client.start();
         await Future<void>.delayed(Duration.zero);
-      }
+        // Drop the live connection so the loop starts retrying.
+        initial.closeRemote();
 
-      expect(stale, isNotEmpty);
-      expect(stale.first, isA<WsStale>());
+        // Pump the loop a few times; reconnect attempts will keep failing.
+        for (var i = 0; i < 5; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
 
-      await sub.cancel();
-      await client.dispose();
-    });
+        expect(stale, isNotEmpty);
+        expect(stale.first, isA<WsStale>());
+
+        await sub.cancel();
+        await client.dispose();
+      },
+    );
   });
 }

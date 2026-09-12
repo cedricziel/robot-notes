@@ -15,12 +15,9 @@ const _config = AppConfig(
 );
 
 http.Response _hitsBody(List<Map<String, Object?>> hits) => http.Response(
-      jsonEncode(<String, Object?>{
-        'items': hits,
-        'limit': 50,
-      }),
-      200,
-    );
+  jsonEncode(<String, Object?>{'items': hits, 'limit': 50}),
+  200,
+);
 
 void main() {
   group('NotesSearchController', () {
@@ -73,42 +70,41 @@ void main() {
       expect(ctrl.value.hits.first.title, 'hello');
     });
 
-    test('emptying the query clears results without issuing a request',
-        () async {
-      var calls = 0;
-      final mock = MockClient((request) async {
-        calls += 1;
-        return _hitsBody(<Map<String, Object?>>[
-          <String, Object?>{
-            'id': '01H',
-            'title': 'hello',
-            'snippet': 'hi',
-            'rank': -1.0,
-          },
-        ]);
-      });
-      final api = RobotNotesClient(config: _config, httpClient: mock);
-      final ctrl = NotesSearchController(
-        api: api,
-        scheduler: (_) async {},
-      );
-      addTearDown(ctrl.dispose);
+    test(
+      'emptying the query clears results without issuing a request',
+      () async {
+        var calls = 0;
+        final mock = MockClient((request) async {
+          calls += 1;
+          return _hitsBody(<Map<String, Object?>>[
+            <String, Object?>{
+              'id': '01H',
+              'title': 'hello',
+              'snippet': 'hi',
+              'rank': -1.0,
+            },
+          ]);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+        addTearDown(ctrl.dispose);
 
-      ctrl.setQuery('hello');
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
-      expect(calls, 1);
-      expect(ctrl.value.hits, hasLength(1));
+        ctrl.setQuery('hello');
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(calls, 1);
+        expect(ctrl.value.hits, hasLength(1));
 
-      ctrl.setQuery('');
-      // No further requests should fire.
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+        ctrl.setQuery('');
+        // No further requests should fire.
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
 
-      expect(calls, 1);
-      expect(ctrl.value.hits, isEmpty);
-      expect(ctrl.value.query, '');
-    });
+        expect(calls, 1);
+        expect(ctrl.value.hits, isEmpty);
+        expect(ctrl.value.query, '');
+      },
+    );
 
     test('debounce respects the configured window', () async {
       final delays = <Duration>[];

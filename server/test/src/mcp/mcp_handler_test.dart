@@ -108,6 +108,14 @@ void main() {
       final updateSchema =
           byName['update_note']!['inputSchema']! as Map<String, Object?>;
       expect(updateSchema['required'], ['id', 'version']);
+
+      final deleteAnnotations =
+          byName['delete_note']!['annotations']! as Map<String, Object?>;
+      expect(deleteAnnotations['destructiveHint'], isTrue);
+
+      final listAnnotations =
+          byName['list_notes']!['annotations']! as Map<String, Object?>;
+      expect(listAnnotations['readOnlyHint'], isTrue);
     });
   });
 
@@ -165,6 +173,7 @@ void main() {
                 'properties': <String, Object?>{},
                 'required': <String>[],
               },
+              annotations: const {'title': 'Boom'},
               requiresWrite: false,
               handler: (args, principal) async {
                 throw StateError('/secret/data/path leaked');
