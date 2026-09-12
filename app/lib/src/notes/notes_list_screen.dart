@@ -69,6 +69,33 @@ class _NotesListScreenState extends State<NotesListScreen> {
     }
   }
 
+  Future<void> _confirmDelete(String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete this note?'),
+        content: const Text("This can't be undone."),
+        actions: [
+          TextButton(
+            key: const Key('notes.delete.cancel'),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('notes.delete.confirm'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final deleted = await widget.controller.delete(id);
+    if (!mounted || !deleted) return;
+    messenger.showSnackBar(const SnackBar(content: Text('Note deleted')));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -128,6 +155,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
                               onTap: widget.onNoteTap == null
                                   ? null
                                   : () => widget.onNoteTap!(note.id),
+                              onDelete: () => _confirmDelete(note.id),
                             );
                           },
                         ),
@@ -145,20 +173,39 @@ class _NotesListScreenState extends State<NotesListScreen> {
 }
 
 class _NoteTile extends StatelessWidget {
-  const _NoteTile({required this.note, this.onTap});
+  const _NoteTile({required this.note, this.onTap, required this.onDelete});
 
   final NoteMeta note;
   final VoidCallback? onTap;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
+    final tile = ListTile(
       key: Key('notes.tile.${note.id}'),
       title: Text(note.title.isEmpty ? '(untitled)' : note.title),
       subtitle: Text(
         'v${note.version} · ${formatNoteTimestamp(note.updatedAt)}',
       ),
       onTap: onTap,
+    );
+    return MenuAnchor(
+      key: Key('notes.tile.${note.id}.menu'),
+      menuChildren: [
+        MenuItemButton(
+          key: Key('notes.tile.${note.id}.delete'),
+          onPressed: onDelete,
+          child: const Text('Delete note'),
+        ),
+      ],
+      builder: (context, controller, child) {
+        return GestureDetector(
+          onLongPress: controller.open,
+          onSecondaryTap: controller.open,
+          child: child,
+        );
+      },
+      child: tile,
     );
   }
 }

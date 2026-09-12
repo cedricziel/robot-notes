@@ -118,6 +118,34 @@ The app SHALL provide a list view that pages through `GET /notes`, showing each 
 - **WHEN** a note is deleted elsewhere and the WS broadcasts the `changed` event
 - **THEN** the entry for that note SHALL be removed from the list
 
+### Requirement: Notes list can delete a note after confirmation
+
+The list view SHALL offer a "Delete note" action on each entry, opened via long-press or (on desktop/web) right-click. Choosing it SHALL ask the user to confirm before anything is sent. On confirmation the app SHALL `DELETE /notes/{id}`, remove the entry from the list, and show a brief "Note deleted" confirmation. A 404 from the server SHALL be treated as success, since the note is gone either way. Any other error SHALL keep the entry in the list and surface the failure.
+
+#### Scenario: Delete with confirmation
+
+- **GIVEN** the notes list is open
+- **WHEN** the user long-presses (or right-clicks) an entry, chooses "Delete note", and confirms
+- **THEN** the app SHALL `DELETE /notes/{id}`, remove the entry from the list, and show "Note deleted"
+
+#### Scenario: Cancel keeps the note
+
+- **GIVEN** the delete confirmation is showing for an entry
+- **WHEN** the user cancels
+- **THEN** no request SHALL be sent and the entry SHALL remain in the list
+
+#### Scenario: Delete of an already-removed note still clears it from the list
+
+- **GIVEN** the delete confirmation is showing for an entry
+- **WHEN** the server responds `404` to the `DELETE` request
+- **THEN** the app SHALL treat the note as deleted and remove the entry from the list
+
+#### Scenario: Failed delete keeps the entry
+
+- **GIVEN** the delete confirmation is showing for an entry
+- **WHEN** the server responds with an error other than `404`
+- **THEN** the entry SHALL remain in the list and the app SHALL surface the failure
+
 ### Requirement: Note view supports edit, lock, and concurrency UX
 
 When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS events, and acquire the editor lock before allowing edits. While editing, the app SHALL heartbeat the lock periodically. On save the app SHALL `PUT /notes/{id}` with the version it last loaded. The app SHALL handle 409 by presenting a conflict view with the server's title and content beside the user's own, editable, title and content; the view SHALL mark the title when the two differ and SHALL mark the content lines each side has that the other does not. The user SHALL be able to take the server's version, or edit their own version in place and save it against the server's current version. The app SHALL handle 423 by switching to read-only mode and surfacing the lock holder.

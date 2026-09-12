@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
+import '../api/api_exceptions.dart';
 import '../realtime/ws_client.dart';
 
 /// Snapshot of the list view's state. Renders directly via [ValueListenable].
@@ -174,5 +175,25 @@ class NotesListController extends ValueNotifier<NotesListState> {
     _disposed = true;
     _sub?.cancel();
     super.dispose();
+  }
+
+  /// Sends `DELETE /notes/{id}` and removes the item from the list on
+  /// success, returning `true`. A 404 counts as success: the note is gone
+  /// either way. Any other error leaves the item in place, surfaces via
+  /// [NotesListState.error], and returns `false`.
+  Future<bool> delete(String id) async {
+    if (_disposed) return false;
+    try {
+      await _api.deleteNote(id);
+    } on NotFoundException {
+      // Already gone; fall through to removing it locally.
+    } on ApiException catch (e) {
+      if (_disposed) return false;
+      value = value.copyWith(error: e);
+      return false;
+    }
+    if (_disposed) return false;
+    _removeById(id);
+    return true;
   }
 }
