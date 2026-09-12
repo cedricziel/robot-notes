@@ -18,3 +18,4 @@ dev_dependencies:
 dart_pre_commit:
   format: null
   analyze: null
+  outdated: false
