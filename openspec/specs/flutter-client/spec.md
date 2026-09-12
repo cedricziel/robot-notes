@@ -84,6 +84,18 @@ When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS
 - **WHEN** the user enters edit mode on a note
 - **THEN** the app SHALL `POST /notes/{id}/lock` and proceed only on 200
 
+#### Scenario: Entering edit mode uses the note as it exists after the lock is acquired
+
+- **GIVEN** the note was loaded at version 1 and another actor has since updated it to version 2
+- **WHEN** the user enters edit mode and the lock is acquired
+- **THEN** the app SHALL `GET /notes/{id}` again and seed the edit buffers and `If-Match` baseline from version 2
+
+#### Scenario: Failed re-fetch after acquiring the lock releases it
+
+- **GIVEN** the lock was acquired
+- **WHEN** the follow-up `GET /notes/{id}` fails
+- **THEN** the app SHALL `DELETE /notes/{id}/lock`, stay in read-only mode, and surface the error
+
 #### Scenario: Heartbeat extends the lock during editing
 
 - **GIVEN** the user is in edit mode

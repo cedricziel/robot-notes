@@ -174,26 +174,17 @@ class NoteController extends ValueNotifier<NoteState> {
     }
   }
 
-  /// Asks the server for the editor lock. On success transitions to
-  /// [NoteMode.editing] and schedules the heartbeat loop. On 423 surfaces
-  /// the holder via [NoteState.lock] but stays read-only.
+  /// Asks the server for the editor lock. On success re-fetches the note so
+  /// the edit buffers start from the state as it exists under the lock, then
+  /// transitions to [NoteMode.editing] and schedules the heartbeat loop. On
+  /// 423 surfaces the holder via [NoteState.lock] but stays read-only.
   Future<void> enterEditMode() async {
     if (_disposed) return;
     if (value.mode != NoteMode.viewing) return;
-    final note = value.note;
-    if (note == null) return;
     value = value.copyWith(mode: NoteMode.acquiringLock, error: null);
+    final Lock acquired;
     try {
-      final lock = await _api.acquireLock(_noteId);
-      if (_disposed) return;
-      value = value.copyWith(
-        mode: NoteMode.editing,
-        lock: lock,
-        editTitle: note.title,
-        editContent: note.content,
-        lockedByOtherBanner: null,
-      );
-      _scheduleHeartbeat(lock);
+      acquired = await _api.acquireLock(_noteId);
     } on LockedException catch (e) {
       if (_disposed) return;
       value = value.copyWith(
@@ -201,10 +192,34 @@ class NoteController extends ValueNotifier<NoteState> {
         lock: e.lock,
         error: e,
       );
+      return;
     } on ApiException catch (e) {
       if (_disposed) return;
       value = value.copyWith(mode: NoteMode.viewing, error: e);
+      return;
     }
+    if (_disposed) return;
+    // The lock serialises writers, so the copy loaded when the screen opened
+    // may be stale by now; editing from it would turn every save into a 409.
+    final Note note;
+    try {
+      note = await _api.getNote(_noteId);
+    } on ApiException catch (e) {
+      await _releaseLockBestEffort();
+      if (_disposed) return;
+      value = value.copyWith(mode: NoteMode.viewing, lock: null, error: e);
+      return;
+    }
+    if (_disposed) return;
+    value = value.copyWith(
+      mode: NoteMode.editing,
+      note: note,
+      lock: acquired,
+      editTitle: note.title,
+      editContent: note.content,
+      lockedByOtherBanner: null,
+    );
+    _scheduleHeartbeat(acquired);
   }
 
   void setEditTitle(String title) {
@@ -315,11 +330,7 @@ class NoteController extends ValueNotifier<NoteState> {
       return;
     }
     _stopHeartbeat();
-    try {
-      await _api.releaseLock(_noteId);
-    } on ApiException {
-      // Best-effort release.
-    }
+    await _releaseLockBestEffort();
     if (_disposed) return;
     value = value.copyWith(
       mode: NoteMode.viewing,
@@ -328,6 +339,14 @@ class NoteController extends ValueNotifier<NoteState> {
       editContent: null,
       conflictCurrent: null,
     );
+  }
+
+  Future<void> _releaseLockBestEffort() async {
+    try {
+      await _api.releaseLock(_noteId);
+    } on ApiException {
+      // The server will expire the lock by TTL anyway.
+    }
   }
 
   void _scheduleHeartbeat(Lock lock) {
