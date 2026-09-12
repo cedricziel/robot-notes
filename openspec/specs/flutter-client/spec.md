@@ -276,6 +276,21 @@ The note view SHALL offer a "Delete note" action in an overflow menu while the n
 - **WHEN** `DELETE /notes/{id}` fails with any other error
 - **THEN** the note view SHALL stay open in read-only mode and the app SHALL surface the error
 
+### Requirement: A newly created note opens in edit mode
+
+When the user creates a note from the list, the app SHALL open it straight into the editor: after `POST /notes` and `GET /notes/{id}` it SHALL acquire the lock, show the editor, focus the title field, and select the placeholder title so that typing replaces it. Opening an existing note from the list or search SHALL still start read-only.
+
+#### Scenario: Create opens the editor with the title selected
+
+- **WHEN** the user taps the create action and `POST /notes` succeeds
+- **THEN** the app SHALL open the note, `POST /notes/{id}/lock`, and show the editor with the title field focused and its full text selected
+
+#### Scenario: Lock unavailable on a new note
+
+- **GIVEN** the lock request for the new note fails
+- **WHEN** the note opens
+- **THEN** the app SHALL fall back to the read-only view with the usual lock feedback
+
 ### Requirement: Live presence and lock state are surfaced in the note view
 
 While the note view is open the app SHALL display a presence indicator (list of viewers' actor names) and a lock indicator (current holder, if any) updated in real time from `presence` and `lock` WebSocket events.

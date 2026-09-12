@@ -215,7 +215,7 @@ class _AppShellState extends State<_AppShell> {
     super.dispose();
   }
 
-  Future<void> _openNote(String id) async {
+  Future<void> _openNote(String id, {bool startEditing = false}) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => NoteRoute(
@@ -223,6 +223,7 @@ class _AppShellState extends State<_AppShell> {
           ws: _ws,
           actor: widget.config.actor,
           noteId: id,
+          startEditing: startEditing,
         ),
       ),
     );
@@ -245,7 +246,7 @@ class _AppShellState extends State<_AppShell> {
     try {
       final note = await createBlankNote(_api);
       if (!mounted) return;
-      await _openNote(note.id);
+      await _openNote(note.id, startEditing: true);
     } on ApiException catch (e) {
       messenger.showSnackBar(
         SnackBar(content: Text('Could not create note: ${e.message}')),
@@ -322,6 +323,7 @@ class NoteRoute extends StatefulWidget {
     required this.ws,
     required this.actor,
     required this.noteId,
+    this.startEditing = false,
     super.key,
   });
 
@@ -329,6 +331,7 @@ class NoteRoute extends StatefulWidget {
   final RobotNotesWsClient ws;
   final String actor;
   final String noteId;
+  final bool startEditing;
 
   @override
   State<NoteRoute> createState() => _NoteRouteState();
@@ -360,7 +363,11 @@ class _NoteRouteState extends State<NoteRoute> {
 
   @override
   Widget build(BuildContext context) {
-    return NoteScreen(controller: _controller, onClose: _close);
+    return NoteScreen(
+      controller: _controller,
+      onClose: _close,
+      startEditing: widget.startEditing,
+    );
   }
 }
 
