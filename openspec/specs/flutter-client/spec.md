@@ -291,6 +291,27 @@ When the user creates a note from the list, the app SHALL open it straight into 
 - **WHEN** the note opens
 - **THEN** the app SHALL fall back to the read-only view with the usual lock feedback
 
+### Requirement: Note view renders the body as Markdown
+
+In view mode the app SHALL render the note content as Markdown: headings, lists, emphasis, inline code, fenced code blocks, and links (styled; opening them is not yet supported). The rendered text SHALL be selectable. Edit mode SHALL keep showing the raw Markdown source in a plain text field.
+
+#### Scenario: Markdown syntax is rendered, not shown verbatim
+
+- **GIVEN** a note whose content is `# Heading`, a `- item` bullet, and `` `code` ``
+- **WHEN** the note is open in view mode
+- **THEN** the body SHALL show "Heading" styled as a heading, "item" as a list entry, and "code" as inline code, and SHALL NOT show the `#`, `-`, or backtick markers
+
+#### Scenario: Edit mode shows the Markdown source
+
+- **WHEN** the user enters edit mode
+- **THEN** the content field SHALL contain the raw Markdown source unchanged
+
+#### Scenario: Images are never fetched
+
+- **GIVEN** a note whose content contains `![tracker](https://example.com/pixel.png)`
+- **WHEN** the note is open in view mode
+- **THEN** the app SHALL NOT request the image URL and SHALL show the alt text in its place
+
 ### Requirement: Live presence and lock state are surfaced in the note view
 
 While the note view is open the app SHALL display a presence indicator (list of viewers' actor names) and a lock indicator (current holder, if any) updated in real time from `presence` and `lock` WebSocket events.

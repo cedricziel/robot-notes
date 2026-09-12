@@ -163,25 +163,60 @@ Future<void> _pumpConflict(
   expect(find.byKey(const Key('note.banner.conflict')), findsOneWidget);
 }
 
+/// Pumps a [NoteScreen] showing a note with [content] in read-only mode.
+Future<void> _pumpViewer(WidgetTester tester, {required String content}) async {
+  final mock = MockClient((request) async {
+    return http.Response(jsonEncode(_noteJson(content: content)), 200);
+  });
+  final api = RobotNotesClient(config: _config, httpClient: mock);
+  final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+  addTearDown(ctrl.dispose);
+
+  await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('renders the note body in read-only view by default', (
     tester,
   ) async {
-    final mock = MockClient((request) async {
-      return http.Response(jsonEncode(_noteJson(content: 'body text')), 200);
-    });
-    final api = RobotNotesClient(config: _config, httpClient: mock);
-    final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
-    addTearDown(ctrl.dispose);
-
-    await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
-    await tester.pumpAndSettle();
+    await _pumpViewer(tester, content: 'body text');
 
     expect(find.byKey(const Key('note.body')), findsOneWidget);
     expect(find.text('body text'), findsOneWidget);
     expect(find.byKey(const Key('note.edit')), findsOneWidget);
     expect(find.byTooltip('Close'), findsOneWidget);
     expect(find.byTooltip('Edit'), findsOneWidget);
+  });
+
+  testWidgets('read-only view renders the body as Markdown', (tester) async {
+    await _pumpViewer(tester, content: '# Heading\n\n- item\n\n`code`');
+
+    final body = find.byKey(const Key('note.body'));
+    Finder inBody(String text) =>
+        find.descendant(of: body, matching: find.text(text));
+
+    final heading = inBody('Heading');
+    final item = inBody('item');
+    expect(heading, findsOneWidget);
+    expect(item, findsOneWidget);
+    expect(inBody('code'), findsOneWidget);
+    expect(
+      tester.getSize(heading).height,
+      greaterThan(tester.getSize(item).height),
+    );
+  });
+
+  testWidgets('read-only view shows image alt text instead of loading images', (
+    tester,
+  ) async {
+    await _pumpViewer(
+      tester,
+      content: '![tracker pixel](https://example.com/pixel.png)',
+    );
+
+    expect(find.byType(Image), findsNothing);
+    expect(find.text('tracker pixel'), findsOneWidget);
   });
 
   testWidgets('tapping edit acquires the lock and reveals the editor', (
