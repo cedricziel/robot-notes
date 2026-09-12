@@ -2,14 +2,12 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 
-/// Path prefixes the API owns. Requests matching these short-circuit through
-/// the static layer so the existing route + auth pipeline keeps full control
-/// of `/notes`, `/search`, `/ws`, `/invites/...`, and `/healthz`.
-const _apiPrefixes = <String>{
+/// Path prefixes that are unambiguously the API's — never reachable as a
+/// client-side route — so they short-circuit through the static layer
+/// regardless of `Authorization`.
+const _alwaysApiPrefixes = <String>{
   '/healthz',
   '/ws',
-  '/notes',
-  '/search',
   '/invites',
   '/mcp',
   '/oauth',
@@ -48,7 +46,10 @@ const _mimeTypes = <String, String>{
 /// Resolution order for an incoming `GET` (or `HEAD`):
 ///   1. If [webDir] is `null` or does not exist on disk → no-op pass-through.
 ///   2. If the path matches a known API prefix → pass-through (the auth +
-///      route pipeline takes over).
+///      route pipeline takes over). `/notes/{id}` and `/search` only count
+///      as API paths here when the request carries `Authorization` — the
+///      Flutter app uses those same paths for its own note-view and search
+///      routes, reached by a plain browser navigation with no such header.
 ///   3. If `<webDir>/<path>` exists → serve it with the inferred MIME type.
 ///   4. If the path looks like an SPA route (no file extension) → fall
 ///      back to `<webDir>/index.html`.
@@ -78,7 +79,7 @@ Middleware staticWebMiddleware({String? webDir}) {
         return handler(context);
       }
       final path = request.uri.path;
-      if (_isApiPath(path)) {
+      if (_isApiPath(request)) {
         return handler(context);
       }
 
@@ -99,11 +100,27 @@ Middleware staticWebMiddleware({String? webDir}) {
   };
 }
 
-bool _isApiPath(String path) {
-  for (final prefix in _apiPrefixes) {
+bool _isApiPath(Request request) {
+  final path = request.uri.path;
+  for (final prefix in _alwaysApiPrefixes) {
     if (path == prefix || path.startsWith('$prefix/')) {
       return true;
     }
+  }
+  // Bare `GET /notes` (the list endpoint) isn't one of the app's routes, so
+  // it stays API-only regardless of `Authorization`.
+  if (path == '/notes') return true;
+
+  // `/notes/{id}` and `/search` are *also* client-side routes in the
+  // Flutter app (the note view and the search screen), reached by a plain
+  // browser navigation — reload, bookmark, or a shared link — at the same
+  // path as the API call of the same name. The app's own HTTP client
+  // always sends `Authorization`; a browser navigation never does, so its
+  // presence is what tells the two apart here.
+  final sharesPathWithAClientRoute =
+      path == '/search' || path.startsWith('/notes/');
+  if (sharesPathWithAClientRoute) {
+    return request.headers['authorization'] != null;
   }
   return false;
 }
