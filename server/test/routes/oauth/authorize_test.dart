@@ -319,6 +319,46 @@ void main() {
       expect(location.queryParameters['iss'], 'http://localhost');
     });
 
+    test(
+        'preserves a duplicate query key on the redirect_uri and encodes a '
+        'space in state as %20, not +', () async {
+      final withQuery = await clientStore.register(
+        clientName: 'Query Client',
+        redirectUris: ['https://agent.example/callback?x=1&x=2'],
+        tokenEndpointAuthMethod: 'none',
+        grantTypes: ['authorization_code', 'refresh_token'],
+        responseTypes: ['code'],
+      );
+      final form = {
+        'client_id': withQuery.client.clientId,
+        'redirect_uri': withQuery.client.redirectUris.first,
+        'response_type': 'code',
+        'code_challenge': 'challenge-abc',
+        'code_challenge_method': 'S256',
+        'state': 'a b',
+        'api_key': _apiKey,
+        'actor': 'desk-assistant',
+      };
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(form),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.found);
+      final rawLocation = res.headers[HttpHeaders.locationHeader]!;
+      expect(rawLocation, contains('x=1&x=2'));
+      expect(rawLocation, isNot(contains('state=a+b')));
+      final location = Uri.parse(rawLocation);
+      expect(location.queryParametersAll['x'], ['1', '2']);
+      expect(location.queryParameters['state'], 'a b');
+      expect(location.queryParameters['code'], isNotEmpty);
+    });
+
     test('a malformed percent-escape in the form body renders an error page',
         () async {
       final res = await route.onRequest(

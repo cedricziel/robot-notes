@@ -186,9 +186,23 @@ Response _redirectWithError(
   );
 }
 
+// Built by hand rather than via `Uri.replace(queryParameters: ...)`: that
+// constructor rebuilds the query from `base.queryParameters`, which
+// collapses a repeated key to its last value and re-encodes with
+// `Uri.encodeQueryComponent` (space -> `+`) instead of the `%20` form
+// expected of a URL fragment appended to an opaque, client-controlled
+// query string. Concatenating the raw query verbatim and appending only
+// the new parameters keeps every existing key (duplicates included) and
+// uses `Uri.encodeComponent` (space -> `%20`) for the ones we add.
 Uri _appendQuery(String uri, Map<String, String> extra) {
   final base = Uri.parse(uri);
-  return base.replace(queryParameters: {...base.queryParameters, ...extra});
+  final added = extra.entries
+      .map(
+        (e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}',
+      )
+      .join('&');
+  final query = base.query.isEmpty ? added : '${base.query}&$added';
+  return base.replace(query: query);
 }
 
 /// Outcome of validating an authorization request, shared by the GET and
