@@ -80,11 +80,18 @@ The flow is fully driven by merging a release PR.
 3. **Merge** the release PR. The release-please workflow then, in the
    _same run_:
    - creates a `vX.Y.Z` git tag,
-   - creates a GitHub release with the CHANGELOG entry as body,
+   - creates a GitHub **pre-release** with the CHANGELOG entry as body
+     (release-please writes a draft; the workflow publishes it as a
+     pre-release),
    - builds and pushes the multi-arch image to ghcr.io (the `publish`
      job is gated on `release_created == true`, so routine pushes to
-     `main` don't ship preview images).
-4. Verify the tag set is live:
+     `main` don't ship preview images),
+   - builds the iOS and macOS apps and uploads them to TestFlight.
+4. When the TestFlight build checks out, open the release on GitHub,
+   untick _Set as a pre-release_ and tick **Set as the latest release**.
+   That promotion is what submits the apps to App Store review (see
+   "Apple App Store" below). Server-only releases can stay pre-releases.
+5. Verify the tag set is live:
    ```
    docker pull ghcr.io/<owner>/robot-notes-server:vX.Y.Z
    docker manifest inspect ghcr.io/<owner>/robot-notes-server:vX.Y.Z
@@ -241,3 +248,124 @@ fetched it.
 | `docker pull` says "manifest not found"       | Image still building; wait for `publish` workflow to finish, then retry.                 |
 | `docker manifest inspect` shows only one arch | Buildx cache regression — re-run the publish workflow.                                   |
 | Dependabot dashboard shows config errors      | Indentation / scope typo in `.github/dependabot.yml`; YAML it locally before committing. |
+
+---
+
+## Apple App Store (iOS + macOS)
+
+GitHub's pre-release / release distinction drives the two Apple stages:
+
+| GitHub release state                   | What happens                                                                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------- |
+| pre-release (every release-please cut) | iOS + macOS builds uploaded to TestFlight                                             |
+| promoted to latest release             | that tag's TestFlight builds submitted to App Store review, auto-released on approval |
+
+The same run that publishes the container image also ships the Flutter
+client to TestFlight. Two `apple` matrix jobs (`ios`, `macos`) in
+`release-please.yml` run on `macos-26` once `resolve-tag` has a tag:
+
+1. Check out the tag, install Flutter (same pin as `ci.yml`) and the
+   fastlane bundle from `app/Gemfile`.
+2. `fastlane match` pulls the App Store certificate and profile for
+   `com.cedricziel.robotnotes.app` (plus the Mac installer cert) from the
+   private `cedricziel/certificates` repo over a read-only deploy key.
+3. `flutter build <platform> --config-only` stamps the marketing version
+   (tag minus `v`) and build number (`git rev-list --count HEAD`), then
+   `build_app` archives and exports an App Store IPA / PKG.
+4. `upload_to_testflight` uploads the binary, waits for App Store Connect
+   to process it, and sets the GitHub release body as the TestFlight
+   changelog. Internal testers can install it right away.
+
+The IPA / PKG is attached to the workflow run as an artifact for 30 days.
+Both platforms run independently; one failing does not block the other,
+and neither blocks the container publish.
+
+### Submitting to the App Store
+
+App Store review is a separate, deliberate step so a release is usable in
+TestFlight long before Apple has looked at it:
+
+1. Open the release on GitHub (Releases → `vX.Y.Z`) → _Edit_.
+2. Untick **Set as a pre-release**, tick **Set as the latest release**,
+   _Update release_.
+
+GitHub emits `release: released`; the workflow runs again with only the
+`apple` jobs in submit mode. They skip the build, attach that tag's
+TestFlight build to the App Store version, upload the listing metadata
+from `app/fastlane/metadata` with the release body as release notes,
+submit for review, and release automatically once Apple approves. Both
+platforms submit in the same run. The container jobs do not run on this
+event.
+
+Releases created as drafts by release-please and published by the
+workflow with `GITHUB_TOKEN` never fire this event themselves, so a
+release can only reach App Store review through a human promotion.
+
+### Re-running
+
+Use `workflow_dispatch` with the existing tag (same as for the image).
+The Apple jobs are idempotent up to App Store Connect's rule that a build
+number can only be uploaded once per version: a rerun of the same tag
+from the same commit produces the same build number and is rejected by
+Apple. Push a new release instead. The submit path can be re-run freely
+until the version is in review: re-run the `release: released` workflow
+run from the Actions tab.
+
+### Manual lanes
+
+From `app/` with `fastlane/.env` filled in (see `fastlane/.env.default`):
+
+```sh
+bundle exec fastlane ios build            # signed IPA, no upload
+bundle exec fastlane mac build            # signed PKG, no upload
+bundle exec fastlane ios release          # build + TestFlight upload
+bundle exec fastlane mac submit_to_app_store version:0.3.0 build:210  # submit an existing build
+bundle exec fastlane sync_metadata        # push listing text without a binary
+bundle exec fastlane bootstrap_signing force:true  # regenerate profiles after entitlement changes
+```
+
+### One-time setup (done)
+
+- App record **Robot Notes** and bundle ID `com.cedricziel.robotnotes.app`
+  (iOS + macOS) exist in App Store Connect, created via
+  `fastlane bootstrap_app`.
+- Profiles were minted with `fastlane bootstrap_signing` into the
+  certificates repo, which has a read-only deploy key named
+  `robot-notes-fastlane-match-ci`.
+- Repository secrets (values in 1Password):
+
+  | Secret                    | 1Password item                               |
+  | ------------------------- | -------------------------------------------- |
+  | `ASC_KEY_ID`              | AppStore Connect: fastlane-ci → Benutzername |
+  | `ASC_ISSUER_ID`           | AppStore Connect: fastlane-ci → Issue ID     |
+  | `ASC_KEY_CONTENT`         | AppStore Connect: fastlane-ci → `.p8` file   |
+  | `MATCH_GIT_URL`           | `git@github.com:cedricziel/certificates.git` |
+  | `MATCH_PASSWORD`          | fastlane-ci: match                           |
+  | `MATCH_KEYCHAIN_PASSWORD` | fastlane-ci: keychain (robot-notes)          |
+  | `MATCH_DEPLOY_KEY`        | fastlane-ci: match deploy key (robot-notes)  |
+
+### Before the first submission
+
+App Store Connect needs a few things that cannot be automated from the
+repo. Do these once in the App Store Connect UI before the first release
+is expected to pass review:
+
+1. Upload screenshots for iPhone, iPad, and Mac (the pipeline sets
+   `skip_screenshots`).
+2. Fill in the reviewer demo server URL and API key in
+   `app/fastlane/metadata/review_information/notes.txt` and keep that
+   server reachable while the app is in review.
+3. Keep the App Privacy answers ("Data Not Collected", published
+   2026-09-12) current if the app ever starts collecting data. The
+   fastlane action for this needs an Apple ID session, so it is a UI step.
+
+### Troubleshooting
+
+| Symptom                                             | Likely cause                                                                             |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `match` fails with `Permission denied (publickey)`  | `MATCH_DEPLOY_KEY` missing or not the key registered on the certificates repo.           |
+| `match` fails to decrypt                            | `MATCH_PASSWORD` wrong.                                                                  |
+| Archive fails with `No profiles for ... were found` | Entitlements changed; run `bundle exec fastlane bootstrap_signing force:true` locally.   |
+| Upload rejected: build number already used          | Same commit uploaded twice; cut a new release.                                           |
+| `upload_to_app_store` fails on metadata             | A field in `app/fastlane/metadata` violates a length or content rule; check the message. |
+| Review rejected for missing demo credentials        | `review_information/notes.txt` still has placeholders.                                   |
