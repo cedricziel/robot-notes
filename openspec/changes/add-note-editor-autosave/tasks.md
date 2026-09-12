@@ -30,9 +30,9 @@
 
 ## 5. Full verification
 
-- [ ] 5.1 Run `make test` (shared + server + app) and confirm everything passes.
-- [ ] 5.2 Run `make lint` and `dart format .` across the repo; fix any findings.
-- [ ] 5.3 `openspec validate add-note-editor-autosave --strict` passes.
+- [x] 5.1 Run `make test` (shared + server + app) and confirm everything passes.
+- [x] 5.2 Run `make lint` and `dart format .` across the repo; fix any findings.
+- [x] 5.3 `openspec validate add-note-editor-autosave --strict` passes.
 
 ## 6. Spec and PR
 
