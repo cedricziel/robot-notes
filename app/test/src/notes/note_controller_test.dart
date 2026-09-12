@@ -635,5 +635,101 @@ void main() {
         expect(ctrl.value.mode, NoteMode.deleted);
       });
     });
+
+    group('move', () {
+      NoteController controller(MockClient mock) {
+        final ctrl = NoteController(
+          api: RobotNotesClient(config: _config, httpClient: mock),
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+        return ctrl;
+      }
+
+      test(
+        'sends PUT /notes/{id} with the chosen path and current If-Match',
+        () async {
+          Map<String, dynamic>? body;
+          String? ifMatch;
+          final mock = MockClient((request) async {
+            if (request.method == 'GET' && request.url.path == '/notes/01H') {
+              return http.Response(jsonEncode(_noteJson(version: 3)), 200);
+            }
+            if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+              ifMatch = request.headers['if-match'];
+              body = jsonDecode(request.body) as Map<String, dynamic>;
+              return http.Response(jsonEncode(_noteJson(version: 4)), 200);
+            }
+            return http.Response('unexpected ${request.url.path}', 500);
+          });
+          final ctrl = controller(mock);
+
+          await ctrl.open();
+          await ctrl.move('Projects/Alpha');
+
+          expect(ifMatch, '3');
+          expect(body?['path'], 'Projects/Alpha');
+          expect(ctrl.value.mode, NoteMode.viewing);
+          expect(ctrl.value.note?.version, 4);
+          expect(ctrl.value.error, isNull);
+        },
+      );
+
+      test('409 path_conflict sets a PathConflictException and leaves the '
+          'note open and unmoved', () async {
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson(version: 3)), 200);
+          }
+          if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+            return http.Response(
+              jsonEncode(<String, Object?>{'error': 'path_conflict'}),
+              409,
+            );
+          }
+          return http.Response('unexpected ${request.url.path}', 500);
+        });
+        final ctrl = controller(mock);
+
+        await ctrl.open();
+        await ctrl.move('Projects/Alpha');
+
+        expect(ctrl.value.mode, NoteMode.viewing);
+        expect(ctrl.value.note?.id, '01H');
+        expect(ctrl.value.note?.version, 3);
+        expect(ctrl.value.error, isA<PathConflictException>());
+      });
+
+      test(
+        '423 surfaces the lock holder consistent with existing lock UX',
+        () async {
+          final mock = MockClient((request) async {
+            if (request.method == 'GET' && request.url.path == '/notes/01H') {
+              return http.Response(jsonEncode(_noteJson(version: 3)), 200);
+            }
+            if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+              return http.Response(
+                jsonEncode(<String, Object?>{
+                  'error': 'locked',
+                  'lock': _lockJson(holder: 'alice'),
+                }),
+                423,
+              );
+            }
+            return http.Response('unexpected ${request.url.path}', 500);
+          });
+          final ctrl = controller(mock);
+
+          await ctrl.open();
+          await ctrl.move('Projects/Alpha');
+
+          expect(ctrl.value.mode, NoteMode.viewing);
+          expect(ctrl.value.lock?.holder, 'alice');
+          expect(ctrl.value.error, isA<LockedException>());
+        },
+      );
+    });
   });
 }

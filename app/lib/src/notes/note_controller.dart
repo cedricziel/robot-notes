@@ -32,6 +32,9 @@ enum NoteMode {
   /// `DELETE /notes/{id}` is in flight.
   deleting,
 
+  /// `PUT /notes/{id}` with a new `path` is in flight.
+  moving,
+
   /// `DELETE /notes/{id}` succeeded (or the note was already gone). Terminal;
   /// the view should close.
   deleted,
@@ -497,5 +500,39 @@ class NoteController extends ValueNotifier<NoteState> {
     }
     if (_disposed) return;
     value = value.copyWith(mode: NoteMode.deleted);
+  }
+
+  /// Moves the note to [path] via `PUT /notes/{id}` (title/content unchanged,
+  /// `If-Match` from the last-loaded version). Only valid while viewing —
+  /// callers offer the move action from the read-only view, same as delete.
+  ///
+  /// `409 path_conflict` and `423 locked` are left on [NoteState.error] for
+  /// the view to surface (see the existing save-conflict/lock-banner UX
+  /// this reuses) rather than handled here; the note stays open and, for a
+  /// path conflict, unmoved. A `423` also updates [NoteState.lock] so the
+  /// view's existing "`<holder>` is editing this note" banner picks it up.
+  Future<void> move(String path) async {
+    if (_disposed) return;
+    if (value.mode != NoteMode.viewing) return;
+    final note = value.note;
+    if (note == null) return;
+    value = value.copyWith(mode: NoteMode.moving, error: null);
+    try {
+      final updated = await _api.updateNote(
+        id: _noteId,
+        title: note.title,
+        content: note.content,
+        ifMatch: note.version,
+        path: path,
+      );
+      if (_disposed) return;
+      value = value.copyWith(mode: NoteMode.viewing, note: updated);
+    } on LockedException catch (e) {
+      if (_disposed) return;
+      value = value.copyWith(mode: NoteMode.viewing, lock: e.lock, error: e);
+    } on ApiException catch (e) {
+      if (_disposed) return;
+      value = value.copyWith(mode: NoteMode.viewing, error: e);
+    }
   }
 }

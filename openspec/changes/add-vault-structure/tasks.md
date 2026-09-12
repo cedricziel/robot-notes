@@ -130,11 +130,11 @@
 
 ### 15. Flutter: move note action
 
-- [ ] 15.1 Write a failing test: the move action sends `PUT /notes/{id}` with the chosen `path` and current `If-Match`
-- [ ] 15.2 Implement the move UI entry point and request; run tests green
-- [ ] 15.3 Write a failing test: a `409 path_conflict` response shows a non-destructive error and leaves the note open
-- [ ] 15.4 Implement the error handling path reusing the existing conflict-UX pattern; run tests green
-- [ ] 15.5 Commit: `feat(app): move a note to another folder from the note view`
+- [x] 15.1 Write a failing test: the move action sends `PUT /notes/{id}` with the chosen `path` and current `If-Match` — `app/test/src/notes/note_controller_test.dart`'s new `move` group, plus a `note_screen_test.dart` case driving it through the menu/dialog
+- [x] 15.2 Implement the move UI entry point and request; run tests green — `NoteController.move()` (new `NoteMode.moving`) and a "Move to folder…" entry in the note view's overflow menu opening a dialog with a **free-text folder path field** (pre-filled with the note's current `path`), not a full `GET /notes/tree` picker — the spec explicitly allows either, and free text needed no new tree-fetching UI plumbing inside the note view; `app/lib/src/notes/note_controller.dart`, `app/lib/src/notes/note_screen.dart`
+- [x] 15.3 Write a failing test: a `409 path_conflict` response shows a non-destructive error and leaves the note open — same two files' `move`/`409` cases; also covers a `423` case for lock-conflict handling
+- [x] 15.4 Implement the error handling path reusing the existing conflict-UX pattern; run tests green — `409` shows a `SnackBar` naming the path the client itself just tried (the server's `path_conflict` body carries no path to echo back — see the API-groundwork commit's `PathConflictException`); `423` reuses the note view's existing "`<holder>` is editing this note" banner (via `NoteState.lock`) with no separate snackbar, exactly like a `423` on save
+- [x] 15.5 Commit: `feat(app): move a note to another folder from the note view`
 
 ### 16. Flutter: link autocomplete and backlinks panel
 

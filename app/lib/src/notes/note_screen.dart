@@ -242,6 +242,11 @@ class _NoteScreenState extends State<NoteScreen> {
                 key: const Key('note.menu'),
                 itemBuilder: (_) => [
                   PopupMenuItem<void>(
+                    key: const Key('note.move'),
+                    onTap: _confirmMove,
+                    child: const Text('Move to folder…'),
+                  ),
+                  PopupMenuItem<void>(
                     key: const Key('note.delete'),
                     onTap: _confirmDelete,
                     child: const Text('Delete note'),
@@ -263,6 +268,64 @@ class _NoteScreenState extends State<NoteScreen> {
         ),
       ),
     );
+  }
+
+  /// Free-text folder path entry (see `design.md`'s note on this vs. a full
+  /// tree picker). Prefills with the note's current folder so the user
+  /// edits from there rather than retyping it.
+  Future<void> _confirmMove() async {
+    final note = widget.controller.value.note;
+    if (note == null) return;
+    // A `TextFormField` (rather than a `TextField` + an explicit
+    // `TextEditingController`) owns and disposes its own internal
+    // controller, so there's nothing to clean up once the dialog closes.
+    var draft = note.path;
+    final target = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Move to folder'),
+        content: TextFormField(
+          key: const Key('note.move.input'),
+          initialValue: note.path,
+          autofocus: true,
+          onChanged: (v) => draft = v,
+          decoration: const InputDecoration(
+            labelText: 'Folder path',
+            hintText: 'e.g. Projects/Alpha (blank for the vault root)',
+          ),
+        ),
+        actions: [
+          TextButton(
+            key: const Key('note.move.cancel'),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('note.move.confirm'),
+            onPressed: () => Navigator.of(ctx).pop(draft),
+            child: const Text('Move'),
+          ),
+        ],
+      ),
+    );
+    if (target == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    await widget.controller.move(target);
+    if (!mounted) return;
+    final error = widget.controller.value.error;
+    if (error is PathConflictException) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('A note already exists at "$target".')),
+      );
+    } else if (error is LockedException) {
+      // Surfaced by the existing "<holder> is editing this note" banner
+      // (state.lock is now set to the holder) — no separate snackbar, same
+      // as a 423 on save.
+    } else if (error != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not move note: ${_describe(error)}')),
+      );
+    }
   }
 
   Future<void> _confirmDelete() async {

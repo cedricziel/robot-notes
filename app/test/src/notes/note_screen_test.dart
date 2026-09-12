@@ -1016,4 +1016,126 @@ void main() {
       expect(find.byKey(const Key('note.body')), findsOneWidget);
     });
   });
+
+  group('move', () {
+    /// Pumps a read-only note and opens the move dialog via the overflow
+    /// menu. `PUT /notes/01H` answers with [putResponse].
+    Future<List<String>> pumpAndOpenMoveDialog(
+      WidgetTester tester, {
+      required http.Response Function(http.Request) putResponse,
+    }) async {
+      final calls = <String>[];
+      final mock = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.method == 'GET' && request.url.path == '/notes/01H') {
+          return http.Response(jsonEncode(_noteJson()), 200);
+        }
+        if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+          return putResponse(request);
+        }
+        return http.Response('unexpected', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('note.menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('note.move')));
+      await tester.pumpAndSettle();
+      return calls;
+    }
+
+    testWidgets('confirming sends PUT with the chosen path', (tester) async {
+      Map<String, dynamic>? body;
+      final calls = await pumpAndOpenMoveDialog(
+        tester,
+        putResponse: (request) {
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(jsonEncode(_noteJson(version: 2)), 200);
+        },
+      );
+      expect(find.text('Move to folder'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('note.move.input')),
+        'Projects/Alpha',
+      );
+      await tester.tap(find.byKey(const Key('note.move.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(calls, contains('PUT /notes/01H'));
+      expect(body?['path'], 'Projects/Alpha');
+      expect(find.byKey(const Key('note.body')), findsOneWidget);
+    });
+
+    testWidgets(
+      'a 409 path_conflict shows a non-destructive error and leaves the '
+      'note open',
+      (tester) async {
+        await pumpAndOpenMoveDialog(
+          tester,
+          putResponse: (request) => http.Response(
+            jsonEncode(<String, Object?>{'error': 'path_conflict'}),
+            409,
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const Key('note.move.input')),
+          'Projects/Alpha',
+        );
+        await tester.tap(find.byKey(const Key('note.move.confirm')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining('Projects/Alpha'),
+          findsWidgets,
+          reason: 'the error names the colliding path',
+        );
+        expect(find.byKey(const Key('note.body')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '423 shows the existing lock-holder banner and leaves the note open',
+      (tester) async {
+        await pumpAndOpenMoveDialog(
+          tester,
+          putResponse: (request) => http.Response(
+            jsonEncode(<String, Object?>{
+              'error': 'locked',
+              'lock': _lockJson(holder: 'alice'),
+            }),
+            423,
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const Key('note.move.input')),
+          'Projects/Alpha',
+        );
+        await tester.tap(find.byKey(const Key('note.move.confirm')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('note.banner.lock')), findsOneWidget);
+        expect(find.textContaining('alice'), findsWidgets);
+        expect(find.byKey(const Key('note.body')), findsOneWidget);
+      },
+    );
+
+    testWidgets('cancelling sends no request', (tester) async {
+      final calls = await pumpAndOpenMoveDialog(
+        tester,
+        putResponse: (request) => http.Response('unexpected', 500),
+      );
+
+      await tester.tap(find.byKey(const Key('note.move.cancel')));
+      await tester.pumpAndSettle();
+
+      expect(calls, isNot(contains('PUT /notes/01H')));
+    });
+  });
 }
