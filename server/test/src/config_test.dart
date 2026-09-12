@@ -319,6 +319,131 @@ void main() {
         throwsA(isA<ConfigError>()),
       );
     });
+
+    test('otlpEndpoint is null and otlpHeaders is empty by default', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x'],
+        env: const {},
+      );
+      expect(config.otlpEndpoint, isNull);
+      expect(config.otlpHeaders, isEmpty);
+    });
+
+    test('--otel-endpoint populates otlpEndpoint', () {
+      final config = Config.fromArgs(
+        const [
+          '--api-key',
+          'rn_x',
+          '--otel-endpoint',
+          'https://otel.example.com',
+        ],
+        env: const {},
+      );
+      expect(config.otlpEndpoint, Uri.parse('https://otel.example.com'));
+    });
+
+    test('ROBOT_NOTES_OTEL_ENDPOINT env var populates otlpEndpoint', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x'],
+        env: const {'ROBOT_NOTES_OTEL_ENDPOINT': 'https://env.example.com'},
+      );
+      expect(config.otlpEndpoint, Uri.parse('https://env.example.com'));
+    });
+
+    test('--otel-endpoint CLI flag wins over env var', () {
+      final config = Config.fromArgs(
+        const [
+          '--api-key',
+          'rn_x',
+          '--otel-endpoint',
+          'https://cli.example.com',
+        ],
+        env: const {'ROBOT_NOTES_OTEL_ENDPOINT': 'https://env.example.com'},
+      );
+      expect(config.otlpEndpoint, Uri.parse('https://cli.example.com'));
+    });
+
+    test('rejects --otel-endpoint with a non-http(s) scheme', () {
+      expect(
+        () => Config.fromArgs(
+          const [
+            '--api-key',
+            'rn_x',
+            '--otel-endpoint',
+            'ftp://otel.example.com',
+          ],
+          env: const {},
+        ),
+        throwsA(
+          isA<ConfigError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('--otel-endpoint'),
+              contains('ROBOT_NOTES_OTEL_ENDPOINT'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('rejects --otel-endpoint missing a host', () {
+      expect(
+        () => Config.fromArgs(
+          const ['--api-key', 'rn_x', '--otel-endpoint', 'https://'],
+          env: const {},
+        ),
+        throwsA(isA<ConfigError>()),
+      );
+    });
+
+    test('--otel-headers parses comma-separated key=value pairs', () {
+      final config = Config.fromArgs(
+        const [
+          '--api-key',
+          'rn_x',
+          '--otel-headers',
+          'Authorization=Bearer abc,X-Tenant=homelab',
+        ],
+        env: const {},
+      );
+      expect(config.otlpHeaders, {
+        'Authorization': 'Bearer abc',
+        'X-Tenant': 'homelab',
+      });
+    });
+
+    test('ROBOT_NOTES_OTEL_HEADERS env var populates otlpHeaders', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x'],
+        env: const {'ROBOT_NOTES_OTEL_HEADERS': 'X-Api-Key=secret'},
+      );
+      expect(config.otlpHeaders, {'X-Api-Key': 'secret'});
+    });
+
+    test('--otel-headers CLI flag wins over env var', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x', '--otel-headers', 'X-Api-Key=cli'],
+        env: const {'ROBOT_NOTES_OTEL_HEADERS': 'X-Api-Key=env'},
+      );
+      expect(config.otlpHeaders, {'X-Api-Key': 'cli'});
+    });
+
+    test('rejects --otel-headers entry missing "="', () {
+      expect(
+        () => Config.fromArgs(
+          const ['--api-key', 'rn_x', '--otel-headers', 'not-a-pair'],
+          env: const {},
+        ),
+        throwsA(
+          isA<ConfigError>().having(
+            (e) => e.message,
+            'message',
+            contains('--otel-headers'),
+          ),
+        ),
+      );
+    });
   });
 
   group('Config.loadOrExit', () {
