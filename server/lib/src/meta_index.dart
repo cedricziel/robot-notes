@@ -84,6 +84,11 @@ class MetaIndex {
   // entry's position here moves whenever its updatedAt changes, so
   // upsert must reposition rather than only insert-if-new.
   final List<NoteId> _sortedByUpdated = [];
+  // title -> ids of every note currently carrying that exact title,
+  // ascending. Almost always a single-element list; a personal vault's
+  // note count doesn't warrant more than a plain list for the rare
+  // duplicate-title case (see resolveTitle).
+  final Map<String, List<NoteId>> _byTitle = {};
 
   /// Number of entries currently held.
   int get length => _byId.length;
@@ -99,11 +104,13 @@ class MetaIndex {
     _byId.clear();
     _sortedIds.clear();
     _sortedByUpdated.clear();
+    _byTitle.clear();
     final summaries = await storage.list();
     for (final s in summaries) {
       _byId[s.id] = s;
       _sortedIds.add(s.id);
       _sortedByUpdated.add(s.id);
+      _indexTitle(s);
     }
     _sortedIds.sort();
     _sortedByUpdated.sort(
@@ -123,8 +130,14 @@ class MetaIndex {
   void upsert(NoteSummary summary) {
     final existing = _byId[summary.id];
     if (existing != null) _removeSortedByUpdated(existing);
+    if (existing != null && existing.title != summary.title) {
+      _deindexTitle(existing);
+    }
     _byId[summary.id] = summary;
     if (existing == null) _insertSorted(summary.id);
+    if (existing == null || existing.title != summary.title) {
+      _indexTitle(summary);
+    }
     _insertSortedByUpdated(summary);
   }
 
@@ -136,9 +149,48 @@ class MetaIndex {
     // _byId: the search compares against _byId values, including
     // this entry's own (still needed to find itself).
     _removeSortedByUpdated(existing);
+    _deindexTitle(existing);
     _byId.remove(id);
     final pos = _binarySearch(_sortedIds, id);
     if (pos >= 0) _sortedIds.removeAt(pos);
+  }
+
+  /// Resolves [title] to the id of the note it currently identifies, or
+  /// `null` if no indexed note carries that exact title (a "phantom"
+  /// link target). Resolution happens at call time against live index
+  /// state, so a link recorded while its target title didn't exist yet
+  /// starts resolving the moment a matching note is indexed — no
+  /// re-save of the linking note required.
+  ///
+  /// When more than one note shares [title], resolution is deterministic
+  /// (the ascending-sorted-first id always wins) and an ambiguous-title
+  /// warning naming every id sharing the title is logged, per
+  /// `links` spec.
+  NoteId? resolveTitle(String title) {
+    final ids = _byTitle[title];
+    if (ids == null || ids.isEmpty) return null;
+    if (ids.length > 1) {
+      _log.warning(
+        'Ambiguous title "$title": ids ${ids.join(', ')} all match; '
+        'resolving to ${ids.first}',
+      );
+    }
+    return ids.first;
+  }
+
+  void _indexTitle(NoteSummary summary) {
+    final ids = _byTitle.putIfAbsent(summary.title, () => []);
+    if (ids.contains(summary.id)) return;
+    ids
+      ..add(summary.id)
+      ..sort();
+  }
+
+  void _deindexTitle(NoteSummary summary) {
+    final ids = _byTitle[summary.title];
+    if (ids == null) return;
+    ids.remove(summary.id);
+    if (ids.isEmpty) _byTitle.remove(summary.title);
   }
 
   /// Returns a page of summaries ordered per [sort], up to [limit]

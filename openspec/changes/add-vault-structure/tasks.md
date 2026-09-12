@@ -55,11 +55,11 @@
 
 ### 7. Link parsing and title index
 
-- [ ] 7.1 Write failing tests for a link parser: extracts `[[Title]]` and `[[Title|Alias]]` occurrences from markdown content, leaving the raw text untouched
-- [ ] 7.2 Implement the parser (new `server/lib/src/links.dart`); run tests green
-- [ ] 7.3 Write failing tests: a title→id resolution index resolves an existing title, treats a non-matching title as unresolved, and is rebuilt on startup
-- [ ] 7.4 Implement the title index alongside `meta_index.dart` (or as a new small companion module); run tests green
-- [ ] 7.5 Commit: `feat(server): parse [[wikilinks]] and resolve titles to ids`
+- [x] 7.1 Write failing tests for a link parser: extracts `[[Title]]` and `[[Title|Alias]]` occurrences from markdown content, leaving the raw text untouched — `server/test/src/links_test.dart`; also covers `rewriteLinks` (needed by task group 8) since it lives in the same pure module
+- [x] 7.2 Implement the parser (new `server/lib/src/links.dart`); run tests green — also implements `rewriteLinks` (span-preserving rewrite used by rename propagation, task 8) alongside `parseLinks`, since both are pure text functions over the same `ParsedLink` shape
+- [x] 7.3 Write failing tests: a title→id resolution index resolves an existing title, treats a non-matching title as unresolved, and is rebuilt on startup — added to `server/test/src/meta_index_test.dart`
+- [x] 7.4 Implement the title index alongside `meta_index.dart` (or as a new small companion module); run tests green — implemented as `MetaIndex._byTitle` + `MetaIndex.resolveTitle()`, kept in sync by `scan`/`upsert`/`remove`
+- [x] 7.5 Commit: `feat(server): parse [[wikilinks]] and resolve titles to ids`
 
 ### 8. Rename propagation
 

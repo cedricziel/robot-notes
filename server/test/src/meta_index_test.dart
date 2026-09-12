@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
@@ -336,6 +337,81 @@ void main() {
       final page =
           idx.page(sort: 'updated_desc', limit: 10, pathPrefix: 'Folder');
       expect(page.items.map((s) => s.id), ['C', 'A']);
+    });
+  });
+
+  group('MetaIndex.resolveTitle', () {
+    test('resolves a title that matches exactly one note', () {
+      final idx = MetaIndex()..upsert(_summary('A', title: 'Project Alpha'));
+      expect(idx.resolveTitle('Project Alpha'), 'A');
+    });
+
+    test('a title matching no note is unresolved', () {
+      final idx = MetaIndex()..upsert(_summary('A', title: 'Project Alpha'));
+      expect(idx.resolveTitle('Nope'), isNull);
+    });
+
+    test('an empty index resolves nothing', () {
+      expect(MetaIndex().resolveTitle('Anything'), isNull);
+    });
+
+    test('is rebuilt on scan from a fresh Storage snapshot', () async {
+      final tmp = Directory.systemTemp.createTempSync(
+        'robot-notes-title-index-test-',
+      );
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+      final storage = Storage(
+        contentDir: Directory('${tmp.path}/content'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final note = await storage.create(title: 'Project Alpha', content: '');
+      final idx = MetaIndex();
+      await idx.scan(storage);
+      expect(idx.resolveTitle('Project Alpha'), note.id);
+    });
+
+    test(
+        'two notes sharing a title resolve deterministically to the '
+        'ascending-first id', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('B', title: 'Dup'))
+        ..upsert(_summary('A', title: 'Dup'));
+      expect(idx.resolveTitle('Dup'), 'A');
+    });
+
+    test('an ambiguous title logs a warning naming both ids', () {
+      final records = <LogRecord>[];
+      final sub = Logger('meta_index').onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+      hierarchicalLoggingEnabled = true;
+      final logger = Logger('meta_index')..level = Level.ALL;
+
+      MetaIndex(logger: logger)
+        ..upsert(_summary('B', title: 'Dup'))
+        ..upsert(_summary('A', title: 'Dup'))
+        ..resolveTitle('Dup');
+
+      expect(records, isNotEmpty);
+      final message = records.map((r) => r.message).join('\n');
+      expect(message, contains('A'));
+      expect(message, contains('B'));
+    });
+
+    test('upsert with a changed title moves the note in the title index', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', title: 'Old'))
+        ..upsert(_summary('A', title: 'New', version: 2));
+      expect(idx.resolveTitle('Old'), isNull);
+      expect(idx.resolveTitle('New'), 'A');
+    });
+
+    test('remove frees up the title for future resolution', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', title: 'Solo'))
+        ..remove('A');
+      expect(idx.resolveTitle('Solo'), isNull);
     });
   });
 }
