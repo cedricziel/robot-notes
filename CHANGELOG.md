@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/cedricziel/robot-notes/compare/v0.1.8...v0.2.0) (2026-09-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* the on-disk note filename is no longer <id>.md. A startup migration renames existing legacy files to the new layout automatically (no manual steps), de-duplicating any collisions. See openspec/changes/add-vault-structure/ for the full spec, design, and task breakdown. This commit exists to correct the previous squash-merge commit ([#136](https://github.com/cedricziel/robot-notes/issues/136)), whose subject line was not a Conventional Commit and so was skipped by release-please's version computation.
+
+### Features
+
+* turn notes into a hierarchical Obsidian-style vault ([#138](https://github.com/cedricziel/robot-notes/issues/138)) ([cbdcbf0](https://github.com/cedricziel/robot-notes/commit/cbdcbf084338d6f7a06e430659cb5b862f3b2713))
+
 ## [0.1.8](https://github.com/cedricziel/robot-notes/compare/v0.1.7...v0.1.8) (2026-09-12)
 
 
