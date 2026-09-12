@@ -252,6 +252,78 @@ void main() {
     expect(json['client_name'], 'mcp-client');
   });
 
+  test('rejects an out-of-set grant_types entry', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'x',
+          'redirect_uris': ['https://agent.example/callback'],
+          'grant_types': ['authorization_code', 'client_credentials'],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
+  test('rejects an empty grant_types list', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'x',
+          'redirect_uris': ['https://agent.example/callback'],
+          'grant_types': <String>[],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
+  test('rejects an out-of-set response_types entry', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'x',
+          'redirect_uris': ['https://agent.example/callback'],
+          'response_types': ['code', 'token'],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
+  test('rejects an empty response_types list', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'x',
+          'redirect_uris': ['https://agent.example/callback'],
+          'response_types': <String>[],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
   test('rejects an unsupported token_endpoint_auth_method', () async {
     final res = await route.onRequest(
       _ctx(
