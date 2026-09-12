@@ -30,10 +30,7 @@ class RobotNotesApp extends StatefulWidget {
 class _RobotNotesAppState extends State<RobotNotesApp> {
   final ConfigStore _store = SecureConfigStore();
   late final ConfigHolder _configHolder = ConfigHolder(_store);
-  late final GoRouter _router = buildAppRouter(
-    store: _store,
-    configHolder: _configHolder,
-  );
+  late final GoRouter _router = buildAppRouter(configHolder: _configHolder);
 
   @override
   void dispose() {

@@ -61,6 +61,10 @@ class ConfigHolder extends ChangeNotifier {
 
   final ConfigStore _store;
 
+  /// The store backing this holder, so callers that already have a
+  /// [ConfigHolder] don't need it threaded through separately.
+  ConfigStore get store => _store;
+
   AppConfig? config;
 
   /// False until the initial [ConfigStore.read] resolves. Routing holds on
@@ -107,7 +111,6 @@ FutureOr<String?> _redirect(ConfigHolder configHolder, GoRouterState state) {
 /// Builds the app's [GoRouter]. A single instance lives for the app's
 /// lifetime; [ConfigHolder] drives redirects as the config comes and goes.
 GoRouter buildAppRouter({
-  required ConfigStore store,
   required ConfigHolder configHolder,
   String? initialLocation,
 }) {
@@ -128,8 +131,10 @@ GoRouter buildAppRouter({
       ),
       GoRoute(
         path: '/setup',
-        builder: (context, state) =>
-            _SetupRoute(store: store, onConfigured: configHolder.set),
+        builder: (context, state) => _SetupRoute(
+          store: configHolder.store,
+          onConfigured: configHolder.set,
+        ),
       ),
     ],
   );
