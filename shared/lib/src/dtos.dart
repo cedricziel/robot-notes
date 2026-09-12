@@ -34,6 +34,7 @@ class NoteMeta {
   const NoteMeta({
     required this.id,
     required this.title,
+    this.path = '',
     required this.version,
     required this.createdAt,
     required this.updatedAt,
@@ -41,6 +42,12 @@ class NoteMeta {
 
   final String id;
   final String title;
+
+  /// Folder the note lives in, `/`-separated, no leading/trailing slash.
+  /// Empty string means the vault root. Defaults to `''` so callers that
+  /// pre-date the vault-structure change (and any server response that
+  /// omits it) still construct a valid value.
+  final String path;
   final int version;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -48,6 +55,7 @@ class NoteMeta {
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
+        'path': path,
         'version': version,
         'created_at': createdAt.toUtc().toIso8601String(),
         'updated_at': updatedAt.toUtc().toIso8601String(),
@@ -56,6 +64,7 @@ class NoteMeta {
   factory NoteMeta.fromJson(Map<String, dynamic> json) => NoteMeta(
         id: json['id'] as String,
         title: json['title'] as String,
+        path: json['path'] as String? ?? '',
         version: json['version'] as int,
         createdAt: DateTime.parse(json['created_at'] as String).toUtc(),
         updatedAt: DateTime.parse(json['updated_at'] as String).toUtc(),
@@ -66,13 +75,20 @@ class NoteMeta {
       other is NoteMeta &&
       other.id == id &&
       other.title == title &&
+      other.path == path &&
       other.version == version &&
       other.createdAt.isAtSameMomentAs(createdAt) &&
       other.updatedAt.isAtSameMomentAs(updatedAt);
 
   @override
-  int get hashCode =>
-      Object.hash(id, title, version, createdAt.toUtc(), updatedAt.toUtc());
+  int get hashCode => Object.hash(
+        id,
+        title,
+        path,
+        version,
+        createdAt.toUtc(),
+        updatedAt.toUtc(),
+      );
 }
 
 /// Full note shape returned by `GET /notes/{id}`.
@@ -81,34 +97,48 @@ class Note {
   const Note({
     required this.id,
     required this.title,
+    this.path = '',
     required this.content,
     required this.version,
     required this.createdAt,
     required this.updatedAt,
     this.lock,
+    this.tags = const <String>[],
   });
 
   final String id;
   final String title;
+
+  /// Folder the note lives in, `/`-separated, no leading/trailing slash.
+  /// Empty string means the vault root.
+  final String path;
   final String content;
   final int version;
   final DateTime createdAt;
   final DateTime updatedAt;
   final Lock? lock;
 
+  /// Computed tag set (frontmatter `tags` merged with inline `#tag` tokens;
+  /// see `notes-storage`), in server-provided display casing. Empty when
+  /// the server response omits the field.
+  final List<String> tags;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
+        'path': path,
         'content': content,
         'version': version,
         'created_at': createdAt.toUtc().toIso8601String(),
         'updated_at': updatedAt.toUtc().toIso8601String(),
         'lock': lock?.toJson(),
+        'tags': tags,
       };
 
   factory Note.fromJson(Map<String, dynamic> json) => Note(
         id: json['id'] as String,
         title: json['title'] as String,
+        path: json['path'] as String? ?? '',
         content: json['content'] as String,
         version: json['version'] as int,
         createdAt: DateTime.parse(json['created_at'] as String).toUtc(),
@@ -116,6 +146,9 @@ class Note {
         lock: json['lock'] == null
             ? null
             : Lock.fromJson(json['lock'] as Map<String, dynamic>),
+        tags: json['tags'] == null
+            ? const <String>[]
+            : (json['tags'] as List).cast<String>(),
       );
 
   @override
@@ -123,22 +156,34 @@ class Note {
       other is Note &&
       other.id == id &&
       other.title == title &&
+      other.path == path &&
       other.content == content &&
       other.version == version &&
       other.createdAt.isAtSameMomentAs(createdAt) &&
       other.updatedAt.isAtSameMomentAs(updatedAt) &&
-      other.lock == lock;
+      other.lock == lock &&
+      _listEquals(other.tags, tags);
 
   @override
   int get hashCode => Object.hash(
         id,
         title,
+        path,
         content,
         version,
         createdAt.toUtc(),
         updatedAt.toUtc(),
         lock,
+        Object.hashAll(tags),
       );
+}
+
+bool _listEquals(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 /// Summary shape for an invite token (no API key — that lives in the

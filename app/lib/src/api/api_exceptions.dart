@@ -52,6 +52,14 @@ class LockedException extends ApiException {
   final Lock lock;
 }
 
+/// 409 — a move (`path` change on `PUT /notes/{id}` or `POST /notes`) would
+/// collide with a note that already occupies the target path (exact or
+/// case-only match). The server does not echo the colliding path back, so
+/// callers name it from the path they themselves just tried to move to.
+class PathConflictException extends ApiException {
+  const PathConflictException({super.message}) : super(statusCode: 409);
+}
+
 /// Anything else non-2xx that we don't model specifically. Keeps a single
 /// well-known type so callers don't have to handle raw `http.Response`s.
 class ApiServerException extends ApiException {

@@ -33,6 +33,31 @@ void main() {
       final back = NoteMeta.fromJson(json);
       expect(back, equals(meta));
     });
+
+    test('path defaults to the vault root when omitted', () {
+      final meta = NoteMeta.fromJson({
+        'id': '01HXY00000000000000000000A',
+        'title': 'Hello',
+        'version': 1,
+        'created_at': '2026-01-01T00:00:00.000Z',
+        'updated_at': '2026-01-01T00:00:00.000Z',
+      });
+      expect(meta.path, '');
+    });
+
+    test('round-trips a nested path', () {
+      final meta = NoteMeta(
+        id: '01HXY00000000000000000000A',
+        title: 'Hello',
+        path: 'Projects/Alpha',
+        version: 3,
+        createdAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 2),
+      );
+      final back = NoteMeta.fromJson(meta.toJson());
+      expect(back, equals(meta));
+      expect(back.path, 'Projects/Alpha');
+    });
   });
 
   group('Note', () {
@@ -67,6 +92,36 @@ void main() {
       expect(back, equals(note));
       expect(back.lock, isNotNull);
       expect(back.lock!.holder, 'bob');
+    });
+
+    test('path and tags default when omitted from the JSON', () {
+      final note = Note.fromJson({
+        'id': '01HXY00000000000000000000A',
+        'title': 'Hello',
+        'content': 'World',
+        'version': 1,
+        'created_at': '2026-01-01T00:00:00.000Z',
+        'updated_at': '2026-01-01T00:00:00.000Z',
+      });
+      expect(note.path, '');
+      expect(note.tags, isEmpty);
+    });
+
+    test('round-trips a nested path and computed tags', () {
+      final note = Note(
+        id: '01HXY00000000000000000000A',
+        title: 'Hello',
+        path: 'Projects/Alpha',
+        content: '# Hello\n\nWorld.',
+        version: 1,
+        createdAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 1),
+        tags: const ['urgent', 'planning'],
+      );
+      final back = Note.fromJson(note.toJson());
+      expect(back, equals(note));
+      expect(back.path, 'Projects/Alpha');
+      expect(back.tags, ['urgent', 'planning']);
     });
   });
 
