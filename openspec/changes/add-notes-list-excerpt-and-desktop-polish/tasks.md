@@ -16,9 +16,9 @@
 
 ## 3. Shared DTO
 
-- [ ] 3.1 Write/extend a failing test in `shared/test/dtos_test.dart` asserting `NoteMeta.fromJson`/`toJson` round-trip `excerpt` and `tags`, defaulting to `''`/`const []` when absent.
-- [ ] 3.2 Add `excerpt` and `tags` to `NoteMeta` (`shared/lib/src/dtos.dart`), matching `Note`'s existing `tags` handling in `fromJson`/`toJson`/`==`/`hashCode`.
-- [ ] 3.3 `dart test` (shared), `dart analyze`, `dart format` clean.
+- [x] 3.1 Write/extend a failing test in `shared/test/dtos_test.dart` asserting `NoteMeta.fromJson`/`toJson` round-trip `excerpt` and `tags`, defaulting to `''`/`const []` when absent.
+- [x] 3.2 Add `excerpt` and `tags` to `NoteMeta` (`shared/lib/src/dtos.dart`), matching `Note`'s existing `tags` handling in `fromJson`/`toJson`/`==`/`hashCode`.
+- [x] 3.3 `dart test` (shared), `dart analyze`, `dart format` clean.
 - [ ] 3.4 Commit: `feat(shared): add excerpt and tags to NoteMeta`.
 
 ## 4. Client: relative time helper
