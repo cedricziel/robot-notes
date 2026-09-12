@@ -3,13 +3,20 @@ import 'dart:io';
 
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
+import 'package:server/src/links.dart';
 import 'package:server/src/storage.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 /// Schema version for the FTS5 search index. Bumping this constant forces a
 /// rebuild on the next startup — useful when the index columns or tokenizer
 /// configuration change in incompatible ways.
-const int kSearchSchemaVersion = 2;
+///
+/// Bumped to 3 for the `path`/`tags` columns on `notes_fts` and the new
+/// `link_edges` table (vault-structure change): any pre-existing
+/// `search.db` reports schema_version 2 and is therefore treated as
+/// mismatched and rebuilt, per the "old schema triggers a rebuild"
+/// requirement.
+const int kSearchSchemaVersion = 3;
 
 /// Hard ceiling on a search `limit`, shared by `GET /search` and the
 /// `search_notes` MCP tool so both surfaces clamp/reject the same way.
@@ -22,6 +29,7 @@ class SearchHit {
   const SearchHit({
     required this.id,
     required this.title,
+    required this.path,
     required this.snippet,
     required this.rank,
     required this.updatedAt,
@@ -33,6 +41,9 @@ class SearchHit {
   /// Note title at index time.
   final String title;
 
+  /// Folder the note lives in at index time, matching [StoredNote.path].
+  final String path;
+
   /// Highlighted excerpt of the matched content with `<mark>` markers.
   final String snippet;
 
@@ -42,6 +53,29 @@ class SearchHit {
 
   /// The note's `updated_at` as of the last [SearchIndex.upsert].
   final DateTime updatedAt;
+}
+
+/// One of a note's outgoing `[[wikilinks]]`, as recorded in the
+/// `link_edges` table by [SearchIndex.upsert]. Mirrors `link_index.dart`'s
+/// `LinkEdge`, but carries the resolution snapshot (`targetId`) computed by
+/// the caller at write time — [SearchIndex] itself never resolves titles,
+/// it only stores whatever resolution its caller (`NoteWriteService`, or
+/// [SearchIndex]'s own startup rebuild) already computed.
+@immutable
+class SearchLinkEdge {
+  /// Creates an edge to [targetTitle], optionally already resolved to
+  /// [targetId].
+  const SearchLinkEdge({required this.targetTitle, this.targetId});
+
+  /// The linked note's title, exactly as parsed.
+  final String targetTitle;
+
+  /// The linked note's id, or `null` for a phantom link (no note currently
+  /// carries [targetTitle]).
+  final String? targetId;
+
+  /// Whether this edge currently resolves to a note.
+  bool get resolved => targetId != null;
 }
 
 /// Thrown by [SearchIndex.search] when the supplied query string is not a
@@ -79,11 +113,19 @@ class SearchIndex {
   final Database _db;
   late final PreparedStatement _upsertStmt = _db.prepare(
     'INSERT OR REPLACE INTO notes_fts '
-    '(rowid, id, title, content, updated_at) '
-    'VALUES ((SELECT rowid FROM notes_fts WHERE id = ?1), ?1, ?2, ?3, ?4);',
+    '(rowid, id, title, path, content, updated_at, tags) '
+    'VALUES ((SELECT rowid FROM notes_fts WHERE id = ?1), '
+    '?1, ?2, ?3, ?4, ?5, ?6);',
   );
   late final PreparedStatement _deleteStmt = _db.prepare(
     'DELETE FROM notes_fts WHERE id = ?1;',
+  );
+  late final PreparedStatement _deleteLinkEdgesStmt = _db.prepare(
+    'DELETE FROM link_edges WHERE source_id = ?1;',
+  );
+  late final PreparedStatement _insertLinkEdgeStmt = _db.prepare(
+    'INSERT INTO link_edges (source_id, target_title, target_id, resolved) '
+    'VALUES (?1, ?2, ?3, ?4);',
   );
 
   /// Opens the index at [dbFile] (creating its parent directory if
@@ -125,46 +167,135 @@ class SearchIndex {
     return index;
   }
 
-  /// Inserts or replaces a row for [id] with [title], [content], and
-  /// [updatedAt].
+  /// Inserts or replaces a row for [id] with [title], [path], [content],
+  /// [updatedAt], [tags], and its outgoing [links] — all four persisted
+  /// stores (the FTS row, its path/tags columns, and the `link_edges`
+  /// rows) are updated together inside one transaction, per the
+  /// "updated ... transactionally" requirement.
+  ///
+  /// [path] and [tags] default to root/empty for callers (mostly tests)
+  /// that only care about title/content search and don't populate a full
+  /// note's derived metadata.
   void upsert({
     required String id,
     required String title,
     required String content,
     required DateTime updatedAt,
+    String path = '',
+    Set<String> tags = const {},
+    List<SearchLinkEdge> links = const [],
   }) {
-    _upsertStmt
-        .execute([id, title, content, updatedAt.toUtc().toIso8601String()]);
+    _db.execute('BEGIN');
+    try {
+      _upsertNoTx(
+        id: id,
+        title: title,
+        path: path,
+        content: content,
+        updatedAt: updatedAt,
+        tags: tags,
+        links: links,
+      );
+      _db.execute('COMMIT');
+    } catch (e) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
   }
 
-  /// Removes the row for [id]. Idempotent: removing a missing row succeeds
-  /// silently.
+  /// Core of [upsert], without its own transaction — used directly by
+  /// [_rebuild], which wraps the whole rebuild (every note) in a single
+  /// outer transaction instead of one per note; SQLite does not support
+  /// nested `BEGIN`s.
+  void _upsertNoTx({
+    required String id,
+    required String title,
+    required String path,
+    required String content,
+    required DateTime updatedAt,
+    required Set<String> tags,
+    required List<SearchLinkEdge> links,
+  }) {
+    _upsertStmt.execute([
+      id,
+      title,
+      path,
+      content,
+      updatedAt.toUtc().toIso8601String(),
+      _encodeTags(tags),
+    ]);
+    _deleteLinkEdgesStmt.execute([id]);
+    for (final link in links) {
+      final resolvedFlag = link.resolved ? 1 : 0;
+      _insertLinkEdgeStmt.execute([
+        id,
+        link.targetTitle,
+        link.targetId,
+        resolvedFlag,
+      ]);
+    }
+  }
+
+  /// Removes the row for [id] and its outgoing `link_edges` rows.
+  /// Idempotent: removing a missing row succeeds silently.
   void delete(String id) {
-    _deleteStmt.execute([id]);
+    _db.execute('BEGIN');
+    try {
+      _deleteStmt.execute([id]);
+      _deleteLinkEdgesStmt.execute([id]);
+      _db.execute('COMMIT');
+    } catch (e) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
   }
 
   /// Runs an FTS5 [query] and returns the matching rows ordered by rank
-  /// ascending (most relevant first). Throws [InvalidSearchQueryException]
-  /// if the query is not a valid FTS5 expression.
+  /// ascending (most relevant first), optionally narrowed to notes whose
+  /// `path` equals or is nested under [path] and/or whose tag set
+  /// contains [tag] (case-insensitive, matching `tags.dart`'s matching
+  /// rule). Throws [InvalidSearchQueryException] if the query is not a
+  /// valid FTS5 expression.
   ///
   /// Snippets contain `<mark>...</mark>` markers around matched terms.
-  List<SearchHit> search(String query, {int limit = 50}) {
+  List<SearchHit> search(
+    String query, {
+    int limit = 50,
+    String? path,
+    String? tag,
+  }) {
+    final conditions = ['notes_fts MATCH ?'];
+    final params = <Object?>[query];
+    if (path != null) {
+      // Avoided LIKE here: a folder name containing `%` or `_` would
+      // otherwise be misinterpreted as a wildcard.
+      conditions.add(
+        "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')",
+      );
+      params.addAll([path, path, path]);
+    }
+    if (tag != null) {
+      conditions.add("instr(tags, ' ' || ? || ' ') > 0");
+      params.add(tag.toLowerCase());
+    }
+    params.add(limit);
     try {
       final rows = _db.select(
-        'SELECT id, title, updated_at, '
-        "snippet(notes_fts, 2, '<mark>', '</mark>', '…', 16) AS snippet, "
+        'SELECT id, title, path, updated_at, '
+        "snippet(notes_fts, 3, '<mark>', '</mark>', '…', 16) AS snippet, "
         'bm25(notes_fts) AS rank '
         'FROM notes_fts '
-        'WHERE notes_fts MATCH ?1 '
+        'WHERE ${conditions.join(' AND ')} '
         'ORDER BY rank '
-        'LIMIT ?2;',
-        [query, limit],
+        'LIMIT ?;',
+        params,
       );
       return [
         for (final row in rows)
           SearchHit(
             id: row['id'] as String,
             title: row['title'] as String,
+            path: row['path'] as String,
             snippet: row['snippet'] as String,
             rank: (row['rank'] as num).toDouble(),
             updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
@@ -183,21 +314,53 @@ class SearchIndex {
   void close() {
     _upsertStmt.close();
     _deleteStmt.close();
+    _deleteLinkEdgesStmt.close();
+    _insertLinkEdgeStmt.close();
     _db.close();
   }
+
+  /// Encodes [tags] as a space-delimited, lowercased, space-padded string
+  /// (`" urgent finance "`) so [search]'s `tag` filter can test for exact
+  /// membership with `instr(tags, ' ' || ? || ' ')` without a separate
+  /// join table — a personal vault's tag cardinality doesn't warrant one.
+  static String _encodeTags(Set<String> tags) =>
+      ' ${tags.map((t) => t.toLowerCase()).join(' ')} ';
 
   Future<int> _rebuild(Storage storage) async {
     var count = 0;
     _db.execute('BEGIN');
     try {
-      _db.execute('DELETE FROM notes_fts;');
-      for (final summary in await storage.list()) {
+      _db
+        ..execute('DELETE FROM notes_fts;')
+        ..execute('DELETE FROM link_edges;');
+      final summaries = await storage.list();
+      // A self-contained title -> id resolution map, mirroring
+      // MetaIndex.resolveTitle's "ascending id wins" tie-break, so a
+      // full rebuild resolves link edges the same way live writes do
+      // without SearchIndex needing to depend on MetaIndex at all.
+      final sortedByTitle = [...summaries]
+        ..sort((a, b) => a.id.compareTo(b.id));
+      final titleToId = <String, String>{};
+      for (final s in sortedByTitle) {
+        titleToId.putIfAbsent(s.title, () => s.id);
+      }
+      for (final summary in summaries) {
         final note = await storage.read(summary.id);
-        upsert(
+        final links = [
+          for (final link in parseLinks(note.content))
+            SearchLinkEdge(
+              targetTitle: link.targetTitle,
+              targetId: titleToId[link.targetTitle],
+            ),
+        ];
+        _upsertNoTx(
           id: note.id,
           title: note.title,
+          path: note.path,
           content: note.content,
           updatedAt: note.updatedAt,
+          tags: summary.tags,
+          links: links,
         );
         count++;
       }
@@ -261,10 +424,24 @@ class SearchIndex {
         CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
           id UNINDEXED,
           title,
+          path UNINDEXED,
           content,
           updated_at UNINDEXED,
+          tags UNINDEXED,
           tokenize = "porter unicode61"
         );
+      ''')
+      ..execute('''
+        CREATE TABLE IF NOT EXISTS link_edges (
+          source_id TEXT NOT NULL,
+          target_title TEXT NOT NULL,
+          target_id TEXT,
+          resolved INTEGER NOT NULL
+        );
+      ''')
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS link_edges_source_idx
+          ON link_edges(source_id);
       ''');
   }
 }

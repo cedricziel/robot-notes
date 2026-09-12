@@ -99,13 +99,13 @@
 
 ### 12. Search index: path, tags, link edges
 
-- [ ] 12.1 Write failing tests: `search.db` schema gains `path`, tags, and a link-edges table; writes populate them; deletes clean them up
-- [ ] 12.2 Update `server/lib/src/search_index.dart` schema and write/delete paths; run tests green
-- [ ] 12.3 Write failing test: an old-schema `search.db` (missing the new tables) is detected as mismatched and triggers a full rebuild
-- [ ] 12.4 Update the schema-check logic; run tests green
-- [ ] 12.5 Write failing route tests: `GET /search` accepts `path` and `tag` filters in addition to `q`
-- [ ] 12.6 Implement the filters in the search route; run tests green
-- [ ] 12.7 Commit: `feat(server): index path, tags, and link edges in search`
+- [x] 12.1 Write failing tests: `search.db` schema gains `path`, tags, and a link-edges table; writes populate them; deletes clean them up — `server/test/src/search_index_test.dart`
+- [x] 12.2 Update `server/lib/src/search_index.dart` schema and write/delete paths; run tests green — `notes_fts` gains `path`/`tags` `UNINDEXED` columns and a new `link_edges` table; `upsert`/`delete` wrap the FTS row plus its `link_edges` rows in one transaction (`_upsertNoTx` factored out so the startup `_rebuild` — which wraps every note in one outer transaction — doesn't nest `BEGIN`s)
+- [x] 12.3 Write failing test: an old-schema `search.db` (missing the new tables) is detected as mismatched and triggers a full rebuild — same file, hand-builds a pre-change-shaped db (schema_version 2, no path/tags/link_edges)
+- [x] 12.4 Update the schema-check logic; run tests green — `kSearchSchemaVersion` bumped 2 → 3, so any pre-change db (stamped 2) is already "mismatched" by the existing version-comparison check; no separate structural check needed
+- [x] 12.5 Write failing route tests: `GET /search` accepts `path` and `tag` filters in addition to `q` — `server/test/routes/search_test.dart`
+- [x] 12.6 Implement the filters in the search route; run tests green — `routes/search.dart` passes `path`/`tag` query params through to `SearchIndex.search`, which filters via `substr`/`instr` (not `LIKE`, to avoid `%`/`_` in a folder or tag name being treated as a wildcard)
+- [x] 12.7 Commit: `feat(server): index path, tags, and link edges in search`
 
 ### 13. MCP tool catalog
 

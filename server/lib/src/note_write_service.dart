@@ -90,14 +90,21 @@ class NoteWriteService {
       content: content,
       path: path,
     );
+    final summary = note.toSummary();
+    // metaIndex is upserted before the search index reads from it below,
+    // so link resolution (including a self-referential link) sees this
+    // note.
+    metaIndex.upsert(summary);
+    linkIndex.upsert(note.id, note.content);
     searchIndex.upsert(
       id: note.id,
       title: note.title,
+      path: note.path,
       content: note.content,
       updatedAt: note.updatedAt,
+      tags: summary.tags,
+      links: _searchLinkEdges(note.id),
     );
-    metaIndex.upsert(note.toSummary());
-    linkIndex.upsert(note.id, note.content);
     _safeBroadcast(
       ChangedEvent(
         noteId: note.id,
@@ -130,14 +137,18 @@ class NoteWriteService {
       ifMatch: ifMatch,
       path: path,
     );
+    final summary = updated.toSummary();
+    metaIndex.upsert(summary);
+    linkIndex.upsert(updated.id, updated.content);
     searchIndex.upsert(
       id: updated.id,
       title: updated.title,
+      path: updated.path,
       content: updated.content,
       updatedAt: updated.updatedAt,
+      tags: summary.tags,
+      links: _searchLinkEdges(updated.id),
     );
-    metaIndex.upsert(updated.toSummary());
-    linkIndex.upsert(updated.id, updated.content);
     // A path change broadcasts as `moved` rather than `updated` (per
     // notes-api), even if title/content changed in the same request —
     // "moved" is what tells subscribed clients their folder tree view
@@ -243,6 +254,19 @@ class NoteWriteService {
     );
     return existing;
   }
+
+  /// Builds the [SearchLinkEdge] list [SearchIndex.upsert] needs from
+  /// [id]'s freshly-parsed [linkIndex] entry, resolving each target title
+  /// against [metaIndex]'s live state — the same resolution
+  /// [MetaIndex.resolveTitle] uses everywhere else, so a link that
+  /// resolves for `GET /notes/{id}/links` resolves here too.
+  List<SearchLinkEdge> _searchLinkEdges(NoteId id) => [
+        for (final edge in linkIndex.outgoing(id))
+          SearchLinkEdge(
+            targetTitle: edge.targetTitle,
+            targetId: metaIndex.resolveTitle(edge.targetTitle),
+          ),
+      ];
 
   void _safeBroadcast(ChangedEvent event) {
     try {

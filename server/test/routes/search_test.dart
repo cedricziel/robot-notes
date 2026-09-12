@@ -208,6 +208,60 @@ void main() {
       expect(body['error'], 'invalid_query');
     });
 
+    test('path filter narrows results to a folder', () async {
+      final index = await _emptyIndex(tmp);
+      addTearDown(index.close);
+      final stamp = DateTime.utc(2026);
+      index
+        ..upsert(
+          id: 'a',
+          title: 'A',
+          content: 'budget plan',
+          updatedAt: stamp,
+          path: 'Projects/Alpha',
+        )
+        ..upsert(id: 'b', title: 'B', content: 'budget plan', updatedAt: stamp);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          searchIndex: index,
+          uri: Uri.parse('/search?q=budget&path=Projects/Alpha'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items.map((i) => i['id']), ['a']);
+    });
+
+    test('tag filter narrows results to notes carrying the tag', () async {
+      final index = await _emptyIndex(tmp);
+      addTearDown(index.close);
+      final stamp = DateTime.utc(2026);
+      index
+        ..upsert(
+          id: 'a',
+          title: 'A',
+          content: 'budget plan',
+          updatedAt: stamp,
+          tags: {'finance'},
+        )
+        ..upsert(id: 'b', title: 'B', content: 'budget plan', updatedAt: stamp);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          searchIndex: index,
+          uri: Uri.parse('/search?q=budget&tag=finance'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items.map((i) => i['id']), ['a']);
+    });
+
     test('non-GET methods return 405', () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
