@@ -21,12 +21,12 @@
 
 ## 4. Editor: flush-on-close replaces the discard prompt
 
-- [ ] 4.1 Write failing widget tests in `note_screen_test.dart`: (a) closing with a dirty buffer sends a `PUT` and then closes, with no dialog shown; (b) closing with clean buffers sends no `PUT` and closes immediately; (c) closing when the flush save returns 409 keeps the note open on the conflict view; (d) closing when the flush save fails with a plain error (not 409/423) keeps the note open, shows the existing error snackbar, and leaves the edit buffers intact; (e) closing when the flush save returns 423 (lock taken) still closes, consistent with today's lock-takeover-during-save behavior.
-- [ ] 4.2 Remove `_confirmDiscard()` and the "Discard changes?" `AlertDialog`. Rewrite `_close()` per design.md's flush logic: if dirty, call `controller.cancelPendingAutosave()` then `await controller.save()`; inspect the resulting state to decide whether to proceed to `exitEditing()` + `onClose()` or stay open (conflict, or a plain error) per the spec delta's four outcomes. Keep `PopScope(canPop: !state.isDirty, onPopInvokedWithResult: _onPopInvoked)` unchanged — only `_close()`'s body changes.
-- [ ] 4.3 Delete the now-obsolete discard-flow tests (search for `_confirmDiscard`, `note.discard.keep`, `note.discard.confirm`, `'Discard changes?'` in `note_screen_test.dart`) and confirm 4.1's new tests pass in their place.
-- [ ] 4.4 Check the "closing while editing" test group and the web-save-shortcut / Escape tests for any assumption of the old discard prompt; update to the new flush behavior.
-- [ ] 4.5 `flutter test`, `flutter analyze`, `dart format` clean for the app.
-- [ ] 4.6 Commit: `feat(app): flush pending edits on close instead of prompting to discard`.
+- [x] 4.1 Write failing widget tests in `note_screen_test.dart`: (a) closing with a dirty buffer sends a `PUT` and then closes, with no dialog shown; (b) closing with clean buffers sends no `PUT` and closes immediately; (c) closing when the flush save returns 409 keeps the note open on the conflict view; (d) closing when the flush save fails with a plain error (not 409/423) keeps the note open, shows the existing error snackbar, and leaves the edit buffers intact; (e) closing when the flush save returns 423 (lock taken) still closes, consistent with today's lock-takeover-during-save behavior.
+- [x] 4.2 Remove `_confirmDiscard()` and the "Discard changes?" `AlertDialog`. Rewrite `_close()` per design.md's flush logic: if dirty, call `controller.cancelPendingAutosave()` then `await controller.save()`; inspect the resulting state to decide whether to proceed to `exitEditing()` + `onClose()` or stay open (conflict, or a plain error) per the spec delta's four outcomes. Keep `PopScope(canPop: !state.isDirty, onPopInvokedWithResult: _onPopInvoked)` unchanged — only `_close()`'s body changes.
+- [x] 4.3 Delete the now-obsolete discard-flow tests (search for `_confirmDiscard`, `note.discard.keep`, `note.discard.confirm`, `'Discard changes?'` in `note_screen_test.dart`) and confirm 4.1's new tests pass in their place.
+- [x] 4.4 Check the "closing while editing" test group and the web-save-shortcut / Escape tests for any assumption of the old discard prompt; update to the new flush behavior.
+- [x] 4.5 `flutter test`, `flutter analyze`, `dart format` clean for the app.
+- [x] 4.6 Commit: `feat(app): flush pending edits on close instead of prompting to discard`.
 
 ## 5. Full verification
 

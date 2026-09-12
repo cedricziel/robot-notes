@@ -200,32 +200,30 @@ class _NoteScreenState extends State<NoteScreen> {
     if (field.text != next) field.text = next;
   }
 
-  Future<bool> _confirmDiscard() async {
+  /// With autosave, there's nothing meaningful to confirm discarding —
+  /// instead, a pending edit is flushed with an immediate save before
+  /// leaving. Returns whether it's now safe to actually close: `false`
+  /// keeps the note open, either because the flush landed on a conflict
+  /// (the conflict view takes over) or because it failed with a plain
+  /// error (edits stay intact, the existing error snackbar explains why).
+  /// Losing the lock during the flush (423) still counts as safe to
+  /// close — same as any other save that gets overtaken mid-edit.
+  Future<bool> _flushPendingEdit() async {
     if (!widget.controller.value.isDirty) return true;
-    final discard = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Discard changes?'),
-        content: const Text('Your edits to this note have not been saved.'),
-        actions: [
-          TextButton(
-            key: const Key('note.discard.keep'),
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Keep editing'),
-          ),
-          FilledButton.tonal(
-            key: const Key('note.discard.confirm'),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Discard'),
-          ),
-        ],
-      ),
-    );
-    return discard ?? false;
+    widget.controller.cancelPendingAutosave();
+    await widget.controller.save();
+    if (!mounted) return false;
+    final after = widget.controller.value;
+    if (after.mode == NoteMode.conflict) return false;
+    if (after.mode == NoteMode.editing && after.isDirty) {
+      _announceOutcome(failed: 'Could not save');
+      return false;
+    }
+    return true;
   }
 
   Future<void> _close() async {
-    if (!await _confirmDiscard()) return;
+    if (!await _flushPendingEdit()) return;
     await widget.controller.exitEditing();
     if (mounted) widget.onClose?.call();
   }
