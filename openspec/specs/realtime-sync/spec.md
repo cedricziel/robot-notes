@@ -1,8 +1,11 @@
 # realtime-sync Specification
 
 ## Purpose
+
 TBD - created by archiving change add-mvp-foundation. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Server exposes a single WebSocket endpoint at /ws
 
 The server SHALL expose exactly one WebSocket endpoint at `/ws`. All real-time interactions for the API SHALL flow through this endpoint. Multiple concurrent connections SHALL be permitted.
@@ -158,3 +161,30 @@ When the server receives a JSON message with a `type` it does not recognize, it 
 - **WHEN** an authenticated client sends `{"type":"explode"}`
 - **THEN** the server SHALL reply `{"type":"error","error":"unknown_type","received":"explode"}` and SHALL keep the connection open
 
+### Requirement: Client surfaces connection state and refetches after a stale reconnect
+
+The client SHALL track whether its `/ws` connection is connected, reconnecting, or stale (offline longer than its stale threshold of 5 seconds) and SHALL surface that state in the UI. When the connection is re-established after the outage went stale, the client SHALL refetch the data on screen over HTTP, since `changed` events broadcast during the outage were never delivered.
+
+#### Scenario: Disconnect is reported as reconnecting
+
+- **GIVEN** the client is connected
+- **WHEN** the connection drops
+- **THEN** the client SHALL report the connection as reconnecting
+
+#### Scenario: Long outage is reported as stale
+
+- **GIVEN** the client is reconnecting
+- **WHEN** the outage exceeds the stale threshold
+- **THEN** the client SHALL report the connection as stale until it reconnects
+
+#### Scenario: Reconnect after a stale outage refetches
+
+- **GIVEN** the client reported the connection as stale
+- **WHEN** the connection is re-established
+- **THEN** the client SHALL report the connection as connected and SHALL refetch the on-screen data once over HTTP
+
+#### Scenario: Reconnect after a short outage does not refetch
+
+- **GIVEN** the client is reconnecting and the outage has not exceeded the stale threshold
+- **WHEN** the connection is re-established
+- **THEN** the client SHALL report the connection as connected and SHALL NOT refetch

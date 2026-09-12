@@ -12,11 +12,13 @@ import 'src/notes/note_controller.dart';
 import 'src/notes/note_screen.dart';
 import 'src/notes/notes_list_controller.dart';
 import 'src/notes/notes_list_screen.dart';
+import 'src/realtime/connection_status.dart';
 import 'src/realtime/ws_client.dart';
 import 'src/search/search_controller.dart';
 import 'src/search/search_screen.dart';
 import 'src/setup/setup_controller.dart';
 import 'src/setup/setup_screen.dart';
+import 'src/widgets/connection_banner.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -183,6 +185,7 @@ class _AppShellState extends State<_AppShell> {
   late final RobotNotesClient _api;
   late final RobotNotesWsClient _ws;
   late final NotesListController _list;
+  late final ConnectionStatusController _status;
 
   @override
   void initState() {
@@ -190,6 +193,10 @@ class _AppShellState extends State<_AppShell> {
     _api = RobotNotesClient(config: widget.config);
     _ws = RobotNotesWsClient(config: widget.config);
     _list = NotesListController(api: _api, events: _ws.events);
+    _status = ConnectionStatusController(
+      events: _ws.events,
+      onStaleReconnect: _list.refresh,
+    );
     unawaited(_ws.start());
     // Wildcard subscription keeps the list in sync with everyone's writes.
     _ws.subscribe('*');
@@ -197,6 +204,7 @@ class _AppShellState extends State<_AppShell> {
 
   @override
   void dispose() {
+    _status.dispose();
     _list.dispose();
     unawaited(_ws.dispose());
     _api.close();
@@ -273,6 +281,7 @@ class _AppShellState extends State<_AppShell> {
       controller: _list,
       onNoteTap: _openNote,
       onCreate: _createNote,
+      banner: ConnectionBanner(status: _status),
       appBarActions: [
         IconButton(
           key: const Key('shell.refresh'),
