@@ -1,8 +1,11 @@
 # flutter-client Specification
 
 ## Purpose
+
 TBD - created by archiving change add-mvp-foundation. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Flutter app targets multiple platforms from a single codebase
 
 The Flutter client SHALL build and run on at least Android, iOS, macOS, Windows, Linux, and Web from the same source. Platform-specific code SHALL be limited to secure storage and platform integration glue. Functionality SHALL be equivalent across platforms in v1.
@@ -52,12 +55,24 @@ The app SHALL store the API key and actor name using a per-platform secure mecha
 
 ### Requirement: Notes list view shows server state
 
-The app SHALL provide a list view that pages through `GET /notes`, showing each note's title and updated time, and supports pull-to-refresh and infinite scroll via `next_cursor`. The list SHALL update in response to `changed` WebSocket events without manual refresh.
+The app SHALL provide a list view that pages through `GET /notes`, showing each note's title and updated time, and supports pull-to-refresh, an explicit refresh action, and infinite scroll via `next_cursor`. The list SHALL update in response to `changed` WebSocket events without manual refresh, and SHALL re-fetch when the user returns from a note so edits show even when the realtime stream is unavailable.
 
 #### Scenario: Initial load fetches first page
 
 - **WHEN** the user opens the notes list
 - **THEN** the app SHALL request `GET /notes` and render the returned items
+
+#### Scenario: Refresh action re-fetches the list
+
+- **GIVEN** the notes list is open
+- **WHEN** the user activates the Refresh action in the app bar
+- **THEN** the app SHALL request `GET /notes` again and render the returned items
+
+#### Scenario: Returning from a note refreshes the list
+
+- **GIVEN** the user opened a note from the list and saved a new version
+- **WHEN** the note view is closed
+- **THEN** the list SHALL request `GET /notes` again and show the note's new version and updated time
 
 #### Scenario: Live changed event updates the list
 
@@ -186,4 +201,3 @@ The app SHALL maintain at most one WebSocket connection while signed in. On disc
 
 - **WHEN** the WS connection is re-established after being disconnected for more than 5 seconds
 - **THEN** the open note view (if any) SHALL re-issue `GET /notes/{id}` to ensure the user sees current state
-
