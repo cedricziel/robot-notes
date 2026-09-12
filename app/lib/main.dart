@@ -4,16 +4,18 @@ import 'package:go_router/go_router.dart';
 
 import 'src/app_router.dart';
 import 'src/config/config_store.dart';
+import 'src/otel/otel_bootstrap.dart';
 import 'src/url_strategy.dart';
 
 export 'src/app_router.dart' show NoteRoute, blankNoteTitle, createBlankNote;
 
-void main() {
+Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
   // Web leaves the semantics tree off until the user finds a hidden
   // enable-accessibility control; native platforms turn it on themselves.
   if (kIsWeb) binding.ensureSemantics();
   configureUrlStrategy();
+  await initOtel();
   runApp(const RobotNotesApp());
 }
 
