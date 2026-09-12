@@ -140,7 +140,7 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 ### Requirement: Token endpoint exchanges codes with PKCE verification
 
-`POST /oauth/token` SHALL accept `application/x-www-form-urlencoded` and SHALL be served without bearer authentication. Client authentication SHALL follow the client's registered method: `none` requires `client_id` in the body; `client_secret_post` requires `client_id` and `client_secret` in the body; `client_secret_basic` requires HTTP Basic credentials. A failed client authentication SHALL respond 401 `{ "error": "invalid_client" }`. A `grant_type` absent from the client's registered `grant_types` SHALL yield 400 `{ "error": "unauthorized_client" }`, and `refresh_token` SHALL be omitted from the response when the client's registered `grant_types` lacks `refresh_token`. For `grant_type=authorization_code` the server SHALL require `code`, `redirect_uri`, and `code_verifier`, and SHALL reject with 400 `{ "error": "invalid_grant" }` when the code is unknown, expired, already used, issued to a different client, bound to a different `redirect_uri`, when `BASE64URL(SHA256(code_verifier))` differs from the bound `code_challenge`, or when a supplied `resource` differs from the bound one. Reuse of an already-consumed code SHALL additionally revoke every token issued from that code. Success SHALL respond 200 with `Cache-Control: no-store` and JSON `{ access_token, token_type: "Bearer", expires_in: 3600, refresh_token, scope }`, where both tokens are opaque with at least 256 bits of entropy. Missing parameters SHALL yield 400 `{ "error": "invalid_request" }`; unknown `grant_type` SHALL yield 400 `{ "error": "unsupported_grant_type" }`.
+`POST /oauth/token` SHALL accept `application/x-www-form-urlencoded` and SHALL be served without bearer authentication. Client authentication SHALL follow the client's registered method: `none` requires `client_id` in the body; `client_secret_post` requires `client_id` and `client_secret` in the body; `client_secret_basic` requires HTTP Basic credentials. A failed client authentication SHALL respond 401 `{ "error": "invalid_client" }`. Grant-type errors SHALL be evaluated in this order: a missing `grant_type` yields 400 `{ "error": "invalid_request" }`; a `grant_type` the server does not support yields 400 `{ "error": "unsupported_grant_type" }`; a supported `grant_type` absent from the client's registered `grant_types` yields 400 `{ "error": "unauthorized_client" }`. Additionally, and `refresh_token` SHALL be omitted from the response when the client's registered `grant_types` lacks `refresh_token`. For `grant_type=authorization_code` the server SHALL require `code`, `redirect_uri`, and `code_verifier`, and SHALL reject with 400 `{ "error": "invalid_grant" }` when the code is unknown, expired, already used, issued to a different client, bound to a different `redirect_uri`, when `BASE64URL(SHA256(code_verifier))` differs from the bound `code_challenge`, or when a supplied `resource` differs from the bound one. Reuse of an already-consumed code SHALL additionally revoke every token issued from that code. Success SHALL respond 200 with `Cache-Control: no-store` and JSON `{ access_token, token_type: "Bearer", expires_in: 3600, refresh_token, scope }`, where both tokens are opaque with at least 256 bits of entropy. Missing parameters SHALL yield 400 `{ "error": "invalid_request" }`; unknown `grant_type` SHALL yield 400 `{ "error": "unsupported_grant_type" }`.
 
 #### Scenario: Successful exchange
 
@@ -166,6 +166,11 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 - **WHEN** a `client_secret_post` client posts the exchange with a wrong `client_secret`
 - **THEN** the response SHALL be 401 with `error == "invalid_client"`
+
+#### Scenario: Missing grant type
+
+- **WHEN** a client posts to the token endpoint without `grant_type`
+- **THEN** the response SHALL be 400 with `error == "invalid_request"`
 
 #### Scenario: Grant type not registered for the client
 
