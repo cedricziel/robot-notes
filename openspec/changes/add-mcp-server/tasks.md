@@ -29,19 +29,19 @@
 
 ## 3. OAuth registration, consent, token, and revocation routes (PR 3)
 
-- [ ] 3.1 Write failing tests in `server/test/src/oauth/form_body_test.dart` for a form-urlencoded parser (repeated keys, plus-as-space, percent decoding, wrong content type rejected); implement `lib/src/oauth/form_body.dart`
-- [ ] 3.2 Write failing tests in `server/test/src/oauth/client_auth_test.dart`: `authenticateClient` resolves `none` (body `client_id`), `client_secret_post`, and `client_secret_basic`, and fails with `invalid_client` on wrong secret or method mismatch; implement `lib/src/oauth/client_auth.dart`
-- [ ] 3.3 Write failing route tests in `server/test/routes/oauth/register_test.dart` for every scenario of "Dynamic Client Registration mints public or confidential clients" (public, confidential, localhost redirect, plain http rejected, missing redirect URIs, unsupported method, `Cache-Control: no-store`, 405 on GET)
-- [ ] 3.4 Implement `routes/oauth/register.dart` so 3.3 passes
-- [ ] 3.5 Write failing tests in `server/test/src/oauth/consent_page_test.dart`: the template escapes `<script>` in client name and state, renders scopes, the `api_key` password input, the `actor` input prefilled, every hidden parameter, and the error banner when given an error
-- [ ] 3.6 Implement `lib/src/oauth/consent_page.dart` so 3.5 passes
-- [ ] 3.7 Write failing route tests in `server/test/routes/oauth/authorize_test.dart` for the GET scenarios (consent renders, unregistered redirect does not redirect, missing PKCE redirects with `invalid_request` and `state`, wrong resource redirects with `invalid_target`, unknown scope redirects with `invalid_scope`, default scope) and the POST scenarios (correct key redirects with `code`, `iss`, `state`; wrong key re-renders without minting; empty actor falls back to client name; CSP and `X-Frame-Options` headers present)
-- [ ] 3.8 Implement `routes/oauth/authorize.dart` (shared validator for GET and POST, constant-time key check) so 3.7 passes
-- [ ] 3.9 Write failing route tests in `server/test/routes/oauth/token_test.dart` for the code-exchange scenarios (success shape and `no-store`, wrong verifier, code reuse revokes, expired code, wrong redirect URI, wrong client, confidential wrong secret, unsupported grant type, missing params) and the refresh scenarios (rotation, reuse revokes family, scope cannot widen, expired refresh)
-- [ ] 3.10 Implement `routes/oauth/token.dart` so 3.9 passes
-- [ ] 3.11 Write failing route tests in `server/test/routes/oauth/revoke_test.dart` (refresh revocation cascades, access revocation is local, unknown token 200, bad client 401); implement `routes/oauth/revoke.dart`
-- [ ] 3.12 Add the four routes to `test/integration/_test_app.dart`; write `server/test/integration/oauth_flow_test.dart` running register, authorize GET, consent POST, token exchange, and refresh end to end over HTTP with a real PKCE pair
-- [ ] 3.13 Run `dart format .`, `dart analyze`, `cd server && dart test`; commit as `feat(server): add OAuth registration, consent, token, and revocation routes`
+- [x] 3.1 Write failing tests in `server/test/src/oauth/form_body_test.dart` for a form-urlencoded parser (repeated keys, plus-as-space, percent decoding, wrong content type rejected); implement `lib/src/oauth/form_body.dart`
+- [x] 3.2 Write failing tests in `server/test/src/oauth/client_auth_test.dart`: `authenticateClient` resolves `none` (body `client_id`), `client_secret_post`, and `client_secret_basic`, and fails with `invalid_client` on wrong secret or method mismatch; implement `lib/src/oauth/client_auth.dart`
+- [x] 3.3 Write failing route tests in `server/test/routes/oauth/register_test.dart` for every scenario of "Dynamic Client Registration mints public or confidential clients" (public, confidential, localhost redirect, plain http rejected, missing redirect URIs, unsupported method, `Cache-Control: no-store`, 405 on GET)
+- [x] 3.4 Implement `routes/oauth/register.dart` so 3.3 passes
+- [x] 3.5 Write failing tests in `server/test/src/oauth/consent_page_test.dart`: the template escapes `<script>` in client name and state, renders scopes, the `api_key` password input, the `actor` input prefilled, every hidden parameter, and the error banner when given an error
+- [x] 3.6 Implement `lib/src/oauth/consent_page.dart` so 3.5 passes
+- [x] 3.7 Write failing route tests in `server/test/routes/oauth/authorize_test.dart` for the GET scenarios (consent renders, unregistered redirect does not redirect, missing PKCE redirects with `invalid_request` and `state`, wrong resource redirects with `invalid_target`, unknown scope redirects with `invalid_scope`, default scope) and the POST scenarios (correct key redirects with `code`, `iss`, `state`; wrong key re-renders without minting; empty actor falls back to client name; CSP and `X-Frame-Options` headers present)
+- [x] 3.8 Implement `routes/oauth/authorize.dart` (shared validator for GET and POST, constant-time key check) so 3.7 passes
+- [x] 3.9 Write failing route tests in `server/test/routes/oauth/token_test.dart` for the code-exchange scenarios (success shape and `no-store`, wrong verifier, code reuse revokes, expired code, wrong redirect URI, wrong client, confidential wrong secret, unsupported grant type, missing params) and the refresh scenarios (rotation, reuse revokes family, scope cannot widen, expired refresh)
+- [x] 3.10 Implement `routes/oauth/token.dart` so 3.9 passes
+- [x] 3.11 Write failing route tests in `server/test/routes/oauth/revoke_test.dart` (refresh revocation cascades, access revocation is local, unknown token 200, bad client 401); implement `routes/oauth/revoke.dart`
+- [x] 3.12 Add the four routes to `test/integration/_test_app.dart`; write `server/test/integration/oauth_flow_test.dart` running register, authorize GET, consent POST, token exchange, and refresh end to end over HTTP with a real PKCE pair
+- [x] 3.13 Run `dart format .`, `dart analyze`, `cd server && dart test`; commit as `feat(server): add OAuth registration, consent, token, and revocation routes`
 
 ## 4. MCP JSON-RPC core and note tools (PR 4)
 
