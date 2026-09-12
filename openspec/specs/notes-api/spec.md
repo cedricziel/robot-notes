@@ -25,7 +25,7 @@ All endpoints SHALL accept and return `application/json`. All endpoints SHALL re
 
 ### Requirement: GET /notes returns paginated metadata
 
-`GET /notes` SHALL return a JSON object containing `items` (an array of note metadata) and `next_cursor` (a string or null). Each item SHALL contain `id`, `title`, `version`, `updated_at`, and `created_at`. The endpoint SHALL accept `limit` (default 50, max 200), `after`, and `sort` query parameters. `after` is an opaque cursor derived from the last item of the previous page. Item content SHALL NOT be included.
+`GET /notes` SHALL return a JSON object containing `items` (an array of note metadata) and `next_cursor` (a string or null). Each item SHALL contain `id`, `title`, `path`, `version`, `updated_at`, and `created_at`. The endpoint SHALL accept `limit` (default 50, max 200), `after`, `sort`, `path` (return only notes whose `path` equals or is nested under the given folder), and `tag` (return only notes carrying the given tag) query parameters. `after` is an opaque cursor derived from the last item of the previous page. `path` and `tag` MAY be combined with either `sort` value and with each other; they narrow the result set before pagination is applied. Item content SHALL NOT be included.
 
 `sort` SHALL be one of:
 
@@ -73,14 +73,37 @@ Any other `sort` value SHALL be rejected with HTTP 400. A cursor that cannot be 
 - **WHEN** a client requests `GET /notes?sort=bogus`
 - **THEN** the response SHALL have status 400 and a JSON body `{"error":"bad_request"}`
 
+#### Scenario: Path filter returns only notes under that folder
+
+- **GIVEN** notes exist at `Projects/Alpha/A`, `Projects/Beta/B`, and vault root `C`
+- **WHEN** a client requests `GET /notes?path=Projects/Alpha`
+- **THEN** `items` SHALL contain only `A`
+
+#### Scenario: Tag filter returns only notes carrying that tag
+
+- **GIVEN** two notes carry tag `urgent` and a third does not
+- **WHEN** a client requests `GET /notes?tag=urgent`
+- **THEN** `items` SHALL contain exactly the two tagged notes
+
+#### Scenario: Path filter composes with sort=updated_desc
+
+- **GIVEN** two notes under `Projects/Alpha` were updated at different times, and a third, more recently updated note sits at vault root
+- **WHEN** a client requests `GET /notes?path=Projects/Alpha&sort=updated_desc`
+- **THEN** `items` SHALL contain only the two notes under `Projects/Alpha`, most-recently-updated first
+
 ### Requirement: POST /notes creates a new note
 
-`POST /notes` SHALL accept a JSON body with `title` (required, non-empty string) and `content` (optional, defaults to empty string). The server SHALL generate a ULID, write the file with `version: 1`, and return HTTP 201 with the full note record.
+`POST /notes` SHALL accept a JSON body with `title` (required, non-empty string), `content` (optional, defaults to empty string), and `path` (optional, defaults to the empty string / vault root). The server SHALL generate a ULID, write the file with `version: 1` at the resolved folder and sanitized title, and return HTTP 201 with the full note record. If the resolved target path already belongs to another note, the server SHALL return HTTP 409 with `{"error":"path_conflict"}`.
 
 #### Scenario: Successful creation returns 201 and full record
 
 - **WHEN** a client posts `{"title":"Meeting","content":"# Hello"}`
-- **THEN** the response SHALL have status 201 and body containing `id`, `title`, `content`, `version: 1`, `created_at`, `updated_at`
+- **THEN** the response SHALL have status 201 and body containing `id`, `title`, `path`, `content`, `version: 1`, `created_at`, `updated_at`
+
+#### Scenario: Creation with a path places the note in that folder
+
+- **WHEN** a client posts `{"title":"Meeting","path":"Projects/Alpha"}`
+- **THEN** the response body SHALL contain `path: "Projects/Alpha"` and the file SHALL be written under that folder
 
 #### Scenario: Missing title is rejected
 
@@ -92,15 +115,21 @@ Any other `sort` value SHALL be rejected with HTTP 400. A cursor that cannot be 
 - **WHEN** a client posts `{"title":"","content":"hi"}`
 - **THEN** the response SHALL have status 400
 
+#### Scenario: Title colliding with an existing note in the same folder is rejected
+
+- **GIVEN** a note titled `Ideas` already exists at vault root
+- **WHEN** a client posts `{"title":"Ideas"}` with no path
+- **THEN** the response SHALL have status 409 with body `{"error":"path_conflict"}`
+
 ### Requirement: GET /notes/{id} returns the full note
 
-`GET /notes/{id}` SHALL return a JSON body with `id`, `title`, `content`, `version`, `created_at`, `updated_at`, and an optional `lock` object. When the note is currently locked, `lock` SHALL contain `holder` (string) and `expires_at` (ISO 8601). When unlocked, `lock` SHALL be omitted or `null`. Unknown ids SHALL return HTTP 404.
+`GET /notes/{id}` SHALL return a JSON body with `id`, `title`, `path`, `content`, `version`, `created_at`, `updated_at`, and an optional `lock` object. When the note is currently locked, `lock` SHALL contain `holder` (string) and `expires_at` (ISO 8601). When unlocked, `lock` SHALL be omitted or `null`. Unknown ids SHALL return HTTP 404.
 
 #### Scenario: Existing note is returned with all fields
 
 - **GIVEN** a note exists at id `01HXY...ABC`
 - **WHEN** an authenticated client requests `GET /notes/01HXY...ABC`
-- **THEN** the response SHALL be 200 with body containing `id`, `title`, `content`, `version`, `created_at`, `updated_at`
+- **THEN** the response SHALL be 200 with body containing `id`, `title`, `path`, `content`, `version`, `created_at`, `updated_at`
 
 #### Scenario: Locked note includes lock metadata
 
@@ -115,7 +144,7 @@ Any other `sort` value SHALL be rejected with HTTP 400. A cursor that cannot be 
 
 ### Requirement: PUT /notes/{id} requires If-Match and uses optimistic concurrency
 
-`PUT /notes/{id}` SHALL accept a JSON body with `title` and/or `content`. The request SHALL include an `If-Match: <version>` header. The server SHALL accept the update only when the supplied version equals the current version. On success the server SHALL return HTTP 200 with the new full note record (including the incremented `version`). On version mismatch the server SHALL return HTTP 409 with the current state.
+`PUT /notes/{id}` SHALL accept a JSON body with any of `title`, `content`, and `path`. The request SHALL include an `If-Match: <version>` header. The server SHALL accept the update only when the supplied version equals the current version. When `title` or `path` changes, the server SHALL rename or move the underlying file (per `notes-storage`) as part of the same write. On success the server SHALL return HTTP 200 with the new full note record (including the incremented `version`). On version mismatch the server SHALL return HTTP 409 with the current state. If the change would collide with another note's path, the server SHALL return HTTP 409 with `{"error":"path_conflict"}` instead of applying any part of the write.
 
 #### Scenario: Update with matching If-Match succeeds
 
@@ -144,6 +173,18 @@ Any other `sort` value SHALL be rejected with HTTP 400. A cursor that cannot be 
 - **GIVEN** a note whose frontmatter has an extra `tags: [x]` key
 - **WHEN** the note is updated
 - **THEN** the file on disk SHALL still contain `tags: [x]`
+
+#### Scenario: Changing path moves the note and returns the new path
+
+- **GIVEN** a note at version 5 with path `""`
+- **WHEN** a client sends `PUT /notes/{id}` with `If-Match: 5` and body `{"path":"Projects/Alpha"}`
+- **THEN** the response SHALL be 200 with `version: 6` and `path: "Projects/Alpha"`, and the file SHALL be moved on disk
+
+#### Scenario: Move colliding with an existing note is rejected
+
+- **GIVEN** a note already exists at `Projects/Alpha/Notes.md`
+- **WHEN** a different note titled `Notes` is moved to path `Projects/Alpha`
+- **THEN** the response SHALL be 409 with `{"error":"path_conflict"}` and neither file SHALL be changed
 
 ### Requirement: PUT returns 423 when another actor holds the lock
 
@@ -184,13 +225,19 @@ When a note is currently locked by an actor other than the requester, `PUT /note
 
 ### Requirement: Successful writes broadcast a `changed` event
 
-Every successful POST, PUT, or DELETE on a note SHALL trigger a `changed` event broadcast over the realtime channel (see `realtime-sync` capability). The broadcast SHALL include the note id, the new version (or `null` for delete), the actor identity, and the action (`created`, `updated`, `deleted`). The broadcast SHALL be best-effort: failure to broadcast SHALL NOT roll back the on-disk write.
+Every successful POST, PUT, or DELETE on a note SHALL trigger a `changed` event broadcast over the realtime channel (see `realtime-sync` capability). The broadcast SHALL include the note id, the new version (or `null` for delete), the actor identity, and the action (`created`, `updated`, `moved`, `deleted`). A PUT that changes `path` (with or without other field changes) SHALL broadcast action `moved`. The broadcast SHALL be best-effort: failure to broadcast SHALL NOT roll back the on-disk write.
 
 #### Scenario: Update broadcasts version 6
 
-- **GIVEN** a note moves from version 5 to 6
+- **GIVEN** a note moves from version 5 to 6 with no path change
 - **WHEN** the PUT response is returned
 - **THEN** all subscribed WS clients SHALL receive `{"type":"changed","note_id":"...","version":6,"by":"alice","action":"updated"}`
+
+#### Scenario: Path change broadcasts a moved action
+
+- **GIVEN** a note's path changes as part of a PUT
+- **WHEN** the PUT response is returned
+- **THEN** subscribed WS clients SHALL receive a `changed` event with `action: "moved"`
 
 #### Scenario: Delete broadcasts deletion
 
@@ -224,3 +271,29 @@ Every 4xx and 5xx response from the API SHALL have a JSON body containing at min
 
 - **WHEN** the server returns a 423
 - **THEN** the body SHALL include `error`, `holder`, and `expires_at`
+
+### Requirement: GET /notes/tree returns the folder hierarchy
+
+`GET /notes/tree` SHALL return a JSON object describing the vault's folder structure without paginating individual notes: `{ folders: [{ path, note_count }] }`, one entry per distinct folder that directly contains at least one note, sorted by path. `note_count` SHALL count only notes directly in that folder, not in its subfolders. An intermediate folder that holds no notes of its own but has a descendant folder that does (e.g. `Projects` when only `Projects/Alpha` has notes) SHALL NOT get its own entry; clients that want an aggregate count or need to render intermediate tree nodes SHALL derive them from the listed leaf paths. The endpoint SHALL require authentication.
+
+#### Scenario: Tree lists folders with notes
+
+- **GIVEN** notes exist at vault root, `Projects/Alpha`, and `Projects/Beta`
+- **WHEN** a client requests `GET /notes/tree`
+- **THEN** the response SHALL contain folder entries for `""`, `Projects/Alpha`, and `Projects/Beta` with their respective note counts
+
+#### Scenario: Folder with no notes is not listed
+
+- **GIVEN** an empty directory exists on disk with no note files in it
+- **WHEN** a client requests `GET /notes/tree`
+- **THEN** that folder SHALL NOT appear in `folders`
+
+### Requirement: GET /tags returns all tags with counts
+
+`GET /tags` SHALL return `{ items: [{ tag, count }] }` listing every distinct tag across all notes (merging frontmatter `tags` and inline `#tag` tokens, per `notes-storage`), sorted by descending count. The endpoint SHALL require authentication.
+
+#### Scenario: Tags are listed with counts
+
+- **GIVEN** three notes carry tag `urgent` and one carries `later`
+- **WHEN** a client requests `GET /tags`
+- **THEN** the response SHALL contain `{"tag":"urgent","count":3}` before `{"tag":"later","count":1}`
