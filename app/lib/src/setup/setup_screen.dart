@@ -141,7 +141,17 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _signIn() async {
-    await widget.oidcController?.signInDesktop(_baseUrl.text.trim());
+    final baseUrl = _baseUrl.text.trim();
+    // Web has no loopback listener to bind — it uses the same-origin
+    // reload flow instead (see OidcSignInController.startWebSignIn).
+    if (kIsWeb) {
+      await widget.oidcController?.startWebSignIn(
+        baseUrl: baseUrl,
+        redirectUri: Uri.base.origin,
+      );
+    } else {
+      await widget.oidcController?.signInDesktop(baseUrl);
+    }
   }
 
   @override
