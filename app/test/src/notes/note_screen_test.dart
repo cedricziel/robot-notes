@@ -174,6 +174,68 @@ void main() {
     expect(_fieldController(tester, _contentField).text, 'theirs');
   });
 
+  testWidgets('tapping close in viewing mode calls onClose', (tester) async {
+    final mock = MockClient((request) async {
+      return http.Response(jsonEncode(_noteJson()), 200);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+    addTearDown(ctrl.dispose);
+    var closed = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NoteScreen(controller: ctrl, onClose: () => closed = true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('note.close')));
+    await tester.pumpAndSettle();
+
+    expect(closed, isTrue);
+  });
+
+  testWidgets('tapping close while editing releases the lock, then closes',
+      (tester) async {
+    final mock = MockClient((request) async {
+      if (request.method == 'GET' && request.url.path == '/notes/01H') {
+        return http.Response(jsonEncode(_noteJson()), 200);
+      }
+      if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
+        return http.Response(jsonEncode(_lockJson()), 200);
+      }
+      if (request.method == 'DELETE' && request.url.path == '/notes/01H/lock') {
+        return http.Response('', 204);
+      }
+      return http.Response('unexpected', 500);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NoteController(
+      api: api,
+      noteId: '01H',
+      actor: 'cedric',
+      scheduler: (_) => Completer<void>().future,
+    );
+    addTearDown(ctrl.dispose);
+    var closed = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NoteScreen(controller: ctrl, onClose: () => closed = true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('note.edit')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('note.close')));
+    await tester.pumpAndSettle();
+
+    expect(ctrl.value.mode, NoteMode.viewing);
+    expect(closed, isTrue);
+  });
+
   testWidgets('presence event renders the viewer count', (tester) async {
     final mock = MockClient((request) async {
       return http.Response(jsonEncode(_noteJson()), 200);

@@ -212,7 +212,7 @@ class _AppShellState extends State<_AppShell> {
   Future<void> _openNote(String id) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => _NoteRoute(
+        builder: (_) => NoteRoute(
           api: _api,
           ws: _ws,
           actor: widget.config.actor,
@@ -308,12 +308,16 @@ class _AppShellState extends State<_AppShell> {
 /// Per-note route. The controller's lifetime is tied to this widget so
 /// pushing/popping a note cleanly acquires/releases its WS subscription
 /// and any held lock.
-class _NoteRoute extends StatefulWidget {
-  const _NoteRoute({
+///
+/// Public only so widget tests can push it onto a real Navigator.
+@visibleForTesting
+class NoteRoute extends StatefulWidget {
+  const NoteRoute({
     required this.api,
     required this.ws,
     required this.actor,
     required this.noteId,
+    super.key,
   });
 
   final RobotNotesClient api;
@@ -322,10 +326,10 @@ class _NoteRoute extends StatefulWidget {
   final String noteId;
 
   @override
-  State<_NoteRoute> createState() => _NoteRouteState();
+  State<NoteRoute> createState() => _NoteRouteState();
 }
 
-class _NoteRouteState extends State<_NoteRoute> {
+class _NoteRouteState extends State<NoteRoute> {
   late final NoteController _controller;
 
   @override
@@ -347,9 +351,11 @@ class _NoteRouteState extends State<_NoteRoute> {
     super.dispose();
   }
 
+  void _close() => Navigator.of(context).pop();
+
   @override
   Widget build(BuildContext context) {
-    return NoteScreen(controller: _controller);
+    return NoteScreen(controller: _controller, onClose: _close);
   }
 }
 

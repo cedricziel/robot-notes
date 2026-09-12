@@ -71,6 +71,7 @@ class _NoteScreenState extends State<NoteScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
+          key: const Key('note.close'),
           icon: const Icon(Icons.close),
           onPressed: () async {
             if (state.mode == NoteMode.editing ||
