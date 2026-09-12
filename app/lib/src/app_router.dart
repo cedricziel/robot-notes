@@ -13,6 +13,8 @@ import 'auth/oidc_session_refresher.dart';
 import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
+import 'notes/folder_tree_controller.dart';
+import 'notes/folder_tree_sidebar.dart';
 import 'notes/note_controller.dart';
 import 'notes/note_screen.dart';
 import 'notes/notes_list_controller.dart';
@@ -214,30 +216,40 @@ GoRouter buildAppRouter({
 
 Widget _buildListPage(BuildContext context) {
   final session = AppSession.of(context);
-  return NotesListScreen(
-    controller: session.list,
-    onNoteTap: (id) => unawaited(context.push('/notes/$id')),
-    onCreate: () => unawaited(_createNote(context, session)),
-    appBarActions: [
-      IconButton(
-        key: const Key('shell.refresh'),
-        tooltip: 'Refresh',
-        icon: const Icon(Icons.refresh),
-        onPressed: session.list.refresh,
-      ),
-      IconButton(
-        key: const Key('shell.search'),
-        tooltip: 'Search',
-        icon: const Icon(Icons.search),
-        onPressed: () => unawaited(context.push('/search')),
-      ),
-      IconButton(
-        key: const Key('shell.reset'),
-        tooltip: 'Disconnect',
-        icon: const Icon(Icons.logout),
-        onPressed: () => unawaited(_confirmReset(context, session)),
-      ),
-    ],
+  return ValueListenableBuilder<NotesListState>(
+    valueListenable: session.list,
+    builder: (context, listState, _) {
+      return NotesListScreen(
+        controller: session.list,
+        onNoteTap: (id) => unawaited(context.push('/notes/$id')),
+        onCreate: () => unawaited(_createNote(context, session)),
+        sidebar: FolderTreeSidebar(
+          controller: session.tree,
+          selectedPath: listState.selectedPath,
+          onSelect: session.list.selectFolder,
+        ),
+        appBarActions: [
+          IconButton(
+            key: const Key('shell.refresh'),
+            tooltip: 'Refresh',
+            icon: const Icon(Icons.refresh),
+            onPressed: session.list.refresh,
+          ),
+          IconButton(
+            key: const Key('shell.search'),
+            tooltip: 'Search',
+            icon: const Icon(Icons.search),
+            onPressed: () => unawaited(context.push('/search')),
+          ),
+          IconButton(
+            key: const Key('shell.reset'),
+            tooltip: 'Disconnect',
+            icon: const Icon(Icons.logout),
+            onPressed: () => unawaited(_confirmReset(context, session)),
+          ),
+        ],
+      );
+    },
   );
 }
 
@@ -489,6 +501,7 @@ class AppSession extends InheritedWidget {
     required this.api,
     required this.ws,
     required this.list,
+    required this.tree,
     required this.actor,
     required this.onReset,
     required super.child,
@@ -498,6 +511,7 @@ class AppSession extends InheritedWidget {
   final RobotNotesClient api;
   final RobotNotesWsClient ws;
   final NotesListController list;
+  final FolderTreeController tree;
   final String actor;
   final VoidCallback onReset;
 
@@ -541,6 +555,7 @@ class _SessionHostState extends State<SessionHost> {
   late final RobotNotesClient _api;
   late final RobotNotesWsClient _ws;
   late final NotesListController _list;
+  late final FolderTreeController _tree;
   late final ConnectionStatusController _status;
 
   @override
@@ -549,6 +564,7 @@ class _SessionHostState extends State<SessionHost> {
     _api = RobotNotesClient(config: widget.config);
     _ws = RobotNotesWsClient(config: widget.config);
     _list = NotesListController(api: _api, events: _ws.events);
+    _tree = FolderTreeController(api: _api, events: _ws.events);
     _status = ConnectionStatusController(
       events: _ws.events,
       onStaleReconnect: _list.refresh,
@@ -561,6 +577,7 @@ class _SessionHostState extends State<SessionHost> {
   @override
   void dispose() {
     _status.dispose();
+    _tree.dispose();
     _list.dispose();
     unawaited(_ws.dispose());
     _api.close();
@@ -573,6 +590,7 @@ class _SessionHostState extends State<SessionHost> {
       api: _api,
       ws: _ws,
       list: _list,
+      tree: _tree,
       actor: widget.config.actor,
       onReset: widget.onReset,
       child: Column(

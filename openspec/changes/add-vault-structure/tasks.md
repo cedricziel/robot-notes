@@ -119,13 +119,14 @@
 
 ### 14. Flutter: folder tree sidebar
 
-- [ ] 14.1 Write a failing widget test: sidebar renders folders from a fake `GET /notes/tree` response as an expandable tree with note counts
-- [ ] 14.2 Implement the sidebar widget and its data source in `app/lib`; run tests green
-- [ ] 14.3 Write a failing test: selecting a folder scopes the notes list request to `path=<folder>`
-- [ ] 14.4 Wire folder selection into the notes list view model; run tests green
-- [ ] 14.5 Write a failing test: a `changed` event with `action: "moved"`, `"created"`, or `"deleted"` triggers a tree re-fetch
-- [ ] 14.6 Wire the WS listener; run tests green
-- [ ] 14.7 Commit: `feat(app): add folder tree sidebar for vault navigation`
+- [x] 14.1 Write a failing widget test: sidebar renders folders from a fake `GET /notes/tree` response as an expandable tree with note counts — `app/test/src/notes/folder_tree_sidebar_test.dart`; also added `app/test/src/notes/folder_tree_controller_test.dart` covering `buildFolderTree`'s nesting logic and the controller's `refresh()`, since the sidebar widget test alone wouldn't exercise the pure tree-building function directly
+- [x] 14.2 Implement the sidebar widget and its data source in `app/lib` — `app/lib/src/notes/folder_tree_controller.dart` (`FolderTreeController`, `FolderTreeState`, `buildFolderTree`) and `app/lib/src/notes/folder_tree_sidebar.dart` (`FolderTreeSidebar`, `ExpansionTile`-based); the root folder (`path: ""`) is surfaced separately as `FolderTreeState.rootNoteCount` rather than as a tree node, since it has no segment name of its own to render; run tests green. ~~Committed as part of 14.7~~ — the `RobotNotesClient` groundwork this (and tasks 15/16) build on (`getTree()`, `getBacklinks()`, `path`/`tag` on `listNotes`, `path` on `updateNote`, `PathConflictException`, plus `path`/`tags` fields on the shared `Note`/`NoteMeta` DTOs) was added and tested in one pass across all four Flutter task groups and committed separately as `feat(app): add vault-aware API client methods and DTO fields` before this group's commit, rather than split apart by which later task group first calls each method
+- [x] 14.2b Precondition groundwork commit: `feat(app): add vault-aware API client methods and DTO fields` (see note on 14.2) — `shared/lib/src/dtos.dart` + `shared/test/dtos_test.dart` (path on `NoteMeta`/`Note`, tags on `Note`), `app/lib/src/api/api_client.dart` + `app/lib/src/api/api_exceptions.dart` (`getTree`, `getBacklinks`, `path`/`tag` params, `PathConflictException`) + `app/test/src/api/api_client_test.dart`
+- [x] 14.3 Write a failing test: selecting a folder scopes the notes list request to `path=<folder>` — added `selectFolder`/`selectTag` cases to `app/test/src/notes/notes_list_controller_test.dart` (controller-level, since that's where the request is actually built) plus a sidebar-level test asserting the tap callback fires with the right path
+- [x] 14.4 Wire folder selection into the notes list view model — `NotesListController` gains `selectedPath`/`selectedTag` state and `selectFolder()`/`selectTag()` methods that scope every subsequent `listNotes` call; `app_router.dart`'s `_buildListPage` wires `FolderTreeSidebar.onSelect` to `session.list.selectFolder`; run tests green
+- [x] 14.5 Write a failing test: a `changed` event with `action: "moved"`, `"created"`, or `"deleted"` triggers a tree re-fetch — `FolderTreeController` tests, parameterized over the three actions, plus a negative case for `updated`
+- [x] 14.6 Wire the WS listener; run tests green — also extended the MODIFIED "moved event updates or removes an entry based on the current folder" scenario: `NotesListController` now re-fetches (rather than upserting in place) on a `moved` event while `selectedPath` is set, since the WS event doesn't carry the note's new path to check client-side
+- [x] 14.7 Commit: `feat(app): add folder tree sidebar for vault navigation`
 
 ### 15. Flutter: move note action
 

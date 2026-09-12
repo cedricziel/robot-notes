@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/app_router.dart';
 import 'package:app/src/config/app_config.dart';
+import 'package:app/src/notes/folder_tree_controller.dart';
 import 'package:app/src/notes/notes_list_controller.dart';
 import 'package:app/src/realtime/ws_client.dart';
 import 'package:flutter/material.dart';
@@ -63,6 +64,9 @@ MockClient _mockClient() => MockClient((request) async {
   if (method == 'GET' && path == '/notes') {
     return _emptyList();
   }
+  if (method == 'GET' && path == '/notes/tree') {
+    return http.Response(jsonEncode(<String, Object?>{'folders': []}), 200);
+  }
   return http.Response('not found', 404);
 });
 
@@ -76,6 +80,7 @@ Widget _harness({
 }) {
   final ws = RobotNotesWsClient(config: _config);
   final list = NotesListController(api: api);
+  final tree = FolderTreeController(api: api);
   final router = buildAppRouter(
     configHolder: ConfigHolder.seeded(_config),
     initialLocation: initialLocation,
@@ -86,6 +91,7 @@ Widget _harness({
       api: api,
       ws: ws,
       list: list,
+      tree: tree,
       actor: _config.actor,
       onReset: () {},
       child: child!,
@@ -146,6 +152,7 @@ void main() {
 
     final ws = RobotNotesWsClient(config: _config);
     final list = NotesListController(api: api);
+    final tree = FolderTreeController(api: api);
     final router = buildAppRouter(
       configHolder: ConfigHolder.seeded(_config),
       initialLocation: '/',
@@ -159,6 +166,7 @@ void main() {
           api: api,
           ws: ws,
           list: list,
+          tree: tree,
           actor: _config.actor,
           onReset: () {},
           child: child!,

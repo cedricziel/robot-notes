@@ -63,6 +63,62 @@ void main() {
     expect(find.text('world'), findsOneWidget);
   });
 
+  testWidgets('a supplied sidebar renders beside the list on a wide screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final mock = MockClient((request) async {
+      return _page(<Object?>[_metaJson(id: '01H', title: 'hello')]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotesListScreen(controller: ctrl, sidebar: const Text('SIDEBAR')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('SIDEBAR'), findsOneWidget);
+    expect(find.text('hello'), findsOneWidget);
+  });
+
+  testWidgets('a supplied sidebar lives in a drawer on a narrow screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final mock = MockClient((request) async {
+      return _page(<Object?>[_metaJson(id: '01H', title: 'hello')]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotesListScreen(controller: ctrl, sidebar: const Text('SIDEBAR')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Not directly visible until the drawer is opened.
+    expect(find.text('SIDEBAR'), findsNothing);
+
+    final scaffoldState = tester.firstState<ScaffoldState>(
+      find.byType(Scaffold),
+    );
+    scaffoldState.openDrawer();
+    await tester.pumpAndSettle();
+
+    expect(find.text('SIDEBAR'), findsOneWidget);
+  });
+
   testWidgets('tapping a note tile invokes onNoteTap with the id', (
     tester,
   ) async {
