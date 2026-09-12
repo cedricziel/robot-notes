@@ -1,0 +1,1 @@
+Markdown notes that humans and AI agents edit together, on a server you control.

@@ -1,0 +1,360 @@
+require "yaml"
+
+opt_out_usage
+
+APP_IDENTIFIER = "com.cedricziel.robotnotes.app"
+APP_NAME       = "Robot Notes"
+TEAM_ID        = "WPW3QSLZ2F"
+OUTPUT_DIR     = "build/fastlane"
+OUTPUT_NAME    = "RobotNotes"
+
+# fastlane runs lanes with the Flutter project (app/) as the working
+# directory; `sh` runs inside app/fastlane, so shell out relative to this.
+FLUTTER_ROOT = File.expand_path("..", __dir__)
+
+TARGETS = {
+  ios: {
+    flutter_platform: "ios",
+    match_platform: "ios",
+    deliver_platform: "ios",
+    project: "ios/Runner.xcodeproj",
+    workspace: "ios/Runner.xcworkspace",
+    destination: "generic/platform=iOS",
+    artifact: "#{OUTPUT_DIR}/#{OUTPUT_NAME}.ipa",
+  },
+  mac: {
+    flutter_platform: "macos",
+    match_platform: "macos",
+    deliver_platform: "osx",
+    project: "macos/Runner.xcodeproj",
+    workspace: "macos/Runner.xcworkspace",
+    destination: "generic/platform=macOS",
+    artifact: "#{OUTPUT_DIR}/#{OUTPUT_NAME}.pkg",
+  },
+}.freeze
+
+# Build number = commits reachable from HEAD. Reproducible from git state
+# alone, monotonic on main, and never written back into pubspec.yaml.
+def commit_count_build_number
+  @commit_count_build_number ||= sh("git rev-list --count HEAD", log: false).strip
+end
+
+# Marketing version: the `version:` lane option (release tag minus the `v`)
+# wins; otherwise the version release-please keeps in pubspec.yaml.
+def marketing_version(options)
+  explicit = options[:version].to_s.strip
+  return explicit unless explicit.empty?
+
+  YAML.load_file(File.join(FLUTTER_ROOT, "pubspec.yaml"))["version"].to_s.split("+").first
+end
+
+before_all do |_lane, _options|
+  Dotenv.load(".env") if File.exist?(".env")
+  # Without setup_ci, codesign on macOS runners hangs waiting for an
+  # interactive keychain unlock. setup_ci creates a temp keychain, imports
+  # the match certs, and marks the private key as non-interactive.
+  setup_ci if is_ci
+end
+
+# ---------------------------------------------------------------------------
+# Platform lanes
+# ---------------------------------------------------------------------------
+
+platform :ios do
+  desc "Build a signed App Store IPA without uploading"
+  lane :build do |options|
+    build_target(:ios, options)
+  end
+
+  desc "Build and upload to TestFlight (internal testers)"
+  desc "  version:X.Y.Z  marketing version (default: pubspec.yaml)"
+  lane :release do |options|
+    release_target(:ios, options)
+  end
+
+  desc "Submit the TestFlight build of a version to App Store review (no rebuild)"
+  desc "  version:X.Y.Z  marketing version (default: pubspec.yaml)"
+  desc "  build:N        build number (default: commit count of HEAD)"
+  desc "  auto_release:false  keep the version in 'Pending Developer Release' after approval"
+  lane :submit_to_app_store do |options|
+    submit_target(:ios, options)
+  end
+end
+
+platform :mac do
+  desc "Build a signed Mac App Store PKG without uploading"
+  lane :build do |options|
+    build_target(:mac, options)
+  end
+
+  desc "Build and upload to TestFlight (internal testers)"
+  desc "  version:X.Y.Z  marketing version (default: pubspec.yaml)"
+  lane :release do |options|
+    release_target(:mac, options)
+  end
+
+  desc "Submit the TestFlight build of a version to App Store review (no rebuild)"
+  desc "  version:X.Y.Z  marketing version (default: pubspec.yaml)"
+  desc "  build:N        build number (default: commit count of HEAD)"
+  desc "  auto_release:false  keep the version in 'Pending Developer Release' after approval"
+  lane :submit_to_app_store do |options|
+    submit_target(:mac, options)
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Bootstrap (one-shot, run locally with write access; never from CI)
+# ---------------------------------------------------------------------------
+
+desc "Register the bundle ID and create the App Store Connect app record"
+lane :bootstrap_app do
+  # `produce` only supports Apple ID + password login, so talk to the App
+  # Store Connect API directly with the token that
+  # load_app_store_connect_api_key installed. Idempotent: existing records
+  # are reused.
+  load_app_store_connect_api_key
+
+  bundle = Spaceship::ConnectAPI::BundleId.all(filter: { identifier: APP_IDENTIFIER })
+                                          .find { |b| b.identifier == APP_IDENTIFIER }
+  if bundle
+    UI.message("Bundle ID #{APP_IDENTIFIER} already registered (#{bundle.platform})")
+  else
+    bundle = Spaceship::ConnectAPI::BundleId.create(
+      name: APP_NAME,
+      identifier: APP_IDENTIFIER,
+      platform: "UNIVERSAL"
+    )
+    UI.success("Registered bundle ID #{APP_IDENTIFIER} (#{bundle.platform})")
+  end
+
+  # The public API refuses to create app records ("'apps' does not allow
+  # 'CREATE'"), so that step stays manual.
+  app = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
+  if app
+    UI.message("App record '#{app.name}' (#{app.id}) already exists")
+  else
+    UI.important(<<~MSG)
+      No App Store Connect app record for #{APP_IDENTIFIER} yet. Create it once at
+      https://appstoreconnect.apple.com/apps -> "+" -> New App:
+        Platforms: iOS, macOS   Name: #{APP_NAME}   Primary language: English (U.S.)
+        Bundle ID: #{APP_IDENTIFIER}   SKU: #{APP_IDENTIFIER}
+    MSG
+  end
+end
+
+desc "Create signing certs and App Store profiles for iOS and macOS via match"
+desc "  force:true regenerates the profiles (use after changing entitlements)"
+lane :bootstrap_signing do |options|
+  api_key = load_app_store_connect_api_key
+  force = options[:force].to_s == "true"
+  match(type: "development", platform: "ios", readonly: false, force: force, api_key: api_key)
+  match(type: "development", platform: "macos", readonly: false, force: force, api_key: api_key)
+  match(type: "appstore", platform: "ios", readonly: false, force: force, api_key: api_key)
+  match(
+    type: "appstore",
+    platform: "macos",
+    additional_cert_types: ["mac_installer_distribution"],
+    readonly: false,
+    force: force,
+    api_key: api_key
+  )
+end
+
+desc "Upload App Store metadata (listing text, category, age rating) without a binary"
+lane :sync_metadata do
+  api_key = load_app_store_connect_api_key
+  TARGETS.each_value do |t|
+    upload_to_app_store(
+      api_key: api_key,
+      app_identifier: APP_IDENTIFIER,
+      platform: t[:deliver_platform],
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_metadata: false,
+      submit_for_review: false,
+      automatic_release: false,
+      force: true,
+      precheck_include_in_app_purchases: false,
+      run_precheck_before_submit: false,
+      app_rating_config_path: "fastlane/metadata/age_rating.json"
+    )
+  end
+end
+
+# ---------------------------------------------------------------------------
+# Shared implementation
+# ---------------------------------------------------------------------------
+
+def build_target(key, options)
+  t = TARGETS.fetch(key)
+  api_key = load_app_store_connect_api_key
+  version = marketing_version(options)
+  build_number = commit_count_build_number
+
+  UI.header("#{APP_NAME} #{key} #{version} (#{build_number})")
+
+  match_appstore(t, api_key)
+
+  # Writes Flutter/Generated.xcconfig (FLUTTER_BUILD_NAME/NUMBER, SDK
+  # paths) and runs pod install, without compiling. The archive below does
+  # the single real build.
+  sh("cd #{FLUTTER_ROOT.shellescape} && flutter build #{t[:flutter_platform]} --release --config-only " \
+     "--build-name=#{version.shellescape} --build-number=#{build_number.shellescape}")
+
+  update_code_signing_settings(
+    path: t[:project],
+    targets: ["Runner"],
+    build_configurations: ["Release"],
+    use_automatic_signing: false,
+    team_id: TEAM_ID,
+    code_sign_identity: "Apple Distribution",
+    bundle_identifier: APP_IDENTIFIER,
+    profile_name: lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING].fetch(APP_IDENTIFIER)
+  )
+
+  build_app(
+    workspace: t[:workspace],
+    scheme: "Runner",
+    configuration: "Release",
+    destination: t[:destination],
+    export_method: "app-store",
+    export_team_id: TEAM_ID,
+    output_directory: OUTPUT_DIR,
+    output_name: OUTPUT_NAME,
+    clean: true,
+    include_symbols: true,
+    include_bitcode: false
+  )
+
+  { version: version, build_number: build_number }
+end
+
+def release_target(key, options)
+  t = TARGETS.fetch(key)
+  built = build_target(key, options)
+  api_key = load_app_store_connect_api_key
+  notes = release_notes_from(options)
+
+  params = {
+    api_key: api_key,
+    app_identifier: APP_IDENTIFIER,
+    app_platform: t[:deliver_platform],
+    # Waiting for processing is what lets the changelog land on the build.
+    skip_waiting_for_build_processing: false,
+    distribute_external: false,
+    notify_external_testers: false,
+    changelog: notes || "Release #{built[:version]} (#{built[:build_number]})",
+  }
+  params[key == :mac ? :pkg : :ipa] = t[:artifact]
+
+  upload_to_testflight(**params)
+end
+
+def submit_target(key, options)
+  t = TARGETS.fetch(key)
+  api_key = load_app_store_connect_api_key
+  version = marketing_version(options)
+  build_number = options[:build].to_s.strip
+  build_number = commit_count_build_number if build_number.empty?
+  stage_release_notes!(release_notes_from(options))
+
+  UI.header("Submitting #{APP_NAME} #{key} #{version} (#{build_number}) for review")
+
+  # skip_binary_upload + build_number attaches the already-processed
+  # TestFlight build to the version; deliver fails if that build is missing.
+  upload_to_app_store(
+    api_key: api_key,
+    app_identifier: APP_IDENTIFIER,
+    platform: t[:deliver_platform],
+    app_version: version,
+    build_number: build_number,
+    skip_binary_upload: true,
+    submit_for_review: true,
+    automatic_release: options[:auto_release].to_s != "false",
+    force: true,
+    skip_screenshots: true,
+    skip_metadata: false,
+    precheck_include_in_app_purchases: false,
+    run_precheck_before_submit: false,
+    app_rating_config_path: "fastlane/metadata/age_rating.json",
+    submission_information: {
+      add_id_info_uses_idfa: false,
+      content_rights_contains_third_party_content: false,
+    }
+  )
+end
+
+def match_appstore(t, api_key)
+  params = {
+    type: "appstore",
+    platform: t[:match_platform],
+    readonly: is_ci,
+    api_key: api_key,
+  }
+  params[:additional_cert_types] = ["mac_installer_distribution"] if t[:match_platform] == "macos"
+  sync_code_signing(**params)
+end
+
+def release_notes_from(options)
+  return options[:release_notes] if options[:release_notes].to_s.strip != ""
+  return ENV["RELEASE_NOTES"] if ENV["RELEASE_NOTES"].to_s.strip != ""
+  return File.read(ENV["RELEASE_NOTES_FILE"]) if ENV["RELEASE_NOTES_FILE"].to_s != "" && File.exist?(ENV["RELEASE_NOTES_FILE"])
+
+  nil
+end
+
+# Stages release notes into fastlane/metadata/<locale>/release_notes.txt so
+# upload_to_app_store picks them up. No-op on empty input so the committed
+# file stays the fallback.
+def stage_release_notes!(notes, locale: "en-US")
+  return if notes.nil? || notes.to_s.strip.empty?
+
+  dir = File.expand_path("metadata/#{locale}", __dir__)
+  FileUtils.mkdir_p(dir)
+  path = File.join(dir, "release_notes.txt")
+  File.write(path, notes.to_s.strip + "\n")
+  UI.message("Staged release notes (#{notes.to_s.strip.bytesize} bytes) at #{path}")
+end
+
+# Loads an App Store Connect API key from ASC_KEY_ID + ASC_ISSUER_ID and
+# either ASC_KEY_PATH (path to the .p8) or ASC_KEY_CONTENT (raw or base64).
+def load_app_store_connect_api_key
+  return @asc_api_key if @asc_api_key
+
+  env = ->(name) {
+    value = ENV[name]
+    value.nil? || value.strip.empty? ? nil : value
+  }
+  key_id      = env.call("ASC_KEY_ID")
+  issuer_id   = env.call("ASC_ISSUER_ID")
+  key_path    = env.call("ASC_KEY_PATH")
+  key_content = env.call("ASC_KEY_CONTENT")
+
+  if key_id.nil? || issuer_id.nil? || (key_path.nil? && key_content.nil?)
+    UI.user_error!(<<~MSG)
+      Missing App Store Connect API key configuration. Set:
+        ASC_KEY_ID         (e.g. ABC123XYZ9)
+        ASC_ISSUER_ID      (UUID from appstoreconnect.apple.com -> Users and Access -> Keys)
+        ASC_KEY_PATH       (path to .p8 file)  OR  ASC_KEY_CONTENT (raw or base64)
+
+      Locally: copy fastlane/.env.default to fastlane/.env and fill in.
+      In CI:   configure these as GitHub Actions secrets.
+    MSG
+  end
+
+  # fastlane >= 2.235 rejects key_filepath and key_content together, even
+  # when one of them is nil, so pass exactly one.
+  params = { key_id: key_id, issuer_id: issuer_id, in_house: false }
+  if key_path
+    params[:key_filepath] = key_path
+  else
+    params[:key_content] = key_content
+    params[:is_key_content_base64] =
+      key_content.match?(/\A[A-Za-z0-9+\/=\s]+\z/) && !key_content.include?("BEGIN PRIVATE KEY")
+  end
+  @asc_api_key = app_store_connect_api_key(**params)
+end
+
+error do |lane, exception|
+  UI.error("Lane #{lane} failed: #{exception.message}")
+end

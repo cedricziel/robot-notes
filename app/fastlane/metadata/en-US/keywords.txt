@@ -1,0 +1,1 @@
+notes,markdown,agents,ai,knowledge,self-hosted,realtime,collaboration,wiki,mcp
