@@ -582,6 +582,26 @@ void main() {
       expect(record.resource, 'http://localhost/mcp');
     });
 
+    test('consent page CSP does not restrict form-action', () async {
+      // Browsers apply form-action to the redirect that follows the
+      // submission, which would block the 302 to the client's callback.
+      final form = validQuery()..['api_key'] = 'wrong';
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(form),
+        ),
+      );
+
+      expect(
+        res.headers['Content-Security-Policy'],
+        isNot(contains('form-action')),
+      );
+    });
+
     test('consent page carries CSP and X-Frame-Options headers', () async {
       final form = validQuery()..['api_key'] = 'wrong';
 
@@ -596,7 +616,7 @@ void main() {
 
       expect(
         res.headers['Content-Security-Policy'],
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
+        "default-src 'none'; style-src 'unsafe-inline'",
       );
       expect(res.headers['X-Frame-Options'], 'DENY');
     });
