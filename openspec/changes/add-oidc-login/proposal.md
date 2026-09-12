@@ -26,13 +26,19 @@ untouched.
   PKCE flow (same-origin redirect on web, loopback redirect on desktop) as an
   alternative to pasting the static key on first run. Manual key entry stays
   available.
-- **BREAKING** (spec-level, not behavior-level unless OIDC is configured):
-  server-issued OAuth access tokens obtained via a human's OIDC-backed login
-  may now authenticate REST and WebSocket requests, scoped by
-  `notes:read`/`notes:write` — previously OAuth tokens only ever worked
-  against `/mcp`.
-- For OIDC-backed sessions, the `X-Actor` value is derived from the verified
-  ID token's `name`/`email` claim instead of trusted free text.
+- **BREAKING** (spec-level; takes effect immediately, independent of whether
+  OIDC is configured): a server-issued OAuth access token scoped to
+  resource `<base>` (as opposed to `<base>/mcp`) may now authenticate REST
+  and WebSocket requests, gated by `notes:read`/`notes:write` scope —
+  previously OAuth tokens only ever worked against `/mcp`. This applies to
+  any OAuth grant with that resource, not only ones completed via OIDC
+  login — including, for example, a client that completes consent by
+  pasting the static key but requests resource `<base>`.
+- For any OAuth-authenticated session, the `X-Actor` value is ignored in
+  favor of the display name captured at grant time — the verified ID
+  token's `name`/`email` claim for an OIDC-backed grant, or the display
+  name typed into the consent form otherwise — instead of trusted free
+  text.
 
 ## Capabilities
 

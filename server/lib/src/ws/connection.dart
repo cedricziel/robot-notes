@@ -193,6 +193,12 @@ class WsConnection {
   }
 
   void _completeAuth(Actor actor) {
+    // The token-store lookup this follows is async; the client may have
+    // disconnected (or the auth timer may have fired) while it was
+    // pending. Completing auth on an already-closed connection would send
+    // on a closed sink and register a zombie connection with the
+    // broadcaster.
+    if (_closed) return;
     _authTimer?.cancel();
     _authTimer = null;
     _actor = actor;

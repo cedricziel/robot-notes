@@ -193,6 +193,26 @@ void main() {
         expect(sink.closes.single.code, 4001);
         expect(sink.closes.single.reason, 'auth_failed');
       });
+
+      test(
+          'a connection closed while the token lookup is pending does not '
+          'complete auth afterwards', () async {
+        final token = await issueToken();
+        final sink = _FakeSink();
+        final conn = makeConn('c1', sink: sink)..start();
+
+        final authFuture = conn.handleMessage(
+          jsonEncode({'type': 'auth', 'key': token}),
+        );
+        // The client disconnects (or the auth timer fires) while the async
+        // token-store lookup above is still pending.
+        await conn.handleDone();
+        await authFuture;
+
+        expect(conn.isAuthed, isFalse);
+        expect(sink.sent, isEmpty);
+        expect(broadcaster.isRegistered('c1'), isFalse);
+      });
     });
   });
 

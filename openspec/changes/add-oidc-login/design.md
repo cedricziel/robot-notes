@@ -95,13 +95,17 @@ Flutter dependency is needed for either case (a bound `HttpServer` covers the
 loopback listener; `url_launcher`, already a dependency, opens the system
 browser).
 
-### 5. `X-Actor` for OIDC sessions comes from the ID token, not the header
+### 5. `X-Actor` for OAuth sessions comes from the grant, not the header
 
-When a request authenticates via an OIDC-derived OAuth token, the actor
-identity used for locks/presence/`changed` events is the token's associated
-`name` (falling back to `email`) claim, captured at token-issuance time and
-stored alongside the token record — not read from a client-supplied
-`X-Actor` header, which remains untrusted free text for static-key requests.
+When a request authenticates via any server-issued OAuth access token —
+not only an OIDC-derived one — the actor identity used for
+locks/presence/`changed` events is the display name captured at grant
+time and stored alongside the token record: the ID token's `name`
+(falling back to `email`, then `sub`) for an OIDC-backed grant, or the
+name typed into the consent form for a grant completed by pasting the
+static key. Either way it is not read from a client-supplied `X-Actor`
+header, which remains untrusted free text only for static-key requests
+made directly against the REST/WS API (not through an OAuth grant).
 
 ## Risks / Trade-offs
 
