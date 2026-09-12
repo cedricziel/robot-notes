@@ -2,4 +2,4 @@
 ///
 /// release-please rewrites the version literal on every release via the
 /// `x-release-please-version` marker; do not edit it by hand.
-const String robotNotesVersion = '0.2.3'; // x-release-please-version
+const String robotNotesVersion = '0.2.4'; // x-release-please-version
