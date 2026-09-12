@@ -2,11 +2,11 @@
 
 ### 1. Frontmatter and path plumbing
 
-- [ ] 1.1 Write failing tests in `server/test/src/frontmatter_test.dart` asserting `path` is read/written in frontmatter, defaults to `""`, and round-trips unknown-key preservation unchanged
-- [ ] 1.2 Add `path` to the frontmatter model in `server/lib/src/frontmatter.dart`; run tests green
-- [ ] 1.3 Write failing tests for a filename-sanitizer (strip `\ / : * ? " < > |` from a title/path segment) and for NFC normalization (an NFD-decomposed input title normalizes to NFC before sanitizing)
-- [ ] 1.4 Implement the sanitizer and normalizer (new small function/file next to `storage.dart`); run tests green
-- [ ] 1.5 Commit: `feat(server): add path field and filename sanitizer for vault layout`
+- [x] 1.1 ~~Write failing tests in `server/test/src/frontmatter_test.dart`~~ — N/A: `frontmatter.dart` is a generic YAML round-trip parser with no typed fields (see deviation note); `path` is added to the typed model in `storage.dart` instead (task group 2)
+- [x] 1.2 ~~Add `path` to the frontmatter model~~ — N/A, see 1.1
+- [x] 1.3 Write failing tests for a filename-sanitizer (strip `\ / : * ? " < > |` from a title/path segment) and for NFC normalization (an NFD-decomposed input title normalizes to NFC before sanitizing) — `server/test/src/note_path_test.dart`
+- [x] 1.4 Implement the sanitizer and normalizer (new small function/file next to `storage.dart`) — `server/lib/src/note_path.dart`, using the `unorm_dart` package (added to `server/pubspec.yaml`) for real NFC normalization, since Dart's SDK has no built-in Unicode normalization; run tests green
+- [x] 1.5 Commit: `feat(server): add path field and filename sanitizer for vault layout`
 
 ### 2. Write path to `<path>/<Title>.md`
 
