@@ -1,6 +1,5 @@
 import 'package:app/main.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Smoke test: the app boots without crashing and renders the splash while
@@ -10,9 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// here.
 void main() {
   testWidgets('boots into the splash on first frame', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: RobotNotesApp()));
+    await tester.pumpWidget(const RobotNotesApp());
 
-    // First frame: FutureBuilder is still resolving, so we see the splash.
+    // First frame: the config read is still resolving, so we see the splash.
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 }

@@ -12,12 +12,13 @@ class _MockRequest extends Mock implements Request {}
 RequestContext _ctx({
   required String path,
   HttpMethod method = HttpMethod.get,
+  Map<String, String> headers = const {},
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('http://localhost$path'));
-  when(() => req.headers).thenReturn(const {});
+  when(() => req.headers).thenReturn(headers);
   when(() => ctx.request).thenReturn(req);
   return ctx;
 }
@@ -150,12 +151,16 @@ void main() {
       expect(await response.json(), {'status': 'ok'});
     });
 
-    test('passes through to handler for /notes and subpaths', () async {
+    test('passes through to handler for authenticated /notes and subpaths',
+        () async {
       final dir = _scratchWeb();
       addTearDown(() => dir.deleteSync(recursive: true));
 
       for (final path in const ['/notes', '/notes/01ABC', '/notes/01/lock']) {
-        final ctx = _ctx(path: path);
+        final ctx = _ctx(
+          path: path,
+          headers: const {'authorization': 'Bearer test-key'},
+        );
         final response = await _run(
           staticWebMiddleware(webDir: dir.path),
           ctx,
@@ -165,19 +170,99 @@ void main() {
       }
     });
 
-    test('passes through to handler for /search, /ws, /invites', () async {
+    test(
+        'passes through to handler for authenticated /search, and always for '
+        '/ws, /invites', () async {
       final dir = _scratchWeb();
       addTearDown(() => dir.deleteSync(recursive: true));
 
-      for (final path in const ['/search', '/ws', '/invites/abc']) {
-        final ctx = _ctx(path: path);
+      final ctx = _ctx(
+        path: '/search',
+        headers: const {'authorization': 'Bearer test-key'},
+      );
+      final response = await _run(
+        staticWebMiddleware(webDir: dir.path),
+        ctx,
+        handler: () => Response(body: 'api'),
+      );
+      expect(await response.body(), 'api', reason: 'path=/search');
+
+      for (final path in const ['/ws', '/invites/abc']) {
+        final unauthed = _ctx(path: path);
+        final unauthedResponse = await _run(
+          staticWebMiddleware(webDir: dir.path),
+          unauthed,
+          handler: () => Response(body: 'api'),
+        );
+        expect(await unauthedResponse.body(), 'api', reason: 'path=$path');
+      }
+    });
+
+    test(
+        'falls back to index.html for GET /notes/{id} and /search with no '
+        'Authorization and an html Accept header — a browser reload of the '
+        'client-side route, not an API call', () async {
+      final dir = _scratchWeb();
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      for (final path in const ['/notes/01ABC', '/notes/01/lock', '/search']) {
+        final ctx = _ctx(
+          path: path,
+          headers: const {
+            'accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+          },
+        );
         final response = await _run(
           staticWebMiddleware(webDir: dir.path),
           ctx,
-          handler: () => Response(body: 'api'),
         );
-        expect(await response.body(), 'api', reason: 'path=$path');
+        expect(response.statusCode, HttpStatus.ok, reason: 'path=$path');
+        expect(await response.body(), '<html>app</html>', reason: 'path=$path');
       }
+    });
+
+    test(
+        'stays on the API pipeline for GET /notes/{id} and /search with no '
+        'Authorization when Accept does not ask for html — an API caller '
+        "with a missing/typo'd header, not a browser, so it still 401s "
+        'downstream instead of getting HTML', () async {
+      final dir = _scratchWeb();
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      for (final path in const ['/notes/01ABC', '/notes/01/lock', '/search']) {
+        for (final headers in const [
+          <String, String>{},
+          <String, String>{'accept': 'application/json'},
+          <String, String>{'accept': '*/*'},
+        ]) {
+          final ctx = _ctx(path: path, headers: headers);
+          final response = await _run(
+            staticWebMiddleware(webDir: dir.path),
+            ctx,
+            handler: () => Response(body: 'api'),
+          );
+          expect(
+            await response.body(),
+            'api',
+            reason: 'path=$path headers=$headers',
+          );
+        }
+      }
+    });
+
+    test(
+        'bare GET /notes without Authorization still passes through '
+        '(not a client-side route)', () async {
+      final dir = _scratchWeb();
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      final ctx = _ctx(path: '/notes');
+      final response = await _run(
+        staticWebMiddleware(webDir: dir.path),
+        ctx,
+        handler: () => Response(body: 'api'),
+      );
+      expect(await response.body(), 'api');
     });
 
     test('passes through to handler for /mcp, /oauth, /.well-known', () async {
