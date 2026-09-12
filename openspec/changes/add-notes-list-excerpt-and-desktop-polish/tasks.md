@@ -51,8 +51,8 @@
 
 ## 8. Spec and PR
 
-- [ ] 8.1 `openspec validate --change add-notes-list-excerpt-and-desktop-polish --strict` passes.
-- [ ] 8.2 Open a PR for this change, following the repo's semantic-commit and PR conventions; reference the OpenSpec change in the PR description.
+- [x] 8.1 `openspec validate --change add-notes-list-excerpt-and-desktop-polish --strict` passes.
+- [x] 8.2 Open a PR for this change, following the repo's semantic-commit and PR conventions; reference the OpenSpec change in the PR description.
 - [ ] 8.3 After merge, archive the OpenSpec change per the repo's archive workflow.
 
 ## Definition of Done
