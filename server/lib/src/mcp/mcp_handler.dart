@@ -1,3 +1,4 @@
+import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/mcp/json_rpc.dart';
 import 'package:server/src/mcp/principal.dart';
@@ -31,12 +32,16 @@ class McpHandler {
   /// Creates a handler serving [tools] and advertising [serverVersion] in
   /// `initialize`'s `serverInfo`. [logger] is optional; production callers
   /// can pass a named logger so a tool's uncaught exception surfaces in a
-  /// recognisable channel.
+  /// recognisable channel. [tracer] is optional; production callers pass
+  /// the server's tracer so each `tools/call` gets a child span named
+  /// after the tool.
   McpHandler({
     required this.tools,
     required this.serverVersion,
     Logger? logger,
-  }) : _log = logger ?? Logger('mcp_handler');
+    Tracer? tracer,
+  })  : _log = logger ?? Logger('mcp_handler'),
+        _tracer = tracer ?? const NoopTracer('mcp_handler');
 
   /// The note tool catalog this handler serves.
   final McpToolRegistry tools;
@@ -45,6 +50,7 @@ class McpHandler {
   final String serverVersion;
 
   final Logger _log;
+  final Tracer _tracer;
 
   /// Handles one decoded [message] on behalf of [principal].
   ///
@@ -114,16 +120,33 @@ class McpHandler {
     }
     final arguments = (rawArguments as Map<String, Object?>?) ?? const {};
 
-    try {
-      final result = await tools.call(name, arguments, principal);
-      return jsonRpcResult(message.id, result);
-    } on McpUnknownToolException {
-      return jsonRpcError(message.id, kInvalidParams, 'Unknown tool: $name');
-    } on McpInvalidParamsException catch (e) {
-      return jsonRpcError(message.id, kInvalidParams, e.message);
-    } on Object catch (e, st) {
-      _log.severe('tools/call "$name" failed', e, st);
-      return jsonRpcError(message.id, kInternalError, 'Internal error');
-    }
+    return _tracer.startActiveSpan(
+      'mcp.tools.call',
+      attributes: {'mcp.tool.name': name},
+      (span) async {
+        try {
+          final result = await tools.call(name, arguments, principal);
+          return jsonRpcResult(message.id, result);
+        } on McpUnknownToolException {
+          _log.warning('tools/call "$name" — unknown tool');
+          span.setStatus(StatusCode.error, description: 'unknown tool');
+          return jsonRpcError(
+            message.id,
+            kInvalidParams,
+            'Unknown tool: $name',
+          );
+        } on McpInvalidParamsException catch (e) {
+          _log.warning('tools/call "$name" — invalid params: ${e.message}');
+          span.setStatus(StatusCode.error, description: e.message);
+          return jsonRpcError(message.id, kInvalidParams, e.message);
+        } on Object catch (e, st) {
+          _log.severe('tools/call "$name" failed', e, st);
+          span
+            ..recordException(e, stackTrace: st)
+            ..setStatus(StatusCode.error, description: e.toString());
+          return jsonRpcError(message.id, kInternalError, 'Internal error');
+        }
+      },
+    );
   }
 }
