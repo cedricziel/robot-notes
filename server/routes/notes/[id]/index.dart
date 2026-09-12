@@ -6,6 +6,7 @@ import 'package:server/src/actor.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/tags.dart';
 
 /// `GET /notes/{id}`    — read a single note (with optional lock state).
 /// `PUT /notes/{id}`    — replace a note's title/content (If-Match required).
@@ -45,6 +46,8 @@ Future<Response> _read(RequestContext context, String id) async {
         'version': note.version,
         'created_at': note.createdAt.toUtc().toIso8601String(),
         'updated_at': note.updatedAt.toUtc().toIso8601String(),
+        'tags': computeTags(extra: note.extra, content: note.content).toList()
+          ..sort(),
         'lock': lock == null
             ? null
             : {
@@ -173,6 +176,9 @@ Future<Response> _update(RequestContext context, String id) async {
         'version': updated.version,
         'created_at': updated.createdAt.toUtc().toIso8601String(),
         'updated_at': updated.updatedAt.toUtc().toIso8601String(),
+        'tags':
+            computeTags(extra: updated.extra, content: updated.content).toList()
+              ..sort(),
       },
     );
   } on NoteNotFoundException {
@@ -199,6 +205,9 @@ Future<Response> _update(RequestContext context, String id) async {
           'version': current.version,
           'created_at': current.createdAt.toUtc().toIso8601String(),
           'updated_at': current.updatedAt.toUtc().toIso8601String(),
+          'tags': computeTags(extra: current.extra, content: current.content)
+              .toList()
+            ..sort(),
         },
       },
     );

@@ -170,6 +170,28 @@ void main() {
       expect(lock['holder'], 'alice');
       expect(lock['expires_at'], isA<String>());
     });
+
+    test('includes the computed tags field', () async {
+      final note = await storage.create(
+        title: 't',
+        content: 'body with #urgent tag',
+      );
+      index.upsert(note.toSummary());
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+        ),
+        note.id,
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['tags'], ['urgent']);
+    });
   });
 
   group('PUT /notes/{id}', () {
@@ -287,6 +309,30 @@ void main() {
       expect(body['content'], 'fresh');
       expect(index.get(note.id)?.version, 2);
       expect(index.get(note.id)?.title, 'alice-edit');
+    });
+
+    test('response includes the recomputed tags field', () async {
+      final note = await storage.create(title: 't', content: 'c');
+      index.upsert(note.toSummary());
+      await lockManager.acquire(noteId: note.id, actor: 'alice');
+      final writes = await _writeService(tmp, storage, index);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          writes: writes,
+          actor: const Actor('alice'),
+          headers: {'if-match': '1'},
+          body: {'title': 't', 'content': 'now has a #planning tag'},
+        ),
+        note.id,
+      );
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['tags'], ['planning']);
     });
 
     test('on unknown id returns 404 not_found', () async {
