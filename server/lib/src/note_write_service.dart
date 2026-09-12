@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/links.dart';
@@ -32,6 +33,8 @@ class NoteWriteService {
   /// Wires the service to its collaborators. [logger] is optional;
   /// production callers can pass a named logger so broadcast failures
   /// and rename-propagation warnings surface in a recognisable channel.
+  /// [tracer] is optional; production callers pass the server's tracer so
+  /// each write gets a `note.write.<verb>` span naming the note.
   ///
   /// [linkIndex] and [lockManager] default to fresh, empty instances
   /// when omitted — safe for callers that don't exercise links or locks
@@ -47,9 +50,11 @@ class NoteWriteService {
     LinkIndex? linkIndex,
     LockManager? lockManager,
     Logger? logger,
+    Tracer? tracer,
   })  : linkIndex = linkIndex ?? LinkIndex(),
         lockManager = lockManager ?? LockManager(),
-        _log = logger ?? Logger('note_write');
+        _log = logger ?? Logger('note_write'),
+        _tracer = tracer ?? const NoopTracer('note_write');
 
   /// Canonical filesystem-backed note store.
   final Storage storage;
@@ -73,6 +78,7 @@ class NoteWriteService {
   final LockManager lockManager;
 
   final Logger _log;
+  final Tracer _tracer;
 
   /// Persists a new note and updates every derived view.
   ///
@@ -84,36 +90,40 @@ class NoteWriteService {
     required String content,
     required String actor,
     String path = '',
-  }) async {
-    final note = await storage.create(
-      title: title,
-      content: content,
-      path: path,
-    );
-    final summary = note.toSummary();
-    // metaIndex is upserted before the search index reads from it below,
-    // so link resolution (including a self-referential link) sees this
-    // note.
-    metaIndex.upsert(summary);
-    linkIndex.upsert(note.id, note.content);
-    searchIndex.upsert(
-      id: note.id,
-      title: note.title,
-      path: note.path,
-      content: note.content,
-      updatedAt: note.updatedAt,
-      tags: summary.tags,
-      links: _searchLinkEdges(note.id),
-    );
-    _safeBroadcast(
-      ChangedEvent(
-        noteId: note.id,
-        version: note.version,
-        by: actor,
-        action: ChangeAction.created,
-      ),
-    );
-    return note;
+  }) {
+    return _tracer.startActiveSpan('note.write.create', (span) async {
+      final note = await storage.create(
+        title: title,
+        content: content,
+        path: path,
+      );
+      span.setAttribute('note.id', note.id);
+      final summary = note.toSummary();
+      // metaIndex is upserted before the search index reads from it below,
+      // so link resolution (including a self-referential link) sees this
+      // note.
+      metaIndex.upsert(summary);
+      linkIndex.upsert(note.id, note.content);
+      searchIndex.upsert(
+        id: note.id,
+        title: note.title,
+        path: note.path,
+        content: note.content,
+        updatedAt: note.updatedAt,
+        tags: summary.tags,
+        links: _searchLinkEdges(note.id),
+      );
+      _safeBroadcast(
+        ChangedEvent(
+          noteId: note.id,
+          version: note.version,
+          by: actor,
+          action: ChangeAction.created,
+        ),
+      );
+      _log.info('note ${note.id} created by $actor');
+      return note;
+    });
   }
 
   /// Updates an existing note (subject to [ifMatch] optimistic concurrency)
@@ -128,50 +138,61 @@ class NoteWriteService {
     required int ifMatch,
     required String actor,
     String? path,
-  }) async {
-    final before = await storage.read(id);
-    final updated = await storage.update(
-      id: id,
-      title: title,
-      content: content,
-      ifMatch: ifMatch,
-      path: path,
+  }) {
+    return _tracer.startActiveSpan(
+      'note.write.update',
+      attributes: {'note.id': id},
+      (span) async {
+        final before = await storage.read(id);
+        final updated = await storage.update(
+          id: id,
+          title: title,
+          content: content,
+          ifMatch: ifMatch,
+          path: path,
+        );
+        final summary = updated.toSummary();
+        metaIndex.upsert(summary);
+        linkIndex.upsert(updated.id, updated.content);
+        searchIndex.upsert(
+          id: updated.id,
+          title: updated.title,
+          path: updated.path,
+          content: updated.content,
+          updatedAt: updated.updatedAt,
+          tags: summary.tags,
+          links: _searchLinkEdges(updated.id),
+        );
+        // A path change broadcasts as `moved` rather than `updated` (per
+        // notes-api), even if title/content changed in the same request —
+        // "moved" is what tells subscribed clients their folder tree view
+        // needs a re-fetch, which a plain `updated` wouldn't trigger.
+        final action = updated.path != before.path
+            ? ChangeAction.moved
+            : ChangeAction.updated;
+        _safeBroadcast(
+          ChangedEvent(
+            noteId: updated.id,
+            version: updated.version,
+            by: actor,
+            action: action,
+          ),
+        );
+        _log.info(
+          'note ${updated.id} ${action.name} by $actor '
+          '(version ${updated.version})',
+        );
+        if (before.title != updated.title) {
+          await _propagateRename(
+            oldTitle: before.title,
+            newTitle: updated.title,
+            renamedId: updated.id,
+            actor: actor,
+          );
+        }
+        return updated;
+      },
     );
-    final summary = updated.toSummary();
-    metaIndex.upsert(summary);
-    linkIndex.upsert(updated.id, updated.content);
-    searchIndex.upsert(
-      id: updated.id,
-      title: updated.title,
-      path: updated.path,
-      content: updated.content,
-      updatedAt: updated.updatedAt,
-      tags: summary.tags,
-      links: _searchLinkEdges(updated.id),
-    );
-    // A path change broadcasts as `moved` rather than `updated` (per
-    // notes-api), even if title/content changed in the same request —
-    // "moved" is what tells subscribed clients their folder tree view
-    // needs a re-fetch, which a plain `updated` wouldn't trigger.
-    final action =
-        updated.path != before.path ? ChangeAction.moved : ChangeAction.updated;
-    _safeBroadcast(
-      ChangedEvent(
-        noteId: updated.id,
-        version: updated.version,
-        by: actor,
-        action: action,
-      ),
-    );
-    if (before.title != updated.title) {
-      await _propagateRename(
-        oldTitle: before.title,
-        newTitle: updated.title,
-        renamedId: updated.id,
-        actor: actor,
-      );
-    }
-    return updated;
   }
 
   /// Finds every other note with a *parsed* outgoing link (not a raw text
@@ -238,21 +259,28 @@ class NoteWriteService {
   Future<StoredNote> delete({
     required String id,
     required String actor,
-  }) async {
-    final existing = await storage.read(id);
-    await storage.delete(id);
-    searchIndex.delete(id);
-    metaIndex.remove(id);
-    linkIndex.remove(id);
-    _safeBroadcast(
-      ChangedEvent(
-        noteId: id,
-        version: existing.version,
-        by: actor,
-        action: ChangeAction.deleted,
-      ),
+  }) {
+    return _tracer.startActiveSpan(
+      'note.write.delete',
+      attributes: {'note.id': id},
+      (span) async {
+        final existing = await storage.read(id);
+        await storage.delete(id);
+        searchIndex.delete(id);
+        metaIndex.remove(id);
+        linkIndex.remove(id);
+        _safeBroadcast(
+          ChangedEvent(
+            noteId: id,
+            version: existing.version,
+            by: actor,
+            action: ChangeAction.deleted,
+          ),
+        );
+        _log.info('note $id deleted by $actor');
+        return existing;
+      },
     );
-    return existing;
   }
 
   /// Builds the [SearchLinkEdge] list [SearchIndex.upsert] needs from

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:logging/logging.dart';
 import 'package:server/src/oauth/client_auth.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/form_body.dart';
@@ -8,6 +9,8 @@ import 'package:server/src/oauth/oauth_records.dart';
 import 'package:server/src/oauth/oauth_response.dart';
 import 'package:server/src/oauth/pkce.dart';
 import 'package:server/src/oauth/token_store.dart';
+
+final Logger _log = Logger('oauth.token');
 
 /// `POST /oauth/token` — exchanges an authorization code, or a refresh
 /// token, for a new access/refresh token pair.
@@ -113,11 +116,15 @@ Future<Response> _exchangeCode(
       }
     });
   } on CodeReusedException catch (e) {
+    _log.warning(
+      'Authorization code reused for grant ${e.grantId}; revoking',
+    );
     await context.read<TokenStore>().revokeGrant(e.grantId);
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on CodeNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
-  } on Object {
+  } on Object catch (e, st) {
+    _log.severe('Authorization code exchange failed', e, st);
     return oauthError(HttpStatus.internalServerError, 'server_error');
   }
 }
@@ -161,7 +168,10 @@ Future<Response> _refresh(
     return _tokenResponse(issued);
   } on TokenNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
-  } on RefreshReuseException {
+  } on RefreshReuseException catch (e) {
+    _log.warning(
+      'Rotated refresh token reused for grant ${e.grantId}; family revoked',
+    );
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on ScopeWideningException {
     return oauthError(HttpStatus.badRequest, 'invalid_scope');

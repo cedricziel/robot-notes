@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
@@ -125,10 +126,14 @@ class AppDeps {
   /// - [oidcDiscovery], fetched from `config.oidc.issuer` when OIDC login
   ///   is configured; a failure here fails bootstrap, since a
   ///   misconfigured issuer should not silently disable OIDC login
+  /// - [tracer] forwarded to [NoteWriteService] so note writes get a span;
+  ///   optional (defaults to a no-op) so tests can call this without an
+  ///   otel pipeline
   static Future<AppDeps> bootstrap(
     Config config, {
     Clock clock = const Clock(),
     Logger? logger,
+    Tracer? tracer,
     HttpGet oidcHttpGet = httpGetViaHttpClient,
   }) async {
     final log = logger ?? Logger('app_deps');
@@ -199,6 +204,17 @@ class AppDeps {
       log.info('Resolved OIDC discovery document from ${oidcConfig.issuer}');
     }
 
+    final broadcaster = Broadcaster();
+    final noteWriteService = NoteWriteService(
+      storage: storage,
+      metaIndex: metaIndex,
+      searchIndex: searchIndex,
+      broadcaster: broadcaster,
+      linkIndex: linkIndex,
+      lockManager: lockManager,
+      tracer: tracer,
+    );
+
     return AppDeps(
       storage: storage,
       metaIndex: metaIndex,
@@ -209,10 +225,11 @@ class AppDeps {
       tokenStore: tokenStore,
       consentThrottle: consentThrottle,
       lockManager: lockManager,
-      broadcaster: Broadcaster(),
+      broadcaster: broadcaster,
       presence: PresenceTracker(),
       clock: clock,
       linkIndex: linkIndex,
+      noteWriteService: noteWriteService,
       oidcDiscovery: oidcDiscovery,
       oidcJwks: oidcJwks,
       pendingLoginStore: PendingLoginStore(clock: clock),

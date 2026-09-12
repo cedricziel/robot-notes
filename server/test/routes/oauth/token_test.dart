@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:logging/logging.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/oauth/client_store.dart';
@@ -50,6 +51,18 @@ String _formEncode(Map<String, String> fields) => fields.entries
 
 const _resource = 'http://localhost/mcp';
 const _verifier = 'a-code-verifier-that-is-long-enough-1234567890';
+
+/// Captures every record `routes/oauth/token.dart` logs under its
+/// `oauth.token` scope for the running test's duration, cancelling the
+/// listener via [addTearDown] so it doesn't leak across tests.
+List<LogRecord> _captureLogs() {
+  hierarchicalLoggingEnabled = true;
+  Logger('oauth.token').level = Level.ALL;
+  final records = <LogRecord>[];
+  final sub = Logger('oauth.token').onRecord.listen(records.add);
+  addTearDown(sub.cancel);
+  return records;
+}
 
 /// A [Clock] that returns the same instant until explicitly [advance]d,
 /// so tests can mint a code/token at one instant and then jump forward to
@@ -263,9 +276,45 @@ void main() {
       expect(lookup, isNull);
     });
 
+    test('code reuse logs a warning naming the grant', () async {
+      final records = _captureLogs();
+      final client = await registerPublic();
+      final code = await mintCode(client, grantId: 'grant-reused');
+      final form = _formEncode({
+        'grant_type': 'authorization_code',
+        'client_id': client.client.clientId,
+        'code': code,
+        'redirect_uri': 'https://agent.example/callback',
+        'code_verifier': _verifier,
+      });
+
+      await route.onRequest(
+        _ctx(
+          clientStore: clientStore,
+          codeStore: codeStore,
+          tokenStore: tokenStore,
+          formBody: form,
+        ),
+      );
+      await route.onRequest(
+        _ctx(
+          clientStore: clientStore,
+          codeStore: codeStore,
+          tokenStore: tokenStore,
+          formBody: form,
+        ),
+      );
+
+      expect(records, isNotEmpty);
+      expect(records.last.level, Level.WARNING);
+      expect(records.last.message, contains('grant-reused'));
+    });
+
     test(
-        'a non-OAuth exception from TokenStore.issue revokes the grant and '
-        'maps to a 500 server_error, without exposing the raw error', () async {
+        'a non-OAuth exception from TokenStore.issue revokes the grant, '
+        'maps to a 500 server_error without exposing the raw error, and '
+        'logs it', () async {
+      final records = _captureLogs();
       final client = await registerPublic();
       final code = await mintCode(client);
       final throwingStore = _ThrowingAfterIssueTokenStore(
@@ -299,6 +348,10 @@ void main() {
         isNull,
         reason: 'the half-issued grant must be revoked, not left live',
       );
+
+      expect(records, isNotEmpty);
+      expect(records.last.level, Level.SEVERE);
+      expect(records.last.error, isA<StateError>());
     });
 
     test(
@@ -814,6 +867,40 @@ void main() {
         rotatedJson['access_token'] as String,
       );
       expect(lookup, isNull);
+    });
+
+    test('rotated token reuse logs a warning naming the grant', () async {
+      final client = await registerPublic();
+      final first = await exchange(client);
+      await route.onRequest(
+        _ctx(
+          clientStore: clientStore,
+          codeStore: codeStore,
+          tokenStore: tokenStore,
+          formBody: _formEncode({
+            'grant_type': 'refresh_token',
+            'client_id': client.client.clientId,
+            'refresh_token': first['refresh_token'] as String,
+          }),
+        ),
+      );
+
+      final records = _captureLogs();
+      await route.onRequest(
+        _ctx(
+          clientStore: clientStore,
+          codeStore: codeStore,
+          tokenStore: tokenStore,
+          formBody: _formEncode({
+            'grant_type': 'refresh_token',
+            'client_id': client.client.clientId,
+            'refresh_token': first['refresh_token'] as String,
+          }),
+        ),
+      );
+
+      expect(records, isNotEmpty);
+      expect(records.last.level, Level.WARNING);
     });
 
     test('scope cannot widen', () async {
