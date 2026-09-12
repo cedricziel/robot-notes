@@ -45,10 +45,12 @@ const _contentField = Key('note.editor.content');
 TextEditingController _fieldController(WidgetTester tester, Key key) =>
     tester.widget<TextField>(find.byKey(key)).controller!;
 
-/// Pumps a [NoteScreen] whose note is already in edit mode. [onSave]
-/// answers the `PUT /notes/{id}` the save button sends.
-Future<void> _pumpEditor(
+/// Pumps a [NoteScreen] and taps edit. [onLock] answers the
+/// `POST /notes/{id}/lock` (granted by default); [onSave] answers the
+/// `PUT /notes/{id}` the save button sends.
+Future<NoteController> _pumpEditor(
   WidgetTester tester, {
+  http.Response Function(http.Request)? onLock,
   http.Response Function(http.Request)? onSave,
 }) async {
   final mock = MockClient((request) async {
@@ -56,7 +58,8 @@ Future<void> _pumpEditor(
       return http.Response(jsonEncode(_noteJson()), 200);
     }
     if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
-      return http.Response(jsonEncode(_lockJson()), 200);
+      return onLock?.call(request) ??
+          http.Response(jsonEncode(_lockJson()), 200);
     }
     if (request.method == 'PUT' && request.url.path == '/notes/01H') {
       return onSave?.call(request) ?? http.Response('unexpected', 500);
@@ -76,6 +79,7 @@ Future<void> _pumpEditor(
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('note.edit')));
   await tester.pumpAndSettle();
+  return ctrl;
 }
 
 MockClient _editableNote({VoidCallback? onRelease}) =>
@@ -350,6 +354,88 @@ void main() {
       expect(find.byKey(const Key('note.editor.content')), findsNothing);
       expect(find.byKey(const Key('open')), findsOneWidget);
       expect(lockReleases, 1);
+    });
+  });
+
+  group('feedback', () {
+    testWidgets('a failed save shows the server message', (tester) async {
+      final ctrl = await _pumpEditor(
+        tester,
+        onSave: (_) => http.Response(
+          jsonEncode({'message': 'title must not be empty'}),
+          400,
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('note.save')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(
+        find.text('Could not save: title must not be empty'),
+        findsOneWidget,
+      );
+      expect(ctrl.value.mode, NoteMode.editing);
+    });
+
+    testWidgets('a successful save confirms the new version', (tester) async {
+      await _pumpEditor(
+        tester,
+        onSave: (_) => http.Response(jsonEncode(_noteJson(version: 2)), 200),
+      );
+
+      await tester.tap(find.byKey(const Key('note.save')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Saved (v2)'), findsOneWidget);
+    });
+
+    testWidgets('failing to acquire the lock shows the server message', (
+      tester,
+    ) async {
+      final ctrl = await _pumpEditor(
+        tester,
+        onLock: (_) => http.Response(jsonEncode({'message': 'boom'}), 500),
+      );
+
+      expect(find.text('Could not start editing: boom'), findsOneWidget);
+      expect(ctrl.value.mode, NoteMode.viewing);
+    });
+
+    testWidgets('a 423 on edit shows the lock banner without a snackbar', (
+      tester,
+    ) async {
+      await _pumpEditor(
+        tester,
+        onLock: (_) => http.Response(
+          jsonEncode({'message': 'locked', 'lock': _lockJson(holder: 'alice')}),
+          423,
+        ),
+      );
+
+      expect(find.byKey(const Key('note.banner.lock')), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('a failed load replaces the spinner with the server message', (
+      tester,
+    ) async {
+      final mock = MockClient((request) async {
+        return http.Response(jsonEncode({'message': 'down'}), 500);
+      });
+      final ctrl = NoteController(
+        api: RobotNotesClient(config: _config, httpClient: mock),
+        noteId: '01H',
+        actor: 'cedric',
+      );
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('note.loadError')), findsOneWidget);
+      expect(find.text('Could not load the note: down'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
     });
   });
 

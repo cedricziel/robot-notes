@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../api/api_exceptions.dart';
 import 'note_controller.dart';
 
 /// Single-note view. Renders three modes off [NoteController]:
@@ -40,6 +41,42 @@ class _NoteScreenState extends State<NoteScreen> {
     _content.dispose();
     super.dispose();
   }
+
+  Future<void> _edit() async {
+    await widget.controller.enterEditMode();
+    _announceOutcome(failed: 'Could not start editing');
+  }
+
+  Future<void> _save() async {
+    await widget.controller.save();
+    _announceOutcome(failed: 'Could not save', succeeded: 'Saved');
+  }
+
+  Future<void> _keepMine() async {
+    await widget.controller.resolveConflictKeepMine();
+    _announceOutcome(failed: 'Could not save', succeeded: 'Saved');
+  }
+
+  /// Snackbar for an outcome the state machine does not render itself.
+  /// 409 (conflict view) and 423 (lock banner) already have their own UI.
+  void _announceOutcome({required String failed, String? succeeded}) {
+    if (!mounted) return;
+    final s = widget.controller.value;
+    final error = s.error;
+    final String text;
+    if (error == null) {
+      if (succeeded == null) return;
+      text = '$succeeded (v${s.note?.version})';
+    } else if (error is LockedException || error is VersionConflictException) {
+      return;
+    } else {
+      text = '$failed: ${_describe(error)}';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  static String _describe(ApiException e) =>
+      e.message ?? 'HTTP ${e.statusCode}';
 
   /// Sync the TextField contents whenever the controller's edit buffers
   /// change underneath us — e.g. after a save sets them to the server's
@@ -126,12 +163,12 @@ class _NoteScreenState extends State<NoteScreen> {
               IconButton(
                 key: const Key('note.edit'),
                 icon: const Icon(Icons.edit),
-                onPressed: widget.controller.enterEditMode,
+                onPressed: _edit,
               ),
             if (state.mode == NoteMode.editing)
               TextButton(
                 key: const Key('note.save'),
-                onPressed: widget.controller.save,
+                onPressed: _save,
                 child: const Text('Save'),
               ),
           ],
@@ -142,11 +179,20 @@ class _NoteScreenState extends State<NoteScreen> {
   }
 
   Widget _buildBody(BuildContext context, NoteState state) {
-    if (state.mode == NoteMode.loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
     final note = state.note;
     if (note == null) {
+      final error = state.error;
+      if (error != null) {
+        return Center(
+          child: Text(
+            'Could not load the note: ${_describe(error)}',
+            key: const Key('note.loadError'),
+          ),
+        );
+      }
+      if (state.mode == NoteMode.loading) {
+        return const Center(child: CircularProgressIndicator());
+      }
       return const Center(child: Text('Note unavailable'));
     }
 
@@ -172,7 +218,11 @@ class _NoteScreenState extends State<NoteScreen> {
     }
 
     if (state.mode == NoteMode.conflict) {
-      return _ConflictView(controller: widget.controller, state: state);
+      return _ConflictView(
+        controller: widget.controller,
+        state: state,
+        onKeepMine: _keepMine,
+      );
     }
 
     return Column(
@@ -258,10 +308,15 @@ class _Editor extends StatelessWidget {
 }
 
 class _ConflictView extends StatelessWidget {
-  const _ConflictView({required this.controller, required this.state});
+  const _ConflictView({
+    required this.controller,
+    required this.state,
+    required this.onKeepMine,
+  });
 
   final NoteController controller;
   final NoteState state;
+  final VoidCallback onKeepMine;
 
   @override
   Widget build(BuildContext context) {
@@ -309,7 +364,7 @@ class _ConflictView extends StatelessWidget {
               const SizedBox(width: 12),
               FilledButton(
                 key: const Key('note.conflict.keepMine'),
-                onPressed: controller.resolveConflictKeepMine,
+                onPressed: onKeepMine,
                 child: const Text('Force overwrite with mine'),
               ),
             ],
