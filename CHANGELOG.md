@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.3](https://github.com/cedricziel/robot-notes/compare/v0.2.2...v0.2.3) (2026-09-12)
+
+
+### Features
+
+* **app:** follow the OS light/dark setting automatically ([#153](https://github.com/cedricziel/robot-notes/issues/153)) ([0bdf198](https://github.com/cedricziel/robot-notes/commit/0bdf1987e4b0e6acb20e2b25f92e8cc21579f2c3))
+* **app:** split the setup wizard into a server step and a login step ([#156](https://github.com/cedricziel/robot-notes/issues/156)) ([869ca80](https://github.com/cedricziel/robot-notes/commit/869ca802dc230da5a2228fe894f098bdfbf73c82))
+* **server:** add OTel trace export alongside the existing log pipeline ([#148](https://github.com/cedricziel/robot-notes/issues/148)) ([2fbc43e](https://github.com/cedricziel/robot-notes/commit/2fbc43ed5d6acc87163a72293a2dc2fbb450a4f1))
+* **server:** trace and log MCP tool-call dispatch ([#154](https://github.com/cedricziel/robot-notes/issues/154)) ([17beef0](https://github.com/cedricziel/robot-notes/commit/17beef09c47655155b487f7c361be2b36214f3cb))
+* **server:** trace note writes and log OAuth security events ([#157](https://github.com/cedricziel/robot-notes/issues/157)) ([ccb3f7c](https://github.com/cedricziel/robot-notes/commit/ccb3f7cb82eadb5b2b5eac7fcd954e148e765d15))
+* **server:** trace search queries and log OAuth authorize/OIDC failures ([#152](https://github.com/cedricziel/robot-notes/issues/152)) ([57b2b3a](https://github.com/cedricziel/robot-notes/commit/57b2b3a83cf75ef638a0e7c005a7204aecd8fa19))
+* **server:** wrap every request in a span and correlate logs to it ([#149](https://github.com/cedricziel/robot-notes/issues/149)) ([bc6f756](https://github.com/cedricziel/robot-notes/commit/bc6f756b2b4ba405e5dd1c91fe11187bde188018))
+
+
+### Bug Fixes
+
+* **app:** add a way to clear an active tag filter ([#143](https://github.com/cedricziel/robot-notes/issues/143)) ([e8b7565](https://github.com/cedricziel/robot-notes/commit/e8b7565790ecadd07a0e6f88b63e650f4b873190))
+* **app:** show a real error, not "null", when create-note fails ([#142](https://github.com/cedricziel/robot-notes/issues/142)) ([266fc32](https://github.com/cedricziel/robot-notes/commit/266fc328a851a86d798933c62490f4b3b68c6152))
+* **macos:** grant network.server entitlement to release builds ([#155](https://github.com/cedricziel/robot-notes/issues/155)) ([9350f1f](https://github.com/cedricziel/robot-notes/commit/9350f1f286693a26d6cfc2b245c88c8fae01d531))
+
 ## [0.2.2](https://github.com/cedricziel/robot-notes/compare/v0.2.1...v0.2.2) (2026-09-12)
 
 
