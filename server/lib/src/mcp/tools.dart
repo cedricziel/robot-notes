@@ -468,6 +468,8 @@ McpTool _createNoteTool(NoteWriteService writes) => McpTool(
           return toolOk(_noteJson(note));
         } on PathConflictException {
           return toolFail(kErrorPathConflict);
+        } on InvalidPathException catch (e) {
+          return toolFail(kErrorValidationFailed, message: e.message);
         }
       },
     );
@@ -540,6 +542,8 @@ McpTool _updateNoteTool(
           return toolFail(ErrorCode.notFound.wire);
         } on PathConflictException {
           return toolFail(kErrorPathConflict);
+        } on InvalidPathException catch (e) {
+          return toolFail(kErrorValidationFailed, message: e.message);
         } on VersionConflictException catch (e) {
           return _versionConflictFail(e.current, principal);
         }
@@ -710,6 +714,8 @@ McpTool _moveNoteTool(
           return toolFail(ErrorCode.notFound.wire);
         } on PathConflictException {
           return toolFail(kErrorPathConflict);
+        } on InvalidPathException catch (e) {
+          return toolFail(kErrorValidationFailed, message: e.message);
         } on VersionConflictException catch (e) {
           return _versionConflictFail(e.current, principal);
         }

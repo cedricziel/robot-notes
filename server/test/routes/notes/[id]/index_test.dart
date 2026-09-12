@@ -427,6 +427,31 @@ void main() {
       final body = await res.json() as Map<String, dynamic>;
       expect(body['error'], 'path_conflict');
     });
+
+    test('a path-traversal move attempt is rejected, note unchanged', () async {
+      final note = await storage.create(title: 'Note', content: 'c');
+      index.upsert(note.toSummary());
+      final writes = await _writeService(tmp, storage, index);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          writes: writes,
+          headers: {'if-match': '1'},
+          body: {'title': 'Note', 'path': '../../../tmp/escaped'},
+        ),
+        note.id,
+      );
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['error'], 'bad_request');
+      final unchanged = await storage.read(note.id);
+      expect(unchanged.path, isEmpty);
+      expect(unchanged.version, 1);
+    });
   });
 
   group('DELETE /notes/{id}', () {

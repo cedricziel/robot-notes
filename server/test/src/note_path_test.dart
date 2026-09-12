@@ -53,6 +53,58 @@ void main() {
         ['Projects', 'AlphaBeta'],
       );
     });
+
+    test('rejects a .. segment (path traversal)', () {
+      expect(
+        () => sanitizedPathSegments('../etc'),
+        throwsA(isA<InvalidPathException>()),
+      );
+    });
+
+    test('rejects a .. segment anywhere in the path, not just the start', () {
+      expect(
+        () => sanitizedPathSegments('Projects/../../etc'),
+        throwsA(isA<InvalidPathException>()),
+      );
+    });
+
+    test('rejects a bare . segment', () {
+      expect(
+        () => sanitizedPathSegments('Projects/./Alpha'),
+        throwsA(isA<InvalidPathException>()),
+      );
+    });
+
+    test(
+      'rejects a segment that becomes .. only after stripping illegal '
+      'characters',
+      () {
+        // ':' is stripped by sanitizeFilenameSegment, so '.:.' would
+        // otherwise silently collapse to the traversal segment '..' if
+        // the check ran before stripping instead of after.
+        expect(
+          () => sanitizedPathSegments('.:./etc'),
+          throwsA(isA<InvalidPathException>()),
+        );
+      },
+    );
+
+    test('rejects a segment that becomes empty after stripping', () {
+      // Every character in this segment is filesystem-illegal, so it
+      // sanitizes down to the empty string, which would otherwise
+      // silently produce a double slash in the resulting relative path.
+      expect(
+        () => sanitizedPathSegments('Projects/:*?/Alpha'),
+        throwsA(isA<InvalidPathException>()),
+      );
+    });
+
+    test('does not reject a segment that merely contains dots', () {
+      expect(
+        sanitizedPathSegments('Projects/v1.2.3'),
+        ['Projects', 'v1.2.3'],
+      );
+    });
   });
 
   group('collisionKey', () {
