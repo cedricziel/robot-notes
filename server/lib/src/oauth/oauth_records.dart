@@ -1,7 +1,12 @@
 import 'package:meta/meta.dart';
 
+// `List<String>.from` copies eagerly, so a non-string element throws
+// right here — inside the caller's `_readFile` try block. `.cast<String>()`
+// instead returns a lazy view that only throws once an element is
+// actually read, which could be arbitrarily later (even past the point
+// where a caller thought parsing had already succeeded).
 List<String> _stringList(Object? json) =>
-    (json! as List<dynamic>).cast<String>();
+    List<String>.from(json! as List<dynamic>);
 
 DateTime _parseUtc(Object? json) => DateTime.parse(json! as String).toUtc();
 
@@ -92,6 +97,7 @@ class AuthorizationCode {
     required this.createdAt,
     required this.expiresAt,
     this.consumedAt,
+    this.revokedAt,
   });
 
   /// Parses an authorization-code record from its on-disk JSON form.
@@ -108,6 +114,7 @@ class AuthorizationCode {
         createdAt: _parseUtc(json['created_at']),
         expiresAt: _parseUtc(json['expires_at']),
         consumedAt: _parseUtcOrNull(json['consumed_at']),
+        revokedAt: _parseUtcOrNull(json['revoked_at']),
       );
 
   /// SHA-256 hex digest of the raw code; also the file stem.
@@ -144,8 +151,18 @@ class AuthorizationCode {
   /// Time the code was exchanged, or `null` while still usable.
   final DateTime? consumedAt;
 
+  /// Time the code's grant was revoked while the code was still
+  /// outstanding, or `null` otherwise. Distinct from [consumedAt] so a
+  /// store can reject a revoked code as unknown rather than as reused (no
+  /// tokens were ever minted from it, so there is nothing to
+  /// cascade-revoke).
+  final DateTime? revokedAt;
+
   /// Whether [now] falls past [expiresAt].
   bool isExpired(DateTime now) => !now.isBefore(expiresAt);
+
+  /// Whether [revokedAt] is non-null.
+  bool get isRevoked => revokedAt != null;
 
   /// Returns a copy with [consumedAt] applied.
   AuthorizationCode consumedCopy(DateTime when) => AuthorizationCode(
@@ -160,6 +177,23 @@ class AuthorizationCode {
         createdAt: createdAt,
         expiresAt: expiresAt,
         consumedAt: when,
+        revokedAt: revokedAt,
+      );
+
+  /// Returns a copy with [revokedAt] applied, unless already revoked.
+  AuthorizationCode revokedCopy(DateTime when) => AuthorizationCode(
+        codeHash: codeHash,
+        clientId: clientId,
+        redirectUri: redirectUri,
+        codeChallenge: codeChallenge,
+        scopes: scopes,
+        resource: resource,
+        actor: actor,
+        grantId: grantId,
+        createdAt: createdAt,
+        expiresAt: expiresAt,
+        consumedAt: consumedAt,
+        revokedAt: revokedAt ?? when,
       );
 
   /// JSON serialization (matches the on-disk file format).
@@ -175,6 +209,7 @@ class AuthorizationCode {
         'created_at': createdAt.toUtc().toIso8601String(),
         'expires_at': expiresAt.toUtc().toIso8601String(),
         'consumed_at': consumedAt?.toUtc().toIso8601String(),
+        'revoked_at': revokedAt?.toUtc().toIso8601String(),
       };
 }
 
