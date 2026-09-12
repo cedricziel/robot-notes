@@ -7,9 +7,6 @@ import 'package:server/src/search_index.dart';
 /// Default page size when the caller omits `limit`.
 const int kDefaultSearchLimit = 20;
 
-/// Hard ceiling on `limit`; larger values clamp here.
-const int kMaxSearchLimit = 100;
-
 /// `GET /search?q=<fts>&limit=<n>` — FTS5 full-text search over notes.
 ///
 /// Errors:

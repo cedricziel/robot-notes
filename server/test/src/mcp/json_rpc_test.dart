@@ -100,6 +100,41 @@ void main() {
         throwsA(isA<JsonRpcInvalidRequest>()),
       );
     });
+
+    test(
+      'a request with array params throws an invalid-params error '
+      'echoing the id, not a batch-shaped invalid request',
+      () {
+        expect(
+          () => JsonRpcMessage.parse({
+            'jsonrpc': '2.0',
+            'id': 5,
+            'method': 'ping',
+            'params': [1, 2, 3],
+          }),
+          throwsA(
+            isA<JsonRpcInvalidParamsAtParse>().having(
+              (e) => e.id,
+              'id',
+              5,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'a notification with array params is accepted with params dropped',
+      () {
+        final msg = JsonRpcMessage.parse({
+          'jsonrpc': '2.0',
+          'method': 'notifications/initialized',
+          'params': [1, 2, 3],
+        });
+        expect(msg, isA<JsonRpcNotification>());
+        expect((msg as JsonRpcNotification).params, isNull);
+      },
+    );
   });
 
   group('envelope builders', () {

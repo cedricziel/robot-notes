@@ -2,14 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dart_frog/dart_frog.dart';
 import 'package:http/http.dart' as http;
+import 'package:server/src/actor_middleware.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/mcp/mcp_chain.dart';
+import 'package:server/src/static_web_middleware.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/io.dart';
 
+import '../../routes/mcp/index.dart' as mcp_route;
 import '_oauth_test_helpers.dart';
 import '_test_app.dart';
 
@@ -361,6 +366,190 @@ void main() {
           body: jsonEncode({'jsonrpc': '2.0', 'id': 1, 'method': 'ping'}),
         );
         expect(pingRes.statusCode, 200, reason: pingRes.body);
+      },
+    );
+  });
+
+  group('method and auth ordering', () {
+    test(
+      'unauthenticated GET is 401, not 405 — auth runs before the '
+      'method check',
+      () async {
+        final app = await TestApp.start();
+        addTearDown(app.close);
+
+        final res = await http.get(Uri.parse('${app.baseUrl}/mcp'));
+
+        expect(res.statusCode, 401);
+        expect(res.headers['www-authenticate'], contains('resource_metadata='));
+      },
+    );
+  });
+
+  group('static key over /mcp', () {
+    test('X-Actor drives the broadcast by field', () async {
+      final app = await TestApp.start();
+      addTearDown(app.close);
+
+      final ch = IOWebSocketChannel.connect(Uri.parse(app.wsUrl));
+      final stream = ch.stream.cast<String>().asBroadcastStream();
+      addTearDown(() => ch.sink.close());
+      ch.sink.add(
+        jsonEncode(
+          AuthMsg(key: app.config.apiKey, actor: 'watcher').toJson(),
+        ),
+      );
+      expect(
+        (jsonDecode(await stream.first) as Map<String, dynamic>)['type'],
+        'auth_ok',
+      );
+      final events = <Map<String, dynamic>>[];
+      final sub = stream.listen(
+        (s) => events.add(jsonDecode(s) as Map<String, dynamic>),
+      );
+      addTearDown(sub.cancel);
+      ch.sink.add(jsonEncode(const SubscribeMsg(noteId: '*').toJson()));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final res = await http.post(
+        Uri.parse('${app.baseUrl}/mcp'),
+        headers: {
+          'Authorization': 'Bearer ${app.config.apiKey}',
+          'Content-Type': 'application/json',
+          'X-Actor': 'research-bot',
+        },
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 1,
+          'method': 'tools/call',
+          'params': {
+            'name': 'create_note',
+            'arguments': {'title': 'Static key note'},
+          },
+        }),
+      );
+      expect(res.statusCode, 200, reason: res.body);
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final noteId =
+          ((body['result'] as Map)['structuredContent'] as Map)['id'] as String;
+
+      await _waitFor(
+        () => events.any(
+          (e) =>
+              e['type'] == 'changed' &&
+              e['note_id'] == noteId &&
+              e['by'] == 'research-bot',
+        ),
+        timeout: const Duration(seconds: 3),
+      );
+    });
+
+    test('has full access to both read and write tools', () async {
+      final app = await TestApp.start();
+      addTearDown(app.close);
+
+      final listRes = await http.post(
+        Uri.parse('${app.baseUrl}/mcp'),
+        headers: {
+          'Authorization': 'Bearer ${app.config.apiKey}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 1,
+          'method': 'tools/call',
+          'params': {'name': 'list_notes', 'arguments': <String, Object?>{}},
+        }),
+      );
+      expect(listRes.statusCode, 200, reason: listRes.body);
+      final listBody = jsonDecode(listRes.body) as Map<String, dynamic>;
+      expect((listBody['result'] as Map)['isError'], isNull);
+
+      final createRes = await http.post(
+        Uri.parse('${app.baseUrl}/mcp'),
+        headers: {
+          'Authorization': 'Bearer ${app.config.apiKey}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 2,
+          'method': 'tools/call',
+          'params': {
+            'name': 'create_note',
+            'arguments': {'title': 'Full access check'},
+          },
+        }),
+      );
+      expect(createRes.statusCode, 200, reason: createRes.body);
+      final createBody = jsonDecode(createRes.body) as Map<String, dynamic>;
+      expect((createBody['result'] as Map)['isError'], isNull);
+    });
+  });
+
+  group('static mode does not shadow /mcp', () {
+    test(
+      'POST /mcp with a valid key returns a JSON-RPC response, not '
+      'index.html',
+      () async {
+        final tmpDir = Directory.systemTemp.createTempSync(
+          'robot-notes-static-mcp-',
+        );
+        addTearDown(() {
+          if (tmpDir.existsSync()) tmpDir.deleteSync(recursive: true);
+        });
+        final webDir = Directory('${tmpDir.path}/web')..createSync();
+        File(
+          '${webDir.path}/index.html',
+        ).writeAsStringSync('<html>spa shell</html>');
+
+        final config = Config(
+          apiKey: 'static-mode-key',
+          dataDir: '${tmpDir.path}/data',
+          port: 0,
+          lockTtlSeconds: 60,
+          webDir: webDir.path,
+        );
+        final deps = await AppDeps.bootstrap(config);
+        addTearDown(deps.close);
+
+        // Mirrors production ordering (routes/_middleware.dart): Config
+        // provider and actorIdentity (mcpAuth's static-key path reads
+        // `context.read<Actor>()`) innermost, staticWebMiddleware
+        // outermost so it gets first refusal on every request.
+        final root = Router()
+          ..all('/mcp', mcpChain(mcp_route.onRequest, deps: deps));
+        final pipeline = const Pipeline()
+            .addMiddleware(provider<Config>((_) => config))
+            .addMiddleware(actorIdentity())
+            .addMiddleware(staticWebMiddleware(webDir: config.webDir))
+            .addHandler(root.call);
+        final server = await serve(pipeline, InternetAddress.loopbackIPv4, 0);
+        addTearDown(() => server.close(force: true));
+        final baseUrl = 'http://${server.address.host}:${server.port}';
+
+        final res = await http.post(
+          Uri.parse('$baseUrl/mcp'),
+          headers: {
+            'Authorization': 'Bearer ${config.apiKey}',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'jsonrpc': '2.0', 'id': 1, 'method': 'ping'}),
+        );
+
+        expect(res.statusCode, 200, reason: res.body);
+        expect(res.headers['content-type'], contains('application/json'));
+        final json = jsonDecode(res.body) as Map<String, dynamic>;
+        expect(json['result'], <String, dynamic>{});
+
+        // An unauthenticated GET (no file extension, so it would otherwise
+        // look like an SPA route) must still reach mcpAuth and get 401 —
+        // not the SPA shell's index.html — proving /mcp is excluded from
+        // static serving rather than merely bypassing it because this
+        // particular request happened to be a POST.
+        final getRes = await http.get(Uri.parse('$baseUrl/mcp'));
+        expect(getRes.statusCode, 401);
+        expect(getRes.body, isNot(contains('spa shell')));
       },
     );
   });

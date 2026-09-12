@@ -1,3 +1,4 @@
+import 'package:logging/logging.dart';
 import 'package:server/src/mcp/json_rpc.dart';
 import 'package:server/src/mcp/principal.dart';
 import 'package:server/src/mcp/tools.dart';
@@ -28,14 +29,22 @@ const String _instructions =
 /// codes, headers, and decoding the request body into a [JsonRpcMessage].
 class McpHandler {
   /// Creates a handler serving [tools] and advertising [serverVersion] in
-  /// `initialize`'s `serverInfo`.
-  McpHandler({required this.tools, required this.serverVersion});
+  /// `initialize`'s `serverInfo`. [logger] is optional; production callers
+  /// can pass a named logger so a tool's uncaught exception surfaces in a
+  /// recognisable channel.
+  McpHandler({
+    required this.tools,
+    required this.serverVersion,
+    Logger? logger,
+  }) : _log = logger ?? Logger('mcp_handler');
 
   /// The note tool catalog this handler serves.
   final McpToolRegistry tools;
 
   /// Version string reported as `serverInfo.version` on `initialize`.
   final String serverVersion;
+
+  final Logger _log;
 
   /// Handles one decoded [message] on behalf of [principal].
   ///
@@ -112,8 +121,9 @@ class McpHandler {
       return jsonRpcError(message.id, kInvalidParams, 'Unknown tool: $name');
     } on McpInvalidParamsException catch (e) {
       return jsonRpcError(message.id, kInvalidParams, e.message);
-    } on Object catch (e) {
-      return jsonRpcError(message.id, kInternalError, 'Internal error: $e');
+    } on Object catch (e, st) {
+      _log.severe('tools/call "$name" failed', e, st);
+      return jsonRpcError(message.id, kInternalError, 'Internal error');
     }
   }
 }

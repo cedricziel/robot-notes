@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/mcp/mcp_handler.dart';
+import 'package:server/src/mcp/mcp_http.dart';
 import 'package:server/src/mcp/principal.dart';
 import 'package:server/src/mcp/tools.dart';
 import 'package:shared/shared.dart';
@@ -38,7 +41,9 @@ RequestContext _ctx({
   Map<String, String> headers = const {},
   Object? body,
   bool malformedJson = false,
+  int? rawBodyByteCount,
   McpPrincipal principal = _principal,
+  String? configPublicUrl = _publicUrl,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
@@ -49,20 +54,26 @@ RequestContext _ctx({
   };
   when(() => req.headers).thenReturn(lower);
   if (malformedJson) {
-    when(req.json).thenAnswer(
-      (_) async => throw const FormatException('bad json'),
+    when(req.bytes).thenAnswer(
+      (_) => Stream.value(utf8.encode('{not valid json')),
+    );
+  } else if (rawBodyByteCount != null) {
+    when(req.bytes).thenAnswer(
+      (_) => Stream.value(Uint8List(rawBodyByteCount)),
     );
   } else if (body != null) {
-    when(req.json).thenAnswer((_) async => body);
+    when(req.bytes).thenAnswer(
+      (_) => Stream.value(utf8.encode(jsonEncode(body))),
+    );
   }
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<Config>()).thenReturn(
-    const Config(
+    Config(
       apiKey: 'test-key',
       dataDir: '/tmp',
       port: 8080,
       lockTtlSeconds: 60,
-      publicUrl: _publicUrl,
+      publicUrl: configPublicUrl,
     ),
   );
   when(() => ctx.read<McpHandler>()).thenReturn(handler);
@@ -161,6 +172,27 @@ void main() {
     expect(res.statusCode, HttpStatus.accepted);
   });
 
+  test(
+    'a non-loopback origin matching the request Host header is 403 when '
+    'no publicUrl is configured — trusting a Host-derived origin would '
+    'let a DNS-rebinding attacker, who controls both, pick it themselves',
+    () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          handler: handler,
+          headers: const {
+            'Origin': 'https://attacker.example',
+            'Host': 'attacker.example',
+          },
+          body: {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+          configPublicUrl: null,
+        ),
+      );
+      expect(res.statusCode, HttpStatus.forbidden);
+    },
+  );
+
   test('absent Origin header is accepted', () async {
     final res = await route.onRequest(
       _ctx(
@@ -207,6 +239,34 @@ void main() {
     expect((json['error'] as Map<String, dynamic>)['code'], -32700);
   });
 
+  test(
+    'a body over 1 MiB is 413 before JSON decoding is attempted',
+    () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          handler: handler,
+          rawBodyByteCount: kMaxMcpBodyBytes + 1,
+        ),
+      );
+      expect(res.statusCode, HttpStatus.requestEntityTooLarge);
+      expect(await res.json(), {'error': 'payload_too_large'});
+    },
+  );
+
+  test('a body at exactly the 1 MiB cap is not rejected for size', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        handler: handler,
+        rawBodyByteCount: kMaxMcpBodyBytes,
+      ),
+    );
+    // A buffer of zero bytes is not valid JSON, so this still 400s — the
+    // point is that it is a parse failure, not a 413.
+    expect(res.statusCode, HttpStatus.badRequest);
+  });
+
   test('batch request is 400 with JSON-RPC -32600', () async {
     final res = await route.onRequest(
       _ctx(
@@ -221,6 +281,29 @@ void main() {
     final json = await res.json() as Map<String, dynamic>;
     expect((json['error'] as Map<String, dynamic>)['code'], -32600);
   });
+
+  test(
+    'a request with array params is 200 with JSON-RPC -32602 echoing the '
+    'id, not a 400',
+    () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          handler: handler,
+          body: {
+            'jsonrpc': '2.0',
+            'id': 9,
+            'method': 'ping',
+            'params': [1, 2, 3],
+          },
+        ),
+      );
+      expect(res.statusCode, HttpStatus.ok);
+      final json = await res.json() as Map<String, dynamic>;
+      expect(json['id'], 9);
+      expect((json['error'] as Map<String, dynamic>)['code'], -32602);
+    },
+  );
 
   test('notification is 202 with an empty body', () async {
     final res = await route.onRequest(

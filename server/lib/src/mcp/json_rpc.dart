@@ -32,6 +32,28 @@ class JsonRpcInvalidRequest implements Exception {
   String toString() => 'JsonRpcInvalidRequest: $message';
 }
 
+/// Thrown by [JsonRpcMessage.parse] when a request — as opposed to a
+/// notification, which has no reply channel to report this on — supplies
+/// a `params` value that is present but not a JSON object (this server
+/// only accepts by-name params). Carries the request's own [id] so the
+/// `/mcp` route can reply with the standard `-32602` JSON-RPC error
+/// echoing it, rather than the batch/malformed-message `-32600`
+/// [JsonRpcInvalidRequest] gets.
+@immutable
+class JsonRpcInvalidParamsAtParse implements Exception {
+  /// Creates an invalid-params error for the request identified by [id].
+  const JsonRpcInvalidParamsAtParse(this.id, this.message);
+
+  /// The request id to echo in the JSON-RPC error response.
+  final Object id;
+
+  /// Human-readable reason, suitable for the JSON-RPC error `message`.
+  final String message;
+
+  @override
+  String toString() => 'JsonRpcInvalidParamsAtParse($id): $message';
+}
+
 /// A decoded JSON-RPC 2.0 message: a [JsonRpcRequest], a
 /// [JsonRpcNotification], or a [JsonRpcResponse] (a reply sent *to* us by
 /// the client, which this server never solicits but must still accept).
@@ -41,7 +63,8 @@ sealed class JsonRpcMessage {
   /// Parses [decoded] — the result of `jsonDecode` on the `/mcp` request
   /// body — into one of the three message shapes. Throws
   /// [JsonRpcInvalidRequest] for arrays, non-objects, or a missing/wrong
-  /// `jsonrpc` field.
+  /// `jsonrpc` field. Throws [JsonRpcInvalidParamsAtParse] when a request
+  /// (but not a notification) supplies a non-object `params`.
   factory JsonRpcMessage.parse(Object? decoded) {
     if (decoded is! Map<String, Object?>) {
       throw JsonRpcInvalidRequest(
@@ -57,18 +80,24 @@ sealed class JsonRpcMessage {
     }
 
     final rawParams = decoded['params'];
-    if (rawParams != null && rawParams is! Map<String, Object?>) {
-      throw const JsonRpcInvalidRequest('params must be an object');
-    }
-    final params = rawParams as Map<String, Object?>?;
+    final paramsShapeValid =
+        rawParams == null || rawParams is Map<String, Object?>;
+    final params = paramsShapeValid ? rawParams as Map<String, Object?>? : null;
 
     final method = decoded['method'];
     final hasId = decoded.containsKey('id');
     if (method is String) {
-      if (!hasId) return JsonRpcNotification(method: method, params: params);
+      if (!hasId) {
+        // A notification has no reply channel, so a malformed `params`
+        // shape is dropped rather than failing parse.
+        return JsonRpcNotification(method: method, params: params);
+      }
       final id = decoded['id'];
       if (id is! int && id is! String) {
         throw const JsonRpcInvalidRequest('id must be a string or a number');
+      }
+      if (!paramsShapeValid) {
+        throw JsonRpcInvalidParamsAtParse(id!, 'params must be an object');
       }
       return JsonRpcRequest(id: id!, method: method, params: params);
     }

@@ -1,19 +1,20 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/config.dart';
 import 'package:server/src/mcp/json_rpc.dart';
 import 'package:server/src/mcp/mcp_handler.dart';
 import 'package:server/src/mcp/mcp_http.dart';
 import 'package:server/src/mcp/principal.dart';
-import 'package:server/src/public_url.dart';
 
 /// `POST /mcp` — the sole Streamable HTTP MCP entrypoint.
 ///
 /// Checks run in a fixed order, each before the next so an invalid request
-/// is refused as cheaply as possible: method, `Origin`, then
-/// `MCP-Protocol-Version`, then the JSON-RPC body. Authentication and the
-/// [McpPrincipal] it produces are handled by `routes/mcp/_middleware.dart`
-/// before this handler ever runs.
+/// is refused as cheaply as possible: method, `Origin`, `MCP-Protocol-
+/// Version`, body size, then the JSON-RPC body itself. Authentication and
+/// the [McpPrincipal] it produces are handled by
+/// `routes/mcp/_middleware.dart` before this handler ever runs.
 ///
 /// The transport is stateless: no `Mcp-Session-Id` is ever read or
 /// emitted, and every response is a plain JSON body — never
@@ -25,7 +26,8 @@ Future<Response> onRequest(RequestContext context) async {
   }
 
   final origin = request.headers['origin'];
-  if (origin != null && !isAllowedMcpOrigin(origin, publicBaseUrl(context))) {
+  if (origin != null &&
+      !isAllowedMcpOrigin(origin, context.read<Config>().publicUrl)) {
     return mcpForbidden();
   }
 
@@ -35,9 +37,20 @@ Future<Response> onRequest(RequestContext context) async {
     return mcpUnsupportedProtocolVersion();
   }
 
+  // Buffered by hand — rather than `request.json()` — so an oversized body
+  // is rejected as soon as it crosses the cap instead of being fully
+  // decoded into memory first.
+  final bodyBytes = <int>[];
+  await for (final chunk in request.bytes()) {
+    bodyBytes.addAll(chunk);
+    if (bodyBytes.length > kMaxMcpBodyBytes) {
+      return mcpPayloadTooLarge();
+    }
+  }
+
   Object? decoded;
   try {
-    decoded = await request.json();
+    decoded = jsonDecode(utf8.decode(bodyBytes));
   } on FormatException catch (e) {
     return Response.json(
       statusCode: HttpStatus.badRequest,
@@ -48,6 +61,8 @@ Future<Response> onRequest(RequestContext context) async {
   final JsonRpcMessage message;
   try {
     message = JsonRpcMessage.parse(decoded);
+  } on JsonRpcInvalidParamsAtParse catch (e) {
+    return Response.json(body: jsonRpcError(e.id, kInvalidParams, e.message));
   } on JsonRpcInvalidRequest catch (e) {
     return Response.json(
       statusCode: HttpStatus.badRequest,

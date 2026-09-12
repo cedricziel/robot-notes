@@ -4,9 +4,19 @@ import 'dart:io';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/invite_store.dart';
+import 'package:server/src/lock_manager.dart';
 import 'package:server/src/mcp/principal.dart';
 import 'package:server/src/mcp/tool_results.dart';
 import 'package:server/src/mcp/tools.dart';
+import 'package:server/src/meta_index.dart';
+import 'package:server/src/oauth/client_store.dart';
+import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/token_store.dart';
+import 'package:server/src/search_index.dart';
+import 'package:server/src/storage.dart';
+import 'package:server/src/ws/broadcaster.dart';
+import 'package:server/src/ws/presence.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
@@ -23,6 +33,28 @@ const McpPrincipal writeOnly = McpPrincipal(
 );
 const McpPrincipal bob = McpPrincipal.staticKey('bob');
 
+/// A well-formed note file, used to plant a canary outside `content/` when
+/// proving a path-traversal id cannot reach it — if the id check were
+/// missing, `storage.read`/`update`/`delete` would happily follow `..` to
+/// this file since `Storage` builds paths by string interpolation.
+const String _canaryNoteFile = '---\n'
+    'id: canary\n'
+    'title: Canary\n'
+    'version: 1\n'
+    'created_at: 2024-01-01T00:00:00.000Z\n'
+    'updated_at: 2024-01-01T00:00:00.000Z\n'
+    '---\n'
+    'top secret';
+
+/// Plants [_canaryNoteFile] at `<tmp>/x.md`, one level above `content/`.
+/// The OS only resolves a `..` path segment through a directory that
+/// exists, so this also creates `content/` first — mirroring a server
+/// that already has at least one note on disk.
+File _plantCanary(Directory tmp) {
+  Directory('${tmp.path}/content').createSync(recursive: true);
+  return File('${tmp.path}/x.md')..writeAsStringSync(_canaryNoteFile);
+}
+
 Directory _tempDir() =>
     Directory.systemTemp.createTempSync('robot-notes-mcp-tools-test-');
 
@@ -34,6 +66,81 @@ Future<AppDeps> _bootstrap(Directory tmp, {Clock? clock}) {
     lockTtlSeconds: 60,
   );
   return AppDeps.bootstrap(config, clock: clock ?? const Clock());
+}
+
+/// A [Storage] whose [update] reports a version conflict for the first
+/// [failCount] calls regardless of the caller's `ifMatch`, then behaves
+/// normally — used to force append_to_note's retry loop to exhaust
+/// without racing real concurrent writers.
+class _FlakyStorage extends Storage {
+  _FlakyStorage({
+    required super.contentDir,
+    required this.failCount,
+    this.onConflict,
+  });
+
+  final int failCount;
+
+  /// Invoked synchronously each time [update] reports a synthetic
+  /// conflict — lets a test simulate another actor acting in the gap
+  /// between one failed attempt and the caller's next retry.
+  final void Function()? onConflict;
+
+  int _calls = 0;
+
+  @override
+  Future<StoredNote> update({
+    required NoteId id,
+    required String title,
+    required String content,
+    required int ifMatch,
+  }) async {
+    if (_calls < failCount) {
+      _calls++;
+      final current = await read(id);
+      onConflict?.call();
+      throw VersionConflictException(
+        current: current,
+        suppliedIfMatch: ifMatch,
+      );
+    }
+    return super.update(
+      id: id,
+      title: title,
+      content: content,
+      ifMatch: ifMatch,
+    );
+  }
+}
+
+/// Builds a standalone [AppDeps] backed by [_FlakyStorage], rooted at a
+/// fresh temp directory the caller is responsible for cleaning up.
+Future<AppDeps> _bootstrapFlaky(
+  Directory tmp, {
+  required int failCount,
+  void Function()? onConflict,
+}) async {
+  final storage = _FlakyStorage(
+    contentDir: Directory('${tmp.path}/content'),
+    failCount: failCount,
+    onConflict: onConflict,
+  );
+  return AppDeps(
+    storage: storage,
+    metaIndex: MetaIndex(),
+    searchIndex: await SearchIndex.open(
+      dbFile: File('${tmp.path}/search.db'),
+      storage: storage,
+    ),
+    inviteStore: InviteStore(inviteDir: Directory('${tmp.path}/invites')),
+    clientStore: ClientStore(dir: Directory('${tmp.path}/oauth/clients')),
+    codeStore: CodeStore(dir: Directory('${tmp.path}/oauth/codes')),
+    tokenStore: TokenStore(dir: Directory('${tmp.path}/oauth/tokens')),
+    lockManager: LockManager(),
+    broadcaster: Broadcaster(),
+    presence: PresenceTracker(),
+    clock: const Clock(),
+  );
 }
 
 Map<String, Object?> _structured(Map<String, Object?> result) =>
@@ -118,6 +225,18 @@ void main() {
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], ErrorCode.notFound.wire);
     });
+
+    test(
+      'rejects a path-traversal id as not_found without reading the file',
+      () async {
+        _plantCanary(tmp);
+
+        final result = await call('get_note', {'id': '../x'});
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+      },
+    );
   });
 
   group('search_notes', () {
@@ -146,6 +265,16 @@ void main() {
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
+
+    test(
+      'rejects a limit above 100 as an invalid param, matching GET /search',
+      () async {
+        await expectLater(
+          call('search_notes', {'query': 'budget', 'limit': 101}),
+          throwsA(isA<McpInvalidParamsException>()),
+        );
+      },
+    );
   });
 
   group('create_note', () {
@@ -231,6 +360,37 @@ void main() {
       },
     );
 
+    test(
+      'omits current_content from version_conflict for a write-only '
+      'principal',
+      () async {
+        final note = await deps.noteWriteService.create(
+          title: 'Draft',
+          content: 'v1',
+          actor: 'x',
+        );
+        await deps.noteWriteService.update(
+          id: note.id,
+          title: 'Draft',
+          content: 'v2',
+          ifMatch: note.version,
+          actor: 'x',
+        );
+
+        final args = {
+          'id': note.id,
+          'version': note.version,
+          'content': 'v3',
+        };
+        final result = await call('update_note', args, writeOnly);
+        expect(result['isError'], isTrue);
+        final s = _structured(result);
+        expect(s['error'], ErrorCode.versionConflict.wire);
+        expect(s['current_version'], 2);
+        expect(s.containsKey('current_content'), isFalse);
+      },
+    );
+
     test('rejects an update with neither title nor content', () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',
@@ -246,6 +406,39 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
+    test('rejects a blank supplied title as validation_failed', () async {
+      final note = await deps.noteWriteService.create(
+        title: 'Draft',
+        content: 'v1',
+        actor: 'x',
+      );
+
+      final result = await call('update_note', {
+        'id': note.id,
+        'version': note.version,
+        'title': '   ',
+      });
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'validation_failed');
+    });
+
+    test(
+      'rejects a path-traversal id as not_found without writing the file',
+      () async {
+        final canary = _plantCanary(tmp);
+
+        final result = await call('update_note', {
+          'id': '../x',
+          'version': 1,
+          'content': 'pwned',
+        });
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+        expect(canary.readAsStringSync(), _canaryNoteFile);
+      },
+    );
+
     test(
       'returns locked with holder when another actor holds the lock',
       () async {
@@ -256,15 +449,12 @@ void main() {
         );
         await deps.lockManager.acquire(noteId: note.id, actor: 'alice');
 
-        final result = await call(
-          'update_note',
-          {
-            'id': note.id,
-            'version': note.version,
-            'content': 'v2',
-          },
-          bob,
-        );
+        final args = {
+          'id': note.id,
+          'version': note.version,
+          'content': 'v2',
+        };
+        final result = await call('update_note', args, bob);
         expect(result['isError'], isTrue);
         final s = _structured(result);
         expect(s['error'], ErrorCode.locked.wire);
@@ -320,6 +510,19 @@ void main() {
     });
 
     test(
+      'rejects a path-traversal id as not_found without deleting the file',
+      () async {
+        final canary = _plantCanary(tmp);
+
+        final result = await call('delete_note', {'id': '../x'});
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+        expect(canary.existsSync(), isTrue);
+      },
+    );
+
+    test(
       'returns locked with holder when another actor holds the lock',
       () async {
         final note = await deps.noteWriteService.create(
@@ -329,13 +532,7 @@ void main() {
         );
         await deps.lockManager.acquire(noteId: note.id, actor: 'alice');
 
-        final result = await call(
-          'delete_note',
-          {
-            'id': note.id,
-          },
-          bob,
-        );
+        final result = await call('delete_note', {'id': note.id}, bob);
         expect(result['isError'], isTrue);
         final s = _structured(result);
         expect(s['error'], ErrorCode.locked.wire);
@@ -396,13 +593,41 @@ void main() {
         actor: 'x',
       );
 
+      final result = await call('append_to_note', {'id': note.id, 'text': ''});
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'validation_failed');
+    });
+
+    test('rejects whitespace-only text as validation_failed', () async {
+      final note = await deps.noteWriteService.create(
+        title: 'Log',
+        content: 'line one',
+        actor: 'x',
+      );
+
       final result = await call('append_to_note', {
         'id': note.id,
-        'text': '',
+        'text': '   ',
       });
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
+
+    test(
+      'rejects a path-traversal id as not_found without writing the file',
+      () async {
+        final canary = _plantCanary(tmp);
+
+        final result = await call('append_to_note', {
+          'id': '../x',
+          'text': 'pwned',
+        });
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+        expect(canary.readAsStringSync(), _canaryNoteFile);
+      },
+    );
 
     test(
       'returns locked with holder when another actor holds the lock',
@@ -414,14 +639,8 @@ void main() {
         );
         await deps.lockManager.acquire(noteId: note.id, actor: 'alice');
 
-        final result = await call(
-          'append_to_note',
-          {
-            'id': note.id,
-            'text': 'line two',
-          },
-          bob,
-        );
+        final args = {'id': note.id, 'text': 'line two'};
+        final result = await call('append_to_note', args, bob);
         expect(result['isError'], isTrue);
         final s = _structured(result);
         expect(s['error'], ErrorCode.locked.wire);
@@ -449,6 +668,76 @@ void main() {
       expect(reread.content, contains('beta'));
       expect(reread.version, 3);
     });
+
+    test(
+      'returns version_conflict after exhausting all retries',
+      () async {
+        final flakyTmp = _tempDir();
+        addTearDown(() {
+          if (flakyTmp.existsSync()) flakyTmp.deleteSync(recursive: true);
+        });
+        final flakyDeps = await _bootstrapFlaky(
+          flakyTmp,
+          failCount: kMcpAppendMaxRetries + 1,
+        );
+        addTearDown(flakyDeps.close);
+        final note = await flakyDeps.noteWriteService.create(
+          title: 'Log',
+          content: 'line one',
+          actor: 'x',
+        );
+        final flakyRegistry = McpToolRegistry.forDeps(flakyDeps);
+
+        final result = await flakyRegistry.call(
+          'append_to_note',
+          {'id': note.id, 'text': 'line two'},
+          fullAccess,
+        );
+
+        expect(result['isError'], isTrue);
+        final s = _structured(result);
+        expect(s['error'], ErrorCode.versionConflict.wire);
+        expect(s['current_version'], note.version);
+        expect(s['current_content'], note.content);
+      },
+    );
+
+    test(
+      'returns locked if another actor acquires the lock between retries',
+      () async {
+        final flakyTmp = _tempDir();
+        addTearDown(() {
+          if (flakyTmp.existsSync()) flakyTmp.deleteSync(recursive: true);
+        });
+        late LockManager lockManager;
+        late String noteId;
+        final flakyDeps = await _bootstrapFlaky(
+          flakyTmp,
+          failCount: 1,
+          onConflict: () => lockManager.acquire(noteId: noteId, actor: 'alice'),
+        );
+        lockManager = flakyDeps.lockManager;
+        addTearDown(flakyDeps.close);
+        final note = await flakyDeps.noteWriteService.create(
+          title: 'Log',
+          content: 'line one',
+          actor: 'x',
+        );
+        noteId = note.id;
+        final flakyRegistry = McpToolRegistry.forDeps(flakyDeps);
+
+        final result = await flakyRegistry.call(
+          'append_to_note',
+          {'id': note.id, 'text': 'line two'},
+          fullAccess,
+        );
+
+        expect(result['isError'], isTrue);
+        final s = _structured(result);
+        expect(s['error'], ErrorCode.locked.wire);
+        expect(s['holder'], 'alice');
+      },
+    );
   });
 
   group('scope gating', () {

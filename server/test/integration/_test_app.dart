@@ -15,9 +15,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/lock_manager.dart';
-import 'package:server/src/mcp/mcp_auth_middleware.dart';
-import 'package:server/src/mcp/mcp_handler.dart';
-import 'package:server/src/mcp/tools.dart';
+import 'package:server/src/mcp/mcp_chain.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/oauth/client_store.dart';
@@ -28,7 +26,6 @@ import 'package:server/src/storage.dart';
 import 'package:server/src/well_known_middleware.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
-import 'package:shared/shared.dart';
 
 import '../../routes/healthz.dart' as healthz_route;
 import '../../routes/index.dart' as root_index;
@@ -81,23 +78,18 @@ Future<HttpServer> startTestServer({
       .addMiddleware(provider<Storage>((_) => deps.storage))
       .addMiddleware(provider<Clock>((_) => deps.clock));
 
-  // `/mcp` gets its own middleware nesting, mirroring
-  // routes/mcp/_middleware.dart: the McpHandler provider and mcpAuth both
-  // scoped to this one route rather than the shared pipeline above, since
-  // mcpAuth's credential rules (static key OR OAuth access token, no
-  // exemptions) would otherwise apply to every other route too. Unlike
-  // the production middleware, [deps] is captured directly instead of
-  // going through `app_deps_holder`, so parallel test servers do not
+  // `/mcp` gets its own middleware nesting via the shared [mcpChain],
+  // mirroring routes/mcp/_middleware.dart: the McpHandler provider and
+  // mcpAuth both scoped to this one route rather than the shared pipeline
+  // above, since mcpAuth's credential rules (static key OR OAuth access
+  // token, no exemptions) would otherwise apply to every other route too.
+  // Unlike the production middleware, [deps] is captured directly instead
+  // of going through `app_deps_holder`, so parallel test servers do not
   // share global state.
-  final mcpHandler =
-      ((RequestContext c) => mcp_route.onRequest(c)).use(mcpAuth()).use(
-            provider<McpHandler>(
-              (_) => McpHandler(
-                tools: McpToolRegistry.forDeps(deps),
-                serverVersion: robotNotesVersion,
-              ),
-            ),
-          );
+  final mcpHandler = mcpChain(
+    (RequestContext c) => mcp_route.onRequest(c),
+    deps: deps,
+  );
 
   final root = Router()
     ..mount('/notes/<id>/lock', _lockMount)
