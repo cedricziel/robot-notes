@@ -28,15 +28,18 @@ RequestContext _ctx({
   required ClientStore clientStore,
   required CodeStore codeStore,
   Map<String, String> queryParameters = const {},
+  String? rawQuery,
   String? formBody,
   Config? config,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
-  final uri = Uri.parse('http://localhost/oauth/authorize').replace(
-    queryParameters: queryParameters.isEmpty ? null : queryParameters,
-  );
+  final uri = rawQuery != null
+      ? Uri.parse('http://localhost/oauth/authorize?$rawQuery')
+      : Uri.parse('http://localhost/oauth/authorize').replace(
+          queryParameters: queryParameters.isEmpty ? null : queryParameters,
+        );
   when(() => req.uri).thenReturn(uri);
   when(() => req.headers).thenReturn(
     formBody == null
@@ -260,6 +263,22 @@ void main() {
       expect(location.queryParameters['state'], 'xyz');
     });
 
+    test('a malformed percent-escape in the query renders an error page',
+        () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          rawQuery: 'client_id=${client.client.clientId}&resource=%FF',
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.body();
+      expect(body, contains('<!doctype html>'));
+    });
+
     test('unsupported response_type redirects with error', () async {
       final query = validQuery(state: 'xyz')..['response_type'] = 'token';
       final res = await route.onRequest(
@@ -298,6 +317,22 @@ void main() {
       expect(location.queryParameters['code'], isNotEmpty);
       expect(location.queryParameters['state'], 'xyz');
       expect(location.queryParameters['iss'], 'http://localhost');
+    });
+
+    test('a malformed percent-escape in the form body renders an error page',
+        () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: 'client_id=${client.client.clientId}&resource=%FF',
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.body();
+      expect(body, contains('<!doctype html>'));
     });
 
     test('wrong key re-renders without minting a code', () async {

@@ -387,6 +387,25 @@ void main() {
     });
   });
 
+  test('a malformed percent-escape in the form body is invalid_request',
+      () async {
+    final client = await registerPublic();
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: 'grant_type=authorization_code'
+            '&client_id=${client.client.clientId}'
+            '&code=%FF',
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_request');
+  });
+
   test('unsupported grant type', () async {
     final client = await registerPublic();
     final res = await route.onRequest(

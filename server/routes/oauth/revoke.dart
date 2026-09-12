@@ -25,6 +25,8 @@ Future<Response> onRequest(RequestContext context) async {
     form = await parseFormBody(context.request);
   } on UnsupportedFormContentTypeException {
     return oauthError(HttpStatus.badRequest, 'invalid_request');
+  } on MalformedFormBodyException {
+    return oauthError(HttpStatus.badRequest, 'invalid_request');
   }
 
   final authResult = await authenticateClient(context, form);

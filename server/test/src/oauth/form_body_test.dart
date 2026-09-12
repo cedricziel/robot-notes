@@ -65,5 +65,41 @@ void main() {
         throwsA(isA<UnsupportedFormContentTypeException>()),
       );
     });
+
+    test('rejects an invalid percent-escape (bad hex digits)', () async {
+      expect(
+        () => parseFormBody(
+          _request(
+            'a=%ZZ',
+            contentType: 'application/x-www-form-urlencoded',
+          ),
+        ),
+        throwsA(isA<MalformedFormBodyException>()),
+      );
+    });
+
+    test('rejects a truncated percent-escape', () async {
+      expect(
+        () => parseFormBody(
+          _request(
+            'a=%2',
+            contentType: 'application/x-www-form-urlencoded',
+          ),
+        ),
+        throwsA(isA<MalformedFormBodyException>()),
+      );
+    });
+
+    test('rejects a percent-escape that decodes to invalid UTF-8', () async {
+      expect(
+        () => parseFormBody(
+          _request(
+            'a=%FF',
+            contentType: 'application/x-www-form-urlencoded',
+          ),
+        ),
+        throwsA(isA<MalformedFormBodyException>()),
+      );
+    });
   });
 }

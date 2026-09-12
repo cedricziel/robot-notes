@@ -43,7 +43,12 @@ Future<Response> onRequest(RequestContext context) async {
 }
 
 Future<Response> _get(RequestContext context) async {
-  final params = context.request.uri.queryParameters;
+  final Map<String, String> params;
+  try {
+    params = context.request.uri.queryParameters;
+  } on FormatException {
+    return _errorPage('Malformed query string.');
+  }
   final validation = await _validate(context, params);
   return switch (validation) {
     _ClientError(:final message) => _errorPage(message),
@@ -66,6 +71,8 @@ Future<Response> _post(RequestContext context) async {
     return _errorPage(
       'Request body must be application/x-www-form-urlencoded.',
     );
+  } on MalformedFormBodyException {
+    return _errorPage('Malformed request body.');
   }
 
   final validation = await _validate(context, form);
