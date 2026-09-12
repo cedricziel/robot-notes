@@ -509,6 +509,34 @@ void main() {
 
       expect(find.text('Discard changes?'), findsOneWidget);
     });
+
+    testWidgets('Cmd+S while only viewing sends no request and no snackbar', (
+      tester,
+    ) async {
+      var putCalls = 0;
+      final mock = MockClient((request) async {
+        if (request.method == 'PUT') putCalls += 1;
+        return http.Response(jsonEncode(_noteJson()), 200);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+      await tester.pumpAndSettle();
+      // Give the body focus first — like tapping into the read-only note —
+      // so the key event has somewhere to start bubbling from.
+      await tester.tap(find.byKey(const Key('note.body')));
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+
+      expect(putCalls, 0);
+      expect(find.byType(SnackBar), findsNothing);
+    });
   });
 
   group('feedback', () {

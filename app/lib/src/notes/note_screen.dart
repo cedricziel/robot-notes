@@ -220,9 +220,11 @@ class _NoteScreenState extends State<NoteScreen> {
         ),
         body: CallbackShortcuts(
           bindings: <ShortcutActivator, VoidCallback>{
-            const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
-            const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-                _save,
+            if (state.mode == NoteMode.editing) ...{
+              const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
+              const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+                  _save,
+            },
             const SingleActivator(LogicalKeyboardKey.escape): _close,
           },
           child: _buildBody(context, state),
