@@ -19,12 +19,16 @@ class NotesListScreen extends StatefulWidget {
     this.onNoteTap,
     this.onCreate,
     this.appBarActions,
+    this.banner,
     super.key,
   });
 
   final NotesListController controller;
   final ValueChanged<String>? onNoteTap;
   final VoidCallback? onCreate;
+
+  /// Optional strip between the AppBar and the list, e.g. connection state.
+  final Widget? banner;
 
   /// Optional widgets rendered as the AppBar actions (e.g. search + reset
   /// affordances supplied by the host shell). When `null` the AppBar
@@ -76,55 +80,65 @@ class _NotesListScreenState extends State<NotesListScreen> {
               onPressed: widget.onCreate,
               child: const Icon(Icons.add),
             ),
-      body: ValueListenableBuilder<NotesListState>(
-        valueListenable: widget.controller,
-        builder: (context, state, _) {
-          if (state.isLoadingFirst && state.items.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final error = state.error;
-          return Column(
-            children: [
-              if (error != null)
-                ErrorStrip(
-                  key: const Key('notes.error'),
-                  message: describeError(
-                    error,
-                    fallback: 'Could not load notes.',
-                  ),
-                  onRetry: widget.controller.refresh,
-                ),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: widget.controller.refresh,
-                  child: ListView.separated(
-                    key: const Key('notes.list'),
-                    controller: _scroll,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount:
-                        state.items.length + (state.isLoadingMore ? 1 : 0),
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      if (index >= state.items.length) {
-                        return const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-                      final note = state.items[index];
-                      return _NoteTile(
-                        note: note,
-                        onTap: widget.onNoteTap == null
-                            ? null
-                            : () => widget.onNoteTap!(note.id),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
+      body: Column(
+        children: [
+          if (widget.banner != null) widget.banner!,
+          Expanded(
+            child: ValueListenableBuilder<NotesListState>(
+              valueListenable: widget.controller,
+              builder: (context, state, _) {
+                if (state.isLoadingFirst && state.items.isEmpty) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final error = state.error;
+                return Column(
+                  children: [
+                    if (error != null)
+                      ErrorStrip(
+                        key: const Key('notes.error'),
+                        message: describeError(
+                          error,
+                          fallback: 'Could not load notes.',
+                        ),
+                        onRetry: widget.controller.refresh,
+                      ),
+                    Expanded(
+                      child: RefreshIndicator(
+                        onRefresh: widget.controller.refresh,
+                        child: ListView.separated(
+                          key: const Key('notes.list'),
+                          controller: _scroll,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          itemCount:
+                              state.items.length +
+                              (state.isLoadingMore ? 1 : 0),
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            if (index >= state.items.length) {
+                              return const Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+                            final note = state.items[index];
+                            return _NoteTile(
+                              note: note,
+                              onTap: widget.onNoteTap == null
+                                  ? null
+                                  : () => widget.onNoteTap!(note.id),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -141,8 +155,9 @@ class _NoteTile extends StatelessWidget {
     return ListTile(
       key: Key('notes.tile.${note.id}'),
       title: Text(note.title.isEmpty ? '(untitled)' : note.title),
-      subtitle:
-          Text('v${note.version} · ${formatNoteTimestamp(note.updatedAt)}'),
+      subtitle: Text(
+        'v${note.version} · ${formatNoteTimestamp(note.updatedAt)}',
+      ),
       onTap: onTap,
     );
   }

@@ -226,3 +226,29 @@ The app SHALL maintain at most one WebSocket connection while signed in. On disc
 
 - **WHEN** the WS connection is re-established after being disconnected for more than 5 seconds
 - **THEN** the open note view (if any) SHALL re-issue `GET /notes/{id}` to ensure the user sees current state
+
+#### Scenario: Reconnect after a stale outage refreshes the list
+
+- **GIVEN** the notes list is open and the connection has been down for more than 5 seconds
+- **WHEN** the WS connection is re-established
+- **THEN** the app SHALL request `GET /notes` again and render the returned items
+
+### Requirement: Realtime connection state is visible in the notes list
+
+The notes list SHALL show a strip above the list whenever the WebSocket connection is not established: "Reconnecting…" while the reconnect loop runs, and "Connection lost — showing cached notes" once the outage has lasted longer than the stale threshold. While connected, nothing SHALL be shown. Already-loaded notes SHALL stay visible and usable throughout.
+
+#### Scenario: Connected shows no indicator
+
+- **GIVEN** the WS connection is established
+- **WHEN** the notes list renders
+- **THEN** no connection strip SHALL be shown
+
+#### Scenario: Short outage shows reconnecting
+
+- **WHEN** the WS connection drops
+- **THEN** the list SHALL show "Reconnecting…" above the loaded notes until the connection is re-established
+
+#### Scenario: Long outage marks the list as cached
+
+- **WHEN** the WS connection has been down for more than the stale threshold
+- **THEN** the strip SHALL read "Connection lost — showing cached notes" and SHALL stay until the connection is re-established
