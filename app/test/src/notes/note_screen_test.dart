@@ -41,6 +41,45 @@ Map<String, Object?> _lockJson({
 }) =>
     <String, Object?>{'holder': holder, 'expires_at': expiresAt};
 
+const _titleField = Key('note.editor.title');
+const _contentField = Key('note.editor.content');
+
+TextEditingController _fieldController(WidgetTester tester, Key key) =>
+    tester.widget<TextField>(find.byKey(key)).controller!;
+
+/// Pumps a [NoteScreen] whose note is already in edit mode. [onSave]
+/// answers the `PUT /notes/{id}` the save button sends.
+Future<void> _pumpEditor(
+  WidgetTester tester, {
+  http.Response Function(http.Request)? onSave,
+}) async {
+  final mock = MockClient((request) async {
+    if (request.method == 'GET' && request.url.path == '/notes/01H') {
+      return http.Response(jsonEncode(_noteJson()), 200);
+    }
+    if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
+      return http.Response(jsonEncode(_lockJson()), 200);
+    }
+    if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+      return onSave?.call(request) ?? http.Response('unexpected', 500);
+    }
+    return http.Response('unexpected', 500);
+  });
+  final api = RobotNotesClient(config: _config, httpClient: mock);
+  final ctrl = NoteController(
+    api: api,
+    noteId: '01H',
+    actor: 'cedric',
+    scheduler: (_) => Completer<void>().future,
+  );
+  addTearDown(ctrl.dispose);
+
+  await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('note.edit')));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('renders the note body in read-only view by default',
       (tester) async {
@@ -67,35 +106,72 @@ void main() {
 
   testWidgets('tapping edit acquires the lock and reveals the editor',
       (tester) async {
-    final mock = MockClient((request) async {
-      if (request.method == 'GET' && request.url.path == '/notes/01H') {
-        return http.Response(jsonEncode(_noteJson()), 200);
-      }
-      if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
-        return http.Response(jsonEncode(_lockJson()), 200);
-      }
-      return http.Response('unexpected', 500);
-    });
-    final api = RobotNotesClient(config: _config, httpClient: mock);
-    final ctrl = NoteController(
-      api: api,
-      noteId: '01H',
-      actor: 'cedric',
-      scheduler: (_) => Completer<void>().future,
-    );
-    addTearDown(ctrl.dispose);
+    await _pumpEditor(tester);
 
-    await tester.pumpWidget(
-      MaterialApp(home: NoteScreen(controller: ctrl)),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('note.edit')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const Key('note.editor.title')), findsOneWidget);
-    expect(find.byKey(const Key('note.editor.content')), findsOneWidget);
+    expect(find.byKey(_titleField), findsOneWidget);
+    expect(find.byKey(_contentField), findsOneWidget);
     expect(find.byKey(const Key('note.save')), findsOneWidget);
+  });
+
+  testWidgets('typing in the middle of a field keeps the caret there',
+      (tester) async {
+    await _pumpEditor(tester);
+
+    await tester.showKeyboard(find.byKey(_titleField));
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: 'hXello',
+        selection: TextSelection.collapsed(offset: 2),
+      ),
+    );
+    await tester.pump();
+
+    final title = _fieldController(tester, _titleField);
+    expect(title.text, 'hXello');
+    expect(title.selection.baseOffset, 2);
+  });
+
+  testWidgets('editor fields follow the buffers after a save', (tester) async {
+    await _pumpEditor(
+      tester,
+      onSave: (_) => http.Response(
+        jsonEncode(
+          _noteJson(title: 'server title', content: 'server body', version: 2),
+        ),
+        200,
+      ),
+    );
+
+    await tester.enterText(find.byKey(_contentField), 'draft');
+    await tester.tap(find.byKey(const Key('note.save')));
+    await tester.pumpAndSettle();
+
+    expect(_fieldController(tester, _titleField).text, 'server title');
+    expect(_fieldController(tester, _contentField).text, 'server body');
+  });
+
+  testWidgets('editor fields follow the buffers after accepting the server',
+      (tester) async {
+    await _pumpEditor(
+      tester,
+      onSave: (_) => http.Response(
+        jsonEncode(<String, Object?>{
+          'error': 'version_conflict',
+          'current': _noteJson(content: 'theirs', version: 3),
+        }),
+        409,
+      ),
+    );
+
+    await tester.enterText(find.byKey(_contentField), 'mine');
+    await tester.tap(find.byKey(const Key('note.save')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('note.banner.conflict')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('note.conflict.acceptServer')));
+    await tester.pumpAndSettle();
+
+    expect(_fieldController(tester, _contentField).text, 'theirs');
   });
 
   testWidgets('presence event renders the viewer count', (tester) async {

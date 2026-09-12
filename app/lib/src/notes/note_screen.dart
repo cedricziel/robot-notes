@@ -26,8 +26,6 @@ class NoteScreen extends StatefulWidget {
 class _NoteScreenState extends State<NoteScreen> {
   final TextEditingController _title = TextEditingController();
   final TextEditingController _content = TextEditingController();
-  String? _lastSyncedTitle;
-  String? _lastSyncedContent;
 
   @override
   void initState() {
@@ -50,17 +48,20 @@ class _NoteScreenState extends State<NoteScreen> {
   /// Sync the TextField contents whenever the controller's edit buffers
   /// change underneath us — e.g. after a save sets them to the server's
   /// latest, or after accepting the server side of a conflict.
+  ///
+  /// Every keystroke also flows through here (onChanged → controller →
+  /// listener), so only assign when the field really differs: assigning
+  /// `.text` resets the caret to the end, which mangles mid-text typing.
   void _syncBuffersFromState() {
     final s = widget.controller.value;
-    if (s.editTitle != _lastSyncedTitle) {
-      _lastSyncedTitle = s.editTitle;
-      _title.text = s.editTitle ?? '';
-    }
-    if (s.editContent != _lastSyncedContent) {
-      _lastSyncedContent = s.editContent;
-      _content.text = s.editContent ?? '';
-    }
+    _syncField(_title, s.editTitle);
+    _syncField(_content, s.editContent);
     if (mounted) setState(() {});
+  }
+
+  static void _syncField(TextEditingController field, String? buffer) {
+    final next = buffer ?? '';
+    if (field.text != next) field.text = next;
   }
 
   @override
