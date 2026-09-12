@@ -244,7 +244,6 @@ The note view SHALL confirm a completed save and SHALL show the server's message
 - **WHEN** `POST /notes/{id}/lock` fails with a status other than 423
 - **THEN** the app SHALL show a message containing the server's `message` and remain read-only
 
-
 ### Requirement: Note view can delete the note after confirmation
 
 The note view SHALL offer a "Delete note" action in an overflow menu while the note is in read-only mode. Choosing it SHALL ask the user to confirm before anything is sent. On confirmation the app SHALL `DELETE /notes/{id}`, close the note view, and show a brief "Note deleted" confirmation that outlives the closed view. A 404 from the server SHALL be treated as success, since the note is gone either way. Any other error SHALL keep the note open and surface the failure.
@@ -307,7 +306,11 @@ In view mode the app SHALL render the note content as Markdown: headings, lists,
 - **WHEN** the user enters edit mode
 - **THEN** the content field SHALL contain the raw Markdown source unchanged
 
-> > > > > > > e671b06 (feat(app): render note content as Markdown in view mode)
+#### Scenario: Images are never fetched
+
+- **GIVEN** a note whose content contains `![tracker](https://example.com/pixel.png)`
+- **WHEN** the note is open in view mode
+- **THEN** the app SHALL NOT request the image URL and SHALL show the alt text in its place
 
 ### Requirement: Live presence and lock state are surfaced in the note view
 
