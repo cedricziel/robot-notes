@@ -162,4 +162,103 @@ void main() {
       expect(page.nextCursor, isNull);
     });
   });
+
+  group('MetaIndex.page sort=updated_desc', () {
+    NoteSummary at(String id, DateTime updatedAt) => NoteSummary(
+          id: id,
+          title: id,
+          version: 1,
+          createdAt: updatedAt,
+          updatedAt: updatedAt,
+        );
+
+    test('returns newest-updated-first', () {
+      final idx = MetaIndex()
+        ..upsert(at('A', DateTime.utc(2026)))
+        ..upsert(at('B', DateTime.utc(2026, 1, 3)))
+        ..upsert(at('C', DateTime.utc(2026, 1, 2)));
+
+      final page = idx.page(sort: 'updated_desc', limit: 10);
+
+      expect(page.items.map((s) => s.id), ['B', 'C', 'A']);
+      expect(page.nextCursor, isNull);
+    });
+
+    test('ties on updated_at break by id descending', () {
+      final t = DateTime.utc(2026);
+      final idx = MetaIndex()
+        ..upsert(at('A', t))
+        ..upsert(at('B', t))
+        ..upsert(at('C', t));
+
+      final page = idx.page(sort: 'updated_desc', limit: 10);
+
+      expect(page.items.map((s) => s.id), ['C', 'B', 'A']);
+    });
+
+    test('walks the full index across pages via cursor', () {
+      final idx = MetaIndex()
+        ..upsert(at('A', DateTime.utc(2026)))
+        ..upsert(at('B', DateTime.utc(2026, 1, 3)))
+        ..upsert(at('C', DateTime.utc(2026, 1, 2)));
+
+      String? cursor;
+      final collected = <String>[];
+      for (var loop = 0; loop < 10; loop++) {
+        final page = idx.page(sort: 'updated_desc', after: cursor, limit: 1);
+        collected.addAll(page.items.map((s) => s.id));
+        if (page.nextCursor == null) break;
+        cursor = page.nextCursor;
+      }
+      expect(collected, ['B', 'C', 'A']);
+    });
+
+    test(
+        'an already-seen note that jumps to the top is not revisited by '
+        'an in-flight pagination walk', () {
+      final idx = MetaIndex()
+        ..upsert(at('A', DateTime.utc(2026)))
+        ..upsert(at('B', DateTime.utc(2026, 1, 2)));
+
+      final page1 = idx.page(sort: 'updated_desc', limit: 1);
+      expect(page1.items.single.id, 'B');
+
+      // 'A' is updated after page1 was fetched, jumping above the cursor.
+      idx.upsert(at('A', DateTime.utc(2026, 1, 3)));
+
+      final page2 = idx.page(
+        sort: 'updated_desc',
+        after: page1.nextCursor,
+        limit: 10,
+      );
+      // Keyset pagination is stable relative to the cursor position, not
+      // a live top-N snapshot: an entry that moved above the cursor is
+      // not re-surfaced by resuming the walk.
+      expect(page2.items, isEmpty);
+    });
+
+    test('cursor is opaque and differs from the plain id', () {
+      final idx = MetaIndex()
+        ..upsert(at('A', DateTime.utc(2026)))
+        ..upsert(at('B', DateTime.utc(2026, 1, 2)));
+      final page = idx.page(sort: 'updated_desc', limit: 1);
+      expect(page.nextCursor, isNot('A'));
+    });
+
+    test('final page returns null nextCursor', () {
+      final idx = MetaIndex()
+        ..upsert(at('A', DateTime.utc(2026)))
+        ..upsert(at('B', DateTime.utc(2026, 1, 2)));
+      final page = idx.page(sort: 'updated_desc', limit: 10);
+      expect(page.nextCursor, isNull);
+    });
+
+    test('malformed cursor throws InvalidCursorException', () {
+      final idx = MetaIndex()..upsert(at('A', DateTime.utc(2026)));
+      expect(
+        () => idx.page(sort: 'updated_desc', after: 'not-valid-base64!!'),
+        throwsA(isA<InvalidCursorException>()),
+      );
+    });
+  });
 }

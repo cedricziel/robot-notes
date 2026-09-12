@@ -1,8 +1,11 @@
 # notes-api Specification
 
 ## Purpose
+
 TBD - created by archiving change add-mvp-foundation. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Server exposes RESTful note CRUD endpoints
 
 The server SHALL expose the following endpoints rooted at `/notes`:
@@ -22,7 +25,14 @@ All endpoints SHALL accept and return `application/json`. All endpoints SHALL re
 
 ### Requirement: GET /notes returns paginated metadata
 
-`GET /notes` SHALL return a JSON object containing `items` (an array of note metadata) and `next_cursor` (a string or null). Each item SHALL contain `id`, `title`, `version`, `updated_at`, and `created_at`. The endpoint SHALL accept `limit` (default 50, max 200) and `cursor` query parameters, with the cursor being an opaque string derived from the last item's id. Item content SHALL NOT be included.
+`GET /notes` SHALL return a JSON object containing `items` (an array of note metadata) and `next_cursor` (a string or null). Each item SHALL contain `id`, `title`, `version`, `updated_at`, and `created_at`. The endpoint SHALL accept `limit` (default 50, max 200), `after`, and `sort` query parameters. `after` is an opaque cursor derived from the last item of the previous page. Item content SHALL NOT be included.
+
+`sort` SHALL be one of:
+
+- `id` (default) — ascending by `id`, preserved for backward compatibility. The cursor is the last item's plain `id`.
+- `updated_desc` — descending by `updated_at`, ties broken by `id` descending, so pagination stays stable while notes are created or edited. The cursor is an opaque string encoding both `updated_at` and `id`.
+
+Any other `sort` value SHALL be rejected with HTTP 400. A cursor that cannot be decoded for the requested `sort` SHALL also be rejected with HTTP 400.
 
 #### Scenario: Default page size is 50
 
@@ -33,7 +43,7 @@ All endpoints SHALL accept and return `application/json`. All endpoints SHALL re
 #### Scenario: Cursor pagination returns the next page
 
 - **GIVEN** a previous response returned `next_cursor: "<c>"`
-- **WHEN** the client requests `GET /notes?cursor=<c>`
+- **WHEN** the client requests `GET /notes?after=<c>`
 - **THEN** the response SHALL contain the next page of notes in id-sorted order
 
 #### Scenario: Last page has null next_cursor
@@ -45,6 +55,23 @@ All endpoints SHALL accept and return `application/json`. All endpoints SHALL re
 
 - **WHEN** a client requests `GET /notes`
 - **THEN** items SHALL NOT contain a `content` field
+
+#### Scenario: sort=updated_desc orders by most recently updated first
+
+- **GIVEN** note A was last updated before note B
+- **WHEN** a client requests `GET /notes?sort=updated_desc`
+- **THEN** note B SHALL appear before note A in `items`
+
+#### Scenario: sort=updated_desc paginates with an opaque cursor
+
+- **GIVEN** a previous `GET /notes?sort=updated_desc` response returned `next_cursor: "<c>"`
+- **WHEN** the client requests `GET /notes?sort=updated_desc&after=<c>`
+- **THEN** the response SHALL contain the next page in `updated_at`-descending order
+
+#### Scenario: Unknown sort value is rejected
+
+- **WHEN** a client requests `GET /notes?sort=bogus`
+- **THEN** the response SHALL have status 400 and a JSON body `{"error":"bad_request"}`
 
 ### Requirement: POST /notes creates a new note
 
@@ -197,4 +224,3 @@ Every 4xx and 5xx response from the API SHALL have a JSON body containing at min
 
 - **WHEN** the server returns a 423
 - **THEN** the body SHALL include `error`, `holder`, and `expires_at`
-

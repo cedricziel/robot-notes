@@ -268,15 +268,20 @@ Map<String, Object?> _writeAnnotations(
 McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
       name: 'list_notes',
       description:
-          'List note metadata (id, title, version, timestamps — no content), '
-          'oldest-id-first with cursor pagination. Use this to browse the '
-          'workspace, or before create_note to check whether a similarly '
-          'titled note already exists.',
+          'List note metadata (id, title, version, timestamps — no content) '
+          'with cursor pagination, oldest-id-first by default or '
+          "newest-updated-first with sort: 'updated_desc'. Use this to "
+          'browse the workspace, or before create_note to check whether a '
+          'similarly titled note already exists.',
       inputSchema: const {
         'type': 'object',
         'properties': {
           'limit': {'type': 'integer', 'minimum': 1, 'maximum': kMaxPageSize},
           'after': {'type': 'string'},
+          'sort': {
+            'type': 'string',
+            'enum': [kSortId, kSortUpdatedDesc],
+          },
         },
         'required': <String>[],
       },
@@ -285,7 +290,19 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
       handler: (args, principal) async {
         final limit = (args['limit'] as int?) ?? kDefaultPageSize;
         final after = args['after'] as String?;
-        final page = metaIndex.page(after: after, limit: limit);
+        final sort = (args['sort'] as String?) ?? kSortId;
+        if (!kSupportedSorts.contains(sort)) {
+          return toolFail(kErrorValidationFailed, message: kSortErrorMessage);
+        }
+        final MetaIndexPage page;
+        try {
+          page = metaIndex.page(after: after, limit: limit, sort: sort);
+        } on InvalidCursorException {
+          return toolFail(
+            kErrorValidationFailed,
+            message: 'after is not a valid cursor for this sort',
+          );
+        }
         return toolOk({
           'items': [
             for (final s in page.items)
