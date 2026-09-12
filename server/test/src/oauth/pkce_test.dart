@@ -44,5 +44,54 @@ void main() {
         isFalse,
       );
     });
+
+    test('rejects a verifier shorter than 43 characters', () {
+      final tooShort = _rfcVerifier.substring(0, 42);
+      expect(
+        pkceVerify(
+          challenge: pkceS256Challenge(tooShort),
+          verifier: tooShort,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects a verifier longer than 128 characters', () {
+      // Three copies of the 43-char RFC vector: 129 characters.
+      const tooLong = _rfcVerifier + _rfcVerifier + _rfcVerifier;
+      expect(
+        pkceVerify(
+          challenge: pkceS256Challenge(tooLong),
+          verifier: tooLong,
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+        'rejects a verifier containing a character outside the RFC 7636 '
+        'unreserved set', () {
+      final invalid = '${_rfcVerifier.substring(0, 42)}!';
+      expect(
+        pkceVerify(
+          challenge: pkceS256Challenge(invalid),
+          verifier: invalid,
+        ),
+        isFalse,
+      );
+    });
+
+    test('accepts every character in the RFC 7636 unreserved set', () {
+      const verifier =
+          'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~-';
+      expect(verifier.length, inInclusiveRange(43, 128));
+      expect(
+        pkceVerify(
+          challenge: pkceS256Challenge(verifier),
+          verifier: verifier,
+        ),
+        isTrue,
+      );
+    });
   });
 }
