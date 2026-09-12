@@ -369,9 +369,9 @@ void main() {
       // cascades again itself (because revokeGrant ran first).
       await Future.wait<void>([
         store.revokeGrant('grant-1'),
-        store.rotateRefresh(issued.refreshToken).then<void>(
-              (_) {},
-              onError: (Object _) {},
+        store.rotateRefresh(issued.refreshToken).then<void>((_) {}).catchError(
+              (Object _) {},
+              test: (error) => error is RefreshReuseException,
             ),
       ]);
 
