@@ -41,6 +41,19 @@ void main() {
       expect(identical(a, b), isTrue);
     });
 
+    test('same name with different versions stamps each version distinctly',
+        () {
+      final processor = _FakeLogRecordProcessor();
+      final provider = SimpleLoggerProvider(processor);
+
+      provider.getLogger(name: 'scope', version: '1.0').info('a');
+      provider.getLogger(name: 'scope', version: '2.0').info('b');
+
+      expect(processor.emitted, hasLength(2));
+      expect(processor.emitted[0].scopeVersion, '1.0');
+      expect(processor.emitted[1].scopeVersion, '2.0');
+    });
+
     test('forceFlush delegates to the processor', () async {
       final processor = _FakeLogRecordProcessor();
       final provider = SimpleLoggerProvider(processor);

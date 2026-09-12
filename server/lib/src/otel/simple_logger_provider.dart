@@ -9,7 +9,7 @@ class SimpleLoggerProvider implements LoggerProvider {
   SimpleLoggerProvider(this._processor);
 
   final LogRecordProcessor _processor;
-  final Map<String, _ScopedLogger> _loggers = {};
+  final Map<(String, String?), _ScopedLogger> _loggers = {};
 
   @override
   Logger getLogger({
@@ -17,7 +17,7 @@ class SimpleLoggerProvider implements LoggerProvider {
     String? version,
   }) =>
       _loggers.putIfAbsent(
-        name,
+        (name, version),
         () => _ScopedLogger(_processor, name, version),
       );
 
