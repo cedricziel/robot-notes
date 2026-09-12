@@ -73,11 +73,11 @@
 
 ### 9. Backlinks and links endpoints
 
-- [ ] 9.1 Write failing route tests: `GET /notes/{id}/backlinks` returns notes linking to `{id}`; `GET /notes/{id}/links` returns outgoing links with `resolved`/`id`; unknown id returns 404
-- [ ] 9.2 Implement both routes under `server/routes/notes/[id]/` backed by the title index / link-edges data; run tests green
-- [ ] 9.3 Write failing test: a phantom link becomes resolved once the target title is created, without re-saving the linking note
-- [ ] 9.4 Implement phantom-link re-resolution as a lookup at query time (not stored as a resolved bit) or as an index update on create — pick whichever `search_index.dart`'s existing update hooks make simplest; run tests green
-- [ ] 9.5 Commit: `feat(server): expose backlinks and outgoing links endpoints`
+- [x] 9.1 Write failing route tests: `GET /notes/{id}/backlinks` returns notes linking to `{id}`; `GET /notes/{id}/links` returns outgoing links with `resolved`/`id`; unknown id returns 404 — `server/test/routes/notes/[id]/backlinks_test.dart`, `server/test/routes/notes/[id]/links_test.dart`
+- [x] 9.2 Implement both routes under `server/routes/notes/[id]/` backed by the title index / link-edges data — `backlinks.dart` and `links.dart`, using `MetaIndex.resolveTitle` + `LinkIndex`; run tests green
+- [x] 9.3 Write failing test: a phantom link becomes resolved once the target title is created, without re-saving the linking note — in `links_test.dart`
+- [x] 9.4 ~~Implement phantom-link re-resolution as a lookup at query time... or as an index update on create — pick whichever `search_index.dart`'s existing update hooks make simplest~~ — no extra work needed: `GET /notes/{id}/links` already calls `MetaIndex.resolveTitle(edge.targetTitle)` fresh on every request (task 9.2), so a title created after the link was parsed resolves on the very next query for free; run tests green
+- [x] 9.5 Commit: `feat(server): expose backlinks and outgoing links endpoints`
 
 ## Phase 3 — Tags
 

@@ -103,3 +103,15 @@ String rewriteLinks(
   buffer.write(content.substring(cursor));
   return buffer.toString();
 }
+
+/// Builds a short excerpt of [content] centered on [link], for display in a
+/// backlinks list. Includes up to [radius] characters of surrounding
+/// context on each side, with an ellipsis marking truncation.
+String snippetAround(String content, ParsedLink link, {int radius = 40}) {
+  final start = (link.start - radius).clamp(0, content.length);
+  final end = (link.end + radius).clamp(0, content.length);
+  final excerpt = content.substring(start, end);
+  final prefix = start > 0 ? '…' : '';
+  final suffix = end < content.length ? '…' : '';
+  return '$prefix$excerpt$suffix';
+}
