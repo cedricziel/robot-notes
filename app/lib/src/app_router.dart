@@ -61,6 +61,10 @@ class ConfigHolder extends ChangeNotifier {
 
   final ConfigStore _store;
 
+  /// The store backing this holder, so callers that already have a
+  /// [ConfigHolder] don't need it threaded through separately.
+  ConfigStore get store => _store;
+
   AppConfig? config;
 
   /// False until the initial [ConfigStore.read] resolves. Routing holds on
@@ -107,7 +111,6 @@ FutureOr<String?> _redirect(ConfigHolder configHolder, GoRouterState state) {
 /// Builds the app's [GoRouter]. A single instance lives for the app's
 /// lifetime; [ConfigHolder] drives redirects as the config comes and goes.
 GoRouter buildAppRouter({
-  required ConfigStore store,
   required ConfigHolder configHolder,
   String? initialLocation,
 }) {
@@ -128,8 +131,10 @@ GoRouter buildAppRouter({
       ),
       GoRoute(
         path: '/setup',
-        builder: (context, state) =>
-            _SetupRoute(store: store, onConfigured: configHolder.set),
+        builder: (context, state) => _SetupRoute(
+          store: configHolder.store,
+          onConfigured: configHolder.set,
+        ),
       ),
     ],
   );
@@ -218,9 +223,12 @@ Widget _buildNotePage(BuildContext context, GoRouterState state) {
 /// The list only learns about a save through the realtime stream, which is
 /// not always connected — refresh explicitly, but only when a save actually
 /// happened, so viewing a note doesn't cost an extra fetch on every close.
+///
+/// Only needed on the `canPop()` branch: the no-history branch remounts
+/// [NotesListScreen], which already refreshes itself in `initState`.
 void _handleNoteClosed(BuildContext context, AppSession session, bool saved) {
-  if (saved) unawaited(session.list.refresh());
   if (context.canPop()) {
+    if (saved) unawaited(session.list.refresh());
     context.pop();
   } else {
     // A deep-linked note (reload, bookmark, or a search hit reached via
@@ -356,11 +364,14 @@ class _NoteRouteState extends State<NoteRoute> {
   }
 
   /// Remembers the version the note had when it first loaded, so [_close]
-  /// can tell whether a save happened while it was open.
+  /// can tell whether a save happened while it was open. Detaches itself
+  /// once captured — nothing left for it to do for the rest of the note's
+  /// lifetime.
   void _captureOpenedVersion() {
-    if (_openedVersion != null) return;
-    final version = _controller.value.note?.version;
-    if (version != null) _openedVersion = version;
+    _openedVersion ??= _controller.value.note?.version;
+    if (_openedVersion != null) {
+      _controller.removeListener(_captureOpenedVersion);
+    }
   }
 
   @override
@@ -394,14 +405,12 @@ class _NoteRouteState extends State<NoteRoute> {
 
 /// Cross-screen session state: the shared [RobotNotesClient] and
 /// [RobotNotesWsClient] for the connected server, plus the singleton
-/// [NotesListController] and [ConnectionStatusController] that need to
-/// survive navigation between routes.
+/// [NotesListController] that needs to survive navigation between routes.
 class AppSession extends InheritedWidget {
   const AppSession({
     required this.api,
     required this.ws,
     required this.list,
-    required this.status,
     required this.actor,
     required this.onReset,
     required super.child,
@@ -411,7 +420,6 @@ class AppSession extends InheritedWidget {
   final RobotNotesClient api;
   final RobotNotesWsClient ws;
   final NotesListController list;
-  final ConnectionStatusController status;
   final String actor;
   final VoidCallback onReset;
 
@@ -421,12 +429,11 @@ class AppSession extends InheritedWidget {
     return session!;
   }
 
+  // All fields are `late final` and [SessionHost] is keyed on the config, so
+  // a given AppSession instance's fields never change identity — there is
+  // never anything for dependents to react to.
   @override
-  bool updateShouldNotify(AppSession oldWidget) =>
-      !identical(api, oldWidget.api) ||
-      !identical(ws, oldWidget.ws) ||
-      !identical(list, oldWidget.list) ||
-      !identical(status, oldWidget.status);
+  bool updateShouldNotify(AppSession oldWidget) => false;
 }
 
 /// Owns the singleton [RobotNotesClient], [RobotNotesWsClient],
@@ -488,7 +495,6 @@ class _SessionHostState extends State<SessionHost> {
       api: _api,
       ws: _ws,
       list: _list,
-      status: _status,
       actor: widget.config.actor,
       onReset: widget.onReset,
       child: Column(
@@ -525,7 +531,7 @@ class AppRouterShell extends StatelessWidget {
         final config = configHolder.config;
         if (config == null) return content;
         return SessionHost(
-          key: ValueKey<String>('${config.baseUrl}|${config.actor}'),
+          key: ValueKey<AppConfig>(config),
           config: config,
           onReset: configHolder.reset,
           child: content,

@@ -137,20 +137,6 @@ void main() {
     // through the public contract. The middleware still keeps a
     // defense-in-depth check on `..` segments in [_resolveSafePath].
 
-    test('passes through to handler for /healthz', () async {
-      final dir = _scratchWeb();
-      addTearDown(() => dir.deleteSync(recursive: true));
-
-      final ctx = _ctx(path: '/healthz');
-      final response = await _run(
-        staticWebMiddleware(webDir: dir.path),
-        ctx,
-        handler: () => Response.json(body: const {'status': 'ok'}),
-      );
-      expect(response.statusCode, HttpStatus.ok);
-      expect(await response.json(), {'status': 'ok'});
-    });
-
     test('passes through to handler for authenticated /notes and subpaths',
         () async {
       final dir = _scratchWeb();
@@ -265,11 +251,13 @@ void main() {
       expect(await response.body(), 'api');
     });
 
-    test('passes through to handler for /mcp, /oauth, /.well-known', () async {
+    test('passes through to handler for /healthz, /mcp, /oauth, /.well-known',
+        () async {
       final dir = _scratchWeb();
       addTearDown(() => dir.deleteSync(recursive: true));
 
       for (final path in const [
+        '/healthz',
         '/mcp',
         '/oauth/token',
         '/.well-known/oauth-authorization-server',
