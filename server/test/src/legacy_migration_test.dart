@@ -55,6 +55,30 @@ void main() {
     expect(fm.metadata['id'], '01HXY0000000000000000000AB');
   });
 
+  test(
+      'renames a legacy file whose id is lowercase, matching what '
+      'Ulid().toString() actually produces in this codebase', () async {
+    // Regression test: server/lib/src/storage.dart generates ids via
+    // Ulid().toString() from package:ulid, which emits lowercase — not the
+    // uppercase-only ids every other fixture in this file uses. A regex that
+    // only matched uppercase silently skipped every real legacy note on a
+    // production server (found via manual deploy verification).
+    _writeLegacy(content, '01m2ajm61cdppm9hcjjtz09ra9', title: 'Ideas');
+
+    final migrated = await migrateLegacyLayout(contentDir: content);
+
+    expect(migrated, 1);
+    final target = File('${content.path}/Ideas.md');
+    expect(target.existsSync(), isTrue);
+    expect(
+      File('${content.path}/01m2ajm61cdppm9hcjjtz09ra9.md').existsSync(),
+      isFalse,
+    );
+    final fm = parseFrontmatter(target.readAsStringSync());
+    expect(fm.metadata['path'], '');
+    expect(fm.metadata['id'], '01m2ajm61cdppm9hcjjtz09ra9');
+  });
+
   test('a file that already has a path key is left untouched', () async {
     File('${content.path}/01HXY0000000000000000000CD.md').writeAsStringSync(
       '---\nid: 01HXY0000000000000000000CD\ntitle: "Already"\n'
