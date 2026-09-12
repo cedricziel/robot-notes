@@ -12,16 +12,27 @@ GitHub Actions; humans only review and merge.
 Each successful release publishes a multi-arch container image to
 `ghcr.io/<owner>/robot-notes-server` with this tag set:
 
-| Tag | When | Pinning level |
-| --- | --- | --- |
-| `vX.Y.Z` | release event | exact version, immutable in practice |
-| `X.Y` | release event | follows latest patch |
-| `X` | release event | follows latest minor |
-| `latest` | release event | follows latest stable release |
-| `sha-<7>` | release event | exact commit |
+| Tag       | When            | Pinning level                                   |
+| --------- | --------------- | ----------------------------------------------- |
+| `vX.Y.Z`  | release event   | exact version, immutable in practice            |
+| `X.Y`     | release event   | follows latest patch                            |
+| `X`       | release event   | follows latest minor                            |
+| `latest`  | release event   | follows latest stable release                   |
+| `sha-<7>` | release event   | exact commit                                    |
+| `main`    | pushed manually | tracks the `main` branch; **not** rebuilt by CI |
 
 Production deployments SHOULD pin to `vX.Y.Z` (or by digest); preview
 environments can ride `main`.
+
+> **Note:** unlike every other tag in the table, `main` is not produced
+> by a GitHub Actions job — `ci.yml` builds the Dockerfile without
+> pushing, and the `release-please.yml` publish job only runs when
+> `release_created == true`. Today `main` is pushed by hand
+> (`docker buildx build --push -t ghcr.io/<owner>/robot-notes-server:main`)
+> whenever a preview/staging deployment needs the latest commit on the
+> branch, so it can lag behind `main` HEAD. If you rely on it, rebuild
+> and push it yourself before deploying, or automate it with a
+> `push: main` trigger in a future workflow.
 
 ---
 
@@ -30,14 +41,14 @@ environments can ride `main`.
 Release-please derives the next version and CHANGELOG entries from
 commit subjects. Stick to these prefixes:
 
-| Prefix | Bumps | Appears in CHANGELOG |
-| --- | --- | --- |
-| `feat:` | minor | yes (Features) |
-| `fix:` | patch | yes (Bug Fixes) |
-| `perf:` | patch | yes (Performance) |
-| `docs:` | none | yes (Documentation) |
-| `revert:` | varies | yes (Reverts) |
-| `chore:` / `ci:` / `build:` / `refactor:` / `test:` | none | hidden |
+| Prefix                                              | Bumps  | Appears in CHANGELOG |
+| --------------------------------------------------- | ------ | -------------------- |
+| `feat:`                                             | minor  | yes (Features)       |
+| `fix:`                                              | patch  | yes (Bug Fixes)      |
+| `perf:`                                             | patch  | yes (Performance)    |
+| `docs:`                                             | none   | yes (Documentation)  |
+| `revert:`                                           | varies | yes (Reverts)        |
+| `chore:` / `ci:` / `build:` / `refactor:` / `test:` | none   | hidden               |
 
 A breaking change is signalled by a `!` after the type or by a
 `BREAKING CHANGE:` footer:
@@ -67,7 +78,7 @@ The flow is fully driven by merging a release PR.
    `chore(main): release X.Y.Z`. Review it like any other PR — the
    diff is just `CHANGELOG.md` + `.release-please-manifest.json`.
 3. **Merge** the release PR. The release-please workflow then, in the
-   *same run*:
+   _same run_:
    - creates a `vX.Y.Z` git tag,
    - creates a GitHub release with the CHANGELOG entry as body,
    - builds and pushes the multi-arch image to ghcr.io (the `publish`
@@ -138,7 +149,7 @@ when present and falls back to `GITHUB_TOKEN` during bootstrap.
 
 ### GHCR package visibility
 
-The first push to GHCR creates a *private* package. To let external
+The first push to GHCR creates a _private_ package. To let external
 consumers pull `ghcr.io/<owner>/robot-notes-server`:
 
 1. Open the package page (`https://github.com/users/<owner>/packages/container/robot-notes-server`
@@ -223,10 +234,10 @@ fetched it.
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-| --- | --- |
-| Release PR opens, but no tag after merge | `RELEASE_PLEASE_TOKEN` is missing or under-scoped. |
-| Tag exists, but publish workflow didn't fire | Same as above; `GITHUB_TOKEN`-pushed tags don't trigger workflows. |
-| `docker pull` says "manifest not found" | Image still building; wait for `publish` workflow to finish, then retry. |
-| `docker manifest inspect` shows only one arch | Buildx cache regression — re-run the publish workflow. |
-| Dependabot dashboard shows config errors | Indentation / scope typo in `.github/dependabot.yml`; YAML it locally before committing. |
+| Symptom                                       | Likely cause                                                                             |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Release PR opens, but no tag after merge      | `RELEASE_PLEASE_TOKEN` is missing or under-scoped.                                       |
+| Tag exists, but publish workflow didn't fire  | Same as above; `GITHUB_TOKEN`-pushed tags don't trigger workflows.                       |
+| `docker pull` says "manifest not found"       | Image still building; wait for `publish` workflow to finish, then retry.                 |
+| `docker manifest inspect` shows only one arch | Buildx cache regression — re-run the publish workflow.                                   |
+| Dependabot dashboard shows config errors      | Indentation / scope typo in `.github/dependabot.yml`; YAML it locally before committing. |
