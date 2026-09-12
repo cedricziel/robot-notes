@@ -179,8 +179,9 @@ Response _errorPage(
 
 const Map<String, String> _kConsentPageHeaders = {
   HttpHeaders.contentTypeHeader: 'text/html; charset=utf-8',
-  'Content-Security-Policy':
-      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
+  // No form-action: browsers apply it to the redirect that follows the
+  // submission, which would block the 302 to the client's callback.
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
   'X-Frame-Options': 'DENY',
   HttpHeaders.cacheControlHeader: 'no-store',
 };
