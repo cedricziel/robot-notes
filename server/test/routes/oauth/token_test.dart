@@ -406,6 +406,45 @@ void main() {
     expect(json['error'], 'invalid_request');
   });
 
+  test(
+      'client authentication is checked before grant_type, so an unknown '
+      'client with a missing grant_type is 401 invalid_client, not 400',
+      () async {
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({'client_id': 'does-not-exist'}),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.unauthorized);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client');
+  });
+
+  test(
+      'client authentication is checked before grant_type, so an unknown '
+      'client with an unsupported grant_type is still 401 invalid_client',
+      () async {
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'client_id': 'does-not-exist',
+          'grant_type': 'password',
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.unauthorized);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client');
+  });
+
   test('unsupported grant type', () async {
     final client = await registerPublic();
     final res = await route.onRequest(

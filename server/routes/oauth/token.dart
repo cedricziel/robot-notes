@@ -28,14 +28,11 @@ Future<Response> onRequest(RequestContext context) async {
     return oauthError(HttpStatus.badRequest, 'invalid_request');
   }
 
-  final grantType = form['grant_type'];
-  if (grantType == null || grantType.isEmpty) {
-    return oauthError(HttpStatus.badRequest, 'invalid_request');
-  }
-  if (grantType != 'authorization_code' && grantType != 'refresh_token') {
-    return oauthError(HttpStatus.badRequest, 'unsupported_grant_type');
-  }
-
+  // Client authentication is checked before any grant_type validation, so
+  // an unauthenticated caller can't distinguish "unknown client" from
+  // "known client, bad grant_type" by watching which error code comes
+  // back, and never learns anything about a grant's shape before proving
+  // it owns the client.
   final authResult = await authenticateClient(context, form);
   if (!authResult.isSuccess) {
     return oauthError(
@@ -47,6 +44,14 @@ Future<Response> onRequest(RequestContext context) async {
     );
   }
   final client = authResult.client!;
+
+  final grantType = form['grant_type'];
+  if (grantType == null || grantType.isEmpty) {
+    return oauthError(HttpStatus.badRequest, 'invalid_request');
+  }
+  if (grantType != 'authorization_code' && grantType != 'refresh_token') {
+    return oauthError(HttpStatus.badRequest, 'unsupported_grant_type');
+  }
   if (!client.grantTypes.contains(grantType)) {
     return oauthError(HttpStatus.badRequest, 'unauthorized_client');
   }
