@@ -159,6 +159,32 @@ When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS
 - **WHEN** the user navigates away from a note they had locked
 - **THEN** the app SHALL `DELETE /notes/{id}/lock`
 
+### Requirement: Unsaved edits are not discarded without confirmation
+
+When the user leaves the note view — via the close button, the browser back button, or the OS back gesture — while the edit buffers differ from the loaded note, the app SHALL ask for confirmation before releasing the lock and discarding the edits. Leaving with unchanged buffers SHALL NOT prompt.
+
+#### Scenario: Leaving with unsaved edits prompts
+
+- **GIVEN** the user is editing a note and has changed the title or content
+- **WHEN** they tap close or trigger back navigation
+- **THEN** the app SHALL show a "Discard changes?" prompt and SHALL stay in the editor until they choose
+
+#### Scenario: Keep editing
+
+- **WHEN** the user chooses "Keep editing"
+- **THEN** the app SHALL dismiss the prompt, keep the lock, and preserve the edit buffers
+
+#### Scenario: Discard
+
+- **WHEN** the user chooses "Discard"
+- **THEN** the app SHALL `DELETE /notes/{id}/lock`, drop the edits, and leave the note view
+
+#### Scenario: Leaving without edits does not prompt
+
+- **GIVEN** the user is editing but the buffers match the loaded note
+- **WHEN** they tap close or trigger back navigation
+- **THEN** the app SHALL release the lock and leave without prompting
+
 ### Requirement: Live presence and lock state are surfaced in the note view
 
 While the note view is open the app SHALL display a presence indicator (list of viewers' actor names) and a lock indicator (current holder, if any) updated in real time from `presence` and `lock` WebSocket events.

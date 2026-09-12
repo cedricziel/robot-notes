@@ -78,6 +78,22 @@ Future<void> _pumpEditor(
   await tester.pumpAndSettle();
 }
 
+MockClient _editableNote({VoidCallback? onRelease}) =>
+    MockClient((request) async {
+      final path = request.url.path;
+      if (request.method == 'GET' && path == '/notes/01H') {
+        return http.Response(jsonEncode(_noteJson()), 200);
+      }
+      if (request.method == 'POST' && path == '/notes/01H/lock') {
+        return http.Response(jsonEncode(_lockJson()), 200);
+      }
+      if (request.method == 'DELETE' && path == '/notes/01H/lock') {
+        onRelease?.call();
+        return http.Response('', 204);
+      }
+      return http.Response('unexpected', 500);
+    });
+
 void main() {
   testWidgets('renders the note body in read-only view by default', (
     tester,
@@ -192,45 +208,149 @@ void main() {
     expect(closed, isTrue);
   });
 
-  testWidgets('tapping close while editing releases the lock, then closes', (
-    tester,
-  ) async {
-    final mock = MockClient((request) async {
-      if (request.method == 'GET' && request.url.path == '/notes/01H') {
-        return http.Response(jsonEncode(_noteJson()), 200);
-      }
-      if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
-        return http.Response(jsonEncode(_lockJson()), 200);
-      }
-      if (request.method == 'DELETE' && request.url.path == '/notes/01H/lock') {
-        return http.Response('', 204);
-      }
-      return http.Response('unexpected', 500);
-    });
-    final api = RobotNotesClient(config: _config, httpClient: mock);
-    final ctrl = NoteController(
-      api: api,
-      noteId: '01H',
-      actor: 'cedric',
-      scheduler: (_) => Completer<void>().future,
-    );
-    addTearDown(ctrl.dispose);
+  group('closing while editing', () {
+    var lockReleases = 0;
     var closed = false;
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: NoteScreen(controller: ctrl, onClose: () => closed = true),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('note.edit')));
-    await tester.pumpAndSettle();
+    setUp(() {
+      lockReleases = 0;
+      closed = false;
+    });
 
-    await tester.tap(find.byKey(const Key('note.close')));
-    await tester.pumpAndSettle();
+    NoteController controller() {
+      final ctrl = NoteController(
+        api: RobotNotesClient(
+          config: _config,
+          httpClient: _editableNote(onRelease: () => lockReleases++),
+        ),
+        noteId: '01H',
+        actor: 'cedric',
+        scheduler: (_) => Completer<void>().future,
+      );
+      addTearDown(ctrl.dispose);
+      return ctrl;
+    }
 
-    expect(ctrl.value.mode, NoteMode.viewing);
-    expect(closed, isTrue);
+    Future<void> enterEditMode(WidgetTester tester) async {
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('note.edit')));
+      await tester.pumpAndSettle();
+    }
+
+    Future<NoteController> pumpEditing(WidgetTester tester) async {
+      final ctrl = controller();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NoteScreen(controller: ctrl, onClose: () => closed = true),
+        ),
+      );
+      await enterEditMode(tester);
+      return ctrl;
+    }
+
+    Future<void> editContent(WidgetTester tester) async {
+      await tester.enterText(
+        find.byKey(const Key('note.editor.content')),
+        'world, edited',
+      );
+      await tester.pump();
+    }
+
+    Future<void> tapClose(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('note.close')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('without edits releases the lock and closes with no prompt', (
+      tester,
+    ) async {
+      final ctrl = await pumpEditing(tester);
+
+      await tapClose(tester);
+
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(ctrl.value.mode, NoteMode.viewing);
+      expect(lockReleases, 1);
+      expect(closed, isTrue);
+    });
+
+    testWidgets('with unsaved edits, keep editing dismisses the prompt', (
+      tester,
+    ) async {
+      final ctrl = await pumpEditing(tester);
+      await editContent(tester);
+
+      await tapClose(tester);
+      expect(find.text('Discard changes?'), findsOneWidget);
+      expect(closed, isFalse);
+
+      await tester.tap(find.byKey(const Key('note.discard.keep')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(closed, isFalse);
+      expect(ctrl.value.mode, NoteMode.editing);
+      expect(ctrl.value.editContent, 'world, edited');
+      expect(lockReleases, 0);
+    });
+
+    testWidgets('with unsaved edits, discard exits editing and closes', (
+      tester,
+    ) async {
+      final ctrl = await pumpEditing(tester);
+      await editContent(tester);
+      await tapClose(tester);
+
+      await tester.tap(find.byKey(const Key('note.discard.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(ctrl.value.mode, NoteMode.viewing);
+      expect(lockReleases, 1);
+      expect(closed, isTrue);
+    });
+
+    testWidgets('system back with unsaved edits prompts before popping', (
+      tester,
+    ) async {
+      final ctrl = controller();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                key: const Key('open'),
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (context) => NoteScreen(
+                      controller: ctrl,
+                      onClose: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('open')));
+      await enterEditMode(tester);
+      await editContent(tester);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard changes?'), findsOneWidget);
+      expect(find.byKey(const Key('note.editor.content')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('note.discard.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('note.editor.content')), findsNothing);
+      expect(find.byKey(const Key('open')), findsOneWidget);
+      expect(lockReleases, 1);
+    });
   });
 
   testWidgets('presence event renders the viewer count', (tester) async {
