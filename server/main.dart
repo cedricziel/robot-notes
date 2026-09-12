@@ -7,6 +7,9 @@ import 'package:server/src/app_deps.dart';
 import 'package:server/src/app_deps_holder.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/config_holder.dart';
+import 'package:server/src/otel/logging_bridge.dart';
+import 'package:server/src/otel/otel_bootstrap.dart';
+import 'package:server/src/otel/otel_shutdown.dart';
 import 'package:server/src/public_url.dart';
 import 'package:shared/shared.dart';
 
@@ -35,6 +38,8 @@ Future<HttpServer> run(
     printErr: stderr.writeln,
   );
   setConfig(config);
+  final otelLoggerProvider = createOtelLoggerProvider(config);
+  installOtelLoggingBridge(otelLoggerProvider);
 
   final effectivePort = _portFromEnvOverride(config.port, port);
   _logResolvedConfig(config, effectivePort);
@@ -42,7 +47,13 @@ Future<HttpServer> run(
   final deps = await AppDeps.bootstrap(config);
   setAppDeps(deps);
 
-  return serve(handler, ip, effectivePort);
+  final server = await serve(handler, ip, effectivePort);
+  installShutdownSignalHandlers(
+    otelLoggerProvider: otelLoggerProvider,
+    closeServer: () => server.close(force: true),
+    exit: exit,
+  );
+  return server;
 }
 
 int _portFromEnvOverride(int configured, int frameworkPort) {
@@ -77,7 +88,11 @@ void _logResolvedConfig(Config config, int effectivePort) {
     ..info('  web dir:  ${config.webDir ?? '(unset — API-only mode)'}')
     ..info('  public:   ${config.publicUrl ?? '(unset — derived per request)'}')
     ..info('  lock ttl: ${config.lockTtlSeconds}s')
-    ..info('  api key:  configured (length=${config.apiKey.length})');
+    ..info('  api key:  configured (length=${config.apiKey.length})')
+    ..info(
+      '  otel:     '
+      '${config.otlpEndpoint ?? '(unset — telemetry export disabled)'}',
+    );
   final warning = publicUrlStartupWarning(config);
   if (warning != null) Logger('boot').warning(warning);
 }

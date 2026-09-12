@@ -47,7 +47,11 @@ WORKDIR /workspace
 # Same `dev_dependencies`/`dart_pre_commit` strip the server-builder
 # does — flutter doesn't need them either, and they pull packages we
 # haven't copied (`dart_pre_commit`).
-COPY pubspec.yaml ./
+#
+# pubspec_overrides.yaml carries the flutter_otel_api/
+# flutter_otel_exporter_otlp_http git-dependency pins (see that file for
+# why it's separate from pubspec.yaml) and needs no stripping itself.
+COPY pubspec.yaml pubspec_overrides.yaml ./
 RUN sed -i '/^  - server$/d' pubspec.yaml \
  && sed -i '/^dev_dependencies:$/,$d' pubspec.yaml \
  && sed -i '/^dart_pre_commit:$/,$d' pubspec.yaml
@@ -58,7 +62,25 @@ COPY app/ ./app/
 # `--no-tree-shake-icons` keeps icon glyphs reachable from runtime data
 # (Flutter's tree-shaker can't follow Material Icons used by name).
 RUN flutter pub get
-RUN cd app && flutter build web --release --no-tree-shake-icons
+
+# OTel export for the app's own telemetry, baked in via --dart-define.
+# Passed as BuildKit secrets (not --build-arg) so the endpoint/headers
+# don't end up in `docker history`/image metadata — though the compiled
+# JS bundle itself unavoidably still contains them, same as any
+# client-embedded credential. Omit both --secret flags at build time and
+# the bundle stays telemetry-off.
+RUN --mount=type=secret,id=otel_endpoint \
+    --mount=type=secret,id=otel_headers \
+    cd app && \
+    OTEL_ENDPOINT="$(cat /run/secrets/otel_endpoint 2>/dev/null || true)" && \
+    OTEL_HEADERS="$(cat /run/secrets/otel_headers 2>/dev/null || true)" && \
+    if [ -n "$OTEL_ENDPOINT" ] && [ -n "$OTEL_HEADERS" ]; then \
+      flutter build web --release --no-tree-shake-icons \
+        --dart-define=OTEL_EXPORTER_OTLP_ENDPOINT="$OTEL_ENDPOINT" \
+        --dart-define=OTEL_EXPORTER_OTLP_HEADERS="$OTEL_HEADERS"; \
+    else \
+      flutter build web --release --no-tree-shake-icons; \
+    fi
 
 # ---------------------------------------------------------------------------
 # Web bundle — minimal stage that exposes ONLY the built SPA at the root.
@@ -90,7 +112,10 @@ RUN dart pub global activate dart_frog_cli ^1.2.0
 
 # Bring in the workspace root pubspec, then strip the `app` package and
 # any `dev_dependencies` block so the builder doesn't pull the Flutter SDK.
-COPY pubspec.yaml ./
+# pubspec_overrides.yaml carries the flutter_otel git-dependency pins
+# dart_frog build's resolver needs to see (see that file for why it's
+# separate from pubspec.yaml).
+COPY pubspec.yaml pubspec_overrides.yaml ./
 RUN sed -i '/^  - app$/d' pubspec.yaml \
  && sed -i '/^dev_dependencies:$/,$d' pubspec.yaml \
  && sed -i '/^dart_pre_commit:$/,$d' pubspec.yaml

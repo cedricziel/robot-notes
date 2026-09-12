@@ -27,6 +27,8 @@ class Config {
     required this.lockTtlSeconds,
     this.webDir,
     this.publicUrl,
+    this.otlpEndpoint,
+    this.otlpHeaders = const {},
   });
 
   /// Resolves a [Config] from CLI [args] and the supplied environment.
@@ -98,6 +100,20 @@ class Config {
       ),
     );
 
+    final otlpEndpoint = _resolveOtlpEndpoint(
+      _coalesce(
+        parsed['otel-endpoint'] as String?,
+        env['ROBOT_NOTES_OTEL_ENDPOINT'],
+      ),
+    );
+
+    final otlpHeaders = _parseOtlpHeaders(
+      _coalesce(
+        parsed['otel-headers'] as String?,
+        env['ROBOT_NOTES_OTEL_HEADERS'],
+      ),
+    );
+
     return Config(
       apiKey: apiKey,
       dataDir: dataDir,
@@ -105,6 +121,8 @@ class Config {
       lockTtlSeconds: lockTtl,
       webDir: webDir,
       publicUrl: publicUrl,
+      otlpEndpoint: otlpEndpoint,
+      otlpHeaders: otlpHeaders,
     );
   }
 
@@ -144,6 +162,15 @@ class Config {
   /// per request from `X-Forwarded-Proto`/the request scheme and `Host`.
   final String? publicUrl;
 
+  /// Base endpoint for OTLP/HTTP telemetry export. `null` disables export
+  /// entirely (the default): no OTel dependency is configured, so this is
+  /// safe to leave unset. `/v1/logs` is appended by the exporter.
+  final Uri? otlpEndpoint;
+
+  /// Extra headers (e.g. an auth token) sent with every OTLP export request.
+  /// Empty by default.
+  final Map<String, String> otlpHeaders;
+
   /// Builds an [ArgParser] mirroring the documented CLI surface.
   static ArgParser buildParser() => ArgParser()
     ..addOption('api-key', help: 'Bearer API key required on every request.')
@@ -167,6 +194,16 @@ class Config {
           'the public base URL for OAuth metadata and invite links behind '
           'a reverse proxy.',
     )
+    ..addOption(
+      'otel-endpoint',
+      help: 'Base OTLP/HTTP endpoint telemetry is exported to. Unset '
+          'disables telemetry export.',
+    )
+    ..addOption(
+      'otel-headers',
+      help: 'Comma-separated key=value headers sent with every OTLP '
+          'export request (e.g. an auth token).',
+    )
     ..addFlag('help', abbr: 'h', negatable: false, help: 'Print usage.');
 
   /// Resolves a [Config] or terminates the process. Suitable for the server
@@ -187,6 +224,7 @@ class Config {
       printErr('Usage: dart_frog dev [-- --api-key <key>] [--data-dir <path>]');
       printErr('       [--port <int>] [--lock-ttl-seconds <int>]');
       printErr('       [--web-dir <path>] [--public-url <origin>]');
+      printErr('       [--otel-endpoint <url>] [--otel-headers <k=v,...>]');
       exit(64); // EX_USAGE
       // exit() should not return; rethrow defensively if a test stub does.
       rethrow;
@@ -222,6 +260,43 @@ class Config {
       );
     }
     return uri.replace(path: '').toString();
+  }
+
+  /// Validates a raw `--otel-endpoint` / `ROBOT_NOTES_OTEL_ENDPOINT` value.
+  /// Returns `null` when [raw] is `null`. Throws [ConfigError] when the
+  /// value is not an absolute `http`/`https` URL with a non-empty host.
+  static Uri? _resolveOtlpEndpoint(String? raw) {
+    if (raw == null) return null;
+    final uri = Uri.tryParse(raw);
+    final valid = uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+    if (!valid) {
+      throw ConfigError(
+        'Invalid --otel-endpoint / ROBOT_NOTES_OTEL_ENDPOINT value "$raw": '
+        'must be an absolute http or https URL with a host.',
+      );
+    }
+    return uri;
+  }
+
+  /// Parses `--otel-headers` / `ROBOT_NOTES_OTEL_HEADERS` as comma-separated
+  /// `key=value` pairs. Returns an empty map when [raw] is `null`. Throws
+  /// [ConfigError] when an entry has no `=`.
+  static Map<String, String> _parseOtlpHeaders(String? raw) {
+    if (raw == null || raw.isEmpty) return const {};
+    final headers = <String, String>{};
+    for (final entry in raw.split(',')) {
+      final separator = entry.indexOf('=');
+      if (separator <= 0) {
+        throw ConfigError(
+          'Invalid --otel-headers / ROBOT_NOTES_OTEL_HEADERS entry '
+          '"$entry": expected "key=value".',
+        );
+      }
+      headers[entry.substring(0, separator)] = entry.substring(separator + 1);
+    }
+    return headers;
   }
 
   static int _parseInt(

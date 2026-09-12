@@ -23,8 +23,12 @@
 **/build/
 **/*.iml
 
-# Generated files
+# Generated files, EXCEPT the two root/app-level pubspec_overrides.yaml
+# files, which are committed on purpose and required by the build (see
+# .gitignore for why).
 **/pubspec_overrides.yaml
+!/pubspec_overrides.yaml
+!/app/pubspec_overrides.yaml
 
 # Flutter app — the runtime image needs the web bundle, but we only want
 # the source the `flutter build web` step requires. Everything platform-
