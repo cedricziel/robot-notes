@@ -66,5 +66,57 @@ void main() {
 
       expect(restored, equals(original));
     });
+
+    test('isOidcSession is false for a manually entered key', () {
+      const config = AppConfig(
+        baseUrl: 'https://notes.example',
+        apiKey: 'rn_manual_key',
+        actor: 'cedric',
+      );
+      expect(config.isOidcSession, isFalse);
+    });
+
+    test('isOidcSession is true when an OAuth refresh token is present', () {
+      const config = AppConfig(
+        baseUrl: 'https://notes.example',
+        apiKey: 'access-token-xyz',
+        actor: 'cedric',
+        oauthClientId: 'client-1',
+        oauthRefreshToken: 'refresh-token-abc',
+      );
+      expect(config.isOidcSession, isTrue);
+    });
+
+    test('toJson/fromJson round-trips the OAuth fields', () {
+      const original = AppConfig(
+        baseUrl: 'https://notes.example',
+        apiKey: 'access-token-xyz',
+        actor: 'cedric',
+        oauthClientId: 'client-1',
+        oauthRefreshToken: 'refresh-token-abc',
+      );
+
+      final restored = AppConfig.fromJson(original.toJson());
+
+      expect(restored, equals(original));
+      expect(restored.oauthClientId, 'client-1');
+      expect(restored.oauthRefreshToken, 'refresh-token-abc');
+    });
+
+    test('value equality covers the OAuth fields', () {
+      const a = AppConfig(
+        baseUrl: 'https://notes.example',
+        apiKey: 'k',
+        actor: 'cedric',
+        oauthRefreshToken: 'r1',
+      );
+      const b = AppConfig(
+        baseUrl: 'https://notes.example',
+        apiKey: 'k',
+        actor: 'cedric',
+        oauthRefreshToken: 'r2',
+      );
+      expect(a, isNot(equals(b)));
+    });
   });
 }
