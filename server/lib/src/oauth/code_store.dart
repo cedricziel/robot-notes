@@ -8,6 +8,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/oauth/oauth_crypto.dart';
 import 'package:server/src/oauth/oauth_records.dart';
 import 'package:server/src/oauth/store_support.dart';
+import 'package:server/src/oauth/token_store.dart';
 
 /// Number of bytes of randomness in a minted authorization code. 32 bytes
 /// = 256 bits.
@@ -141,8 +142,12 @@ class CodeStore {
     });
   }
 
-  /// Deletes every code file whose expiry has passed. Returns the count
-  /// removed.
+  /// Deletes every code file whose expiry has passed. A consumed code is
+  /// kept for an extra [TokenStore.accessTtl] past its expiry: purging it
+  /// the instant it expires would let a code replayed just after a
+  /// restart look unknown ([CodeNotFoundException]) instead of reused
+  /// ([CodeReusedException]), losing the reuse-detection cascade that
+  /// revokes its grant's tokens. Returns the count removed.
   Future<int> purgeExpired() async {
     if (!dir.existsSync()) return 0;
     final now = _clock.nowUtc();
@@ -156,7 +161,10 @@ class CodeStore {
         _log.warning('Skipping malformed OAuth code ${entity.path}: $e');
         continue;
       }
-      if (record.isExpired(now)) {
+      final purgeAt = record.consumedAt == null
+          ? record.expiresAt
+          : record.expiresAt.add(TokenStore.accessTtl);
+      if (!now.isBefore(purgeAt)) {
         await entity.delete();
         purged++;
       }
