@@ -6,6 +6,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/config_holder.dart' as config_holder;
 import 'package:server/src/invite_store.dart';
+import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
@@ -28,7 +29,7 @@ import 'package:server/src/ws/presence.dart';
 ///
 /// Order is bottom-up (last `.use` runs first):
 ///   1. `provider<Config>` and the long-lived dependency providers
-///      ([Storage], [MetaIndex], [LockManager], [Broadcaster],
+///      ([Storage], [MetaIndex], [LinkIndex], [LockManager], [Broadcaster],
 ///      [PresenceTracker], [ClientStore], [CodeStore], [TokenStore],
 ///      [ConsentThrottle]) so handlers and downstream middleware can
 ///      `read<T>()` them.
@@ -80,6 +81,7 @@ Handler middleware(Handler handler) {
           .use(provider<JwksCache?>((_) => deps.oidcJwks))
           .use(provider<HttpPostForm>((_) => httpPostFormViaHttpClient))
           .use(provider<MetaIndex>((_) => deps.metaIndex))
+          .use(provider<LinkIndex>((_) => deps.linkIndex))
           .use(provider<NoteWriteService>((_) => deps.noteWriteService))
           .use(provider<Storage>((_) => deps.storage))
           .use(provider<Clock>((_) => deps.clock))

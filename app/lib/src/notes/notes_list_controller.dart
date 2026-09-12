@@ -16,6 +16,8 @@ class NotesListState {
     this.isLoadingFirst = false,
     this.isLoadingMore = false,
     this.error,
+    this.selectedPath,
+    this.selectedTag,
   });
 
   /// Initial state used before the first refresh kicks in.
@@ -32,6 +34,14 @@ class NotesListState {
   /// fetch. UI surfaces this as a non-blocking banner.
   final Object? error;
 
+  /// Folder the list is currently scoped to (via the sidebar), or `null` for
+  /// "All notes". Applied as the `path` query parameter on every request.
+  final String? selectedPath;
+
+  /// Tag the list is currently scoped to (via a tag chip), or `null` for no
+  /// tag filter. Applied as the `tag` query parameter on every request.
+  final String? selectedTag;
+
   bool get hasMore => nextCursor != null;
 
   NotesListState copyWith({
@@ -40,6 +50,8 @@ class NotesListState {
     bool? isLoadingFirst,
     bool? isLoadingMore,
     Object? error = _sentinel,
+    Object? selectedPath = _sentinel,
+    Object? selectedTag = _sentinel,
   }) {
     return NotesListState(
       items: items ?? this.items,
@@ -49,6 +61,12 @@ class NotesListState {
       isLoadingFirst: isLoadingFirst ?? this.isLoadingFirst,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       error: identical(error, _sentinel) ? this.error : error,
+      selectedPath: identical(selectedPath, _sentinel)
+          ? this.selectedPath
+          : selectedPath as String?,
+      selectedTag: identical(selectedTag, _sentinel)
+          ? this.selectedTag
+          : selectedTag as String?,
     );
   }
 }
@@ -94,7 +112,12 @@ class NotesListController extends ValueNotifier<NotesListState> {
   Future<void> _doRefresh() async {
     value = value.copyWith(isLoadingFirst: true, error: null);
     try {
-      final page = await _api.listNotes(limit: _pageSize, sort: 'updated_desc');
+      final page = await _api.listNotes(
+        limit: _pageSize,
+        sort: 'updated_desc',
+        path: value.selectedPath,
+        tag: value.selectedTag,
+      );
       if (_disposed) return;
       value = value.copyWith(
         items: page.items,
@@ -109,6 +132,22 @@ class NotesListController extends ValueNotifier<NotesListState> {
     }
   }
 
+  /// Scopes the list to [path] (or clears the scope for `null`, i.e. "All
+  /// notes") and re-fetches immediately.
+  Future<void> selectFolder(String? path) {
+    if (_disposed) return Future<void>.value();
+    value = value.copyWith(selectedPath: path);
+    return refresh();
+  }
+
+  /// Scopes the list to notes carrying [tag] (or clears the scope for
+  /// `null`) and re-fetches immediately.
+  Future<void> selectTag(String? tag) {
+    if (_disposed) return Future<void>.value();
+    value = value.copyWith(selectedTag: tag);
+    return refresh();
+  }
+
   /// Fetches the next page if a cursor is available. No-op if already loading
   /// or exhausted — safe to call from a scroll listener that fires often.
   Future<void> loadMore() async {
@@ -120,6 +159,8 @@ class NotesListController extends ValueNotifier<NotesListState> {
         after: value.nextCursor,
         limit: _pageSize,
         sort: 'updated_desc',
+        path: value.selectedPath,
+        tag: value.selectedTag,
       );
       if (_disposed) return;
       value = value.copyWith(
@@ -137,22 +178,28 @@ class NotesListController extends ValueNotifier<NotesListState> {
     if (event is! RealtimeMessage) return;
     final msg = event.message;
     if (msg is! ChangedEvent) return;
-    switch (msg.action) {
-      case ChangeAction.deleted:
-        _removeById(msg.noteId);
-      case ChangeAction.created:
-      case ChangeAction.updated:
-        // Content isn't shipped on the WS event — fetch the note so the
-        // list shows the current title and version.
-        try {
-          final note = await _api.getNote(msg.noteId);
-          if (_disposed) return;
-          _upsert(note, prepend: msg.action == ChangeAction.created);
-        } catch (_) {
-          // Best-effort live update; on failure the next refresh will
-          // reconcile. Don't surface as a list-level error since the user
-          // didn't initiate this fetch.
-        }
+    if (msg.action == ChangeAction.deleted) {
+      _removeById(msg.noteId);
+      return;
+    }
+    if (msg.action == ChangeAction.moved && value.selectedPath != null) {
+      // A moved note may have left (or entered) the active folder scope,
+      // and the WS event doesn't carry the new path to check locally — a
+      // full re-fetch is the only way to know whether it still belongs.
+      unawaited(refresh());
+      return;
+    }
+    // created / updated / moved (unscoped): content isn't shipped on the WS
+    // event — fetch the note so the list shows the current title and
+    // version.
+    try {
+      final note = await _api.getNote(msg.noteId);
+      if (_disposed) return;
+      _upsert(note, prepend: msg.action == ChangeAction.created);
+    } catch (_) {
+      // Best-effort live update; on failure the next refresh will
+      // reconcile. Don't surface as a list-level error since the user
+      // didn't initiate this fetch.
     }
   }
 

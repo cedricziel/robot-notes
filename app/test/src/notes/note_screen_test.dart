@@ -26,6 +26,7 @@ Map<String, Object?> _noteJson({
   String title = 'hello',
   String content = 'world',
   int version = 1,
+  List<String> tags = const <String>[],
 }) => <String, Object?>{
   'id': id,
   'title': title,
@@ -33,6 +34,7 @@ Map<String, Object?> _noteJson({
   'version': version,
   'created_at': _now,
   'updated_at': _now,
+  'tags': tags,
 };
 
 Map<String, Object?> _lockJson({
@@ -68,6 +70,8 @@ Future<NoteController> _pumpEditor(
   WidgetTester tester, {
   http.Response Function(http.Request)? onLock,
   http.Response Function(http.Request)? onSave,
+  http.Response Function(http.Request)? onSearch,
+  ValueChanged<String>? onOpenNote,
   bool startEditing = false,
 }) async {
   final mock = MockClient((request) async {
@@ -80,6 +84,13 @@ Future<NoteController> _pumpEditor(
     }
     if (request.method == 'PUT' && request.url.path == '/notes/01H') {
       return onSave?.call(request) ?? http.Response('unexpected', 500);
+    }
+    if (request.method == 'GET' && request.url.path == '/search') {
+      return onSearch?.call(request) ??
+          http.Response(
+            jsonEncode(<String, Object?>{'items': <Object?>[]}),
+            200,
+          );
     }
     return http.Response('unexpected', 500);
   });
@@ -94,7 +105,12 @@ Future<NoteController> _pumpEditor(
 
   await tester.pumpWidget(
     MaterialApp(
-      home: NoteScreen(controller: ctrl, startEditing: startEditing),
+      home: NoteScreen(
+        controller: ctrl,
+        startEditing: startEditing,
+        onOpenNote: onOpenNote,
+        linkAutocompleteScheduler: (_) async {},
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -165,15 +181,40 @@ Future<void> _pumpConflict(
 }
 
 /// Pumps a [NoteScreen] showing a note with [content] in read-only mode.
-Future<void> _pumpViewer(WidgetTester tester, {required String content}) async {
+/// [backlinksItems] answers `GET /notes/01H/backlinks` (empty by default).
+Future<void> _pumpViewer(
+  WidgetTester tester, {
+  required String content,
+  List<String> tags = const <String>[],
+  List<Object?>? backlinksItems,
+  ValueChanged<String>? onOpenNote,
+  ValueChanged<String>? onTagTap,
+}) async {
   final mock = MockClient((request) async {
-    return http.Response(jsonEncode(_noteJson(content: content)), 200);
+    if (request.method == 'GET' && request.url.path == '/notes/01H/backlinks') {
+      return http.Response(
+        jsonEncode(<String, Object?>{'items': backlinksItems ?? <Object?>[]}),
+        200,
+      );
+    }
+    return http.Response(
+      jsonEncode(_noteJson(content: content, tags: tags)),
+      200,
+    );
   });
   final api = RobotNotesClient(config: _config, httpClient: mock);
   final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
   addTearDown(ctrl.dispose);
 
-  await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+  await tester.pumpWidget(
+    MaterialApp(
+      home: NoteScreen(
+        controller: ctrl,
+        onOpenNote: onOpenNote,
+        onTagTap: onTagTap,
+      ),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -1014,6 +1055,356 @@ void main() {
       expect(calls, isNot(contains('DELETE /notes/01H')));
       expect(closed, 0);
       expect(find.byKey(const Key('note.body')), findsOneWidget);
+    });
+  });
+
+  group('link autocomplete', () {
+    testWidgets('typing [[ opens a list filtered by subsequent characters', (
+      tester,
+    ) async {
+      await _pumpEditor(
+        tester,
+        onSearch: (request) => http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[
+              {
+                'id': '02H',
+                'title': 'Project Alpha',
+                'snippet': 's',
+                'rank': 1.0,
+                'updated_at': _now,
+              },
+              {
+                'id': '03H',
+                'title': 'Project Beta',
+                'snippet': 's',
+                'rank': 0.5,
+                'updated_at': _now,
+              },
+            ],
+          }),
+          200,
+        ),
+      );
+
+      await tester.enterText(find.byKey(_contentField), '[[Proj');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Beta')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('selecting an entry inserts [[Title]] at the cursor', (
+      tester,
+    ) async {
+      await _pumpEditor(
+        tester,
+        onSearch: (request) => http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[
+              {
+                'id': '02H',
+                'title': 'Project Alpha',
+                'snippet': 's',
+                'rank': 1.0,
+                'updated_at': _now,
+              },
+            ],
+          }),
+          200,
+        ),
+      );
+
+      await tester.enterText(find.byKey(_contentField), '[[Proj');
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_fieldController(tester, _contentField).text, '[[Project Alpha]]');
+    });
+
+    testWidgets(
+      'selecting an entry preserves a typed alias as [[Title|Alias]]',
+      (tester) async {
+        await _pumpEditor(
+          tester,
+          onSearch: (request) => http.Response(
+            jsonEncode(<String, Object?>{
+              'items': <Object?>[
+                {
+                  'id': '02H',
+                  'title': 'Project Alpha',
+                  'snippet': 's',
+                  'rank': 1.0,
+                  'updated_at': _now,
+                },
+              ],
+            }),
+            200,
+          ),
+        );
+
+        await tester.enterText(find.byKey(_contentField), '[[Proj|Alias');
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          _fieldController(tester, _contentField).text,
+          '[[Project Alpha|Alias]]',
+        );
+      },
+    );
+
+    testWidgets('the list closes once the link is closed with ]]', (
+      tester,
+    ) async {
+      await _pumpEditor(
+        tester,
+        onSearch: (request) => http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[
+              {
+                'id': '02H',
+                'title': 'Project Alpha',
+                'snippet': 's',
+                'rank': 1.0,
+                'updated_at': _now,
+              },
+            ],
+          }),
+          200,
+        ),
+      );
+
+      await tester.enterText(find.byKey(_contentField), '[[Proj');
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+        findsOneWidget,
+      );
+
+      await tester.enterText(find.byKey(_contentField), '[[Project Alpha]]');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('note.editor.linkSuggestion.Project Alpha')),
+        findsNothing,
+      );
+    });
+  });
+
+  group('backlinks panel', () {
+    testWidgets('lists referencing notes with a snippet', (tester) async {
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        backlinksItems: [
+          {'id': '02H', 'title': 'Referencing note', 'snippet': 'a snippet'},
+        ],
+      );
+
+      expect(find.byKey(const Key('note.backlinks')), findsOneWidget);
+      expect(find.text('Referencing note'), findsOneWidget);
+      expect(find.text('a snippet'), findsOneWidget);
+    });
+
+    testWidgets(
+      'shows an empty state rather than an error when there are none',
+      (tester) async {
+        await _pumpViewer(tester, content: 'hello');
+
+        expect(find.byKey(const Key('note.backlinks')), findsOneWidget);
+        expect(find.byKey(const Key('note.backlinks.empty')), findsOneWidget);
+      },
+    );
+
+    testWidgets('tapping an entry opens that note', (tester) async {
+      String? opened;
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        backlinksItems: [
+          {'id': '02H', 'title': 'Referencing note', 'snippet': 'a snippet'},
+        ],
+        onOpenNote: (id) => opened = id,
+      );
+
+      await tester.tap(find.byKey(const Key('note.backlinks.item.02H')));
+      await tester.pumpAndSettle();
+
+      expect(opened, '02H');
+    });
+  });
+
+  group('tags', () {
+    testWidgets('renders chips for the note\'s computed tags', (tester) async {
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        tags: const ['urgent', 'planning'],
+      );
+
+      expect(find.byKey(const Key('note.tags')), findsOneWidget);
+      expect(find.text('urgent'), findsOneWidget);
+      expect(find.text('planning'), findsOneWidget);
+    });
+
+    testWidgets('renders no chip row when the note has no tags', (
+      tester,
+    ) async {
+      await _pumpViewer(tester, content: 'hello');
+
+      expect(find.byKey(const Key('note.tags')), findsNothing);
+    });
+
+    testWidgets('tapping a tag chip calls onTagTap with that tag', (
+      tester,
+    ) async {
+      String? tapped;
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        tags: const ['urgent', 'planning'],
+        onTagTap: (tag) => tapped = tag,
+      );
+
+      await tester.tap(find.text('urgent'));
+      await tester.pumpAndSettle();
+
+      expect(tapped, 'urgent');
+    });
+  });
+
+  group('move', () {
+    /// Pumps a read-only note and opens the move dialog via the overflow
+    /// menu. `PUT /notes/01H` answers with [putResponse].
+    Future<List<String>> pumpAndOpenMoveDialog(
+      WidgetTester tester, {
+      required http.Response Function(http.Request) putResponse,
+    }) async {
+      final calls = <String>[];
+      final mock = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.method == 'GET' && request.url.path == '/notes/01H') {
+          return http.Response(jsonEncode(_noteJson()), 200);
+        }
+        if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+          return putResponse(request);
+        }
+        return http.Response('unexpected', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('note.menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('note.move')));
+      await tester.pumpAndSettle();
+      return calls;
+    }
+
+    testWidgets('confirming sends PUT with the chosen path', (tester) async {
+      Map<String, dynamic>? body;
+      final calls = await pumpAndOpenMoveDialog(
+        tester,
+        putResponse: (request) {
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(jsonEncode(_noteJson(version: 2)), 200);
+        },
+      );
+      expect(find.text('Move to folder'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('note.move.input')),
+        'Projects/Alpha',
+      );
+      await tester.tap(find.byKey(const Key('note.move.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(calls, contains('PUT /notes/01H'));
+      expect(body?['path'], 'Projects/Alpha');
+      expect(find.byKey(const Key('note.body')), findsOneWidget);
+    });
+
+    testWidgets(
+      'a 409 path_conflict shows a non-destructive error and leaves the '
+      'note open',
+      (tester) async {
+        await pumpAndOpenMoveDialog(
+          tester,
+          putResponse: (request) => http.Response(
+            jsonEncode(<String, Object?>{'error': 'path_conflict'}),
+            409,
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const Key('note.move.input')),
+          'Projects/Alpha',
+        );
+        await tester.tap(find.byKey(const Key('note.move.confirm')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining('Projects/Alpha'),
+          findsWidgets,
+          reason: 'the error names the colliding path',
+        );
+        expect(find.byKey(const Key('note.body')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '423 shows the existing lock-holder banner and leaves the note open',
+      (tester) async {
+        await pumpAndOpenMoveDialog(
+          tester,
+          putResponse: (request) => http.Response(
+            jsonEncode(<String, Object?>{
+              'error': 'locked',
+              'lock': _lockJson(holder: 'alice'),
+            }),
+            423,
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const Key('note.move.input')),
+          'Projects/Alpha',
+        );
+        await tester.tap(find.byKey(const Key('note.move.confirm')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('note.banner.lock')), findsOneWidget);
+        expect(find.textContaining('alice'), findsWidgets);
+        expect(find.byKey(const Key('note.body')), findsOneWidget);
+      },
+    );
+
+    testWidgets('cancelling sends no request', (tester) async {
+      final calls = await pumpAndOpenMoveDialog(
+        tester,
+        putResponse: (request) => http.Response('unexpected', 500),
+      );
+
+      await tester.tap(find.byKey(const Key('note.move.cancel')));
+      await tester.pumpAndSettle();
+
+      expect(calls, isNot(contains('PUT /notes/01H')));
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
@@ -9,14 +10,22 @@ Directory _tempDir() {
   return Directory.systemTemp.createTempSync('robot-notes-meta-index-test-');
 }
 
-NoteSummary _summary(String id, {int version = 1, String title = 't'}) {
+NoteSummary _summary(
+  String id, {
+  int version = 1,
+  String title = 't',
+  String path = '',
+  Set<String> tags = const <String>{},
+}) {
   final t = DateTime.utc(2026, 4, 25, 10);
   return NoteSummary(
     id: id,
     title: title,
+    path: path,
     version: version,
     createdAt: t,
     updatedAt: t,
+    tags: tags,
   );
 }
 
@@ -164,9 +173,11 @@ void main() {
   });
 
   group('MetaIndex.page sort=updated_desc', () {
-    NoteSummary at(String id, DateTime updatedAt) => NoteSummary(
+    NoteSummary at(String id, DateTime updatedAt, {String path = ''}) =>
+        NoteSummary(
           id: id,
           title: id,
+          path: path,
           version: 1,
           createdAt: updatedAt,
           updatedAt: updatedAt,
@@ -261,4 +272,226 @@ void main() {
       );
     });
   });
+
+  group('MetaIndex.page pathPrefix filter', () {
+    test('null pathPrefix returns everything (default sort)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A'))
+        ..upsert(_summary('B', path: 'Projects/Alpha'));
+      final page = idx.page(limit: 10);
+      expect(page.items.map((s) => s.id), ['A', 'B']);
+    });
+
+    test('exact path match is included', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Projects/Alpha'))
+        ..upsert(_summary('B', path: 'Projects/Beta'));
+      final page = idx.page(limit: 10, pathPrefix: 'Projects/Alpha');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('nested descendant is included, sibling is not', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Projects/Alpha/Sub'))
+        ..upsert(_summary('B', path: 'Projects/Beta'))
+        ..upsert(_summary('C'));
+      final page = idx.page(limit: 10, pathPrefix: 'Projects/Alpha');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test(
+        'a folder name that is a prefix but not a path segment boundary '
+        'is excluded', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Projects/AlphaExtra'))
+        ..upsert(_summary('B', path: 'Projects/Alpha'));
+      final page = idx.page(limit: 10, pathPrefix: 'Projects/Alpha');
+      expect(page.items.map((s) => s.id), ['B']);
+    });
+
+    test('pagination composes with the filter (sort=id)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Folder'))
+        ..upsert(_summary('B'))
+        ..upsert(_summary('C', path: 'Folder'))
+        ..upsert(_summary('D', path: 'Folder'));
+      final p1 = idx.page(limit: 2, pathPrefix: 'Folder');
+      expect(p1.items.map((s) => s.id), ['A', 'C']);
+      expect(p1.nextCursor, 'C');
+      final p2 = idx.page(after: p1.nextCursor, limit: 2, pathPrefix: 'Folder');
+      expect(p2.items.map((s) => s.id), ['D']);
+      expect(p2.nextCursor, isNull);
+    });
+
+    test('pagination composes with the filter (sort=updated_desc)', () {
+      final now = DateTime.utc(2026);
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Folder').copyWithUpdated(now))
+        ..upsert(
+          _summary('B').copyWithUpdated(now.add(const Duration(minutes: 1))),
+        )
+        ..upsert(
+          _summary(
+            'C',
+            path: 'Folder',
+          ).copyWithUpdated(now.add(const Duration(minutes: 2))),
+        );
+      final page =
+          idx.page(sort: 'updated_desc', limit: 10, pathPrefix: 'Folder');
+      expect(page.items.map((s) => s.id), ['C', 'A']);
+    });
+  });
+
+  group('MetaIndex.page tag filter', () {
+    test('null tag returns everything (default sort)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A'))
+        ..upsert(_summary('B', tags: {'urgent'}));
+      final page = idx.page(limit: 10);
+      expect(page.items.map((s) => s.id), ['A', 'B']);
+    });
+
+    test('only notes carrying the tag are returned', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', tags: {'urgent'}))
+        ..upsert(_summary('B', tags: {'later'}))
+        ..upsert(_summary('C'));
+      final page = idx.page(limit: 10, tag: 'urgent');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('matching is case-insensitive', () {
+      final idx = MetaIndex()..upsert(_summary('A', tags: {'Urgent'}));
+      final page = idx.page(limit: 10, tag: 'urgent');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('composes with pathPrefix', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Folder', tags: {'urgent'}))
+        ..upsert(_summary('B', tags: {'urgent'}));
+      final page = idx.page(limit: 10, pathPrefix: 'Folder', tag: 'urgent');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('pagination composes with the filter (sort=id)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', tags: {'urgent'}))
+        ..upsert(_summary('B'))
+        ..upsert(_summary('C', tags: {'urgent'}))
+        ..upsert(_summary('D', tags: {'urgent'}));
+      final p1 = idx.page(limit: 2, tag: 'urgent');
+      expect(p1.items.map((s) => s.id), ['A', 'C']);
+      expect(p1.nextCursor, 'C');
+      final p2 = idx.page(after: p1.nextCursor, limit: 2, tag: 'urgent');
+      expect(p2.items.map((s) => s.id), ['D']);
+      expect(p2.nextCursor, isNull);
+    });
+
+    test('pagination composes with the filter (sort=updated_desc)', () {
+      final now = DateTime.utc(2026);
+      final idx = MetaIndex()
+        ..upsert(
+          _summary('A', tags: {'urgent'}).copyWithUpdated(now),
+        )
+        ..upsert(
+          _summary('B').copyWithUpdated(now.add(const Duration(minutes: 1))),
+        )
+        ..upsert(
+          _summary(
+            'C',
+            tags: {'urgent'},
+          ).copyWithUpdated(now.add(const Duration(minutes: 2))),
+        );
+      final page = idx.page(sort: 'updated_desc', limit: 10, tag: 'urgent');
+      expect(page.items.map((s) => s.id), ['C', 'A']);
+    });
+  });
+
+  group('MetaIndex.resolveTitle', () {
+    test('resolves a title that matches exactly one note', () {
+      final idx = MetaIndex()..upsert(_summary('A', title: 'Project Alpha'));
+      expect(idx.resolveTitle('Project Alpha'), 'A');
+    });
+
+    test('a title matching no note is unresolved', () {
+      final idx = MetaIndex()..upsert(_summary('A', title: 'Project Alpha'));
+      expect(idx.resolveTitle('Nope'), isNull);
+    });
+
+    test('an empty index resolves nothing', () {
+      expect(MetaIndex().resolveTitle('Anything'), isNull);
+    });
+
+    test('is rebuilt on scan from a fresh Storage snapshot', () async {
+      final tmp = Directory.systemTemp.createTempSync(
+        'robot-notes-title-index-test-',
+      );
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+      final storage = Storage(
+        contentDir: Directory('${tmp.path}/content'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final note = await storage.create(title: 'Project Alpha', content: '');
+      final idx = MetaIndex();
+      await idx.scan(storage);
+      expect(idx.resolveTitle('Project Alpha'), note.id);
+    });
+
+    test(
+        'two notes sharing a title resolve deterministically to the '
+        'ascending-first id', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('B', title: 'Dup'))
+        ..upsert(_summary('A', title: 'Dup'));
+      expect(idx.resolveTitle('Dup'), 'A');
+    });
+
+    test('an ambiguous title logs a warning naming both ids', () {
+      final records = <LogRecord>[];
+      final sub = Logger('meta_index').onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+      hierarchicalLoggingEnabled = true;
+      final logger = Logger('meta_index')..level = Level.ALL;
+
+      MetaIndex(logger: logger)
+        ..upsert(_summary('B', title: 'Dup'))
+        ..upsert(_summary('A', title: 'Dup'))
+        ..resolveTitle('Dup');
+
+      expect(records, isNotEmpty);
+      final message = records.map((r) => r.message).join('\n');
+      expect(message, contains('A'));
+      expect(message, contains('B'));
+    });
+
+    test('upsert with a changed title moves the note in the title index', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', title: 'Old'))
+        ..upsert(_summary('A', title: 'New', version: 2));
+      expect(idx.resolveTitle('Old'), isNull);
+      expect(idx.resolveTitle('New'), 'A');
+    });
+
+    test('remove frees up the title for future resolution', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', title: 'Solo'))
+        ..remove('A');
+      expect(idx.resolveTitle('Solo'), isNull);
+    });
+  });
+}
+
+extension _WithUpdated on NoteSummary {
+  NoteSummary copyWithUpdated(DateTime updatedAt) => NoteSummary(
+        id: id,
+        title: title,
+        path: path,
+        version: version,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        tags: tags,
+      );
 }

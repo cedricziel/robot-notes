@@ -84,9 +84,18 @@ class MetaIndex {
   // entry's position here moves whenever its updatedAt changes, so
   // upsert must reposition rather than only insert-if-new.
   final List<NoteId> _sortedByUpdated = [];
+  // title -> ids of every note currently carrying that exact title,
+  // ascending. Almost always a single-element list; a personal vault's
+  // note count doesn't warrant more than a plain list for the rare
+  // duplicate-title case (see resolveTitle).
+  final Map<String, List<NoteId>> _byTitle = {};
 
   /// Number of entries currently held.
   int get length => _byId.length;
+
+  /// Snapshot of every currently-indexed summary, in no particular order.
+  /// Used by `path`/`tag` filtering (see [page]) and by `GET /notes/tree`.
+  Iterable<NoteSummary> get all => _byId.values;
 
   /// Replaces the index contents with everything [storage] reports as
   /// well-formed. Files that fail to parse are skipped and logged by
@@ -95,11 +104,13 @@ class MetaIndex {
     _byId.clear();
     _sortedIds.clear();
     _sortedByUpdated.clear();
+    _byTitle.clear();
     final summaries = await storage.list();
     for (final s in summaries) {
       _byId[s.id] = s;
       _sortedIds.add(s.id);
       _sortedByUpdated.add(s.id);
+      _indexTitle(s);
     }
     _sortedIds.sort();
     _sortedByUpdated.sort(
@@ -119,8 +130,14 @@ class MetaIndex {
   void upsert(NoteSummary summary) {
     final existing = _byId[summary.id];
     if (existing != null) _removeSortedByUpdated(existing);
+    if (existing != null && existing.title != summary.title) {
+      _deindexTitle(existing);
+    }
     _byId[summary.id] = summary;
     if (existing == null) _insertSorted(summary.id);
+    if (existing == null || existing.title != summary.title) {
+      _indexTitle(summary);
+    }
     _insertSortedByUpdated(summary);
   }
 
@@ -132,9 +149,48 @@ class MetaIndex {
     // _byId: the search compares against _byId values, including
     // this entry's own (still needed to find itself).
     _removeSortedByUpdated(existing);
+    _deindexTitle(existing);
     _byId.remove(id);
     final pos = _binarySearch(_sortedIds, id);
     if (pos >= 0) _sortedIds.removeAt(pos);
+  }
+
+  /// Resolves [title] to the id of the note it currently identifies, or
+  /// `null` if no indexed note carries that exact title (a "phantom"
+  /// link target). Resolution happens at call time against live index
+  /// state, so a link recorded while its target title didn't exist yet
+  /// starts resolving the moment a matching note is indexed — no
+  /// re-save of the linking note required.
+  ///
+  /// When more than one note shares [title], resolution is deterministic
+  /// (the ascending-sorted-first id always wins) and an ambiguous-title
+  /// warning naming every id sharing the title is logged, per
+  /// `links` spec.
+  NoteId? resolveTitle(String title) {
+    final ids = _byTitle[title];
+    if (ids == null || ids.isEmpty) return null;
+    if (ids.length > 1) {
+      _log.warning(
+        'Ambiguous title "$title": ids ${ids.join(', ')} all match; '
+        'resolving to ${ids.first}',
+      );
+    }
+    return ids.first;
+  }
+
+  void _indexTitle(NoteSummary summary) {
+    final ids = _byTitle.putIfAbsent(summary.title, () => []);
+    if (ids.contains(summary.id)) return;
+    ids
+      ..add(summary.id)
+      ..sort();
+  }
+
+  void _deindexTitle(NoteSummary summary) {
+    final ids = _byTitle[summary.title];
+    if (ids == null) return;
+    ids.remove(summary.id);
+    if (ids.isEmpty) _byTitle.remove(summary.title);
   }
 
   /// Returns a page of summaries ordered per [sort], up to [limit]
@@ -150,54 +206,122 @@ class MetaIndex {
   /// For [kSortUpdatedDesc], [after] SHALL be a cursor previously
   /// returned by this method for the same sort; passing anything else
   /// throws [InvalidCursorException].
+  ///
+  /// [pathPrefix], when non-null, narrows the result to notes whose
+  /// `path` equals [pathPrefix] or is nested under it (`path ==
+  /// pathPrefix || path.startsWith('$pathPrefix/')`), applied *before*
+  /// pagination — a personal vault's note count doesn't warrant a
+  /// second sorted index per folder, so this is a linear pre-filter over
+  /// the same sorted candidate list [sort] would otherwise page over
+  /// directly.
+  ///
+  /// [tag], when non-null, narrows the result the same way to notes
+  /// whose computed [NoteSummary.tags] contains [tag] (case-insensitive,
+  /// matching `tags.dart`'s `computeTags` matching rule) — the identical
+  /// pre-filter mechanism as [pathPrefix], composable with it and with
+  /// either [sort].
   MetaIndexPage page({
     String? after,
     int limit = kDefaultPageSize,
     String sort = kSortId,
+    String? pathPrefix,
+    String? tag,
   }) {
     final effectiveLimit = limit.clamp(1, kMaxPageSize);
     switch (sort) {
       case kSortId:
-        return _pageById(after: after, limit: effectiveLimit);
+        return _pageById(
+          after: after,
+          limit: effectiveLimit,
+          pathPrefix: pathPrefix,
+          tag: tag,
+        );
       case kSortUpdatedDesc:
-        return _pageByUpdated(after: after, limit: effectiveLimit);
+        return _pageByUpdated(
+          after: after,
+          limit: effectiveLimit,
+          pathPrefix: pathPrefix,
+          tag: tag,
+        );
       default:
         throw ArgumentError.value(sort, 'sort', 'unsupported sort');
     }
   }
 
-  MetaIndexPage _pageById({required String? after, required int limit}) {
+  bool _matchesPathPrefix(NoteSummary summary, String? pathPrefix) {
+    if (pathPrefix == null) return true;
+    return summary.path == pathPrefix ||
+        summary.path.startsWith('$pathPrefix/');
+  }
+
+  bool _matchesTag(NoteSummary summary, String? tag) {
+    if (tag == null) return true;
+    final lower = tag.toLowerCase();
+    return summary.tags.any((t) => t.toLowerCase() == lower);
+  }
+
+  bool _matchesFilters(NoteSummary summary, String? pathPrefix, String? tag) {
+    return _matchesPathPrefix(summary, pathPrefix) && _matchesTag(summary, tag);
+  }
+
+  MetaIndexPage _pageById({
+    required String? after,
+    required int limit,
+    String? pathPrefix,
+    String? tag,
+  }) {
+    final candidates = pathPrefix == null && tag == null
+        ? _sortedIds
+        : [
+            for (final id in _sortedIds)
+              if (_matchesFilters(_byId[id]!, pathPrefix, tag)) id,
+          ];
     int startIdx;
     if (after == null) {
       startIdx = 0;
     } else {
-      final pos = _binarySearch(_sortedIds, after);
-      // If `after` is not in the index, find its insertion point — the
-      // next id in sort order. If it is, start at the entry after it.
+      final pos = _binarySearch(candidates, after);
+      // If `after` is not in the candidate list, find its insertion
+      // point — the next id in sort order. If it is, start at the entry
+      // after it.
       startIdx = pos >= 0 ? pos + 1 : -(pos + 1);
     }
-    final endIdx = (startIdx + limit).clamp(0, _sortedIds.length);
-    final pageIds = _sortedIds.sublist(startIdx, endIdx);
+    final endIdx = (startIdx + limit).clamp(0, candidates.length);
+    final pageIds = candidates.sublist(startIdx, endIdx);
     final items = [for (final id in pageIds) _byId[id]!];
-    final nextCursor = endIdx < _sortedIds.length ? pageIds.last : null;
+    final nextCursor = endIdx < candidates.length ? pageIds.last : null;
     return MetaIndexPage(items: items, nextCursor: nextCursor);
   }
 
-  MetaIndexPage _pageByUpdated({required String? after, required int limit}) {
+  MetaIndexPage _pageByUpdated({
+    required String? after,
+    required int limit,
+    String? pathPrefix,
+    String? tag,
+  }) {
+    final candidates = pathPrefix == null && tag == null
+        ? _sortedByUpdated
+        : [
+            for (final id in _sortedByUpdated)
+              if (_matchesFilters(_byId[id]!, pathPrefix, tag)) id,
+          ];
     int startIdx;
     if (after == null) {
       startIdx = 0;
     } else {
       final cursor = _decodeUpdatedCursor(after);
-      final pos = _binarySearchByUpdated(cursor.updatedAt, cursor.id);
+      final pos = _binarySearchByUpdated(
+        cursor.updatedAt,
+        cursor.id,
+        candidates,
+      );
       startIdx = pos >= 0 ? pos + 1 : -(pos + 1);
     }
-    final endIdx = (startIdx + limit).clamp(0, _sortedByUpdated.length);
-    final pageIds = _sortedByUpdated.sublist(startIdx, endIdx);
+    final endIdx = (startIdx + limit).clamp(0, candidates.length);
+    final pageIds = candidates.sublist(startIdx, endIdx);
     final items = [for (final id in pageIds) _byId[id]!];
-    final nextCursor = endIdx < _sortedByUpdated.length
-        ? _encodeUpdatedCursor(items.last)
-        : null;
+    final nextCursor =
+        endIdx < candidates.length ? _encodeUpdatedCursor(items.last) : null;
     return MetaIndexPage(items: items, nextCursor: nextCursor);
   }
 
@@ -218,11 +342,19 @@ class MetaIndex {
     if (pos >= 0) _sortedByUpdated.removeAt(pos);
   }
 
-  // Locates (updatedAt, id) in _sortedByUpdated by delegating to the same
-  // index-based search _binarySearch uses for _sortedIds.
-  int _binarySearchByUpdated(DateTime updatedAt, NoteId id) {
-    return _binarySearchIndexed(_sortedByUpdated.length, (mid) {
-      final midSummary = _byId[_sortedByUpdated[mid]]!;
+  // Locates (updatedAt, id) in [candidates] (defaulting to the full
+  // _sortedByUpdated field) by delegating to the same index-based search
+  // _binarySearch uses for _sortedIds. Callers that already narrowed the
+  // candidate list to a path-filtered subset (see _pageByUpdated) pass it
+  // explicitly so the search matches what's actually being paged over.
+  int _binarySearchByUpdated(
+    DateTime updatedAt,
+    NoteId id, [
+    List<NoteId>? candidates,
+  ]) {
+    final list = candidates ?? _sortedByUpdated;
+    return _binarySearchIndexed(list.length, (mid) {
+      final midSummary = _byId[list[mid]]!;
       return _compareUpdatedKey(
         midSummary.updatedAt,
         midSummary.id,

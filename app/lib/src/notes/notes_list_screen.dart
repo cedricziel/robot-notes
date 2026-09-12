@@ -19,6 +19,7 @@ class NotesListScreen extends StatefulWidget {
     this.onNoteTap,
     this.onCreate,
     this.appBarActions,
+    this.sidebar,
     super.key,
   });
 
@@ -30,6 +31,12 @@ class NotesListScreen extends StatefulWidget {
   /// affordances supplied by the host shell). When `null` the AppBar
   /// shows just the title.
   final List<Widget>? appBarActions;
+
+  /// The folder tree navigation panel. When supplied, it renders as a fixed
+  /// column beside the list on wide screens (>= 700 logical pixels) and
+  /// inside a [Drawer] behind the usual hamburger affordance on narrow
+  /// ones. `null` renders no folder navigation at all.
+  final Widget? sidebar;
 
   @override
   State<NotesListScreen> createState() => _NotesListScreenState();
@@ -92,78 +99,108 @@ class _NotesListScreenState extends State<NotesListScreen> {
     messenger.showSnackBar(const SnackBar(content: Text('Note deleted')));
   }
 
+  /// Below this width the sidebar moves into a [Drawer] instead of sitting
+  /// beside the list permanently.
+  static const _wideBreakpoint = 700.0;
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Notes'), actions: widget.appBarActions),
-      floatingActionButton: widget.onCreate == null
-          ? null
-          : FloatingActionButton(
-              key: const Key('notes.create'),
-              tooltip: 'New note',
-              onPressed: widget.onCreate,
-              child: const Icon(Icons.add),
-            ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ValueListenableBuilder<NotesListState>(
-              valueListenable: widget.controller,
-              builder: (context, state, _) {
-                if (state.isLoadingFirst && state.items.isEmpty) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final error = state.error;
-                return Column(
+    final sidebar = widget.sidebar;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = sidebar != null && constraints.maxWidth >= _wideBreakpoint;
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Notes'),
+            actions: widget.appBarActions,
+          ),
+          drawer: sidebar == null || wide
+              ? null
+              : Drawer(key: const Key('notes.sidebar.drawer'), child: sidebar),
+          floatingActionButton: widget.onCreate == null
+              ? null
+              : FloatingActionButton(
+                  key: const Key('notes.create'),
+                  tooltip: 'New note',
+                  onPressed: widget.onCreate,
+                  child: const Icon(Icons.add),
+                ),
+          body: wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (error != null)
-                      ErrorStrip(
-                        key: const Key('notes.error'),
-                        message: describeError(
-                          error,
-                          fallback: 'Could not load notes.',
-                        ),
-                        onRetry: widget.controller.refresh,
+                    SizedBox(
+                      key: const Key('notes.sidebar.wide'),
+                      width: 260,
+                      child: sidebar,
+                    ),
+                    const VerticalDivider(width: 1),
+                    Expanded(child: _buildListBody(context)),
+                  ],
+                )
+              : _buildListBody(context),
+        );
+      },
+    );
+  }
+
+  Widget _buildListBody(BuildContext context) {
+    return Column(
+      children: [
+        Expanded(
+          child: ValueListenableBuilder<NotesListState>(
+            valueListenable: widget.controller,
+            builder: (context, state, _) {
+              if (state.isLoadingFirst && state.items.isEmpty) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final error = state.error;
+              return Column(
+                children: [
+                  if (error != null)
+                    ErrorStrip(
+                      key: const Key('notes.error'),
+                      message: describeError(
+                        error,
+                        fallback: 'Could not load notes.',
                       ),
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: widget.controller.refresh,
-                        child: ListView.separated(
-                          key: const Key('notes.list'),
-                          controller: _scroll,
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          itemCount:
-                              state.items.length +
-                              (state.isLoadingMore ? 1 : 0),
-                          separatorBuilder: (_, _) => const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            if (index >= state.items.length) {
-                              return const Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Center(
-                                  child: CircularProgressIndicator(),
-                                ),
-                              );
-                            }
-                            final note = state.items[index];
-                            return _NoteTile(
-                              note: note,
-                              onTap: widget.onNoteTap == null
-                                  ? null
-                                  : () => widget.onNoteTap!(note.id),
-                              onDelete: () => _confirmDelete(note.id),
+                      onRetry: widget.controller.refresh,
+                    ),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: widget.controller.refresh,
+                      child: ListView.separated(
+                        key: const Key('notes.list'),
+                        controller: _scroll,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount:
+                            state.items.length + (state.isLoadingMore ? 1 : 0),
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          if (index >= state.items.length) {
+                            return const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(child: CircularProgressIndicator()),
                             );
-                          },
-                        ),
+                          }
+                          final note = state.items[index];
+                          return _NoteTile(
+                            note: note,
+                            onTap: widget.onNoteTap == null
+                                ? null
+                                : () => widget.onNoteTap!(note.id),
+                            onDelete: () => _confirmDelete(note.id),
+                          );
+                        },
                       ),
                     ),
-                  ],
-                );
-              },
-            ),
+                  ),
+                ],
+              );
+            },
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

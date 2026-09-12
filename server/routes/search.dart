@@ -7,7 +7,10 @@ import 'package:server/src/search_index.dart';
 /// Default page size when the caller omits `limit`.
 const int kDefaultSearchLimit = 20;
 
-/// `GET /search?q=<fts>&limit=<n>` — FTS5 full-text search over notes.
+/// `GET /search?q=<fts>&limit=<n>&path=<folder>&tag=<tag>` — FTS5
+/// full-text search over notes, optionally narrowed to a folder
+/// (`path`, exact or nested) and/or a tag (`tag`, case-insensitive),
+/// composable with each other and with `q`.
 ///
 /// Errors:
 ///   - `missing_query` (400): `q` is absent
@@ -58,10 +61,18 @@ FutureOr<Response> onRequest(RequestContext context) {
   }
   final effectiveLimit = parsedLimit.clamp(1, kMaxSearchLimit);
 
+  final pathFilter = query['path'];
+  final tagFilter = query['tag'];
+
   final index = context.read<SearchIndex>();
   final List<SearchHit> hits;
   try {
-    hits = index.search(q, limit: effectiveLimit);
+    hits = index.search(
+      q,
+      limit: effectiveLimit,
+      path: pathFilter,
+      tag: tagFilter,
+    );
   } on InvalidSearchQueryException {
     return Response.json(
       statusCode: HttpStatus.badRequest,

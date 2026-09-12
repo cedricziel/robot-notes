@@ -181,6 +181,7 @@ final class LockEvent extends WsMessage {
 enum ChangeAction {
   created('created'),
   updated('updated'),
+  moved('moved'),
   deleted('deleted');
 
   const ChangeAction(this.wire);

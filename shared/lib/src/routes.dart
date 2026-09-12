@@ -5,6 +5,7 @@ abstract final class Routes {
   static const String otelConfig = '/otel-config';
   static const String notes = '/notes';
   static const String search = '/search';
+  static const String tags = '/tags';
   static const String ws = '/ws';
   static const String invites = '/invites';
   static const String mcp = '/mcp';

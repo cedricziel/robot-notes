@@ -17,6 +17,53 @@ class NotePage {
   final String? nextCursor;
 }
 
+/// One folder from `GET /notes/tree`: a folder that directly contains at
+/// least one note, plus how many. Intermediate folders with no notes of
+/// their own are not part of the server response — callers that want them
+/// (e.g. to render a full tree) derive them from the flat [path]s.
+@immutable
+class TreeFolder {
+  const TreeFolder({required this.path, required this.noteCount});
+
+  final String path;
+  final int noteCount;
+
+  factory TreeFolder.fromJson(Map<String, dynamic> json) => TreeFolder(
+    path: json['path'] as String,
+    noteCount: json['note_count'] as int,
+  );
+}
+
+/// `GET /notes/tree` response: the flat list of folders that directly
+/// contain notes.
+@immutable
+class NotesTree {
+  const NotesTree({required this.folders});
+
+  final List<TreeFolder> folders;
+}
+
+/// One entry of `GET /notes/{id}/backlinks`: a note that links to the note
+/// being viewed.
+@immutable
+class BacklinkHit {
+  const BacklinkHit({
+    required this.id,
+    required this.title,
+    required this.snippet,
+  });
+
+  final String id;
+  final String title;
+  final String snippet;
+
+  factory BacklinkHit.fromJson(Map<String, dynamic> json) => BacklinkHit(
+    id: json['id'] as String,
+    title: json['title'] as String,
+    snippet: json['snippet'] as String,
+  );
+}
+
 /// One row from `GET /search`. Lives here rather than `shared/` because the
 /// server's search route emits `rank` only as a derived score, not part of the
 /// note model itself.
@@ -81,11 +128,19 @@ class RobotNotesClient {
     );
   }
 
-  Future<NotePage> listNotes({String? after, int? limit, String? sort}) async {
+  Future<NotePage> listNotes({
+    String? after,
+    int? limit,
+    String? sort,
+    String? path,
+    String? tag,
+  }) async {
     final query = <String, String>{
       'after': ?after,
       if (limit != null) 'limit': '$limit',
       'sort': ?sort,
+      'path': ?path,
+      'tag': ?tag,
     };
     final res = await _http.get(_uri('/notes', query), headers: _baseHeaders);
     final body = _ok(res);
@@ -98,6 +153,30 @@ class RobotNotesClient {
       limit: body['limit'] as int,
       nextCursor: body['next_cursor'] as String?,
     );
+  }
+
+  /// `GET /notes/tree` — folders that directly contain at least one note.
+  Future<NotesTree> getTree() async {
+    final res = await _http.get(_uri('/notes/tree'), headers: _baseHeaders);
+    final body = _ok(res);
+    final folders = (body['folders'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(TreeFolder.fromJson)
+        .toList(growable: false);
+    return NotesTree(folders: folders);
+  }
+
+  /// `GET /notes/{id}/backlinks` — notes that link to [id].
+  Future<List<BacklinkHit>> getBacklinks(String id) async {
+    final res = await _http.get(
+      _uri('/notes/$id/backlinks'),
+      headers: _baseHeaders,
+    );
+    final body = _ok(res);
+    return (body['items'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(BacklinkHit.fromJson)
+        .toList(growable: false);
   }
 
   Future<Note> getNote(String id) async {
@@ -122,6 +201,7 @@ class RobotNotesClient {
     required String title,
     required String content,
     required int ifMatch,
+    String? path,
   }) async {
     final res = await _http.put(
       _uri('/notes/$id'),
@@ -130,7 +210,11 @@ class RobotNotesClient {
         'Content-Type': 'application/json',
         'If-Match': '$ifMatch',
       },
-      body: jsonEncode(<String, Object?>{'title': title, 'content': content}),
+      body: jsonEncode(<String, Object?>{
+        'title': title,
+        'content': content,
+        'path': ?path,
+      }),
     );
     return Note.fromJson(_ok(res));
   }
@@ -216,6 +300,9 @@ class RobotNotesClient {
       case 404:
         return NotFoundException(message: message);
       case 409:
+        if (body?['error'] == 'path_conflict') {
+          return PathConflictException(message: message);
+        }
         final current = body?['current'];
         if (current is Map<String, dynamic>) {
           // The 409 body for PUT /notes/{id} omits `lock`, which is fine —

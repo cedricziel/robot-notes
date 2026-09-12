@@ -15,6 +15,23 @@ Storage _storage(Directory tmp) =>
 
 File _dbFile(Directory tmp) => File('${tmp.path}/search.db');
 
+/// Reads every `link_edges` row for [sourceId] directly, bypassing the
+/// [SearchIndex] API — there is no public accessor for this derived table
+/// since only [SearchIndex] itself and its rebuild path need to read it;
+/// tests open a second connection to the same file, mirroring how this
+/// file already tampers with `meta` directly for schema-mismatch tests.
+List<Row> _linkEdges(Directory tmp, String sourceId) {
+  final db = sqlite3.open(_dbFile(tmp).path);
+  try {
+    return db.select(
+      'SELECT * FROM link_edges WHERE source_id = ?;',
+      [sourceId],
+    );
+  } finally {
+    db.close();
+  }
+}
+
 /// Arbitrary fixed instant for tests that don't care about the actual
 /// value of `updatedAt`, only that one was supplied.
 final _testStamp = DateTime.utc(2026);
@@ -96,7 +113,7 @@ void main() {
 
       // Drop the storage file so a rebuild would produce zero rows. If
       // the existing db is reused the row stays searchable.
-      File('${tmp.path}/content/${note.id}.md').deleteSync();
+      File('${tmp.path}/content/Cached.md').deleteSync();
 
       index = await _open(tmp, storage: storage);
       addTearDown(index.close);
@@ -150,6 +167,79 @@ void main() {
 
       expect(logged.any((l) => l.contains('rebuilt with 3 note(s)')), isTrue);
     });
+
+    test('rebuild repopulates path, tags, and resolved link edges', () async {
+      final storage = _storage(tmp);
+      await storage.create(
+        title: 'Alpha',
+        content: 'Tagged #urgent',
+        path: 'Projects',
+      );
+      await storage.create(
+        title: 'Beta',
+        content: 'refers to [[Alpha]] and [[Nowhere]]',
+      );
+
+      final index = await _open(tmp, storage: storage);
+      addTearDown(index.close);
+
+      expect(index.search('Tagged', path: 'Projects'), hasLength(1));
+      expect(index.search('Tagged', path: 'Elsewhere'), isEmpty);
+      expect(index.search('Tagged', tag: 'urgent'), hasLength(1));
+      expect(index.search('Tagged', tag: 'later'), isEmpty);
+
+      final betaId =
+          (await storage.list()).firstWhere((s) => s.title == 'Beta').id;
+      final rows = _linkEdges(tmp, betaId);
+      final byTitle = {
+        for (final r in rows) r['target_title'] as String: r,
+      };
+      expect(byTitle['Alpha']!['resolved'], 1);
+      expect(byTitle['Alpha']!['target_id'], isNotNull);
+      expect(byTitle['Nowhere']!['resolved'], 0);
+      expect(byTitle['Nowhere']!['target_id'], isNull);
+    });
+
+    test(
+      'an old-shape search.db (missing path/tags/link-edges) is rebuilt',
+      () async {
+        final storage = _storage(tmp);
+        await storage.create(title: 'Legacy', content: 'kept searchable');
+
+        // Hand-build a pre-change-shaped search.db: schema_version 2, no
+        // path/tags columns on notes_fts, and no link_edges table at all.
+        sqlite3.open(_dbFile(tmp).path)
+          ..execute('''
+            CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+          ''')
+          ..execute(
+            "INSERT INTO meta (key, value) VALUES ('schema_version', '2');",
+          )
+          ..execute('''
+            CREATE VIRTUAL TABLE notes_fts USING fts5(
+              id UNINDEXED,
+              title,
+              content,
+              updated_at UNINDEXED,
+              tokenize = "porter unicode61"
+            );
+          ''')
+          ..close();
+
+        final logger = Logger.detached('search-test')..level = Level.ALL;
+        final logged = <String>[];
+        logger.onRecord.listen((rec) => logged.add(rec.message));
+
+        final index = await _open(tmp, storage: storage, logger: logger);
+        addTearDown(index.close);
+
+        expect(
+          logged.any((l) => l.contains('mismatch') || l.contains('unhealthy')),
+          isTrue,
+        );
+        expect(index.search('kept'), hasLength(1));
+      },
+    );
   });
 
   group('SearchIndex.upsert / delete', () {
@@ -193,6 +283,97 @@ void main() {
         ..delete('n1')
         ..delete('n1');
       expect(index.search('transient'), isEmpty);
+    });
+
+    test('upsert records path and a queryable tag set', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'n1',
+        title: 'Budget doc',
+        content: 'budget plan',
+        updatedAt: _testStamp,
+        path: 'Projects/Alpha',
+        tags: {'Urgent'},
+      );
+
+      expect(index.search('budget', path: 'Projects/Alpha'), hasLength(1));
+      // 'Projects' is an ancestor folder, so it matches too (nested).
+      expect(index.search('budget', path: 'Projects'), hasLength(1));
+      expect(index.search('budget', path: 'Other'), isEmpty);
+      // Case-insensitive, matching tags.dart's own matching rule.
+      expect(index.search('budget', tag: 'urgent'), hasLength(1));
+      expect(index.search('budget', tag: 'URGENT'), hasLength(1));
+      expect(index.search('budget', tag: 'later'), isEmpty);
+    });
+
+    test(
+      'upsert populates outgoing link edges with resolution state',
+      () async {
+        final index = await _open(tmp);
+        addTearDown(index.close);
+
+        index.upsert(
+          id: 'a',
+          title: 'A',
+          content: 'irrelevant',
+          updatedAt: _testStamp,
+          links: const [
+            SearchLinkEdge(targetTitle: 'B', targetId: 'b'),
+            SearchLinkEdge(targetTitle: 'Phantom'),
+          ],
+        );
+
+        final rows = _linkEdges(tmp, 'a');
+        expect(rows, hasLength(2));
+        final byTitle = {for (final r in rows) r['target_title'] as String: r};
+        expect(byTitle['B']!['target_id'], 'b');
+        expect(byTitle['B']!['resolved'], 1);
+        expect(byTitle['Phantom']!['target_id'], isNull);
+        expect(byTitle['Phantom']!['resolved'], 0);
+      },
+    );
+
+    test('re-upserting a note replaces its outgoing link edges', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index
+        ..upsert(
+          id: 'a',
+          title: 'A',
+          content: '',
+          updatedAt: _testStamp,
+          links: const [SearchLinkEdge(targetTitle: 'Old')],
+        )
+        ..upsert(
+          id: 'a',
+          title: 'A',
+          content: '',
+          updatedAt: _testStamp,
+          links: const [SearchLinkEdge(targetTitle: 'New')],
+        );
+
+      final rows = _linkEdges(tmp, 'a');
+      expect(rows.map((r) => r['target_title']), ['New']);
+    });
+
+    test("delete removes a note's outgoing link edges too", () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index
+        ..upsert(
+          id: 'a',
+          title: 'A',
+          content: '',
+          updatedAt: _testStamp,
+          links: const [SearchLinkEdge(targetTitle: 'X')],
+        )
+        ..delete('a');
+
+      expect(_linkEdges(tmp, 'a'), isEmpty);
     });
   });
 

@@ -143,7 +143,10 @@ void main() {
 
         await ctrl.enterEditMode();
 
-        expect(calls, <String>[
+        // Backlinks load fire-and-forget alongside `open()` (a separate,
+        // unrelated concern from the lock re-fetch this test targets) and
+        // can interleave anywhere in `calls`; filter it out.
+        expect(calls.where((c) => !c.contains('/backlinks')), <String>[
           'GET /notes/01H',
           'POST /notes/01H/lock',
           'GET /notes/01H',
@@ -554,7 +557,10 @@ void main() {
         await ctrl.open();
         await ctrl.delete();
 
-        expect(calls, <String>['GET /notes/01H', 'DELETE /notes/01H']);
+        expect(calls.where((c) => !c.contains('/backlinks')), <String>[
+          'GET /notes/01H',
+          'DELETE /notes/01H',
+        ]);
         expect(ctrl.value.mode, NoteMode.deleted);
         expect(ctrl.value.error, isNull);
       });
@@ -634,6 +640,223 @@ void main() {
         expect(calls.where((c) => c == 'DELETE /notes/01H').length, 1);
         expect(ctrl.value.mode, NoteMode.deleted);
       });
+    });
+
+    group('backlinks', () {
+      test('open() loads backlinks alongside the note', () async {
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          if (request.method == 'GET' &&
+              request.url.path == '/notes/01H/backlinks') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'items': <Object?>[
+                  {
+                    'id': '02H',
+                    'title': 'Referencing note',
+                    'snippet': 'links to [[hello]]',
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('unexpected ${request.url.path}', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+        addTearDown(ctrl.dispose);
+
+        await ctrl.open();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(ctrl.value.backlinks, hasLength(1));
+        expect(ctrl.value.backlinks.single.id, '02H');
+        expect(ctrl.value.backlinks.single.title, 'Referencing note');
+        expect(ctrl.value.backlinksLoading, isFalse);
+      });
+
+      test(
+        'a failed backlinks fetch leaves an empty list, not an error',
+        () async {
+          final mock = MockClient((request) async {
+            if (request.method == 'GET' && request.url.path == '/notes/01H') {
+              return http.Response(jsonEncode(_noteJson()), 200);
+            }
+            return http.Response('boom', 500);
+          });
+          final api = RobotNotesClient(config: _config, httpClient: mock);
+          final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+          addTearDown(ctrl.dispose);
+
+          await ctrl.open();
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+
+          expect(ctrl.value.backlinks, isEmpty);
+          expect(ctrl.value.backlinksLoading, isFalse);
+          expect(ctrl.value.error, isNull);
+        },
+      );
+    });
+
+    group('searchLinkTitles', () {
+      test('queries GET /search and returns matching titles', () async {
+        String? seenQuery;
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          if (request.method == 'GET' && request.url.path == '/search') {
+            seenQuery = request.url.queryParameters['q'];
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'items': <Object?>[
+                  {
+                    'id': '02H',
+                    'title': 'Project Alpha',
+                    'snippet': 's',
+                    'rank': 1.0,
+                    'updated_at': _now,
+                  },
+                  {
+                    'id': '03H',
+                    'title': 'Project Beta',
+                    'snippet': 's',
+                    'rank': 0.5,
+                    'updated_at': _now,
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          return http.Response('unexpected ${request.url.path}', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+        addTearDown(ctrl.dispose);
+
+        final titles = await ctrl.searchLinkTitles('Proj');
+
+        expect(seenQuery, 'Proj');
+        expect(titles, ['Project Alpha', 'Project Beta']);
+      });
+
+      test('an empty query returns no titles without a request', () async {
+        var searchCalls = 0;
+        final mock = MockClient((request) async {
+          if (request.url.path == '/search') searchCalls += 1;
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+        addTearDown(ctrl.dispose);
+
+        final titles = await ctrl.searchLinkTitles('   ');
+
+        expect(titles, isEmpty);
+        expect(searchCalls, 0);
+      });
+    });
+
+    group('move', () {
+      NoteController controller(MockClient mock) {
+        final ctrl = NoteController(
+          api: RobotNotesClient(config: _config, httpClient: mock),
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+        return ctrl;
+      }
+
+      test(
+        'sends PUT /notes/{id} with the chosen path and current If-Match',
+        () async {
+          Map<String, dynamic>? body;
+          String? ifMatch;
+          final mock = MockClient((request) async {
+            if (request.method == 'GET' && request.url.path == '/notes/01H') {
+              return http.Response(jsonEncode(_noteJson(version: 3)), 200);
+            }
+            if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+              ifMatch = request.headers['if-match'];
+              body = jsonDecode(request.body) as Map<String, dynamic>;
+              return http.Response(jsonEncode(_noteJson(version: 4)), 200);
+            }
+            return http.Response('unexpected ${request.url.path}', 500);
+          });
+          final ctrl = controller(mock);
+
+          await ctrl.open();
+          await ctrl.move('Projects/Alpha');
+
+          expect(ifMatch, '3');
+          expect(body?['path'], 'Projects/Alpha');
+          expect(ctrl.value.mode, NoteMode.viewing);
+          expect(ctrl.value.note?.version, 4);
+          expect(ctrl.value.error, isNull);
+        },
+      );
+
+      test('409 path_conflict sets a PathConflictException and leaves the '
+          'note open and unmoved', () async {
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson(version: 3)), 200);
+          }
+          if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+            return http.Response(
+              jsonEncode(<String, Object?>{'error': 'path_conflict'}),
+              409,
+            );
+          }
+          return http.Response('unexpected ${request.url.path}', 500);
+        });
+        final ctrl = controller(mock);
+
+        await ctrl.open();
+        await ctrl.move('Projects/Alpha');
+
+        expect(ctrl.value.mode, NoteMode.viewing);
+        expect(ctrl.value.note?.id, '01H');
+        expect(ctrl.value.note?.version, 3);
+        expect(ctrl.value.error, isA<PathConflictException>());
+      });
+
+      test(
+        '423 surfaces the lock holder consistent with existing lock UX',
+        () async {
+          final mock = MockClient((request) async {
+            if (request.method == 'GET' && request.url.path == '/notes/01H') {
+              return http.Response(jsonEncode(_noteJson(version: 3)), 200);
+            }
+            if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+              return http.Response(
+                jsonEncode(<String, Object?>{
+                  'error': 'locked',
+                  'lock': _lockJson(holder: 'alice'),
+                }),
+                423,
+              );
+            }
+            return http.Response('unexpected ${request.url.path}', 500);
+          });
+          final ctrl = controller(mock);
+
+          await ctrl.open();
+          await ctrl.move('Projects/Alpha');
+
+          expect(ctrl.value.mode, NoteMode.viewing);
+          expect(ctrl.value.lock?.holder, 'alice');
+          expect(ctrl.value.error, isA<LockedException>());
+        },
+      );
     });
   });
 }

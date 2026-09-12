@@ -95,6 +95,7 @@ class _FlakyStorage extends Storage {
     required String title,
     required String content,
     required int ifMatch,
+    String? path,
   }) async {
     if (_calls < failCount) {
       _calls++;
@@ -110,6 +111,7 @@ class _FlakyStorage extends Storage {
       title: title,
       content: content,
       ifMatch: ifMatch,
+      path: path,
     );
   }
 }
@@ -230,6 +232,57 @@ void main() {
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], kErrorValidationFailed);
     });
+
+    test('items include path', () async {
+      await deps.noteWriteService.create(
+        title: 'Nested',
+        content: '',
+        actor: 'x',
+        path: 'Projects/Alpha',
+      );
+
+      final result = await call('list_notes', {});
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.single['path'], 'Projects/Alpha');
+    });
+
+    test('path filter narrows results to a folder', () async {
+      await deps.noteWriteService.create(
+        title: 'In folder',
+        content: '',
+        actor: 'x',
+        path: 'Projects/Alpha',
+      );
+      await deps.noteWriteService.create(
+        title: 'At root',
+        content: '',
+        actor: 'x',
+      );
+
+      final result = await call('list_notes', {'path': 'Projects/Alpha'});
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.map((i) => i['title']), ['In folder']);
+    });
+
+    test('tag filter narrows results to notes carrying the tag', () async {
+      await deps.noteWriteService.create(
+        title: 'Tagged',
+        content: '#urgent',
+        actor: 'x',
+      );
+      await deps.noteWriteService.create(
+        title: 'Untagged',
+        content: '',
+        actor: 'x',
+      );
+
+      final result = await call('list_notes', {'tag': 'urgent'});
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.map((i) => i['title']), ['Tagged']);
+    });
   });
 
   group('get_note', () {
@@ -304,6 +357,63 @@ void main() {
         );
       },
     );
+
+    test('hits include path', () async {
+      await deps.noteWriteService.create(
+        title: 'Finance',
+        content: 'quarterly budget review',
+        actor: 'x',
+        path: 'Projects/Alpha',
+      );
+
+      final result = await call('search_notes', {'query': 'budget'});
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.single['path'], 'Projects/Alpha');
+    });
+
+    test('path filter narrows results to a folder', () async {
+      await deps.noteWriteService.create(
+        title: 'In folder',
+        content: 'budget plan',
+        actor: 'x',
+        path: 'Projects/Alpha',
+      );
+      await deps.noteWriteService.create(
+        title: 'At root',
+        content: 'budget plan',
+        actor: 'x',
+      );
+
+      final result = await call('search_notes', {
+        'query': 'budget',
+        'path': 'Projects/Alpha',
+      });
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.map((i) => i['title']), ['In folder']);
+    });
+
+    test('tag filter narrows results to notes carrying the tag', () async {
+      await deps.noteWriteService.create(
+        title: 'Tagged',
+        content: 'budget plan #finance',
+        actor: 'x',
+      );
+      await deps.noteWriteService.create(
+        title: 'Untagged',
+        content: 'budget plan',
+        actor: 'x',
+      );
+
+      final result = await call('search_notes', {
+        'query': 'budget',
+        'tag': 'finance',
+      });
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.map((i) => i['title']), ['Tagged']);
+    });
   });
 
   group('create_note', () {
@@ -317,12 +427,37 @@ void main() {
       expect(s['title'], 'Inbox');
       expect(s['content'], 'first line');
       expect(s['version'], 1);
+      expect(s['path'], '');
+    });
+
+    test('creates the note under the given path', () async {
+      final result = await call('create_note', {
+        'title': 'Nested',
+        'path': 'Projects/Alpha',
+      });
+      expect(_structured(result)['path'], 'Projects/Alpha');
     });
 
     test('rejects an empty title as validation_failed', () async {
       final result = await call('create_note', {'title': '   '});
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
+    });
+
+    test('a path collision is a path_conflict tool error', () async {
+      await deps.noteWriteService.create(
+        title: 'Notes',
+        content: '',
+        actor: 'x',
+        path: 'Projects/Alpha',
+      );
+
+      final result = await call('create_note', {
+        'title': 'Notes',
+        'path': 'Projects/Alpha',
+      });
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], kErrorPathConflict);
     });
 
     test('broadcasts a created event with the principal actor', () async {
@@ -450,6 +585,57 @@ void main() {
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
+
+    test('a path-only change moves the note and broadcasts moved', () async {
+      final note = await deps.noteWriteService.create(
+        title: 'Draft',
+        content: 'v1',
+        actor: 'x',
+      );
+      final received = <WsMessage>[];
+      deps.broadcaster
+        ..register('c1').listen(received.add)
+        ..subscribeWildcard('c1');
+
+      final result = await call('update_note', {
+        'id': note.id,
+        'version': note.version,
+        'path': 'Projects/Alpha',
+      });
+      final s = _structured(result);
+      expect(s['path'], 'Projects/Alpha');
+      expect(s['content'], 'v1');
+      expect(s['version'], 2);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, hasLength(1));
+      expect((received.single as ChangedEvent).action, ChangeAction.moved);
+    });
+
+    test(
+      'a colliding target path is a path_conflict tool error',
+      () async {
+        await deps.noteWriteService.create(
+          title: 'Existing',
+          content: '',
+          actor: 'x',
+          path: 'Projects/Alpha',
+        );
+        final note = await deps.noteWriteService.create(
+          title: 'Existing',
+          content: '',
+          actor: 'x',
+        );
+
+        final result = await call('update_note', {
+          'id': note.id,
+          'version': note.version,
+          'path': 'Projects/Alpha',
+        });
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], kErrorPathConflict);
+      },
+    );
 
     test(
       'rejects a path-traversal id as not_found without writing the file',
@@ -769,6 +955,193 @@ void main() {
     );
   });
 
+  group('move_note', () {
+    test('relocates the note and returns the full record', () async {
+      final note = await deps.noteWriteService.create(
+        title: 'Draft',
+        content: 'body',
+        actor: 'x',
+      );
+
+      final result = await call('move_note', {
+        'id': note.id,
+        'version': note.version,
+        'path': 'Projects/Alpha',
+      });
+      final s = _structured(result);
+      expect(s['path'], 'Projects/Alpha');
+      expect(s['title'], 'Draft');
+      expect(s['content'], 'body');
+      expect(s['version'], 2);
+    });
+
+    test('broadcasts a moved event', () async {
+      final note = await deps.noteWriteService.create(
+        title: 'Draft',
+        content: '',
+        actor: 'x',
+      );
+      final received = <WsMessage>[];
+      deps.broadcaster
+        ..register('c1').listen(received.add)
+        ..subscribeWildcard('c1');
+
+      await call('move_note', {
+        'id': note.id,
+        'version': note.version,
+        'path': 'Projects/Alpha',
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, hasLength(1));
+      final event = received.single as ChangedEvent;
+      expect(event.action, ChangeAction.moved);
+      expect(event.by, fullAccess.actor);
+    });
+
+    test('returns version_conflict with current state on stale version',
+        () async {
+      final note = await deps.noteWriteService.create(
+        title: 'Draft',
+        content: 'body',
+        actor: 'x',
+      );
+      await deps.noteWriteService.update(
+        id: note.id,
+        title: 'Draft',
+        content: 'edited',
+        ifMatch: note.version,
+        actor: 'x',
+      );
+
+      final result = await call('move_note', {
+        'id': note.id,
+        'version': note.version,
+        'path': 'Projects/Alpha',
+      });
+      expect(result['isError'], isTrue);
+      final s = _structured(result);
+      expect(s['error'], ErrorCode.versionConflict.wire);
+      expect(s['current_version'], 2);
+    });
+
+    test('a colliding target path is a path_conflict tool error', () async {
+      await deps.noteWriteService.create(
+        title: 'Existing',
+        content: '',
+        actor: 'x',
+        path: 'Projects/Alpha',
+      );
+      final note = await deps.noteWriteService.create(
+        title: 'Existing',
+        content: '',
+        actor: 'x',
+      );
+
+      final result = await call('move_note', {
+        'id': note.id,
+        'version': note.version,
+        'path': 'Projects/Alpha',
+      });
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], kErrorPathConflict);
+    });
+
+    test(
+      'returns locked with holder when another actor holds the lock',
+      () async {
+        final note = await deps.noteWriteService.create(
+          title: 'Draft',
+          content: '',
+          actor: 'x',
+        );
+        await deps.lockManager.acquire(noteId: note.id, actor: 'alice');
+
+        final result = await call(
+          'move_note',
+          {
+            'id': note.id,
+            'version': note.version,
+            'path': 'Projects/Alpha',
+          },
+          bob,
+        );
+        expect(result['isError'], isTrue);
+        final s = _structured(result);
+        expect(s['error'], ErrorCode.locked.wire);
+        expect(s['holder'], 'alice');
+      },
+    );
+
+    test(
+      'rejects a path-traversal id as not_found without writing the file',
+      () async {
+        final canary = _plantCanary(tmp);
+
+        final result = await call('move_note', {
+          'id': '../x',
+          'version': 1,
+          'path': 'elsewhere',
+        });
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+        expect(canary.readAsStringSync(), _canaryNoteFile);
+      },
+    );
+  });
+
+  group('get_backlinks', () {
+    test('lists every note whose content links to the given note', () async {
+      final a = await deps.noteWriteService.create(
+        title: 'Alpha',
+        content: '',
+        actor: 'x',
+      );
+      final b = await deps.noteWriteService.create(
+        title: 'Beta',
+        content: 'refers to [[Alpha]]',
+        actor: 'x',
+      );
+
+      final result = await call('get_backlinks', {'id': a.id});
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.single['id'], b.id);
+      expect(items.single['title'], 'Beta');
+      expect((items.single['snippet']! as String).contains('Alpha'), isTrue);
+    });
+
+    test('a note with no backlinks returns an empty items list', () async {
+      final a = await deps.noteWriteService.create(
+        title: 'Lonely',
+        content: '',
+        actor: 'x',
+      );
+
+      final result = await call('get_backlinks', {'id': a.id});
+      expect(_structured(result)['items'], isEmpty);
+    });
+
+    test('returns not_found for an unknown id', () async {
+      final result = await call('get_backlinks', {'id': 'missing'});
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], ErrorCode.notFound.wire);
+    });
+
+    test(
+      'rejects a path-traversal id as not_found without reading the file',
+      () async {
+        _plantCanary(tmp);
+
+        final result = await call('get_backlinks', {'id': '../x'});
+
+        expect(result['isError'], isTrue);
+        expect(_structured(result)['error'], ErrorCode.notFound.wire);
+      },
+    );
+  });
+
   group('scope gating', () {
     test('a read-only principal cannot call a write tool', () async {
       final result = await call('create_note', {'title': 'nope'}, readOnly);
@@ -792,7 +1165,7 @@ void main() {
   });
 
   group('tools/list catalog', () {
-    test('has exactly the seven note tools with object schemas', () {
+    test('has exactly the nine note tools with object schemas', () {
       final names = registry.tools.map((t) => t.name).toSet();
       expect(names, {
         'list_notes',
@@ -802,6 +1175,8 @@ void main() {
         'append_to_note',
         'delete_note',
         'search_notes',
+        'move_note',
+        'get_backlinks',
       });
       for (final tool in registry.tools) {
         expect(tool.inputSchema['type'], 'object');
@@ -811,6 +1186,29 @@ void main() {
     test('update_note declares id and version as required', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'update_note');
       expect(tool.inputSchema['required'], ['id', 'version']);
+    });
+
+    test('move_note declares id, version, and path as required', () {
+      final tool = registry.tools.firstWhere((t) => t.name == 'move_note');
+      expect(tool.inputSchema['required'], ['id', 'version', 'path']);
+    });
+
+    test('get_backlinks declares id as required', () {
+      final tool = registry.tools.firstWhere((t) => t.name == 'get_backlinks');
+      expect(tool.inputSchema['required'], ['id']);
+    });
+
+    test('list_notes/create_note/search_notes declare path and tag params', () {
+      for (final name in ['list_notes', 'search_notes']) {
+        final tool = registry.tools.firstWhere((t) => t.name == name);
+        final props = tool.inputSchema['properties']! as Map<String, Object?>;
+        expect(props.containsKey('path'), isTrue, reason: name);
+        expect(props.containsKey('tag'), isTrue, reason: name);
+      }
+      final createProps = registry.tools
+          .firstWhere((t) => t.name == 'create_note')
+          .inputSchema['properties']! as Map<String, Object?>;
+      expect(createProps.containsKey('path'), isTrue);
     });
 
     test('unknown tool name throws McpUnknownToolException', () async {

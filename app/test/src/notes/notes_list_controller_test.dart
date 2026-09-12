@@ -381,6 +381,136 @@ void main() {
       expect(ctrl.value.items.map((n) => n.id), <String>['02H', '01H']);
     });
 
+    test('selectFolder scopes subsequent requests to that path', () async {
+      final paths = <String?>[];
+      final mock = MockClient((request) async {
+        paths.add(request.url.queryParameters['path']);
+        return _page(<Object?>[]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.refresh();
+      await ctrl.selectFolder('Projects/Alpha');
+
+      expect(paths, <String?>[null, 'Projects/Alpha']);
+      expect(ctrl.value.selectedPath, 'Projects/Alpha');
+    });
+
+    test('selectFolder(null) clears the folder scope', () async {
+      final paths = <String?>[];
+      final mock = MockClient((request) async {
+        paths.add(request.url.queryParameters['path']);
+        return _page(<Object?>[]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.selectFolder('Projects/Alpha');
+      await ctrl.selectFolder(null);
+
+      expect(paths, <String?>['Projects/Alpha', null]);
+      expect(ctrl.value.selectedPath, isNull);
+    });
+
+    test('selectTag scopes subsequent requests to that tag', () async {
+      final tags = <String?>[];
+      final mock = MockClient((request) async {
+        tags.add(request.url.queryParameters['tag']);
+        return _page(<Object?>[]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.selectTag('urgent');
+
+      expect(tags, <String?>['urgent']);
+      expect(ctrl.value.selectedTag, 'urgent');
+    });
+
+    test('changed{moved} while scoped to a folder re-fetches the list instead '
+        'of upserting the moved note directly', () async {
+      var listCalls = 0;
+      var noteGets = 0;
+      final mock = MockClient((request) async {
+        if (request.url.path == '/notes' && request.method == 'GET') {
+          listCalls += 1;
+          return _page(<Object?>[_metaJson(id: '01H')]);
+        }
+        if (request.url.path == '/notes/01H' && request.method == 'GET') {
+          noteGets += 1;
+          return http.Response(jsonEncode(_noteJson(id: '01H')), 200);
+        }
+        return http.Response('unexpected: ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final events = StreamController<RealtimeEvent>.broadcast();
+      addTearDown(events.close);
+      final ctrl = NotesListController(api: api, events: events.stream);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.selectFolder('Projects/Alpha');
+      expect(listCalls, 1);
+
+      events.add(
+        const RealtimeMessage(
+          ChangedEvent(
+            noteId: '01H',
+            version: 2,
+            by: 'alice',
+            action: ChangeAction.moved,
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(listCalls, 2, reason: 'a scoped list re-fetches on a moved event');
+      expect(noteGets, 0);
+    });
+
+    test(
+      'changed{moved} while unscoped upserts the note like an update',
+      () async {
+        final mock = MockClient((request) async {
+          if (request.url.path == '/notes' && request.method == 'GET') {
+            return _page(<Object?>[_metaJson(id: '01H', title: 'old')]);
+          }
+          if (request.url.path == '/notes/01H' && request.method == 'GET') {
+            return http.Response(
+              jsonEncode(_noteJson(id: '01H', title: 'moved', version: 2)),
+              200,
+            );
+          }
+          return http.Response('unexpected: ${request.url.path}', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final events = StreamController<RealtimeEvent>.broadcast();
+        addTearDown(events.close);
+        final ctrl = NotesListController(api: api, events: events.stream);
+        addTearDown(ctrl.dispose);
+
+        await ctrl.refresh();
+        events.add(
+          const RealtimeMessage(
+            ChangedEvent(
+              noteId: '01H',
+              version: 2,
+              by: 'alice',
+              action: ChangeAction.moved,
+            ),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(ctrl.value.items.single.title, 'moved');
+      },
+    );
+
     test('changed{deleted} removes the entry', () async {
       final mock = MockClient((request) async {
         if (request.url.path == '/notes' && request.method == 'GET') {

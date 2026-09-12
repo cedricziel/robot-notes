@@ -5,6 +5,8 @@ import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/invite_store.dart';
+import 'package:server/src/legacy_migration.dart';
+import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
@@ -31,7 +33,64 @@ class AppDeps {
   /// Constructs a deps bundle wrapping the supplied collaborators directly.
   /// Tests use this to inject fakes; production callers should prefer
   /// [AppDeps.bootstrap].
-  AppDeps({
+  ///
+  /// A factory rather than a plain generative constructor: when [linkIndex]
+  /// and/or [noteWriteService] are omitted, the default [LinkIndex] must be
+  /// resolved exactly once and shared between [AppDeps.linkIndex] and the
+  /// default [NoteWriteService]'s own copy — an initializer list can't
+  /// express that without either referencing `this` (disallowed) or
+  /// constructing two independent, silently-diverging `LinkIndex`es.
+  factory AppDeps({
+    required Storage storage,
+    required MetaIndex metaIndex,
+    required SearchIndex searchIndex,
+    required InviteStore inviteStore,
+    required ClientStore clientStore,
+    required CodeStore codeStore,
+    required TokenStore tokenStore,
+    required ConsentThrottle consentThrottle,
+    required LockManager lockManager,
+    required Broadcaster broadcaster,
+    required PresenceTracker presence,
+    required Clock clock,
+    LinkIndex? linkIndex,
+    NoteWriteService? noteWriteService,
+    OidcDiscoveryDocument? oidcDiscovery,
+    JwksCache? oidcJwks,
+    PendingLoginStore? pendingLoginStore,
+  }) {
+    final resolvedLinkIndex = linkIndex ?? LinkIndex();
+    final resolvedWriteService = noteWriteService ??
+        NoteWriteService(
+          storage: storage,
+          metaIndex: metaIndex,
+          searchIndex: searchIndex,
+          broadcaster: broadcaster,
+          linkIndex: resolvedLinkIndex,
+          lockManager: lockManager,
+        );
+    return AppDeps._(
+      storage: storage,
+      metaIndex: metaIndex,
+      searchIndex: searchIndex,
+      inviteStore: inviteStore,
+      clientStore: clientStore,
+      codeStore: codeStore,
+      tokenStore: tokenStore,
+      consentThrottle: consentThrottle,
+      lockManager: lockManager,
+      broadcaster: broadcaster,
+      presence: presence,
+      clock: clock,
+      linkIndex: resolvedLinkIndex,
+      noteWriteService: resolvedWriteService,
+      oidcDiscovery: oidcDiscovery,
+      oidcJwks: oidcJwks,
+      pendingLoginStore: pendingLoginStore,
+    );
+  }
+
+  AppDeps._({
     required this.storage,
     required this.metaIndex,
     required this.searchIndex,
@@ -44,18 +103,12 @@ class AppDeps {
     required this.broadcaster,
     required this.presence,
     required this.clock,
+    required this.linkIndex,
+    required this.noteWriteService,
     this.oidcDiscovery,
     this.oidcJwks,
     PendingLoginStore? pendingLoginStore,
-    NoteWriteService? noteWriteService,
-  })  : pendingLoginStore = pendingLoginStore ?? PendingLoginStore(),
-        noteWriteService = noteWriteService ??
-            NoteWriteService(
-              storage: storage,
-              metaIndex: metaIndex,
-              searchIndex: searchIndex,
-              broadcaster: broadcaster,
-            ) {
+  }) : pendingLoginStore = pendingLoginStore ?? PendingLoginStore() {
     _lockSub = lockManager.transitions.listen(broadcaster.emitLock);
   }
 
@@ -80,10 +133,23 @@ class AppDeps {
   }) async {
     final log = logger ?? Logger('app_deps');
     final contentDir = Directory('${config.dataDir}/content');
+    final migrated = await migrateLegacyLayout(
+      contentDir: contentDir,
+      logger: Logger('legacy_migration'),
+    );
+    if (migrated > 0) {
+      log.info('Migrated $migrated legacy note file(s) to vault layout');
+    }
     final storage = Storage(contentDir: contentDir, clock: clock);
     final metaIndex = MetaIndex();
     final loaded = await metaIndex.scan(storage);
     log.info('Bootstrapped MetaIndex with $loaded note(s)');
+    final linkIndex = LinkIndex();
+    final linksLoaded = await linkIndex.scan(
+      metaIndex: metaIndex,
+      storage: storage,
+    );
+    log.info('Bootstrapped LinkIndex with $linksLoaded note(s)');
     final lockManager = LockManager(
       clock: clock,
       ttl: Duration(seconds: config.lockTtlSeconds),
@@ -146,6 +212,7 @@ class AppDeps {
       broadcaster: Broadcaster(),
       presence: PresenceTracker(),
       clock: clock,
+      linkIndex: linkIndex,
       oidcDiscovery: oidcDiscovery,
       oidcJwks: oidcJwks,
       pendingLoginStore: PendingLoginStore(clock: clock),
@@ -157,6 +224,10 @@ class AppDeps {
 
   /// In-memory listing index, derived from [storage].
   final MetaIndex metaIndex;
+
+  /// Outgoing-link index, derived from [storage]. Backs rename propagation
+  /// and the backlinks/links endpoints.
+  final LinkIndex linkIndex;
 
   /// FTS5-backed full-text search index, derived from [storage].
   final SearchIndex searchIndex;

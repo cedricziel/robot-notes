@@ -179,6 +179,89 @@ void main() {
     });
   });
 
+  group('NoteWriteService.update path changes', () {
+    test('a path change broadcasts action: moved, not updated', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final bc = _CapturingBroadcaster();
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: bc,
+      );
+
+      final note = await svc.create(
+        title: 'Inbox',
+        content: 'todo',
+        actor: 'a',
+      );
+
+      final moved = await svc.update(
+        id: note.id,
+        title: 'Inbox',
+        content: 'todo',
+        ifMatch: 1,
+        actor: 'b',
+        path: 'Projects/Alpha',
+      );
+
+      expect(moved.path, 'Projects/Alpha');
+      expect(bc.changed.last.action, ChangeAction.moved);
+      expect(bc.changed.last.version, 2);
+      expect(bc.changed.last.by, 'b');
+      expect(s.meta.page().items.single.path, 'Projects/Alpha');
+    });
+
+    test('a title-only change (no path) still broadcasts updated', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final bc = _CapturingBroadcaster();
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: bc,
+      );
+
+      final note = await svc.create(
+        title: 'Draft',
+        content: 'c',
+        actor: 'a',
+      );
+      await svc.update(
+        id: note.id,
+        title: 'Final',
+        content: 'c',
+        ifMatch: 1,
+        actor: 'a',
+      );
+
+      expect(bc.changed.last.action, ChangeAction.updated);
+    });
+
+    test('creating under a path stores it on the note', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+      );
+
+      final note = await svc.create(
+        title: 'Nested',
+        content: 'c',
+        actor: 'a',
+        path: 'Projects/Alpha',
+      );
+
+      expect(note.path, 'Projects/Alpha');
+      expect(s.meta.page().items.single.path, 'Projects/Alpha');
+    });
+  });
+
   group('NoteWriteService.delete', () {
     test('removes from all three indices and emits deleted event', () async {
       final s = await _stack(tmp);

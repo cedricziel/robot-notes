@@ -360,6 +360,142 @@ void main() {
       expect(captured!.queryParameters.containsKey('sort'), isFalse);
     });
 
+    test('path and tag are forwarded as query params when given', () async {
+      Uri? captured;
+      final mock = MockClient((request) async {
+        captured = request.url;
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[],
+            'limit': 50,
+            'next_cursor': null,
+          }),
+          200,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      await client.listNotes(path: 'Projects/Alpha', tag: 'urgent');
+
+      expect(captured, isNotNull);
+      expect(captured!.queryParameters['path'], 'Projects/Alpha');
+      expect(captured!.queryParameters['tag'], 'urgent');
+    });
+
+    test('path and tag are omitted when not given', () async {
+      Uri? captured;
+      final mock = MockClient((request) async {
+        captured = request.url;
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[],
+            'limit': 50,
+            'next_cursor': null,
+          }),
+          200,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      await client.listNotes();
+
+      expect(captured!.queryParameters.containsKey('path'), isFalse);
+      expect(captured!.queryParameters.containsKey('tag'), isFalse);
+    });
+
+    test('getTree parses folders with note counts', () async {
+      final mock = MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path, '/notes/tree');
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'folders': <Object?>[
+              <String, Object?>{'path': '', 'note_count': 2},
+              <String, Object?>{'path': 'Projects/Alpha', 'note_count': 3},
+            ],
+          }),
+          200,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      final tree = await client.getTree();
+
+      expect(tree.folders, hasLength(2));
+      expect(tree.folders[0].path, '');
+      expect(tree.folders[0].noteCount, 2);
+      expect(tree.folders[1].path, 'Projects/Alpha');
+      expect(tree.folders[1].noteCount, 3);
+    });
+
+    test('updateNote sends path when moving a note', () async {
+      Map<String, dynamic>? body;
+      final mock = MockClient((request) async {
+        body = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(jsonEncode(_noteJson(version: 2)), 200);
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      await client.updateNote(
+        id: '01H',
+        title: 'hi',
+        content: 'body',
+        ifMatch: 1,
+        path: 'Projects/Alpha',
+      );
+
+      expect(body?['path'], 'Projects/Alpha');
+    });
+
+    test('409 path_conflict surfaces a typed PathConflictException', () async {
+      final mock = MockClient((request) async {
+        return http.Response(
+          jsonEncode(<String, Object?>{'error': 'path_conflict'}),
+          409,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+
+      await expectLater(
+        client.updateNote(
+          id: '01H',
+          title: 'hi',
+          content: 'body',
+          ifMatch: 1,
+          path: 'Projects/Alpha',
+        ),
+        throwsA(isA<PathConflictException>()),
+      );
+    });
+
+    test('getBacklinks parses referencing notes with snippets', () async {
+      final mock = MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path, '/notes/01H/backlinks');
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[
+              <String, Object?>{
+                'id': '02H',
+                'title': 'Referencing note',
+                'snippet': 'links to [[Hello]] here',
+              },
+            ],
+          }),
+          200,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      final backlinks = await client.getBacklinks('01H');
+
+      expect(backlinks, hasLength(1));
+      expect(backlinks.single.id, '02H');
+      expect(backlinks.single.title, 'Referencing note');
+      expect(backlinks.single.snippet, 'links to [[Hello]] here');
+    });
+
     test('400 surfaces BadRequest with server-supplied message', () async {
       final mock = MockClient((request) async {
         return http.Response(

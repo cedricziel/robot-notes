@@ -328,6 +328,126 @@ void main() {
       final body = await res.json() as Map<String, dynamic>;
       expect(body['error'], 'bad_request');
     });
+
+    test('path filter returns only notes under that folder', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: '', path: 'Projects/Alpha');
+      await storage.create(title: 'B', content: '', path: 'Projects/Beta');
+      await storage.create(title: 'C', content: '');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?path=Projects/Alpha'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = body['items'] as List;
+      expect(items, hasLength(1));
+      expect((items.single as Map)['title'], 'A');
+      expect((items.single as Map)['path'], 'Projects/Alpha');
+    });
+
+    test('path filter composes with sort=updated_desc', () async {
+      final contentDir = Directory('${tmp.path}/content');
+      final early = Storage(
+        contentDir: contentDir,
+        clock: FixedClock.fixed(DateTime.utc(2026)),
+        idGenerator: () => '01ARZ3NDEKTSV4RRFFQ69G5FA1',
+      );
+      final late = Storage(
+        contentDir: contentDir,
+        clock: FixedClock.fixed(DateTime.utc(2026, 1, 2)),
+        idGenerator: () => '01ARZ3NDEKTSV4RRFFQ69G5FB1',
+      );
+      final root = Storage(
+        contentDir: contentDir,
+        clock: FixedClock.fixed(DateTime.utc(2026, 1, 3)),
+        idGenerator: () => '01ARZ3NDEKTSV4RRFFQ69G5FC1',
+      );
+      await early.create(title: 'old-in-folder', content: '', path: 'Folder');
+      final newInFolder = await late.create(
+        title: 'new-in-folder',
+        content: '',
+        path: 'Folder',
+      );
+      // A more-recently-updated note outside the folder must not appear.
+      await root.create(title: 'newest-at-root', content: '');
+
+      final storage = Storage(contentDir: contentDir);
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?path=Folder&sort=updated_desc'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final ids = (body['items'] as List)
+          .map((e) => (e as Map<String, dynamic>)['id'])
+          .toList();
+      expect(ids.first, newInFolder.id);
+      expect(ids, hasLength(2));
+    });
+
+    test('tag filter returns only notes carrying that tag', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: '#urgent');
+      await storage.create(title: 'B', content: '#urgent');
+      await storage.create(title: 'C', content: 'no tags here');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?tag=urgent'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items, hasLength(2));
+      expect(items.map((e) => e['title']), containsAll(['A', 'B']));
+    });
+
+    test('tag filter composes with path filter', () async {
+      final storage = _storage(tmp);
+      await storage.create(
+        title: 'A',
+        content: '#urgent',
+        path: 'Projects/Alpha',
+      );
+      await storage.create(title: 'B', content: '#urgent');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?tag=urgent&path=Projects/Alpha'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items, hasLength(1));
+      expect(items.single['title'], 'A');
+    });
   });
 
   group('POST /notes', () {
@@ -435,6 +555,51 @@ void main() {
         ),
       );
       expect(res.statusCode, HttpStatus.badRequest);
+    });
+
+    test('creates the note under the given path', () async {
+      final storage = _storage(tmp);
+      final index = MetaIndex();
+      final writes = await _writeService(tmp, storage, index);
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          storage: storage,
+          metaIndex: index,
+          writes: writes,
+          body: {'title': 'Meeting', 'path': 'Projects/Alpha'},
+        ),
+      );
+      expect(res.statusCode, HttpStatus.created);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['path'], 'Projects/Alpha');
+    });
+
+    test('colliding title returns 409 path_conflict', () async {
+      final storage = _storage(tmp);
+      final index = MetaIndex();
+      final writes = await _writeService(tmp, storage, index);
+      await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          storage: storage,
+          metaIndex: index,
+          writes: writes,
+          body: {'title': 'Ideas'},
+        ),
+      );
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          storage: storage,
+          metaIndex: index,
+          writes: writes,
+          body: {'title': 'Ideas'},
+        ),
+      );
+      expect(res.statusCode, HttpStatus.conflict);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['error'], 'path_conflict');
     });
   });
 
