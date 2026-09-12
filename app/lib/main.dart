@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -34,8 +36,27 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
   late final ConfigHolder _configHolder = ConfigHolder(_store);
   late final GoRouter _router = buildAppRouter(configHolder: _configHolder);
 
+  // Tracks which server's OTel config is currently loaded so a ConfigHolder
+  // notification that doesn't change the base URL (unrelated field edits;
+  // duplicate loads) doesn't trigger a redundant fetch.
+  String? _otelSyncedBaseUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _configHolder.addListener(_syncOtel);
+  }
+
+  void _syncOtel() {
+    final baseUrl = _configHolder.config?.baseUrl;
+    if (baseUrl == _otelSyncedBaseUrl) return;
+    _otelSyncedBaseUrl = baseUrl;
+    unawaited(syncOtelWithConfig(_configHolder.config));
+  }
+
   @override
   void dispose() {
+    _configHolder.removeListener(_syncOtel);
     _configHolder.dispose();
     _router.dispose();
     super.dispose();
