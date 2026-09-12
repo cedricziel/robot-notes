@@ -72,6 +72,9 @@ untouched.
   `app/lib/src/config/config_store.dart`.
 - New server dependency: `package:pointycastle`, used only for the ID
   token's RS256/ES256 signature verification — see design.md decision 3.
+- New app dependencies: `url_launcher` (opens the system browser for
+  desktop sign-in) and `crypto` (client-side PKCE `S256` challenge) — see
+  design.md decision 4.
 - Docker image / README / deployment docs gain the three new optional env
   vars.
 

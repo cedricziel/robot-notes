@@ -183,6 +183,7 @@ Response _tokenResponse(IssuedTokens issued) {
       'expires_in': issued.expiresIn,
       if (issued.refreshToken != null) 'refresh_token': issued.refreshToken,
       'scope': (issued.scopes.toList()..sort()).join(' '),
+      'actor': issued.actor,
     },
   );
 }
