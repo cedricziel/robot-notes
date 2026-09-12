@@ -103,6 +103,11 @@ Future<NoteController> _pumpEditor(
     noteId: '01H',
     actor: 'cedric',
     scheduler: (_) => Completer<void>().future,
+    // Autosave firing is exercised at the controller level
+    // (note_controller_test.dart); leaving it un-gated here would leave a
+    // stray real 2-second timer running behind every widget test that
+    // types into the editor.
+    autosaveScheduler: (_) => Completer<void>().future,
   );
   addTearDown(ctrl.dispose);
 
@@ -520,6 +525,7 @@ void main() {
         noteId: '01H',
         actor: 'cedric',
         scheduler: (_) => Completer<void>().future,
+        autosaveScheduler: (_) => Completer<void>().future,
       );
       addTearDown(ctrl.dispose);
       return ctrl;
@@ -881,16 +887,105 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
     });
 
-    testWidgets('editing shows an info banner naming the lock expiry', (
-      tester,
-    ) async {
-      await _pumpEditor(tester);
+    group('editing status', () {
+      testWidgets('shows "Unsaved changes" right after an edit', (
+        tester,
+      ) async {
+        await _pumpEditor(tester);
 
-      final expiry = formatLockExpiry(
-        DateTime.parse('2025-01-01T00:01:00.000Z'),
-      );
-      expect(find.byKey(const Key('note.banner.ownLock')), findsOneWidget);
-      expect(find.text('You are editing (lock until $expiry)'), findsOneWidget);
+        await tester.enterText(find.byKey(_contentField), 'edited');
+        await tester.pump();
+
+        expect(find.byKey(const Key('note.editingStatus')), findsOneWidget);
+        expect(find.text('Unsaved changes'), findsOneWidget);
+      });
+
+      testWidgets('shows "Saving…" while a save is in flight', (tester) async {
+        final saveGate = Completer<http.Response>();
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+            return saveGate.future;
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+          autosaveScheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: NoteScreen(
+              controller: ctrl,
+              linkAutocompleteScheduler: (_) async {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('note.edit')));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(find.byKey(_contentField), 'edited');
+        await tester.tap(find.byKey(const Key('note.save')));
+        await tester.pump();
+
+        expect(find.text('Saving…'), findsOneWidget);
+
+        // Let the pending request settle so the test doesn't leak it.
+        saveGate.complete(
+          http.Response(jsonEncode(_noteJson(content: 'edited')), 200),
+        );
+        await tester.pumpAndSettle();
+      });
+
+      testWidgets('shows "Autosaved" with the last-saved time after a save', (
+        tester,
+      ) async {
+        await _pumpEditor(
+          tester,
+          onSave: (request) {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(
+              jsonEncode(
+                _noteJson(version: 2, content: body['content'] as String),
+              ),
+              200,
+            );
+          },
+        );
+
+        await tester.enterText(find.byKey(_contentField), 'edited');
+        await tester.tap(find.byKey(const Key('note.save')));
+        await tester.pumpAndSettle();
+
+        final saved = formatLockExpiry(
+          DateTime.parse('2025-01-01T00:00:00.000Z'),
+        );
+        expect(find.text('Autosaved $saved'), findsOneWidget);
+      });
+
+      testWidgets('shows an avatar for who is editing', (tester) async {
+        await _pumpEditor(tester);
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('note.editingStatus')),
+            matching: find.byType(CircleAvatar),
+          ),
+          findsOneWidget,
+        );
+      });
     });
 
     testWidgets('a failed load replaces the spinner with the server message', (

@@ -15,9 +15,9 @@
 
 ## 3. Editor: editing-status indicator replaces the lock banner
 
-- [ ] 3.1 Write failing widget tests in `app/test/src/notes/note_screen_test.dart` for a new `note.editingStatus` widget: shows "Saving…" while `mode == NoteMode.saving`; shows "Unsaved changes" while dirty and not saving; shows "Autosaved" plus a local-time-formatted `note.updatedAt` when not dirty; shows an avatar reflecting `lock!.holder`'s initial. Also assert the old `note.banner.ownLock` text/key ("You are editing (lock until...)") no longer appears.
-- [ ] 3.2 Implement `_EditingStatus` in `note_screen.dart` and swap it in for the `note.banner.ownLock` banner in `_buildBody`'s banner list (still only shown for `mode == NoteMode.editing && lock != null`, matching where the old banner appeared).
-- [ ] 3.3 Confirm 3.1 passes; check the existing lock/banner tests (`presence indicator`, `lock event from another holder`, `feedback editing shows an info banner naming the lock expiry`) — update or remove ones that assumed the old banner text, leaving the `lockedByOtherBanner`/other-viewer banner tests untouched.
+- [x] 3.1 Write failing widget tests in `app/test/src/notes/note_screen_test.dart` for a new `note.editingStatus` widget: shows "Saving…" while `mode == NoteMode.saving`; shows "Unsaved changes" while dirty and not saving; shows "Autosaved" plus a local-time-formatted `note.updatedAt` when not dirty; shows an avatar reflecting `lock!.holder`'s initial. Also assert the old `note.banner.ownLock` text/key ("You are editing (lock until...)") no longer appears.
+- [x] 3.2 Implement `_EditingStatus` in `note_screen.dart` and swap it in for the `note.banner.ownLock` banner in `_buildBody`'s banner list (still only shown for `mode == NoteMode.editing && lock != null`, matching where the old banner appeared).
+- [x] 3.3 Confirm 3.1 passes; check the existing lock/banner tests (`presence indicator`, `lock event from another holder`, `feedback editing shows an info banner naming the lock expiry`) — update or remove ones that assumed the old banner text, leaving the `lockedByOtherBanner`/other-viewer banner tests untouched.
 
 ## 4. Editor: flush-on-close replaces the discard prompt
 

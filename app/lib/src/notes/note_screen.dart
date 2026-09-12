@@ -445,15 +445,11 @@ class _NoteScreenState extends State<NoteScreen> {
           tone: _BannerTone.info,
         ),
       );
-    } else if (state.mode == NoteMode.editing && state.lock != null) {
+    } else if ((state.mode == NoteMode.editing ||
+            state.mode == NoteMode.saving) &&
+        state.lock != null) {
       banners.add(
-        _Banner(
-          key: const Key('note.banner.ownLock'),
-          text:
-              'You are editing (lock until '
-              '${formatLockExpiry(state.lock!.expiresAt)})',
-          tone: _BannerTone.info,
-        ),
+        _EditingStatus(key: const Key('note.editingStatus'), state: state),
       );
     }
 
@@ -1159,6 +1155,49 @@ class _Banner extends StatelessWidget {
       color: bg,
       padding: const EdgeInsets.all(12),
       child: Text(text, style: TextStyle(color: fg)),
+    );
+  }
+}
+
+/// Who's editing and whether their latest change is saved, at a glance —
+/// replaces the old plain lock-countdown banner now that saving is
+/// automatic. The avatar's initial is [NoteState.lock]'s holder, which is
+/// always the current actor's own name while editing (the lock is theirs).
+class _EditingStatus extends StatelessWidget {
+  const _EditingStatus({required this.state, super.key});
+
+  final NoteState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final holder = state.lock!.holder;
+    final String text;
+    if (state.mode == NoteMode.saving) {
+      text = 'Saving…';
+    } else if (state.isDirty) {
+      text = 'Unsaved changes';
+    } else {
+      text = 'Autosaved ${formatLockExpiry(state.note!.updatedAt)}';
+    }
+    return Container(
+      width: double.infinity,
+      color: scheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 12,
+            child: Text(
+              holder.isEmpty ? '?' : holder[0].toUpperCase(),
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(text, style: TextStyle(color: scheme.onSurface)),
+        ],
+      ),
     );
   }
 }
