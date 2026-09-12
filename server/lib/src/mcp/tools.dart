@@ -413,6 +413,12 @@ McpTool _updateNoteTool(
             message: 'title or content is required',
           );
         }
+        if (titleArg != null && titleArg.trim().isEmpty) {
+          return toolFail(
+            kErrorValidationFailed,
+            message: 'title must not be blank',
+          );
+        }
 
         final conflict = _lockConflict(lockManager, id, principal.actor);
         if (conflict != null) return conflict;

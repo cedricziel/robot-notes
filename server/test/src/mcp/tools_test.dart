@@ -280,6 +280,22 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
+    test('rejects a blank supplied title as validation_failed', () async {
+      final note = await deps.noteWriteService.create(
+        title: 'Draft',
+        content: 'v1',
+        actor: 'x',
+      );
+
+      final result = await call('update_note', {
+        'id': note.id,
+        'version': note.version,
+        'title': '   ',
+      });
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'validation_failed');
+    });
+
     test(
       'rejects a path-traversal id as not_found without writing the file',
       () async {
