@@ -125,9 +125,7 @@ class _Splash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 
@@ -172,11 +170,7 @@ class _SetupRouteState extends State<_SetupRoute> {
 /// [RobotNotesWsClient] for the session, plus the cross-screen
 /// [NotesListController] so the list survives navigation pushes.
 class _AppShell extends StatefulWidget {
-  const _AppShell({
-    required this.config,
-    required this.onReset,
-    super.key,
-  });
+  const _AppShell({required this.config, required this.onReset, super.key});
 
   final AppConfig config;
   final VoidCallback onReset;
@@ -227,9 +221,7 @@ class _AppShellState extends State<_AppShell> {
 
   Future<void> _openSearch() async {
     final id = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (_) => _SearchRoute(api: _api),
-      ),
+      MaterialPageRoute<String>(builder: (_) => _SearchRoute(api: _api)),
     );
     if (id != null && mounted) {
       await _openNote(id);

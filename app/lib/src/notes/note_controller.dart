@@ -122,15 +122,15 @@ class NoteController extends ValueNotifier<NoteState> {
     DateTime Function()? clock,
     Duration Function(Lock lock, DateTime now)? heartbeatInterval,
     Future<void> Function(Duration)? scheduler,
-  })  : _api = api,
-        _noteId = noteId,
-        _actor = actor,
-        _onSubscribe = onSubscribe,
-        _onUnsubscribe = onUnsubscribe,
-        _now = clock ?? DateTime.now,
-        _heartbeatInterval = heartbeatInterval ?? _defaultHeartbeatInterval,
-        _scheduler = scheduler ?? Future<void>.delayed,
-        super(NoteState.initial) {
+  }) : _api = api,
+       _noteId = noteId,
+       _actor = actor,
+       _onSubscribe = onSubscribe,
+       _onUnsubscribe = onUnsubscribe,
+       _now = clock ?? DateTime.now,
+       _heartbeatInterval = heartbeatInterval ?? _defaultHeartbeatInterval,
+       _scheduler = scheduler ?? Future<void>.delayed,
+       super(NoteState.initial) {
     if (events != null) {
       _sub = events.listen(_onEvent);
     }
@@ -187,11 +187,7 @@ class NoteController extends ValueNotifier<NoteState> {
       acquired = await _api.acquireLock(_noteId);
     } on LockedException catch (e) {
       if (_disposed) return;
-      value = value.copyWith(
-        mode: NoteMode.viewing,
-        lock: e.lock,
-        error: e,
-      );
+      value = value.copyWith(mode: NoteMode.viewing, lock: e.lock, error: e);
       return;
     } on ApiException catch (e) {
       if (_disposed) return;

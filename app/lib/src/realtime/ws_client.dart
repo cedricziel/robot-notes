@@ -100,10 +100,10 @@ class RobotNotesWsClient {
     this.backoffInitial = const Duration(milliseconds: 200),
     this.backoffMax = const Duration(seconds: 30),
     this.staleThreshold = const Duration(seconds: 5),
-  })  : _config = config.normalized(),
-        _connect = connect ?? defaultWsConnect,
-        _delay = delay ?? Future<void>.delayed,
-        _now = clock ?? DateTime.now;
+  }) : _config = config.normalized(),
+       _connect = connect ?? defaultWsConnect,
+       _delay = delay ?? Future<void>.delayed,
+       _now = clock ?? DateTime.now;
 
   final AppConfig _config;
   final WsConnect _connect;

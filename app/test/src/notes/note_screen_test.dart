@@ -25,21 +25,19 @@ Map<String, Object?> _noteJson({
   String title = 'hello',
   String content = 'world',
   int version = 1,
-}) =>
-    <String, Object?>{
-      'id': id,
-      'title': title,
-      'content': content,
-      'version': version,
-      'created_at': _now,
-      'updated_at': _now,
-    };
+}) => <String, Object?>{
+  'id': id,
+  'title': title,
+  'content': content,
+  'version': version,
+  'created_at': _now,
+  'updated_at': _now,
+};
 
 Map<String, Object?> _lockJson({
   String holder = 'cedric',
   String expiresAt = '2025-01-01T00:01:00.000Z',
-}) =>
-    <String, Object?>{'holder': holder, 'expires_at': expiresAt};
+}) => <String, Object?>{'holder': holder, 'expires_at': expiresAt};
 
 const _titleField = Key('note.editor.title');
 const _contentField = Key('note.editor.content');
@@ -81,22 +79,17 @@ Future<void> _pumpEditor(
 }
 
 void main() {
-  testWidgets('renders the note body in read-only view by default',
-      (tester) async {
+  testWidgets('renders the note body in read-only view by default', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       return http.Response(jsonEncode(_noteJson(content: 'body text')), 200);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
-    final ctrl = NoteController(
-      api: api,
-      noteId: '01H',
-      actor: 'cedric',
-    );
+    final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
     addTearDown(ctrl.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(home: NoteScreen(controller: ctrl)),
-    );
+    await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('note.body')), findsOneWidget);
@@ -104,8 +97,9 @@ void main() {
     expect(find.byKey(const Key('note.edit')), findsOneWidget);
   });
 
-  testWidgets('tapping edit acquires the lock and reveals the editor',
-      (tester) async {
+  testWidgets('tapping edit acquires the lock and reveals the editor', (
+    tester,
+  ) async {
     await _pumpEditor(tester);
 
     expect(find.byKey(_titleField), findsOneWidget);
@@ -113,8 +107,9 @@ void main() {
     expect(find.byKey(const Key('note.save')), findsOneWidget);
   });
 
-  testWidgets('typing in the middle of a field keeps the caret there',
-      (tester) async {
+  testWidgets('typing in the middle of a field keeps the caret there', (
+    tester,
+  ) async {
     await _pumpEditor(tester);
 
     await tester.showKeyboard(find.byKey(_titleField));
@@ -150,8 +145,9 @@ void main() {
     expect(_fieldController(tester, _contentField).text, 'server body');
   });
 
-  testWidgets('editor fields follow the buffers after accepting the server',
-      (tester) async {
+  testWidgets('editor fields follow the buffers after accepting the server', (
+    tester,
+  ) async {
     await _pumpEditor(
       tester,
       onSave: (_) => http.Response(
@@ -196,8 +192,9 @@ void main() {
     expect(closed, isTrue);
   });
 
-  testWidgets('tapping close while editing releases the lock, then closes',
-      (tester) async {
+  testWidgets('tapping close while editing releases the lock, then closes', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       if (request.method == 'GET' && request.url.path == '/notes/01H') {
         return http.Response(jsonEncode(_noteJson()), 200);
@@ -251,9 +248,7 @@ void main() {
     );
     addTearDown(ctrl.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(home: NoteScreen(controller: ctrl)),
-    );
+    await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
     await tester.pumpAndSettle();
 
     events.add(
@@ -267,8 +262,9 @@ void main() {
     expect(find.textContaining('viewers'), findsOneWidget);
   });
 
-  testWidgets('lock event from another holder shows an info banner',
-      (tester) async {
+  testWidgets('lock event from another holder shows an info banner', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       return http.Response(jsonEncode(_noteJson()), 200);
     });
@@ -283,9 +279,7 @@ void main() {
     );
     addTearDown(ctrl.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(home: NoteScreen(controller: ctrl)),
-    );
+    await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
     await tester.pumpAndSettle();
 
     events.add(

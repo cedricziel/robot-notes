@@ -19,13 +19,13 @@ const _config = AppConfig(
 const _now = '2025-01-01T00:00:00.000Z';
 
 http.Response _emptyList() => http.Response(
-      jsonEncode(<String, Object?>{
-        'items': <Object?>[],
-        'limit': 50,
-        'next_cursor': null,
-      }),
-      200,
-    );
+  jsonEncode(<String, Object?>{
+    'items': <Object?>[],
+    'limit': 50,
+    'next_cursor': null,
+  }),
+  200,
+);
 
 void main() {
   group('createBlankNote', () {
@@ -38,44 +38,45 @@ void main() {
       expect(blankNoteTitle(DateTime(2024, 1, 9)), '2024-01-09 Untitled');
     });
 
-    test('POSTs /notes with the date-prefixed title and empty content',
-        () async {
-      String? capturedBody;
-      String? capturedMethod;
-      String? capturedPath;
-      final mock = MockClient((request) async {
-        capturedMethod = request.method;
-        capturedPath = request.url.path;
-        capturedBody = request.body;
-        final body = jsonDecode(request.body) as Map<String, dynamic>;
-        return http.Response(
-          jsonEncode(<String, Object?>{
-            'id': '01H',
-            'title': body['title'],
-            'content': body['content'],
-            'version': 1,
-            'created_at': _now,
-            'updated_at': _now,
-          }),
-          201,
-        );
-      });
-      final api = RobotNotesClient(config: _config, httpClient: mock);
+    test(
+      'POSTs /notes with the date-prefixed title and empty content',
+      () async {
+        String? capturedBody;
+        String? capturedMethod;
+        String? capturedPath;
+        final mock = MockClient((request) async {
+          capturedMethod = request.method;
+          capturedPath = request.url.path;
+          capturedBody = request.body;
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'id': '01H',
+              'title': body['title'],
+              'content': body['content'],
+              'version': 1,
+              'created_at': _now,
+              'updated_at': _now,
+            }),
+            201,
+          );
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
 
-      final note = await createBlankNote(api, now: DateTime(2026, 4, 25));
+        final note = await createBlankNote(api, now: DateTime(2026, 4, 25));
 
-      expect(capturedMethod, 'POST');
-      expect(capturedPath, '/notes');
-      final sent = jsonDecode(capturedBody!) as Map<String, dynamic>;
-      expect(sent['title'], '2026-04-25 Untitled');
-      expect(sent['content'], '');
-      expect(note.id, '01H');
-      expect(note.title, '2026-04-25 Untitled');
-    });
+        expect(capturedMethod, 'POST');
+        expect(capturedPath, '/notes');
+        final sent = jsonDecode(capturedBody!) as Map<String, dynamic>;
+        expect(sent['title'], '2026-04-25 Untitled');
+        expect(sent['content'], '');
+        expect(note.id, '01H');
+        expect(note.title, '2026-04-25 Untitled');
+      },
+    );
   });
 
-  testWidgets(
-      'tapping the create FAB issues a POST /notes that the '
+  testWidgets('tapping the create FAB issues a POST /notes that the '
       'server would accept', (tester) async {
     // End-to-end of the FAB workflow: render NotesListScreen, tap the
     // FAB, observe the resulting HTTP request. The test fails if the
@@ -123,7 +124,8 @@ void main() {
     expect(
       sent['title'],
       isA<String>().having((t) => t.trim(), 'trim()', isNotEmpty),
-      reason: 'server rejects empty titles with 400 — client must always send '
+      reason:
+          'server rejects empty titles with 400 — client must always send '
           'a non-empty title',
     );
     expect(sent['title'], '2026-04-25 Untitled');
