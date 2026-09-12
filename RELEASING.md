@@ -369,3 +369,4 @@ is expected to pass review:
 | Upload rejected: build number already used          | Same commit uploaded twice; cut a new release.                                           |
 | `upload_to_app_store` fails on metadata             | A field in `app/fastlane/metadata` violates a length or content rule; check the message. |
 | Review rejected for missing demo credentials        | `review_information/notes.txt` still has placeholders.                                   |
+| Old tag fails in `pod` or `bundle` on a rerun        | The tag's `app/Gemfile` predates a toolchain fix; the job builds the tag's tree, not `main`. Cut a new release instead of rerunning. |
