@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
+import '../widgets/error_strip.dart';
 import 'notes_list_controller.dart';
 
 /// Notes list view. Backed by [NotesListController]; the controller is
 /// injected so widget tests can drive it without a real network.
 ///
 /// - Pull-to-refresh re-issues `GET /notes`.
+/// - A failed fetch shows a strip above the list with a retry; items that
+///   already loaded stay visible.
 /// - Scrolling near the end pages in the next cursor batch.
 /// - Live `changed` events flow into the controller and reflect here without
 ///   manual refresh.
@@ -82,30 +85,47 @@ class _NotesListScreenState extends State<NotesListScreen> {
           if (state.isLoadingFirst && state.items.isEmpty) {
             return const Center(child: CircularProgressIndicator());
           }
-          return RefreshIndicator(
-            onRefresh: widget.controller.refresh,
-            child: ListView.separated(
-              key: const Key('notes.list'),
-              controller: _scroll,
-              physics: const AlwaysScrollableScrollPhysics(),
-              itemCount: state.items.length + (state.isLoadingMore ? 1 : 0),
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                if (index >= state.items.length) {
-                  return const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                final note = state.items[index];
-                return _NoteTile(
-                  note: note,
-                  onTap: widget.onNoteTap == null
-                      ? null
-                      : () => widget.onNoteTap!(note.id),
-                );
-              },
-            ),
+          final error = state.error;
+          return Column(
+            children: [
+              if (error != null)
+                ErrorStrip(
+                  key: const Key('notes.error'),
+                  message: describeError(
+                    error,
+                    fallback: 'Could not load notes.',
+                  ),
+                  onRetry: widget.controller.refresh,
+                ),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: widget.controller.refresh,
+                  child: ListView.separated(
+                    key: const Key('notes.list'),
+                    controller: _scroll,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount:
+                        state.items.length + (state.isLoadingMore ? 1 : 0),
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      if (index >= state.items.length) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      final note = state.items[index];
+                      return _NoteTile(
+                        note: note,
+                        onTap: widget.onNoteTap == null
+                            ? null
+                            : () => widget.onNoteTap!(note.id),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),

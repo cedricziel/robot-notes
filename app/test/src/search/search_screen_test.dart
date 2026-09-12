@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app/src/api/api_client.dart';
@@ -14,6 +15,30 @@ const _config = AppConfig(
   apiKey: 'test-key',
   actor: 'cedric',
 );
+
+http.Response _hits(List<String> ids) => http.Response(
+      jsonEncode(<String, Object?>{
+        'items': <Object?>[
+          for (final id in ids)
+            <String, Object?>{
+              'id': id,
+              'title': 'doc $id',
+              'snippet': 'hi',
+              'rank': -1.0,
+            },
+        ],
+        'limit': 50,
+      }),
+      200,
+    );
+
+http.Response _badRequest(String message) => http.Response(
+      jsonEncode(<String, Object?>{
+        'error': 'bad_request',
+        'message': message,
+      }),
+      400,
+    );
 
 void main() {
   testWidgets('typing produces results and tapping invokes onResultTap',
@@ -114,6 +139,93 @@ void main() {
 
     expect(calls, 1);
     expect(find.text('Type to search.'), findsOneWidget);
+  });
+
+  testWidgets('an API error with no results shows the message centred',
+      (tester) async {
+    final mock = MockClient((request) async => _badRequest('unbalanced "'));
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SearchScreen(controller: ctrl)),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs "');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('search.error')), findsOneWidget);
+    expect(find.text('unbalanced "'), findsOneWidget);
+    expect(find.text('No matches.'), findsNothing);
+  });
+
+  testWidgets('an API error over stale results shows a strip above them',
+      (tester) async {
+    final mock = MockClient((request) async {
+      final q = request.url.queryParameters['q'];
+      return q == 'zfs' ? _hits(<String>['01H']) : _badRequest('bad query');
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SearchScreen(controller: ctrl)),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs');
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const Key('search.hit.01H')), findsOneWidget);
+    expect(find.byKey(const Key('search.error')), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs "');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('search.error')), findsOneWidget);
+    expect(find.text('bad query'), findsOneWidget);
+    expect(find.byKey(const Key('search.hit.01H')), findsOneWidget);
+  });
+
+  testWidgets('a new query over old results shows a progress bar',
+      (tester) async {
+    final second = Completer<http.Response>();
+    var calls = 0;
+    final mock = MockClient((request) async {
+      calls += 1;
+      return calls == 1 ? _hits(<String>['01H']) : second.future;
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SearchScreen(controller: ctrl)),
+    );
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs');
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs pool');
+    await tester.pump();
+
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.byKey(const Key('search.hit.01H')), findsOneWidget);
+
+    second.complete(_hits(<String>['02H']));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.byKey(const Key('search.hit.02H')), findsOneWidget);
   });
 
   testWidgets('parseSnippet emits bold spans for <mark>…</mark>',

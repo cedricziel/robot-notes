@@ -55,7 +55,7 @@ The app SHALL store the API key and actor name using a per-platform secure mecha
 
 ### Requirement: Notes list view shows server state
 
-The app SHALL provide a list view that pages through `GET /notes`, showing each note's title and updated time, and supports pull-to-refresh, an explicit refresh action, and infinite scroll via `next_cursor`. The list SHALL update in response to `changed` WebSocket events without manual refresh, and SHALL re-fetch when the user returns from a note so edits show even when the realtime stream is unavailable.
+The app SHALL provide a list view that pages through `GET /notes`, showing each note's title and updated time, and supports pull-to-refresh, an explicit refresh action, and infinite scroll via `next_cursor`. The list SHALL update in response to `changed` WebSocket events without manual refresh, and SHALL re-fetch when the user returns from a note so edits show even when the realtime stream is unavailable. When a fetch fails the app SHALL surface the failure without hiding items that already loaded.
 
 #### Scenario: Initial load fetches first page
 
@@ -73,6 +73,13 @@ The app SHALL provide a list view that pages through `GET /notes`, showing each 
 - **GIVEN** the user opened a note from the list and saved a new version
 - **WHEN** the note view is closed
 - **THEN** the list SHALL request `GET /notes` again and show the note's new version and updated time
+
+#### Scenario: Failed fetch shows a non-blocking error with retry
+
+- **GIVEN** the list has already rendered items
+- **WHEN** a refresh or page fetch fails
+- **THEN** the app SHALL show an error strip above the list carrying the server's `message` (or a generic fallback) and a retry control, and the existing items SHALL remain visible
+- **AND** activating retry SHALL re-issue `GET /notes` and clear the strip on success
 
 #### Scenario: Live changed event updates the list
 
@@ -181,6 +188,18 @@ The app SHALL provide a search view that issues `GET /search?q=...` as the user 
 - **GIVEN** the server returns `snippet: "...the <mark>architecture</mark> doc..."`
 - **WHEN** the result is rendered
 - **THEN** the word `architecture` SHALL be visually emphasized (color, weight, or background)
+
+#### Scenario: Search error is shown to the user
+
+- **GIVEN** the user types a query the server rejects (for example an unbalanced quote, which returns 400)
+- **WHEN** the response arrives
+- **THEN** the app SHALL display the server's `message` (or a generic fallback); if results from an earlier query are still on screen they SHALL stay visible beneath the error
+
+#### Scenario: New query over old results shows progress
+
+- **GIVEN** results from an earlier query are on screen
+- **WHEN** the user types a new query
+- **THEN** the app SHALL show a progress indicator while the request is in flight without clearing the earlier results
 
 ### Requirement: WebSocket connection is managed with auto-reconnect
 

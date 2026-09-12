@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../widgets/error_strip.dart';
 import 'search_controller.dart';
 
 /// Search view. Single text field at the top; results list below.
 ///
 /// Drives [NotesSearchController]; results render via
 /// [ValueListenableBuilder]. Tapping a result calls [onResultTap] with
-/// the note id so the parent can route into the note view.
+/// the note id so the parent can route into the note view. A failed
+/// request shows the server's message; earlier results stay on screen
+/// beneath it until the next query replaces them.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
     required this.controller,
@@ -54,31 +57,59 @@ class _SearchScreenState extends State<SearchScreen> {
               child: Text('Type to search.'),
             );
           }
-          if (state.isLoading && state.hits.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
-          }
+          final error = state.error;
           if (state.hits.isEmpty) {
+            if (state.isLoading) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (error != null) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    _describe(error),
+                    key: const Key('search.error'),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              );
+            }
             return const Center(child: Text('No matches.'));
           }
-          return ListView.separated(
-            key: const Key('search.results'),
-            itemCount: state.hits.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final hit = state.hits[index];
-              return _HitTile(
-                hit: hit,
-                onTap: widget.onResultTap == null
-                    ? null
-                    : () => widget.onResultTap!(hit.id),
-              );
-            },
+          return Column(
+            children: [
+              if (state.isLoading) const LinearProgressIndicator(minHeight: 2),
+              if (error != null)
+                ErrorStrip(
+                  key: const Key('search.error'),
+                  message: _describe(error),
+                ),
+              Expanded(
+                child: ListView.separated(
+                  key: const Key('search.results'),
+                  itemCount: state.hits.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final hit = state.hits[index];
+                    return _HitTile(
+                      hit: hit,
+                      onTap: widget.onResultTap == null
+                          ? null
+                          : () => widget.onResultTap!(hit.id),
+                    );
+                  },
+                ),
+              ),
+            ],
           );
         },
       ),
     );
   }
 }
+
+String _describe(Object error) =>
+    describeError(error, fallback: 'Search failed.');
 
 class _HitTile extends StatelessWidget {
   const _HitTile({required this.hit, this.onTap});
