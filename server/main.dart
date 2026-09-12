@@ -10,6 +10,7 @@ import 'package:server/src/config_holder.dart';
 import 'package:server/src/otel/logging_bridge.dart';
 import 'package:server/src/otel/otel_bootstrap.dart';
 import 'package:server/src/otel/otel_shutdown.dart';
+import 'package:server/src/otel/otel_tracer_holder.dart';
 import 'package:server/src/public_url.dart';
 import 'package:shared/shared.dart';
 
@@ -39,6 +40,8 @@ Future<HttpServer> run(
   );
   setConfig(config);
   final otelLoggerProvider = createOtelLoggerProvider(config);
+  final otelTracerProvider = createOtelTracerProvider(config);
+  setOtelTracerProvider(otelTracerProvider);
   installOtelLoggingBridge(otelLoggerProvider);
 
   final effectivePort = _portFromEnvOverride(config.port, port);
@@ -49,7 +52,7 @@ Future<HttpServer> run(
 
   final server = await serve(handler, ip, effectivePort);
   installShutdownSignalHandlers(
-    otelLoggerProvider: otelLoggerProvider,
+    otelShutdowns: [otelLoggerProvider.shutdown, otelTracerProvider.shutdown],
     closeServer: () => server.close(force: true),
     exit: exit,
   );

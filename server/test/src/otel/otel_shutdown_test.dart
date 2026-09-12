@@ -1,50 +1,35 @@
-import 'package:flutter_otel_api/flutter_otel_api.dart';
 import 'package:server/src/otel/otel_shutdown.dart';
 import 'package:test/test.dart';
 
-class _FakeLoggerProvider implements LoggerProvider {
-  bool shutdownCalled = false;
-
-  @override
-  Logger getLogger({
-    String name = defaultInstrumentationScopeName,
-    String? version,
-  }) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> forceFlush() async {}
-
-  @override
-  Future<void> shutdown() async {
-    shutdownCalled = true;
-  }
-}
-
 void main() {
   group('shutdownServer', () {
-    test('shuts down the otel provider before closing the server', () async {
-      final provider = _FakeLoggerProvider();
+    test('runs every otel shutdown before closing the server', () async {
       final calls = <String>[];
 
       await shutdownServer(
-        otelLoggerProvider: provider,
+        otelShutdowns: [
+          () async => calls.add('logs'),
+          () async => calls.add('traces'),
+        ],
         closeServer: () async {
           calls.add('closeServer');
         },
       );
 
-      expect(provider.shutdownCalled, isTrue);
-      expect(calls, ['closeServer']);
+      expect(calls, containsAll(['logs', 'traces', 'closeServer']));
+      expect(calls.last, 'closeServer');
     });
 
-    test('closes the server even if otel shutdown throws', () async {
-      final provider = _ThrowingLoggerProvider();
+    test('closes the server even if an otel shutdown throws', () async {
+      var otherShutdownCalled = false;
       var closeServerCalled = false;
 
       await expectLater(
         shutdownServer(
-          otelLoggerProvider: provider,
+          otelShutdowns: [
+            () async => throw StateError('export failed'),
+            () async => otherShutdownCalled = true,
+          ],
           closeServer: () async {
             closeServerCalled = true;
           },
@@ -53,23 +38,7 @@ void main() {
       );
 
       expect(closeServerCalled, isTrue);
+      expect(otherShutdownCalled, isTrue);
     });
   });
-}
-
-class _ThrowingLoggerProvider implements LoggerProvider {
-  @override
-  Logger getLogger({
-    String name = defaultInstrumentationScopeName,
-    String? version,
-  }) =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> forceFlush() async {}
-
-  @override
-  Future<void> shutdown() async {
-    throw StateError('export failed');
-  }
 }
