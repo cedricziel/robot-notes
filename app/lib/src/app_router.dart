@@ -399,14 +399,12 @@ class _NoteRouteState extends State<NoteRoute> {
 
 /// Cross-screen session state: the shared [RobotNotesClient] and
 /// [RobotNotesWsClient] for the connected server, plus the singleton
-/// [NotesListController] and [ConnectionStatusController] that need to
-/// survive navigation between routes.
+/// [NotesListController] that needs to survive navigation between routes.
 class AppSession extends InheritedWidget {
   const AppSession({
     required this.api,
     required this.ws,
     required this.list,
-    required this.status,
     required this.actor,
     required this.onReset,
     required super.child,
@@ -416,7 +414,6 @@ class AppSession extends InheritedWidget {
   final RobotNotesClient api;
   final RobotNotesWsClient ws;
   final NotesListController list;
-  final ConnectionStatusController status;
   final String actor;
   final VoidCallback onReset;
 
@@ -426,12 +423,11 @@ class AppSession extends InheritedWidget {
     return session!;
   }
 
+  // All fields are `late final` and [SessionHost] is keyed on the config, so
+  // a given AppSession instance's fields never change identity — there is
+  // never anything for dependents to react to.
   @override
-  bool updateShouldNotify(AppSession oldWidget) =>
-      !identical(api, oldWidget.api) ||
-      !identical(ws, oldWidget.ws) ||
-      !identical(list, oldWidget.list) ||
-      !identical(status, oldWidget.status);
+  bool updateShouldNotify(AppSession oldWidget) => false;
 }
 
 /// Owns the singleton [RobotNotesClient], [RobotNotesWsClient],
@@ -493,7 +489,6 @@ class _SessionHostState extends State<SessionHost> {
       api: _api,
       ws: _ws,
       list: _list,
-      status: _status,
       actor: widget.config.actor,
       onReset: widget.onReset,
       child: Column(
