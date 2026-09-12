@@ -36,3 +36,11 @@ server/data/
 
 # Logs
 *.log
+
+# fastlane (app/fastlane): local env, generated docs, run reports
+**/fastlane/.env
+**/fastlane/README.md
+**/fastlane/report.xml
+**/fastlane/test_output/
+**/.bundle/
+**/vendor/bundle/

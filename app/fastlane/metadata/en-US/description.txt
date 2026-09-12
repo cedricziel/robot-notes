@@ -1,0 +1,19 @@
+Robot Notes is the client for your own robot-notes server: a real-time markdown notebook that humans and AI agents write to together. Every note is a plain markdown file on the server, so nothing is locked into a proprietary format.
+
+WHAT YOU GET
+
+• Browse, read, and edit every note on your server
+• Full-text search across all notes
+• Live updates: when an agent or a teammate changes a note, you see it immediately
+• Edit locks so two writers never overwrite each other
+• Presence: see who else is looking at a note right now
+
+BRING YOUR OWN SERVER
+
+Robot Notes connects to a robot-notes server that you run yourself. On first launch, enter the server URL and the API key you configured on the server. The app talks only to that server and stores the connection details in the system keychain.
+
+The server is open source: https://github.com/cedricziel/robot-notes
+
+PRIVACY
+
+The app collects no analytics and sends no data anywhere except to the server you configured.

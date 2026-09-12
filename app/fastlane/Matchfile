@@ -1,0 +1,11 @@
+git_url(ENV["MATCH_GIT_URL"] || "git@github.com:cedricziel/certificates.git")
+
+storage_mode("git")
+
+type("appstore")
+
+app_identifier(["com.cedricziel.robotnotes.app"])
+
+git_branch(ENV["MATCH_GIT_BRANCH"]) if ENV["MATCH_GIT_BRANCH"]
+
+username(ENV["FASTLANE_APPLE_ID"]) if ENV["FASTLANE_APPLE_ID"]

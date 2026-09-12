@@ -1,0 +1,7 @@
+Robot Notes is a client for a self-hosted, open-source server (https://github.com/cedricziel/robot-notes). On first launch the app asks for a server URL and an API key.
+
+To review, use this demo server:
+  Server URL: REPLACE_WITH_DEMO_SERVER_URL
+  API key:    REPLACE_WITH_DEMO_API_KEY
+
+The demo server contains sample notes. You can create, edit, search, and delete notes; changes made from another client (or by an agent) appear live.

@@ -5,13 +5,23 @@ name: release-please
 #   1. `release-please` job opens (and keeps in sync) a release PR that
 #      bumps the version and CHANGELOG based on conventional commits since
 #      the last release. Merging the PR cuts a `vX.Y.Z` tag + GitHub
-#      release in the same workflow run.
+#      release in the same workflow run. The release is created as a draft
+#      (release-please-config.json) and published as a *pre-release* by the
+#      step below.
 #   2. `build` job builds the container image per architecture on a native
 #      runner (no qemu) and pushes by digest. Native runners avoid the
 #      qemu-emulated Dart VM crash where `dart_frog build` aborts inside
 #      `__libc_calloc` / `UnixTerminal` under user-mode emulation.
 #   3. `manifest` job merges the per-arch digests into a single multi-arch
 #      manifest at the release tags.
+#   4. `apple` matrix job (ios, macos) builds the Flutter client on a macOS
+#      runner, signs it via fastlane match and uploads it to TestFlight.
+#      Runs alongside the container jobs.
+#   5. When a human promotes the pre-release to a full release ("Set as the
+#      latest release"), GitHub emits `release: released` and the `apple`
+#      job runs again in submit mode: it attaches that tag's TestFlight
+#      build to the App Store version and submits it for review. Nothing
+#      is rebuilt and the container jobs stay skipped.
 #
 # `workflow_dispatch` accepts an optional `tag` input so the publish path
 # can be re-run manually against an existing tag (e.g. when the original
@@ -26,6 +36,12 @@ name: release-please
 on:
   push:
     branches: [main]
+  # Fires when a pre-release is promoted to a full release (and when a
+  # non-pre-release is published). Pre-release creation fires `published`
+  # and `prereleased` only, so the App Store submit never races the
+  # TestFlight upload of the same tag.
+  release:
+    types: [released]
   workflow_dispatch:
     inputs:
       tag:
@@ -33,7 +49,7 @@ on:
           Existing release tag (e.g. v0.1.0) to (re)publish. Leave blank
           to run release-please normally.
         required: false
-        default: ''
+        default: ""
 
 permissions:
   contents: read
@@ -41,7 +57,7 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    if: ${{ inputs.tag == '' }}
+    if: ${{ github.event_name != 'release' && inputs.tag == '' }}
     permissions:
       contents: write
       pull-requests: write
@@ -59,15 +75,32 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # Resolve the tag once so both the matrix build and the manifest job
-  # agree on what we are publishing — either the freshly-cut tag from
-  # release-please or the manually-supplied `tag` input.
+      # release-please creates the release as a draft (no tag, no events).
+      # Publishing it here as a pre-release with GITHUB_TOKEN creates the
+      # tag but emits no workflow-triggering event, so the only way to
+      # reach the App Store submit path is a human promoting the
+      # pre-release to a full release.
+      - name: Publish draft as pre-release
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ steps.release.outputs.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --draft=false --prerelease
+
+  # Resolve the tag once so every downstream job agrees on what we are
+  # doing — the freshly-cut tag from release-please, the manually-supplied
+  # `tag` input, or the promoted release — and in which mode:
+  #   publish: build + push the image, build + upload to TestFlight
+  #   submit:  App Store review for an existing TestFlight build
   resolve-tag:
     name: Resolve release tag
     needs: [release-please]
     if: |
       always() &&
       (
+        github.event_name == 'release' ||
         inputs.tag != '' ||
         needs.release-please.outputs.release_created == 'true'
       )
@@ -77,9 +110,12 @@ jobs:
       major: ${{ steps.pick.outputs.major }}
       minor: ${{ steps.pick.outputs.minor }}
       version: ${{ steps.pick.outputs.version }}
+      mode: ${{ steps.pick.outputs.mode }}
     steps:
       - id: pick
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
           DISPATCH_TAG: ${{ inputs.tag }}
           RP_TAG: ${{ needs.release-please.outputs.tag_name }}
           RP_MAJOR: ${{ needs.release-please.outputs.major }}
@@ -87,14 +123,21 @@ jobs:
           RP_VERSION: ${{ needs.release-please.outputs.version }}
         run: |
           set -euo pipefail
-          if [ -n "$DISPATCH_TAG" ]; then
+          mode=publish
+          if [ "$EVENT_NAME" = "release" ]; then
+            tag="$RELEASE_TAG"
+            mode=submit
+          elif [ -n "$DISPATCH_TAG" ]; then
             tag="$DISPATCH_TAG"
+          else
+            tag="$RP_TAG"
+          fi
+          if [ "$EVENT_NAME" = "release" ] || [ -n "$DISPATCH_TAG" ]; then
             version="${tag#v}"
             major="${version%%.*}"
             rest="${version#*.}"
             minor="${rest%%.*}"
           else
-            tag="$RP_TAG"
             version="$RP_VERSION"
             major="$RP_MAJOR"
             minor="$RP_MINOR"
@@ -104,6 +147,7 @@ jobs:
             echo "version=$version"
             echo "major=$major"
             echo "minor=$minor"
+            echo "mode=$mode"
           } >> "$GITHUB_OUTPUT"
 
   # Pre-build the Flutter web bundle once. Output is JS/HTML/WASM and
@@ -122,7 +166,7 @@ jobs:
     # — a status-check function must appear in the condition for GitHub to
     # evaluate it instead of inheriting the skip. See:
     # https://docs.github.com/en/actions/using-jobs/using-conditions-to-control-job-execution
-    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
+    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.mode == 'publish'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -151,7 +195,7 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     needs: [resolve-tag, web]
-    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
+    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.mode == 'publish'
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -239,7 +283,7 @@ jobs:
   manifest:
     name: Merge manifests
     needs: [resolve-tag, build]
-    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
+    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.mode == 'publish'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -293,4 +337,125 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect \
-            ${{ steps.image.outputs.name }}:${{ needs.resolve-tag.outputs.tag_name }}
+
+  # Ship the Flutter client from the same tag. One job per platform so an
+  # Apple-side failure on one never blocks the other, and neither blocks the
+  # container publish above. Signing comes from `fastlane match` (read-only)
+  # over a deploy key.
+  #
+  # Two modes, picked by resolve-tag:
+  #   - publish (every pre-release, or a `tag` dispatch): build, sign,
+  #     upload to TestFlight, wait for processing. Internal testers get the
+  #     build right away.
+  #   - submit (`release: released`, i.e. the pre-release was promoted): no
+  #     build; attach that tag's TestFlight build to the App Store version,
+  #     upload the listing metadata, submit for review with automatic
+  #     release.
+  # See RELEASING.md, "Apple App Store".
+  apple:
+    name: ${{ needs.resolve-tag.outputs.mode == 'submit' && 'App Store submit' || 'TestFlight' }} (${{ matrix.platform }})
+    needs: [resolve-tag]
+    if: always() && needs.resolve-tag.result == 'success' && needs.resolve-tag.outputs.tag_name != ''
+    runs-on: macos-26
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ios
+            lane_platform: ios
+            artifact_glob: app/build/fastlane/*.ipa
+          - platform: macos
+            lane_platform: mac
+            artifact_glob: app/build/fastlane/*.pkg
+    env:
+      SUBMIT: ${{ needs.resolve-tag.outputs.mode == 'submit' }}
+    steps:
+      # fetch-depth: 0 so `git rev-list --count HEAD` yields the real build
+      # number instead of 1. The submit path needs it too: that is how the
+      # lane finds the TestFlight build to attach.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve-tag.outputs.tag_name }}
+          fetch-depth: 0
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: app
+
+      - name: Fetch release notes
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve-tag.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/release_notes.md"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$file" || : > "$file"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Flutter
+        if: env.SUBMIT != 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.2"
+          channel: stable
+          cache: true
+
+      - name: Resolve workspace dependencies
+        if: env.SUBMIT != 'true'
+        run: dart pub get
+
+      - name: Configure SSH for match repo
+        if: env.SUBMIT != 'true'
+        env:
+          MATCH_DEPLOY_KEY: ${{ secrets.MATCH_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$MATCH_DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Build and upload to TestFlight
+        if: env.SUBMIT != 'true'
+        working-directory: app
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_KEYCHAIN_PASSWORD: ${{ secrets.MATCH_KEYCHAIN_PASSWORD }}
+          RELEASE_NOTES_FILE: ${{ steps.notes.outputs.file }}
+          FASTLANE_HIDE_CHANGELOG: "true"
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
+          FASTLANE_XCODEBUILD_SETTINGS_RETRIES: "5"
+        run: |
+          bundle exec fastlane ${{ matrix.lane_platform }} release \
+            version:"${{ needs.resolve-tag.outputs.version }}"
+
+      - name: Submit the TestFlight build to App Store review
+        if: env.SUBMIT == 'true'
+        working-directory: app
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          RELEASE_NOTES_FILE: ${{ steps.notes.outputs.file }}
+          FASTLANE_HIDE_CHANGELOG: "true"
+        run: |
+          bundle exec fastlane ${{ matrix.lane_platform }} submit_to_app_store \
+            version:"${{ needs.resolve-tag.outputs.version }}"
+
+      - name: Upload build artifact
+        if: always() && env.SUBMIT != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: robot-notes-${{ matrix.platform }}-${{ needs.resolve-tag.outputs.tag_name }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: ignore
+          retention-days: 30

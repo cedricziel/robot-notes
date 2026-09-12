@@ -1,0 +1,5 @@
+app_identifier(ENV["APP_IDENTIFIER"] || "com.cedricziel.robotnotes.app")
+apple_id(ENV["FASTLANE_APPLE_ID"]) if ENV["FASTLANE_APPLE_ID"]
+
+itc_team_id(ENV["ITC_TEAM_ID"]) if ENV["ITC_TEAM_ID"]
+team_id(ENV["FASTLANE_TEAM_ID"] || "WPW3QSLZ2F")
