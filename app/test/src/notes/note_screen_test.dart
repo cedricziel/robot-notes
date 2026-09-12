@@ -599,6 +599,18 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
     });
 
+    testWidgets('editing shows an info banner naming the lock expiry', (
+      tester,
+    ) async {
+      await _pumpEditor(tester);
+
+      final expiry = formatLockExpiry(
+        DateTime.parse('2025-01-01T00:01:00.000Z'),
+      );
+      expect(find.byKey(const Key('note.banner.ownLock')), findsOneWidget);
+      expect(find.text('You are editing (lock until $expiry)'), findsOneWidget);
+    });
+
     testWidgets('a failed load replaces the spinner with the server message', (
       tester,
     ) async {
@@ -699,7 +711,9 @@ void main() {
     expect(yours.top, greaterThanOrEqualTo(server.bottom));
   });
 
-  testWidgets('presence event renders the viewer count', (tester) async {
+  testWidgets('presence indicator shows names for three or fewer viewers', (
+    tester,
+  ) async {
     final mock = MockClient((request) async {
       return http.Response(jsonEncode(_noteJson()), 200);
     });
@@ -719,14 +733,62 @@ void main() {
 
     events.add(
       const RealtimeMessage(
-        PresenceEvent(noteId: '01H', viewers: <String>['cedric', 'alice']),
+        PresenceEvent(noteId: '01H', viewers: <String>['cedric', 'agent-1']),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('note.presence')), findsOneWidget);
-    expect(find.textContaining('viewers'), findsOneWidget);
+    expect(find.text('cedric, agent-1'), findsOneWidget);
+    final tooltip = tester.widget<Tooltip>(
+      find.ancestor(
+        of: find.byKey(const Key('note.presence')),
+        matching: find.byType(Tooltip),
+      ),
+    );
+    expect(tooltip.message, 'cedric, agent-1');
   });
+
+  testWidgets(
+    'presence indicator shows a count with a tooltip beyond three viewers',
+    (tester) async {
+      final mock = MockClient((request) async {
+        return http.Response(jsonEncode(_noteJson()), 200);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final events = StreamController<RealtimeEvent>.broadcast();
+      addTearDown(events.close);
+      final ctrl = NoteController(
+        api: api,
+        noteId: '01H',
+        actor: 'cedric',
+        events: events.stream,
+      );
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+      await tester.pumpAndSettle();
+
+      events.add(
+        const RealtimeMessage(
+          PresenceEvent(
+            noteId: '01H',
+            viewers: <String>['cedric', 'alice', 'bob', 'agent-1'],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('4 viewers'), findsOneWidget);
+      final tooltip = tester.widget<Tooltip>(
+        find.ancestor(
+          of: find.byKey(const Key('note.presence')),
+          matching: find.byType(Tooltip),
+        ),
+      );
+      expect(tooltip.message, 'cedric, alice, bob, agent-1');
+    },
+  );
 
   testWidgets('lock event from another holder shows an info banner', (
     tester,

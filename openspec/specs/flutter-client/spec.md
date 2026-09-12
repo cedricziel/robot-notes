@@ -350,7 +350,7 @@ In view mode the app SHALL render the note content as Markdown: headings, lists,
 
 ### Requirement: Live presence and lock state are surfaced in the note view
 
-While the note view is open the app SHALL display a presence indicator (list of viewers' actor names) and a lock indicator (current holder, if any) updated in real time from `presence` and `lock` WebSocket events.
+While the note view is open the app SHALL display a presence indicator (list of viewers' actor names) and a lock indicator (current holder, if any) updated in real time from `presence` and `lock` WebSocket events. For three or fewer viewers the presence indicator SHALL show their names inline; beyond that it SHALL show a count, and SHALL always carry a tooltip listing every viewer's name. While the user holds the lock in edit mode, the app SHALL show an info banner naming the lock's expiry in local time, so it is clear the note is locked for others.
 
 #### Scenario: Presence indicator updates on subscribe/unsubscribe
 
@@ -358,10 +358,28 @@ While the note view is open the app SHALL display a presence indicator (list of 
 - **WHEN** another actor subscribes to or unsubscribes from the note
 - **THEN** the presence indicator SHALL update to reflect the new viewer set
 
+#### Scenario: Presence indicator names viewers inline
+
+- **GIVEN** two actors, `cedric` and `agent-1`, are viewing the note
+- **WHEN** the presence indicator renders
+- **THEN** it SHALL show "cedric, agent-1" and a tooltip carrying the same names
+
+#### Scenario: Presence indicator collapses to a count beyond three viewers
+
+- **GIVEN** four actors are viewing the note
+- **WHEN** the presence indicator renders
+- **THEN** it SHALL show "4 viewers" with a tooltip listing all four names
+
 #### Scenario: Lock indicator updates on lock event
 
 - **WHEN** the server emits a `lock` event for the open note
 - **THEN** the lock indicator SHALL update to show the new holder or "unlocked"
+
+#### Scenario: Own-lock banner shows the expiry while editing
+
+- **GIVEN** the user holds the lock and is in edit mode
+- **WHEN** the note view renders
+- **THEN** it SHALL show an info banner reading "You are editing (lock until HH:MM)" with the lock's expiry in local time
 
 ### Requirement: App provides a search view backed by /search
 

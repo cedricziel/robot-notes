@@ -104,6 +104,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
           ? null
           : FloatingActionButton(
               key: const Key('notes.create'),
+              tooltip: 'New note',
               onPressed: widget.onCreate,
               child: const Icon(Icons.add),
             ),

@@ -319,4 +319,22 @@ void main() {
       expect(find.text('stays'), findsOneWidget);
     });
   });
+
+  testWidgets('the create FAB has a tooltip naming its action', (tester) async {
+    final mock = MockClient((request) async {
+      return _page(<Object?>[]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotesListScreen(controller: ctrl, onCreate: () {}),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('New note'), findsOneWidget);
+  });
 }
