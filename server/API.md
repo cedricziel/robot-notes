@@ -244,7 +244,7 @@ Query parameters:
 | Param   | Type   | Default | Notes                                                       |
 | ------- | ------ | ------- | ----------------------------------------------------------- |
 | `q`     | string | —       | Required. Empty/whitespace returns `400 validation_failed`. |
-| `limit` | int    | 50      | Clamped to `[1, 200]`.                                      |
+| `limit` | int    | 20      | Clamped to `[1, 100]`.                                      |
 
 Response:
 
@@ -258,7 +258,7 @@ Response:
       "rank": -1.41
     }
   ],
-  "limit": 50
+  "limit": 20
 }
 ```
 
