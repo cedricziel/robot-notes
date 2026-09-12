@@ -67,6 +67,11 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
     return MaterialApp.router(
       title: 'robot-notes',
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: Colors.indigo,
+        brightness: Brightness.dark,
+      ),
       routerConfig: _router,
       builder: (context, child) =>
           AppRouterShell(configHolder: _configHolder, child: child),
