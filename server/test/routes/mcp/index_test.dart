@@ -222,6 +222,29 @@ void main() {
     expect((json['error'] as Map<String, dynamic>)['code'], -32600);
   });
 
+  test(
+    'a request with array params is 200 with JSON-RPC -32602 echoing the '
+    'id, not a 400',
+    () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          handler: handler,
+          body: {
+            'jsonrpc': '2.0',
+            'id': 9,
+            'method': 'ping',
+            'params': [1, 2, 3],
+          },
+        ),
+      );
+      expect(res.statusCode, HttpStatus.ok);
+      final json = await res.json() as Map<String, dynamic>;
+      expect(json['id'], 9);
+      expect((json['error'] as Map<String, dynamic>)['code'], -32602);
+    },
+  );
+
   test('notification is 202 with an empty body', () async {
     final res = await route.onRequest(
       _ctx(

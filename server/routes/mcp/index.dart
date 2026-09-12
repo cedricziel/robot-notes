@@ -48,6 +48,8 @@ Future<Response> onRequest(RequestContext context) async {
   final JsonRpcMessage message;
   try {
     message = JsonRpcMessage.parse(decoded);
+  } on JsonRpcInvalidParamsAtParse catch (e) {
+    return Response.json(body: jsonRpcError(e.id, kInvalidParams, e.message));
   } on JsonRpcInvalidRequest catch (e) {
     return Response.json(
       statusCode: HttpStatus.badRequest,
