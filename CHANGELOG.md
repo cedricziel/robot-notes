@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.4](https://github.com/cedricziel/robot-notes/compare/v0.1.3...v0.1.4) (2026-09-12)
+
+
+### Features
+
+* make the search screen more helpful ([#108](https://github.com/cedricziel/robot-notes/issues/108)) ([d6e2ea1](https://github.com/cedricziel/robot-notes/commit/d6e2ea157fa18ca5e3724091e43dccc56bf17903))
+
+
+### Miscellaneous
+
+* release 0.1.4 ([d45d677](https://github.com/cedricziel/robot-notes/commit/d45d6771c83153e2b6f4695170a5d9747bd8fc8e))
+
 ## [0.1.3](https://github.com/cedricziel/robot-notes/compare/v0.1.2...v0.1.3) (2026-09-12)
 
 
