@@ -167,7 +167,8 @@ Dynamic Client Registration (`POST /oauth/register`), and open a browser
 consent page. That page asks the person completing setup for the
 workspace API key (proof they're allowed to grant access) and a display
 name — the actor every note the agent writes will be attributed to.
-Approving the page redirects the client back with an access token
+Approving the page redirects the client back with an authorization
+code, which it exchanges at `POST /oauth/token` for an access token
 scoped to `notes:read` and/or `notes:write`.
 
 Agents that already hold the static key — for example ones onboarded
@@ -181,6 +182,13 @@ X-Actor: <name>
 
 Both credentials are accepted on the same endpoint, so the two
 onboarding paths coexist.
+
+A handful of responses are specific to `/mcp`: an unauthenticated
+`GET` or `DELETE` is `401` rather than `405` (the credential is
+checked before the method), a request whose `Origin` header does not
+match the server's own origin (or a loopback origin) is `403
+forbidden`, and a request naming an `MCP-Protocol-Version` this server
+does not understand is `400 unsupported_protocol_version`.
 
 The tool catalog is fixed and identical for every caller:
 
