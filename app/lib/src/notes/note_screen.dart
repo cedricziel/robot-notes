@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../api/api_exceptions.dart';
 import 'note_controller.dart';
 
 /// Single-note view. Renders three modes off [NoteController]:
 ///
-/// - viewing: read-only Markdown source + presence/lock indicators.
+/// - viewing: rendered Markdown + presence/lock indicators.
 /// - editing: title and content text fields, save / cancel actions.
 /// - conflict: 409 reconcile UI showing both versions.
 ///
@@ -332,9 +333,12 @@ class _ReadOnlyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: SelectableText(content, key: const Key('note.body')),
+    return SelectionArea(
+      child: Markdown(
+        key: const Key('note.body'),
+        data: content,
+        padding: const EdgeInsets.all(16),
+      ),
     );
   }
 }

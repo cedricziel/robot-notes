@@ -244,6 +244,7 @@ The note view SHALL confirm a completed save and SHALL show the server's message
 - **WHEN** `POST /notes/{id}/lock` fails with a status other than 423
 - **THEN** the app SHALL show a message containing the server's `message` and remain read-only
 
+
 ### Requirement: Note view can delete the note after confirmation
 
 The note view SHALL offer a "Delete note" action in an overflow menu while the note is in read-only mode. Choosing it SHALL ask the user to confirm before anything is sent. On confirmation the app SHALL `DELETE /notes/{id}`, close the note view, and show a brief "Note deleted" confirmation that outlives the closed view. A 404 from the server SHALL be treated as success, since the note is gone either way. Any other error SHALL keep the note open and surface the failure.
@@ -290,6 +291,23 @@ When the user creates a note from the list, the app SHALL open it straight into 
 - **GIVEN** the lock request for the new note fails
 - **WHEN** the note opens
 - **THEN** the app SHALL fall back to the read-only view with the usual lock feedback
+
+### Requirement: Note view renders the body as Markdown
+
+In view mode the app SHALL render the note content as Markdown: headings, lists, emphasis, inline code, fenced code blocks, and links (styled; opening them is not yet supported). The rendered text SHALL be selectable. Edit mode SHALL keep showing the raw Markdown source in a plain text field.
+
+#### Scenario: Markdown syntax is rendered, not shown verbatim
+
+- **GIVEN** a note whose content is `# Heading`, a `- item` bullet, and `` `code` ``
+- **WHEN** the note is open in view mode
+- **THEN** the body SHALL show "Heading" styled as a heading, "item" as a list entry, and "code" as inline code, and SHALL NOT show the `#`, `-`, or backtick markers
+
+#### Scenario: Edit mode shows the Markdown source
+
+- **WHEN** the user enters edit mode
+- **THEN** the content field SHALL contain the raw Markdown source unchanged
+
+> > > > > > > e671b06 (feat(app): render note content as Markdown in view mode)
 
 ### Requirement: Live presence and lock state are surfaced in the note view
 
