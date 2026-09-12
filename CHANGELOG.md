@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.4](https://github.com/cedricziel/robot-notes/compare/v0.2.3...v0.2.4) (2026-09-12)
+
+
+### Features
+
+* **app:** trace outbound server calls with OTel client spans ([#164](https://github.com/cedricziel/robot-notes/issues/164)) ([865e44c](https://github.com/cedricziel/robot-notes/commit/865e44c6321a5905dfde1664d625d144753cfebb))
+
+
+### Bug Fixes
+
+* **server:** reject .. and empty path segments to close a traversal hole ([#160](https://github.com/cedricziel/robot-notes/issues/160)) ([706fbee](https://github.com/cedricziel/robot-notes/commit/706fbee4d31a781d68f327686a37bce16a1451be))
+
 ## [0.2.3](https://github.com/cedricziel/robot-notes/compare/v0.2.2...v0.2.3) (2026-09-12)
 
 
