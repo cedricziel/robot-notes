@@ -6,9 +6,6 @@ import 'package:server/src/oauth/oauth_response.dart';
 import 'package:server/src/public_url.dart';
 import 'package:shared/shared.dart';
 
-const String _protectedResourceMcpPath =
-    '${Routes.wellKnownProtectedResource}/mcp';
-
 /// Builds a [Middleware] that answers the three unauthenticated OAuth
 /// discovery documents:
 ///
@@ -18,8 +15,9 @@ const String _protectedResourceMcpPath =
 ///
 /// Non-`GET` requests to those exact paths are rejected with 405. Every
 /// other path (including other `/.well-known/*` paths) passes through to
-/// the rest of the handler chain, so unknown discovery documents 404
-/// naturally through the router.
+/// the rest of the handler chain; in production that chain includes the
+/// bearer-auth middleware, so an unknown discovery document 401s rather
+/// than 404s.
 ///
 /// Must run before `bearerAuth` — these documents are how a client
 /// discovers the server before it has any credential — but after the
@@ -32,7 +30,7 @@ Middleware wellKnownMiddleware() {
       final path = request.uri.path;
 
       final isProtectedResource = path == Routes.wellKnownProtectedResource ||
-          path == _protectedResourceMcpPath;
+          path == Routes.wellKnownProtectedResourceMcp;
       if (isProtectedResource) {
         if (request.method != HttpMethod.get) return _methodNotAllowed();
         final base = publicBaseUrl(context);

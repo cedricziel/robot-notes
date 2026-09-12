@@ -34,6 +34,10 @@ void main() {
         '/.well-known/oauth-protected-resource',
       );
       expect(
+        Routes.wellKnownProtectedResourceMcp,
+        '/.well-known/oauth-protected-resource/mcp',
+      );
+      expect(
         Routes.wellKnownAuthorizationServer,
         '/.well-known/oauth-authorization-server',
       );

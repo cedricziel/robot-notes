@@ -1,5 +1,6 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/config.dart';
+import 'package:shared/shared.dart';
 
 /// Resolves the absolute public base URL (`<base>`) used for OAuth
 /// metadata, redirects, and invite URLs.
@@ -22,7 +23,7 @@ String publicBaseUrl(RequestContext context) {
 }
 
 /// The canonical MCP resource identifier for the given public [base] URL.
-String mcpResourceUrl(String base) => '$base/mcp';
+String mcpResourceUrl(String base) => '$base${Routes.mcp}';
 
 /// Operator warning logged at startup when no public URL is configured,
 /// since the OAuth issuer and resource are then derived from request

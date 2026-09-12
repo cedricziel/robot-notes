@@ -6,8 +6,6 @@ import 'package:shared/shared.dart';
 const String _healthzPath = '/healthz';
 const String _wsPath = '/ws';
 final RegExp _onboardingPath = RegExp(r'^/invites/[^/]+/onboarding\.txt$');
-const String _wellKnownProtectedResourceMcpPath =
-    '${Routes.wellKnownProtectedResource}/mcp';
 
 /// Builds a Dart Frog [Middleware] that enforces a single configured bearer
 /// key on every request except a fixed set of unauthenticated paths (see
@@ -67,7 +65,7 @@ bool _isExempt(Request request) {
           path == _wsPath ||
           _onboardingPath.hasMatch(path) ||
           path == Routes.wellKnownProtectedResource ||
-          path == _wellKnownProtectedResourceMcpPath ||
+          path == Routes.wellKnownProtectedResourceMcp ||
           path == Routes.wellKnownAuthorizationServer ||
           path == Routes.oauthAuthorize;
     case HttpMethod.post:
