@@ -63,13 +63,13 @@
 
 ### 8. Rename propagation
 
-- [ ] 8.1 Write failing tests: renaming note A rewrites `[[OldTitle]]` and `[[OldTitle|Alias]]` to the new title (alias preserved) in every note that references it, incrementing their versions
-- [ ] 8.2 Implement propagation in `note_write_service.dart`'s rename path, using the title index to find referencing notes; run tests green
-- [ ] 8.3 Write failing test: a referencing note currently locked by another actor is skipped, with a logged warning, and NOT rewritten
-- [ ] 8.4 Implement the lock check before each propagated rewrite using `lock_manager.dart`; run tests green
-- [ ] 8.5 Write failing test: each propagated rewrite broadcasts its own `changed`/`updated` event
-- [ ] 8.6 Wire the broadcast call into the propagation loop; run tests green
-- [ ] 8.7 Commit: `feat(server): propagate note renames to referencing links`
+- [x] 8.1 Write failing tests: renaming note A rewrites `[[OldTitle]]` and `[[OldTitle|Alias]]` to the new title (alias preserved) in every note that references it, incrementing their versions — `server/test/src/note_write_service_rename_propagation_test.dart`
+- [x] 8.2 ~~Implement propagation in `note_write_service.dart`'s rename path, using the title index to find referencing notes~~ — uses a new companion `server/lib/src/link_index.dart` (`LinkIndex.sourcesLinkingToTitle`) rather than `MetaIndex`'s title index directly: finding "who links to title X" needs a title→*sources* reverse lookup, which is a different structure from `MetaIndex`'s title→id resolution index from task group 7 (also reused by task group 9's backlinks); run tests green
+- [x] 8.3 Write failing test: a referencing note currently locked by another actor is skipped, with a logged warning, and NOT rewritten — same test file
+- [x] 8.4 Implement the lock check before each propagated rewrite using `lock_manager.dart`; run tests green
+- [x] 8.5 Write failing test: each propagated rewrite broadcasts its own `changed`/`updated` event — same test file
+- [x] 8.6 Wire the broadcast call into the propagation loop; run tests green — each propagated rewrite goes through `NoteWriteService.update` itself, so it gets the standard broadcast for free
+- [x] 8.7 Commit: `feat(server): propagate note renames to referencing links`
 
 ### 9. Backlinks and links endpoints
 
