@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.7](https://github.com/cedricziel/robot-notes/compare/v0.1.6...v0.1.7) (2026-09-12)
+
+
+### Features
+
+* **app:** resolve OTel export config at runtime from the server ([4ace1fd](https://github.com/cedricziel/robot-notes/commit/4ace1fd58bb7dc3bbf767797505ebfd7215b32f9))
+* **server:** serve runtime OTel export config at GET /otel-config ([62f9310](https://github.com/cedricziel/robot-notes/commit/62f9310b752efe5f7332971366070f87557ecbbb))
+
+
+### Bug Fixes
+
+* **server:** Vary: Accept on dual-use API/web paths ([#129](https://github.com/cedricziel/robot-notes/issues/129)) ([d27f09c](https://github.com/cedricziel/robot-notes/commit/d27f09c5f456db28184992eb897e678f55d2d71d))
+
 ## [0.1.6](https://github.com/cedricziel/robot-notes/compare/v0.1.5...v0.1.6) (2026-09-12)
 
 
