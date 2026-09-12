@@ -13,6 +13,8 @@ import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/oidc/discovery.dart';
+import 'package:server/src/oidc/jwks.dart';
+import 'package:server/src/oidc/pending_login_store.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
@@ -43,8 +45,11 @@ class AppDeps {
     required this.presence,
     required this.clock,
     this.oidcDiscovery,
+    this.oidcJwks,
+    PendingLoginStore? pendingLoginStore,
     NoteWriteService? noteWriteService,
-  }) : noteWriteService = noteWriteService ??
+  })  : pendingLoginStore = pendingLoginStore ?? PendingLoginStore(),
+        noteWriteService = noteWriteService ??
             NoteWriteService(
               storage: storage,
               metaIndex: metaIndex,
@@ -114,10 +119,15 @@ class AppDeps {
     );
 
     OidcDiscoveryDocument? oidcDiscovery;
+    JwksCache? oidcJwks;
     final oidcConfig = config.oidc;
     if (oidcConfig != null) {
       oidcDiscovery = await fetchOidcDiscovery(
         oidcConfig.issuer,
+        httpGet: oidcHttpGet,
+      );
+      oidcJwks = JwksCache(
+        jwksUri: oidcDiscovery.jwksUri,
         httpGet: oidcHttpGet,
       );
       log.info('Resolved OIDC discovery document from ${oidcConfig.issuer}');
@@ -137,6 +147,8 @@ class AppDeps {
       presence: PresenceTracker(),
       clock: clock,
       oidcDiscovery: oidcDiscovery,
+      oidcJwks: oidcJwks,
+      pendingLoginStore: PendingLoginStore(clock: clock),
     );
   }
 
@@ -181,6 +193,14 @@ class AppDeps {
   /// The configured OIDC issuer's resolved discovery document, or `null`
   /// when OIDC login is not configured (`config.oidc == null`).
   final OidcDiscoveryDocument? oidcDiscovery;
+
+  /// A cache of the configured OIDC issuer's JWKS document, or `null`
+  /// when OIDC login is not configured. Shared across every ID-token
+  /// verification so the JWKS document is not refetched per callback.
+  final JwksCache? oidcJwks;
+
+  /// Process-local store of in-flight OIDC logins, keyed by `state`.
+  final PendingLoginStore pendingLoginStore;
 
   /// Orchestrates filesystem + search + meta + broadcast on every note
   /// write, so the routes don't have to remember the dependency order.

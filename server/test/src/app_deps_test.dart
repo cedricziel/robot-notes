@@ -246,6 +246,27 @@ void main() {
         );
       });
 
+      test('a JWKS cache pointed at the discovered jwks_uri is exposed',
+          () async {
+        final deps = await AppDeps.bootstrap(
+          oidcConfig(tmp),
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+          oidcHttpGet: fakeDiscovery,
+        );
+        addTearDown(deps.close);
+        expect(deps.oidcJwks, isNotNull);
+        expect(deps.oidcJwks!.jwksUri, 'https://idp.example.com/jwks.json');
+      });
+
+      test('the JWKS cache is null when OIDC is not configured', () async {
+        final deps = await AppDeps.bootstrap(
+          _config(tmp),
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+        );
+        addTearDown(deps.close);
+        expect(deps.oidcJwks, isNull);
+      });
+
       test('a discovery failure fails bootstrap', () async {
         await expectLater(
           AppDeps.bootstrap(

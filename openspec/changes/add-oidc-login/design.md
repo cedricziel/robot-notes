@@ -97,15 +97,27 @@ Alternatives considered:
 ### 4. The app's own OAuth client is minimal and desktop/web only
 
 The Flutter app registers itself once via DCR and runs the standard
-authorization-code+PKCE flow against its own server. On web, the redirect is
-same-origin (the server serves the Flutter web bundle), so the callback page
-just needs to hand the resulting code back to the running app instance. On
-desktop, the app opens the system browser and listens on an ephemeral
-loopback port (`http://127.0.0.1:<port>/callback`) for the redirect — a
-already-legal `redirect_uri` under the existing DCR validation. No new
-Flutter dependency is needed for either case (a bound `HttpServer` covers the
-loopback listener; `url_launcher`, already a dependency, opens the system
-browser).
+authorization-code+PKCE flow against its own server. On desktop, the app
+opens the system browser and listens on an ephemeral loopback port
+(`http://127.0.0.1:<port>/callback`) for the redirect — an already-legal
+`redirect_uri` under the existing DCR validation; a bound `HttpServer`
+(`dart:io`, already available) covers the listener, and the new
+`url_launcher` dependency opens the system browser (verified against
+`app/pubspec.yaml` — it was **not** already a dependency, correcting an
+earlier assumption in this document).
+
+On web, the redirect is same-origin (the app's own root, since the server
+serves the Flutter web bundle) — but it is still a real browser navigation
+away from and back to the app, which clears in-memory Dart state. The app
+persists the PKCE verifier and expected `state` to secure storage
+immediately before redirecting; on load, it checks `Uri.base` for
+`code`/`state`, and if present, resumes and completes the exchange using
+the persisted verifier, then clears both the URL and the temporary
+storage entry. This trades a page reload for staying pure Dart — no
+popup/`postMessage` JS interop, which would preserve in-memory state but
+is materially harder to exercise in `flutter test`. The new `crypto`
+dependency computes the PKCE `S256` challenge client-side (mirroring the
+server's own `pkce.dart`).
 
 ### 5. `X-Actor` for OAuth sessions comes from the grant, not the header
 

@@ -77,6 +77,7 @@ class IssuedTokens {
     required this.refreshToken,
     required this.expiresIn,
     required this.scopes,
+    required this.actor,
   });
 
   /// Raw bearer credential for `/mcp`.
@@ -92,6 +93,10 @@ class IssuedTokens {
 
   /// Scopes granted to both tokens.
   final Set<String> scopes;
+
+  /// The grant's recorded actor, echoed in the token response so a
+  /// human-facing client can learn who it just authenticated as.
+  final String actor;
 }
 
 /// Filesystem-backed store of hashed OAuth access and refresh tokens.
@@ -222,6 +227,7 @@ class TokenStore {
       refreshToken: rawRefresh,
       expiresIn: accessTtl.inSeconds,
       scopes: scopes,
+      actor: actor,
     );
   }
 

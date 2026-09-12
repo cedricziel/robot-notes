@@ -12,6 +12,8 @@ abstract final class Routes {
   static const String oauthAuthorize = '/oauth/authorize';
   static const String oauthToken = '/oauth/token';
   static const String oauthRevoke = '/oauth/revoke';
+  static const String oauthOidcLogin = '/oauth/oidc/login';
+  static const String oauthOidcCallback = '/oauth/oidc/callback';
   static const String wellKnownProtectedResource =
       '/.well-known/oauth-protected-resource';
   static const String wellKnownProtectedResourceMcp =

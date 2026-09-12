@@ -109,7 +109,9 @@ bool _isExempt(Request request) {
           path == Routes.wellKnownProtectedResource ||
           path == Routes.wellKnownProtectedResourceMcp ||
           path == Routes.wellKnownAuthorizationServer ||
-          path == Routes.oauthAuthorize;
+          path == Routes.oauthAuthorize ||
+          path == Routes.oauthOidcLogin ||
+          path == Routes.oauthOidcCallback;
     case HttpMethod.post:
       return path == Routes.oauthRegister ||
           path == Routes.oauthAuthorize ||

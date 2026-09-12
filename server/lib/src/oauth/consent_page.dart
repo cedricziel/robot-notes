@@ -64,9 +64,15 @@ const HtmlEscape _esc = HtmlEscape(HtmlEscapeMode.attribute);
 
 /// Renders the OAuth consent form for [params] as a self-contained HTML
 /// document: no external resources, no JavaScript, every interpolated
-/// value escaped. When [errorMessage] is set (a failed API key check), an
-/// error banner is shown above the form.
-String renderConsentPage(ConsentPageParams params, {String? errorMessage}) {
+/// value escaped. When [errorMessage] is set (a failed API key check, or
+/// a failed OIDC login), an error banner is shown above the form. When
+/// [oidcConfigured] is `true`, the identity-proving step is a sign-in
+/// link to the OIDC login flow instead of the `api_key` form field.
+String renderConsentPage(
+  ConsentPageParams params, {
+  String? errorMessage,
+  bool oidcConfigured = false,
+}) {
   final scopeItems = (params.scopes.toList()..sort())
       .map(
         (scope) => '<li><code>${_esc.convert(scope)}</code> — '
@@ -78,18 +84,10 @@ String renderConsentPage(ConsentPageParams params, {String? errorMessage}) {
       ? ''
       : '<p class="error">${_esc.convert(errorMessage)}</p>';
 
-  final hiddenFields = [
-    _hidden('client_id', params.clientId),
-    _hidden('redirect_uri', params.redirectUri),
-    _hidden('response_type', params.responseType),
-    _hidden('code_challenge', params.codeChallenge),
-    _hidden('code_challenge_method', params.codeChallengeMethod),
-    _hidden('state', params.state),
-    _hidden('scope', (params.scopes.toList()..sort()).join(' ')),
-    _hidden('resource', params.resource),
-  ].join();
-
   final clientName = _esc.convert(params.clientName);
+
+  final identityStep =
+      oidcConfigured ? _signInLink(params) : _apiKeyForm(params, clientName);
 
   return '''
 <!doctype html>
@@ -102,7 +100,7 @@ String renderConsentPage(ConsentPageParams params, {String? errorMessage}) {
   .error { color: #b00020; }
   label { display: block; margin-top: 1rem; }
   input[type=password], input[type=text] { width: 100%; padding: .4rem; box-sizing: border-box; }
-  button { margin-top: 1.5rem; padding: .5rem 1rem; }
+  button, .sign-in { margin-top: 1.5rem; padding: .5rem 1rem; }
 </style>
 </head>
 <body>
@@ -110,6 +108,25 @@ String renderConsentPage(ConsentPageParams params, {String? errorMessage}) {
 $errorBanner
 <p>This will grant:</p>
 <ul>$scopeItems</ul>
+$identityStep
+</body>
+</html>
+''';
+}
+
+String _apiKeyForm(ConsentPageParams params, String clientName) {
+  final hiddenFields = [
+    _hidden('client_id', params.clientId),
+    _hidden('redirect_uri', params.redirectUri),
+    _hidden('response_type', params.responseType),
+    _hidden('code_challenge', params.codeChallenge),
+    _hidden('code_challenge_method', params.codeChallengeMethod),
+    _hidden('state', params.state),
+    _hidden('scope', (params.scopes.toList()..sort()).join(' ')),
+    _hidden('resource', params.resource),
+  ].join();
+
+  return '''
 <form method="post" action="${Routes.oauthAuthorize}">
 $hiddenFields
 <label for="api_key">Workspace API key</label>
@@ -118,9 +135,29 @@ $hiddenFields
 <input id="actor" type="text" name="actor" value="$clientName">
 <button type="submit">Authorize</button>
 </form>
-</body>
-</html>
 ''';
+}
+
+String _signInLink(ConsentPageParams params) {
+  final queryParams = <String, String>{
+    'client_id': params.clientId,
+    'redirect_uri': params.redirectUri,
+    'response_type': params.responseType,
+    'code_challenge': params.codeChallenge,
+    'code_challenge_method': params.codeChallengeMethod,
+    'scope': (params.scopes.toList()..sort()).join(' '),
+    if (params.resource != null) 'resource': params.resource!,
+    if (params.state != null) 'state': params.state!,
+  };
+  final query = queryParams.entries
+      .map(
+        (e) => '${Uri.encodeQueryComponent(e.key)}='
+            '${Uri.encodeQueryComponent(e.value)}',
+      )
+      .join('&');
+  final href = _esc.convert('${Routes.oauthOidcLogin}?$query');
+  return '<p><a class="sign-in" href="$href">Sign in with your identity '
+      'provider</a></p>';
 }
 
 String _hidden(String name, String? value) => value == null

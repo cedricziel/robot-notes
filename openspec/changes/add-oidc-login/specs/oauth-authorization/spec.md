@@ -115,3 +115,76 @@ An access token SHALL be accepted as a bearer credential only when it exists, is
 
 - **WHEN** a token issued for resource `<base>` is presented at `/mcp`
 - **THEN** the response SHALL be 401
+
+### Requirement: Token endpoint exchanges codes with PKCE verification
+
+`POST /oauth/token` SHALL accept `application/x-www-form-urlencoded` and SHALL be served without bearer authentication. Client authentication SHALL follow the client's registered method: `none` requires `client_id` in the body; `client_secret_post` requires `client_id` and `client_secret` in the body; `client_secret_basic` requires HTTP Basic credentials. A failed client authentication SHALL respond 401 `{ "error": "invalid_client" }`. Grant-type errors SHALL be evaluated in this order: a missing `grant_type` yields 400 `{ "error": "invalid_request" }`; a `grant_type` the server does not support yields 400 `{ "error": "unsupported_grant_type" }`; a supported `grant_type` absent from the client's registered `grant_types` yields 400 `{ "error": "unauthorized_client" }`. Additionally, and `refresh_token` SHALL be omitted from the response when the client's registered `grant_types` lacks `refresh_token`. For `grant_type=authorization_code` the server SHALL require `code`, `redirect_uri`, and `code_verifier`, and SHALL reject with 400 `{ "error": "invalid_grant" }` when the code is unknown, expired, already used, issued to a different client, bound to a different `redirect_uri`, when `BASE64URL(SHA256(code_verifier))` differs from the bound `code_challenge`, or when a supplied `resource` differs from the bound one. Reuse of an already-consumed code SHALL additionally revoke every token issued from that code. Success SHALL respond 200 with `Cache-Control: no-store` and JSON `{ access_token, token_type: "Bearer", expires_in: 3600, refresh_token, scope, actor }`, where both tokens are opaque with at least 256 bits of entropy and `actor` is the grant's recorded actor (the same value the `auth` capability uses to attribute `changed`/lock/presence events for this token) — this lets a human-facing client (the app's own OIDC sign-in) learn and display the identity it just authenticated as, without a separate endpoint. Missing parameters SHALL yield 400 `{ "error": "invalid_request" }`; unknown `grant_type` SHALL yield 400 `{ "error": "unsupported_grant_type" }`.
+
+#### Scenario: Successful exchange
+
+- **WHEN** a public client posts `grant_type=authorization_code` with a fresh code, the matching `redirect_uri`, `client_id`, and the correct `code_verifier`
+- **THEN** the response SHALL be 200 with `token_type == "Bearer"`, `expires_in == 3600`, a `refresh_token`, `scope == "notes:read notes:write"`, an `actor` field, and header `Cache-Control: no-store`
+
+#### Scenario: actor reflects the grant's recorded identity
+
+- **WHEN** the underlying code was minted with actor `"Alice Example"` (whether from a form's `actor` field or a verified OIDC identity)
+- **THEN** the token response SHALL include `"actor": "Alice Example"`
+
+#### Scenario: Wrong verifier
+
+- **WHEN** the exchange is posted with an incorrect `code_verifier`
+- **THEN** the response SHALL be 400 with `error == "invalid_grant"`
+
+#### Scenario: Code reuse revokes the grant
+
+- **WHEN** a code that was already exchanged is posted again
+- **THEN** the response SHALL be 400 with `error == "invalid_grant"` and the access token from the first exchange SHALL thereafter be rejected at `/mcp` with 401
+
+#### Scenario: Expired code
+
+- **WHEN** a code minted more than 10 minutes ago is posted
+- **THEN** the response SHALL be 400 with `error == "invalid_grant"`
+
+#### Scenario: Confidential client with wrong secret
+
+- **WHEN** a `client_secret_post` client posts the exchange with a wrong `client_secret`
+- **THEN** the response SHALL be 401 with `error == "invalid_client"`
+
+#### Scenario: Missing grant type
+
+- **WHEN** a client posts to the token endpoint without `grant_type`
+- **THEN** the response SHALL be 400 with `error == "invalid_request"`
+
+#### Scenario: Grant type not registered for the client
+
+- **WHEN** a client registered with `grant_types: ["authorization_code"]` posts `grant_type=refresh_token`
+- **THEN** the response SHALL be 400 with `error == "unauthorized_client"`
+
+#### Scenario: No refresh token for clients without the refresh grant
+
+- **WHEN** a client registered with `grant_types: ["authorization_code"]` exchanges a code
+- **THEN** the response SHALL be 200 without a `refresh_token` field
+
+#### Scenario: Unsupported grant type
+
+- **WHEN** a client posts `grant_type=password`
+- **THEN** the response SHALL be 400 with `error == "unsupported_grant_type"`
+
+### Requirement: Refresh tokens rotate and detect reuse
+
+For `grant_type=refresh_token` the server SHALL require `refresh_token` and client authentication as above. A refresh token SHALL be valid for 30 days from issue. A valid refresh SHALL issue a new access token and a new refresh token, invalidate the presented refresh token, and respond with the same JSON shape as the code exchange (including `actor`). `scope` MAY narrow but SHALL NOT widen the grant's scope set; widening SHALL yield 400 `{ "error": "invalid_scope" }`. Presenting an unknown, expired, revoked, or already-rotated refresh token SHALL yield 400 `{ "error": "invalid_grant" }`; an already-rotated token SHALL additionally revoke every token in that grant.
+
+#### Scenario: Refresh rotates
+
+- **WHEN** a client posts a valid `refresh_token`
+- **THEN** the response SHALL contain a new `access_token`, the grant's `actor`, and a `refresh_token` different from the presented one, and the presented refresh token SHALL be rejected on a subsequent refresh
+
+#### Scenario: Rotated token reuse revokes the family
+
+- **WHEN** a client refreshes twice with the same original refresh token
+- **THEN** the second call SHALL respond 400 `invalid_grant` and the access token issued by the first refresh SHALL be rejected at `/mcp`
+
+#### Scenario: Scope cannot widen
+
+- **WHEN** a grant holds `notes:read` only and the refresh request asks for `scope=notes:read notes:write`
+- **THEN** the response SHALL be 400 with `error == "invalid_scope"`

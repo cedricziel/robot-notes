@@ -10,12 +10,13 @@ class _MockRequestContext extends Mock implements RequestContext {}
 
 class _MockRequest extends Mock implements Request {}
 
-Config _config({String? publicUrl}) => Config(
+Config _config({String? publicUrl, OidcConfig? oidc}) => Config(
       apiKey: 'rn_test',
       dataDir: '/tmp',
       port: 8080,
       lockTtlSeconds: 60,
       publicUrl: publicUrl,
+      oidc: oidc,
     );
 
 RequestContext _ctx({
@@ -112,6 +113,25 @@ void main() {
         ['none', 'client_secret_post', 'client_secret_basic'],
       );
       expect(body['scopes_supported'], ['notes:read', 'notes:write']);
+      expect(body.containsKey('robotnotes_oidc_login_supported'), isFalse);
+    });
+
+    test('advertises robotnotes_oidc_login_supported when OIDC is configured',
+        () async {
+      final ctx = _ctx(
+        path: '/.well-known/oauth-authorization-server',
+        config: _config(
+          oidc: const OidcConfig(
+            issuer: 'https://idp.example.com',
+            clientId: 'robot-notes',
+            clientSecret: 'shh',
+          ),
+        ),
+      );
+      final response = await _run(wellKnownMiddleware(), ctx);
+
+      final body = await response.json() as Map<String, dynamic>;
+      expect(body['robotnotes_oidc_login_supported'], isTrue);
     });
 
     test('authorization-server metadata is not cacheable', () async {

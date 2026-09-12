@@ -13,6 +13,10 @@ import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/token_store.dart';
+import 'package:server/src/oidc/discovery.dart';
+import 'package:server/src/oidc/jwks.dart';
+import 'package:server/src/oidc/pending_login_store.dart';
+import 'package:server/src/oidc/token_exchange.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/static_web_middleware.dart';
 import 'package:server/src/storage.dart';
@@ -71,6 +75,10 @@ Handler middleware(Handler handler) {
           .use(provider<CodeStore>((_) => deps.codeStore))
           .use(provider<TokenStore>((_) => deps.tokenStore))
           .use(provider<ConsentThrottle>((_) => deps.consentThrottle))
+          .use(provider<PendingLoginStore>((_) => deps.pendingLoginStore))
+          .use(provider<OidcDiscoveryDocument?>((_) => deps.oidcDiscovery))
+          .use(provider<JwksCache?>((_) => deps.oidcJwks))
+          .use(provider<HttpPostForm>((_) => httpPostFormViaHttpClient))
           .use(provider<MetaIndex>((_) => deps.metaIndex))
           .use(provider<NoteWriteService>((_) => deps.noteWriteService))
           .use(provider<Storage>((_) => deps.storage))

@@ -166,6 +166,39 @@ void main() {
       expect(json['expires_in'], 3600);
       expect(json['refresh_token'], isNotEmpty);
       expect(json['scope'], 'notes:read notes:write');
+      expect(json['actor'], 'desk-assistant');
+    });
+
+    test('actor reflects the grant recorded actor from a custom mint',
+        () async {
+      final client = await registerPublic();
+      final code = await codeStore.mint(
+        clientId: client.client.clientId,
+        redirectUri: 'https://agent.example/callback',
+        codeChallenge: pkceS256Challenge(_verifier),
+        scopes: const {'notes:read', 'notes:write'},
+        resource: _resource,
+        actor: 'Alice Example',
+        grantId: 'grant-actor-test',
+      );
+
+      final res = await route.onRequest(
+        _ctx(
+          clientStore: clientStore,
+          codeStore: codeStore,
+          tokenStore: tokenStore,
+          formBody: _formEncode({
+            'grant_type': 'authorization_code',
+            'client_id': client.client.clientId,
+            'code': code,
+            'redirect_uri': 'https://agent.example/callback',
+            'code_verifier': _verifier,
+          }),
+        ),
+      );
+
+      final json = await res.json() as Map<String, dynamic>;
+      expect(json['actor'], 'Alice Example');
     });
 
     test('wrong verifier is rejected', () async {
@@ -725,6 +758,7 @@ void main() {
       final json = await res.json() as Map<String, dynamic>;
       expect(json['access_token'], isNot(first['access_token']));
       expect(json['refresh_token'], isNot(first['refresh_token']));
+      expect(json['actor'], 'desk-assistant');
 
       final reused = await route.onRequest(
         _ctx(

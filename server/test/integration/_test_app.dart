@@ -22,6 +22,10 @@ import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/token_store.dart';
+import 'package:server/src/oidc/discovery.dart';
+import 'package:server/src/oidc/jwks.dart';
+import 'package:server/src/oidc/pending_login_store.dart';
+import 'package:server/src/oidc/token_exchange.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/well_known_middleware.dart';
@@ -39,6 +43,8 @@ import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
 import '../../routes/notes/index.dart' as notes_index_route;
 import '../../routes/oauth/authorize.dart' as oauth_authorize_route;
+import '../../routes/oauth/oidc/callback.dart' as oauth_oidc_callback_route;
+import '../../routes/oauth/oidc/login.dart' as oauth_oidc_login_route;
 import '../../routes/oauth/register.dart' as oauth_register_route;
 import '../../routes/oauth/revoke.dart' as oauth_revoke_route;
 import '../../routes/oauth/token.dart' as oauth_token_route;
@@ -55,6 +61,7 @@ import '../../routes/ws.dart' as ws_route;
 Future<HttpServer> startTestServer({
   required AppDeps deps,
   required Config config,
+  HttpPostForm httpPostForm = httpPostFormViaHttpClient,
 }) {
   // Unlike the `.use()` chain in routes/_middleware.dart (where the last
   // `.use` is outermost), shelf's Pipeline runs the first-added middleware
@@ -76,6 +83,14 @@ Future<HttpServer> startTestServer({
       .addMiddleware(provider<ClientStore>((_) => deps.clientStore))
       .addMiddleware(provider<CodeStore>((_) => deps.codeStore))
       .addMiddleware(provider<ConsentThrottle>((_) => deps.consentThrottle))
+      .addMiddleware(
+        provider<PendingLoginStore>((_) => deps.pendingLoginStore),
+      )
+      .addMiddleware(
+        provider<OidcDiscoveryDocument?>((_) => deps.oidcDiscovery),
+      )
+      .addMiddleware(provider<JwksCache?>((_) => deps.oidcJwks))
+      .addMiddleware(provider<HttpPostForm>((_) => httpPostForm))
       .addMiddleware(provider<MetaIndex>((_) => deps.metaIndex))
       .addMiddleware(provider<NoteWriteService>((_) => deps.noteWriteService))
       .addMiddleware(provider<Storage>((_) => deps.storage))
@@ -107,6 +122,8 @@ Future<HttpServer> startTestServer({
     ..all('/mcp', mcpHandler)
     ..all('/oauth/register', oauth_register_route.onRequest)
     ..all('/oauth/authorize', oauth_authorize_route.onRequest)
+    ..all('/oauth/oidc/login', oauth_oidc_login_route.onRequest)
+    ..all('/oauth/oidc/callback', oauth_oidc_callback_route.onRequest)
     ..all('/oauth/token', oauth_token_route.onRequest)
     ..all('/oauth/revoke', oauth_revoke_route.onRequest)
     ..all('/', root_index.onRequest);
@@ -149,11 +166,16 @@ class TestApp {
   final Config config;
   final Directory tmpDir;
 
-  /// Spins up a test app rooted at a fresh temp directory.
+  /// Spins up a test app rooted at a fresh temp directory. [oidcConfig],
+  /// [oidcHttpGet], and [httpPostForm] let a test wire in a stub OIDC
+  /// provider instead of making real network calls.
   static Future<TestApp> start({
     String apiKey = 'integration-key',
     int lockTtlSeconds = 60,
     Clock? clock,
+    OidcConfig? oidcConfig,
+    HttpGet oidcHttpGet = httpGetViaHttpClient,
+    HttpPostForm httpPostForm = httpPostFormViaHttpClient,
   }) async {
     final tmpDir =
         Directory.systemTemp.createTempSync('robot-notes-integration-');
@@ -162,12 +184,18 @@ class TestApp {
       dataDir: tmpDir.path,
       port: 0,
       lockTtlSeconds: lockTtlSeconds,
+      oidc: oidcConfig,
     );
     final deps = await AppDeps.bootstrap(
       config,
       clock: clock ?? const Clock(),
+      oidcHttpGet: oidcHttpGet,
     );
-    final server = await startTestServer(deps: deps, config: config);
+    final server = await startTestServer(
+      deps: deps,
+      config: config,
+      httpPostForm: httpPostForm,
+    );
     return TestApp._(server, deps, config, tmpDir);
   }
 

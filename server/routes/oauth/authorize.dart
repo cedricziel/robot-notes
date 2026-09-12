@@ -1,25 +1,14 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/constant_time.dart';
-import 'package:server/src/oauth/client_store.dart';
-import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/authorize_request.dart';
 import 'package:server/src/oauth/consent_page.dart';
 import 'package:server/src/oauth/consent_throttle.dart';
+import 'package:server/src/oauth/error_page.dart';
 import 'package:server/src/oauth/form_body.dart';
-import 'package:server/src/oauth/metadata.dart';
-import 'package:server/src/oauth/oauth_crypto.dart';
 import 'package:server/src/oauth/oauth_records.dart';
-import 'package:server/src/public_url.dart';
-
-/// Byte length for a minted `grant_id`: not a secret (it is stored
-/// plaintext alongside codes and tokens to link a family for revocation),
-/// but unpredictable so grant families cannot be enumerated.
-const int _kGrantIdBytes = 16;
-
-final Random _secureRandom = Random.secure();
 
 /// `GET  /oauth/authorize` — validates the request and renders the
 /// consent page.
@@ -48,14 +37,16 @@ Future<Response> _get(RequestContext context) async {
   try {
     params = context.request.uri.queryParameters;
   } on FormatException {
-    return _errorPage('Malformed query string.');
+    return oauthErrorPage('Malformed query string.');
   }
-  final validation = await _validate(context, params);
+  final validation = await validateAuthorizeRequest(context, params);
   return switch (validation) {
-    _ClientError(:final message) => _errorPage(message),
-    _RedirectError(:final redirectUri, :final error, :final state) =>
+    AuthorizeClientError(:final message) => oauthErrorPage(message),
+    AuthorizeRedirectError(:final redirectUri, :final error, :final state) =>
       _redirectWithError(redirectUri, error: error, state: state),
-    _Valid(:final client, :final redirectUri, :final scopes) => _renderConsent(
+    AuthorizeValid(:final client, :final redirectUri, :final scopes) =>
+      _renderConsent(
+        context: context,
         client: client,
         redirectUri: redirectUri,
         params: params,
@@ -69,30 +60,34 @@ Future<Response> _post(RequestContext context) async {
   try {
     form = await parseFormBody(context.request);
   } on UnsupportedFormContentTypeException {
-    return _errorPage(
+    return oauthErrorPage(
       'Request body must be application/x-www-form-urlencoded.',
     );
   } on MalformedFormBodyException {
-    return _errorPage('Malformed request body.');
+    return oauthErrorPage('Malformed request body.');
   }
 
-  final validation = await _validate(context, form);
+  final validation = await validateAuthorizeRequest(context, form);
   return switch (validation) {
-    _ClientError(:final message) => _errorPage(message),
-    _RedirectError(:final redirectUri, :final error, :final state) =>
+    AuthorizeClientError(:final message) => oauthErrorPage(message),
+    AuthorizeRedirectError(:final redirectUri, :final error, :final state) =>
       _redirectWithError(redirectUri, error: error, state: state),
-    final _Valid valid => _submitConsent(context, valid: valid, form: form),
+    final AuthorizeValid valid => _submitConsent(
+        context,
+        valid: valid,
+        form: form,
+      ),
   };
 }
 
 Future<Response> _submitConsent(
   RequestContext context, {
-  required _Valid valid,
+  required AuthorizeValid valid,
   required Map<String, String> form,
 }) async {
   final throttle = context.read<ConsentThrottle>();
   if (throttle.isBlocked) {
-    return _errorPage(
+    return oauthErrorPage(
       'Too many failed attempts. Try again later.',
       statusCode: HttpStatus.tooManyRequests,
     );
@@ -103,6 +98,7 @@ Future<Response> _submitConsent(
   if (!constantTimeEquals(config.apiKey, apiKey)) {
     throttle.recordFailure(valid.client.clientId);
     return _renderConsent(
+      context: context,
       client: valid.client,
       redirectUri: valid.redirectUri,
       params: form,
@@ -117,29 +113,19 @@ Future<Response> _submitConsent(
       ? actorRaw
       : (clientName.isNotEmpty ? clientName : 'mcp-client');
 
-  final code = await context.read<CodeStore>().mint(
-        clientId: valid.client.clientId,
-        redirectUri: valid.redirectUri,
-        codeChallenge: valid.codeChallenge,
-        scopes: valid.scopes,
-        resource: valid.resource,
-        actor: actor,
-        grantId: generateRandomToken(_secureRandom, _kGrantIdBytes),
-      );
-
-  final base = publicBaseUrl(context);
-  final location = _appendQuery(valid.redirectUri, {
-    'code': code,
-    'iss': base,
-    if (valid.state != null) 'state': valid.state!,
-  });
+  final location = await mintAuthorizationCodeRedirect(
+    context,
+    valid: valid,
+    actor: actor,
+  );
   return Response(
     statusCode: HttpStatus.found,
-    headers: {HttpHeaders.locationHeader: location.toString()},
+    headers: {HttpHeaders.locationHeader: location},
   );
 }
 
 Response _renderConsent({
+  required RequestContext context,
   required OAuthClient client,
   required String redirectUri,
   required Map<String, String> params,
@@ -159,198 +145,25 @@ Response _renderConsent({
       resource: params['resource'],
     ),
     errorMessage: errorMessage,
+    oidcConfigured: context.read<Config>().oidc != null,
   );
   return Response(
     body: html,
-    headers: _kConsentPageHeaders,
+    headers: kOAuthHtmlHeaders,
   );
 }
-
-Response _errorPage(
-  String message, {
-  int statusCode = HttpStatus.badRequest,
-}) =>
-    Response(
-      statusCode: statusCode,
-      body:
-          '<!doctype html><html lang="en"><body><p>$message</p></body></html>',
-      headers: _kConsentPageHeaders,
-    );
-
-const Map<String, String> _kConsentPageHeaders = {
-  HttpHeaders.contentTypeHeader: 'text/html; charset=utf-8',
-  // No form-action: browsers apply it to the redirect that follows the
-  // submission, which would block the 302 to the client's callback.
-  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
-  'X-Frame-Options': 'DENY',
-  HttpHeaders.cacheControlHeader: 'no-store',
-};
 
 Response _redirectWithError(
   String redirectUri, {
   required String error,
   String? state,
 }) {
-  final location = _appendQuery(redirectUri, {
+  final location = appendQuery(redirectUri, {
     'error': error,
     if (state != null) 'state': state,
   });
   return Response(
     statusCode: HttpStatus.found,
     headers: {HttpHeaders.locationHeader: location.toString()},
-  );
-}
-
-// Built by hand rather than via `Uri.replace(queryParameters: ...)`: that
-// constructor rebuilds the query from `base.queryParameters`, which
-// collapses a repeated key to its last value and re-encodes with
-// `Uri.encodeQueryComponent` (space -> `+`) instead of the `%20` form
-// expected of a URL fragment appended to an opaque, client-controlled
-// query string. Concatenating the raw query verbatim and appending only
-// the new parameters keeps every existing key (duplicates included) and
-// uses `Uri.encodeComponent` (space -> `%20`) for the ones we add.
-Uri _appendQuery(String uri, Map<String, String> extra) {
-  final base = Uri.parse(uri);
-  final added = extra.entries
-      .map(
-        (e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}',
-      )
-      .join('&');
-  final query = base.query.isEmpty ? added : '${base.query}&$added';
-  return base.replace(query: query);
-}
-
-/// Outcome of validating an authorization request, shared by the GET and
-/// POST handlers.
-sealed class _Validation {
-  const _Validation();
-}
-
-/// `client_id` is unknown, or `redirect_uri` was not registered for it:
-/// the server cannot safely redirect, so it renders an HTML error page.
-final class _ClientError extends _Validation {
-  const _ClientError(this.message);
-  final String message;
-}
-
-/// The client and redirect URI are known; a later check failed. Reported
-/// via redirect, per the OAuth authorization-error convention.
-final class _RedirectError extends _Validation {
-  const _RedirectError({
-    required this.redirectUri,
-    required this.error,
-    required this.state,
-  });
-  final String redirectUri;
-  final String error;
-  final String? state;
-}
-
-/// Every check passed.
-final class _Valid extends _Validation {
-  const _Valid({
-    required this.client,
-    required this.redirectUri,
-    required this.codeChallenge,
-    required this.scopes,
-    required this.resource,
-    required this.state,
-  });
-  final OAuthClient client;
-  final String redirectUri;
-  final String codeChallenge;
-  final Set<String> scopes;
-  final String resource;
-  final String? state;
-}
-
-Future<_Validation> _validate(
-  RequestContext context,
-  Map<String, String> params,
-) async {
-  final clientId = params['client_id'];
-  final redirectUri = params['redirect_uri'];
-  if (clientId == null || redirectUri == null) {
-    return const _ClientError('client_id and redirect_uri are required.');
-  }
-
-  // Both failures render the same generic message: distinguishing them
-  // would let a caller enumerate valid client ids by observing which
-  // wording comes back.
-  const clientOrRedirectError =
-      _ClientError('Unknown client_id or unregistered redirect_uri.');
-  final client = await context.read<ClientStore>().get(clientId);
-  if (client == null) {
-    return clientOrRedirectError;
-  }
-  if (!client.redirectUris.contains(redirectUri)) {
-    return clientOrRedirectError;
-  }
-
-  final state = params['state'];
-
-  if (params['response_type'] != 'code') {
-    return _RedirectError(
-      redirectUri: redirectUri,
-      error: 'unsupported_response_type',
-      state: state,
-    );
-  }
-
-  if (!client.responseTypes.contains('code')) {
-    return _RedirectError(
-      redirectUri: redirectUri,
-      error: 'unauthorized_client',
-      state: state,
-    );
-  }
-
-  final codeChallenge = params['code_challenge'];
-  if (codeChallenge == null ||
-      codeChallenge.isEmpty ||
-      params['code_challenge_method'] != 'S256') {
-    return _RedirectError(
-      redirectUri: redirectUri,
-      error: 'invalid_request',
-      state: state,
-    );
-  }
-
-  final scopeParam = params['scope'];
-  final requestedScopes = (scopeParam == null || scopeParam.trim().isEmpty)
-      ? kOAuthScopes.toSet()
-      : scopeParam.split(' ').where((s) => s.isNotEmpty).toSet();
-  if (requestedScopes.isEmpty ||
-      !requestedScopes.every(kOAuthScopes.contains)) {
-    return _RedirectError(
-      redirectUri: redirectUri,
-      error: 'invalid_scope',
-      state: state,
-    );
-  }
-
-  final base = publicBaseUrl(context);
-  final mcpResource = mcpResourceUrl(base);
-  final resourceParam = params['resource'];
-  final String resource;
-  if (resourceParam == null) {
-    resource = mcpResource;
-  } else if (resourceParam == mcpResource || resourceParam == base) {
-    resource = resourceParam;
-  } else {
-    return _RedirectError(
-      redirectUri: redirectUri,
-      error: 'invalid_target',
-      state: state,
-    );
-  }
-
-  return _Valid(
-    client: client,
-    redirectUri: redirectUri,
-    codeChallenge: codeChallenge,
-    scopes: requestedScopes,
-    resource: resource,
-    state: state,
   );
 }
