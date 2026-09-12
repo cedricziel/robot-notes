@@ -406,6 +406,23 @@ void main() {
     expect(json['error'], 'unsupported_grant_type');
   });
 
+  test('a missing grant_type is invalid_request', () async {
+    final client = await registerPublic();
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({'client_id': client.client.clientId}),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_request');
+  });
+
   test('a client not registered for authorization_code is unauthorized_client',
       () async {
     final client = await clientStore.register(

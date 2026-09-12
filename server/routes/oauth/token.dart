@@ -27,6 +27,9 @@ Future<Response> onRequest(RequestContext context) async {
   }
 
   final grantType = form['grant_type'];
+  if (grantType == null || grantType.isEmpty) {
+    return oauthError(HttpStatus.badRequest, 'invalid_request');
+  }
   if (grantType != 'authorization_code' && grantType != 'refresh_token') {
     return oauthError(HttpStatus.badRequest, 'unsupported_grant_type');
   }
