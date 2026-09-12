@@ -512,5 +512,128 @@ void main() {
         expect(ctrl.value.lock, isNull);
       },
     );
+
+    group('delete', () {
+      /// Answers the load, the lock choreography, and `DELETE /notes/01H`
+      /// with [deleteStatus]; records every request in [calls].
+      MockClient deleteMock(List<String> calls, {int deleteStatus = 204}) {
+        return MockClient((request) async {
+          calls.add('${request.method} ${request.url.path}');
+          final path = request.url.path;
+          if (request.method == 'GET' && path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          if (request.method == 'POST' && path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.method == 'DELETE' && path == '/notes/01H/lock') {
+            return http.Response('', 204);
+          }
+          if (request.method == 'DELETE' && path == '/notes/01H') {
+            return http.Response('', deleteStatus);
+          }
+          return http.Response('unexpected $path', 500);
+        });
+      }
+
+      NoteController controller(MockClient mock) {
+        final ctrl = NoteController(
+          api: RobotNotesClient(config: _config, httpClient: mock),
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+        return ctrl;
+      }
+
+      test('issues DELETE /notes/{id} and ends in the deleted state', () async {
+        final calls = <String>[];
+        final ctrl = controller(deleteMock(calls));
+
+        await ctrl.open();
+        await ctrl.delete();
+
+        expect(calls, <String>['GET /notes/01H', 'DELETE /notes/01H']);
+        expect(ctrl.value.mode, NoteMode.deleted);
+        expect(ctrl.value.error, isNull);
+      });
+
+      test('while editing releases the lock first', () async {
+        final calls = <String>[];
+        final ctrl = controller(deleteMock(calls));
+
+        await ctrl.open();
+        await ctrl.enterEditMode();
+        await ctrl.delete();
+
+        expect(calls.sublist(calls.length - 2), <String>[
+          'DELETE /notes/01H/lock',
+          'DELETE /notes/01H',
+        ]);
+        expect(ctrl.value.mode, NoteMode.deleted);
+        expect(ctrl.value.lock, isNull);
+        expect(ctrl.value.editTitle, isNull);
+        expect(ctrl.value.editContent, isNull);
+      });
+
+      test('on 404 treats the note as already deleted', () async {
+        final ctrl = controller(deleteMock(<String>[], deleteStatus: 404));
+
+        await ctrl.open();
+        await ctrl.delete();
+
+        expect(ctrl.value.mode, NoteMode.deleted);
+        expect(ctrl.value.error, isNull);
+      });
+
+      test('on 500 keeps viewing mode and sets the error', () async {
+        final ctrl = controller(deleteMock(<String>[], deleteStatus: 500));
+
+        await ctrl.open();
+        await ctrl.delete();
+
+        expect(ctrl.value.mode, NoteMode.viewing);
+        expect(ctrl.value.note?.id, '01H');
+        expect(ctrl.value.error, isA<ApiException>());
+      });
+
+      test('on 500 after releasing the lock falls back to viewing', () async {
+        final ctrl = controller(deleteMock(<String>[], deleteStatus: 500));
+
+        await ctrl.open();
+        await ctrl.enterEditMode();
+        await ctrl.delete();
+
+        expect(ctrl.value.mode, NoteMode.viewing);
+        expect(ctrl.value.lock, isNull);
+        expect(ctrl.value.editTitle, isNull);
+        expect(ctrl.value.error, isA<ApiException>());
+      });
+
+      test('is ignored while the DELETE is already in flight', () async {
+        final calls = <String>[];
+        final gate = Completer<void>();
+        final mock = MockClient((request) async {
+          calls.add('${request.method} ${request.url.path}');
+          if (request.method == 'GET') {
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          await gate.future;
+          return http.Response('', 204);
+        });
+        final ctrl = controller(mock);
+
+        await ctrl.open();
+        final first = ctrl.delete();
+        expect(ctrl.value.mode, NoteMode.deleting);
+        await ctrl.delete();
+        gate.complete();
+        await first;
+
+        expect(calls.where((c) => c == 'DELETE /notes/01H').length, 1);
+        expect(ctrl.value.mode, NoteMode.deleted);
+      });
+    });
   });
 }

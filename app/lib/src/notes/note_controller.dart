@@ -28,6 +28,13 @@ enum NoteMode {
   /// Last save returned 409. The user must accept the server's version,
   /// keep their own (force overwrite), or cancel out of edit mode.
   conflict,
+
+  /// `DELETE /notes/{id}` is in flight.
+  deleting,
+
+  /// `DELETE /notes/{id}` succeeded (or the note was already gone). Terminal;
+  /// the view should close.
+  deleted,
 }
 
 /// Snapshot of [NoteController] state. Drives the view directly.
@@ -461,5 +468,34 @@ class NoteController extends ValueNotifier<NoteState> {
     _sub?.cancel();
     _onUnsubscribe?.call(_noteId);
     super.dispose();
+  }
+
+  /// Sends `DELETE /notes/{id}`. While editing, leaves edit mode first so the
+  /// lock is released before the note disappears. A 404 counts as success:
+  /// the note is gone either way. Any other error returns to viewing with
+  /// [NoteState.error] set.
+  Future<void> delete() async {
+    if (_disposed) return;
+    switch (value.mode) {
+      case NoteMode.editing || NoteMode.conflict:
+        await exitEditing();
+        if (_disposed) return;
+      case NoteMode.viewing:
+        break;
+      default:
+        return;
+    }
+    value = value.copyWith(mode: NoteMode.deleting, error: null);
+    try {
+      await _api.deleteNote(_noteId);
+    } on NotFoundException {
+      // Already gone; fall through to the deleted state.
+    } on ApiException catch (e) {
+      if (_disposed) return;
+      value = value.copyWith(mode: NoteMode.viewing, error: e);
+      return;
+    }
+    if (_disposed) return;
+    value = value.copyWith(mode: NoteMode.deleted);
   }
 }
