@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/app_deps_holder.dart';
 import 'package:server/src/clock.dart';
@@ -94,6 +95,69 @@ void main() {
       expect(received, hasLength(1));
       expect((received.single as LockEvent).noteId, 'n1');
       expect((received.single as LockEvent).holder, 'alice');
+    });
+
+    test('wires the OAuth stores under <dataDir>/oauth/', () async {
+      final deps = await AppDeps.bootstrap(
+        _config(tmp),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+      );
+      expect(deps.clientStore.dir.path, '${tmp.path}/oauth/clients');
+      expect(deps.codeStore.dir.path, '${tmp.path}/oauth/codes');
+      expect(deps.tokenStore.dir.path, '${tmp.path}/oauth/tokens');
+    });
+
+    test('purges expired OAuth codes and tokens on bootstrap', () async {
+      final bootClock = FixedClock.fixed(DateTime.utc(2026));
+      final seed = await AppDeps.bootstrap(_config(tmp), clock: bootClock);
+      addTearDown(seed.close);
+      await seed.codeStore.mint(
+        clientId: 'c1',
+        redirectUri: 'https://agent.example/callback',
+        codeChallenge: 'challenge',
+        scopes: {'notes:read'},
+        resource: 'https://notes.example/mcp',
+        actor: 'a',
+        grantId: 'g1',
+      );
+      await seed.tokenStore.issue(
+        clientId: 'c1',
+        actor: 'a',
+        scopes: {'notes:read'},
+        resource: 'https://notes.example/mcp',
+        grantId: 'g1',
+      );
+
+      final logs = <LogRecord>[];
+      final logger = Logger.detached('app_deps_test')
+        ..onRecord.listen(logs.add);
+      final reloaded = await AppDeps.bootstrap(
+        _config(tmp),
+        clock: FixedClock.fixed(DateTime.utc(2026, 6)),
+        logger: logger,
+      );
+
+      expect(
+        Directory('${tmp.path}/oauth/codes').listSync(),
+        isEmpty,
+      );
+      expect(
+        Directory('${tmp.path}/oauth/tokens').listSync(),
+        isEmpty,
+      );
+      expect(
+        logs.any(
+          (r) => r.message.contains('OAuth code') && r.message.contains('1'),
+        ),
+        isTrue,
+      );
+      expect(
+        logs.any(
+          (r) => r.message.contains('OAuth token') && r.message.contains('1'),
+        ),
+        isTrue,
+      );
+      addTearDown(reloaded.close);
     });
   });
 

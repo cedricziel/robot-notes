@@ -8,6 +8,9 @@ import 'package:server/src/invite_store.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
+import 'package:server/src/oauth/client_store.dart';
+import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
@@ -29,6 +32,9 @@ class AppDeps {
     required this.metaIndex,
     required this.searchIndex,
     required this.inviteStore,
+    required this.clientStore,
+    required this.codeStore,
+    required this.tokenStore,
     required this.lockManager,
     required this.broadcaster,
     required this.presence,
@@ -50,6 +56,9 @@ class AppDeps {
   /// - [LockManager] with TTL from `config.lockTtlSeconds`
   /// - [Broadcaster] subscribed to lock-manager transitions
   /// - [PresenceTracker] for per-note viewer rosters
+  /// - [ClientStore], [CodeStore], [TokenStore] rooted at
+  ///   `<dataDir>/oauth/{clients,codes,tokens}`, with expired codes and
+  ///   tokens purged before the bundle is returned
   static Future<AppDeps> bootstrap(
     Config config, {
     Clock clock = const Clock(),
@@ -74,11 +83,32 @@ class AppDeps {
       inviteDir: Directory('${config.dataDir}/invites'),
       clock: clock,
     );
+    final clientStore = ClientStore(
+      dir: Directory('${config.dataDir}/oauth/clients'),
+      clock: clock,
+    );
+    final codeStore = CodeStore(
+      dir: Directory('${config.dataDir}/oauth/codes'),
+      clock: clock,
+    );
+    final tokenStore = TokenStore(
+      dir: Directory('${config.dataDir}/oauth/tokens'),
+      clock: clock,
+    );
+    final purgedCodes = await codeStore.purgeExpired();
+    final purgedTokens = await tokenStore.purgeExpired();
+    log.info(
+      'Purged $purgedCodes expired OAuth code(s) and '
+      '$purgedTokens expired OAuth token(s)',
+    );
     return AppDeps(
       storage: storage,
       metaIndex: metaIndex,
       searchIndex: searchIndex,
       inviteStore: inviteStore,
+      clientStore: clientStore,
+      codeStore: codeStore,
+      tokenStore: tokenStore,
       lockManager: lockManager,
       broadcaster: Broadcaster(),
       presence: PresenceTracker(),
@@ -97,6 +127,15 @@ class AppDeps {
 
   /// Filesystem-backed agent-onboarding invite store.
   final InviteStore inviteStore;
+
+  /// Filesystem-backed Dynamic-Client-Registration store.
+  final ClientStore clientStore;
+
+  /// Filesystem-backed PKCE authorization-code store.
+  final CodeStore codeStore;
+
+  /// Filesystem-backed OAuth access/refresh token store.
+  final TokenStore tokenStore;
 
   /// Soft editor lock manager (process-local).
   final LockManager lockManager;

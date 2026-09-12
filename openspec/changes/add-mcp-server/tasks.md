@@ -15,17 +15,17 @@
 
 ## 2. OAuth stores and PKCE (PR 2)
 
-- [ ] 2.1 Write failing tests in `server/test/src/oauth/pkce_test.dart`: `S256(verifier)` matches the RFC 7636 appendix B vector; `verify(challenge, verifier)` is constant-time-compared and rejects mismatches and non-base64url input
-- [ ] 2.2 Implement `lib/src/oauth/pkce.dart` so 2.1 passes; add `crypto` as a direct dependency in `server/pubspec.yaml` and run `dart pub get`
-- [ ] 2.3 Write failing tests in `server/test/src/oauth/client_store_test.dart`: `register` persists a JSON file keyed by `client_id`, secrets are stored hashed (file does not contain the raw secret), `get` round-trips, `verifySecret` accepts the right secret and rejects a wrong one, malformed files are skipped with a warning
-- [ ] 2.4 Implement `lib/src/oauth/oauth_records.dart` (`OAuthClient`, `AuthorizationCode`, `OAuthToken` with `fromJson`/`toJson`) and `lib/src/oauth/client_store.dart` so 2.3 passes
-- [ ] 2.5 Write failing tests in `server/test/src/oauth/code_store_test.dart`: `mint` returns a raw code and persists only its hash; `consume` returns the record once and throws on the second call; expired codes are rejected; the record keeps client id, redirect URI, challenge, scope, resource, actor, grant id
-- [ ] 2.6 Implement `lib/src/oauth/code_store.dart` so 2.5 passes (10-minute TTL constant, per-hash mutex)
-- [ ] 2.7 Write failing tests in `server/test/src/oauth/token_store_test.dart`: `issue` returns raw access and refresh tokens and persists hashed records with 1h/30d expiries; `lookupAccess` rejects refresh tokens, expired, and revoked records; `rotateRefresh` returns new tokens, marks the old one rotated, and a second rotation of the same token throws a reuse error; `revokeGrant` marks every record of the grant; `revokeToken` on an access token revokes only itself
-- [ ] 2.8 Implement `lib/src/oauth/token_store.dart` so 2.7 passes
-- [ ] 2.9 Write failing test in `server/test/src/oauth/purge_test.dart`: `purgeExpired(now)` deletes expired code and token files, keeps unexpired ones, returns the count; then implement it on the stores
-- [ ] 2.10 Write failing test in `server/test/src/app_deps_test.dart`: `AppDeps.bootstrap` constructs the three stores under `<dataDir>/oauth/` and runs the purge; then wire them into `AppDeps` and `AppDeps.close`
-- [ ] 2.11 Run `dart format .`, `dart analyze`, `cd server && dart test`; commit as `feat(server): add OAuth client, code, and token stores`
+- [x] 2.1 Write failing tests in `server/test/src/oauth/pkce_test.dart`: `S256(verifier)` matches the RFC 7636 appendix B vector; `verify(challenge, verifier)` is constant-time-compared and rejects mismatches and non-base64url input
+- [x] 2.2 Implement `lib/src/oauth/pkce.dart` so 2.1 passes; add `crypto` as a direct dependency in `server/pubspec.yaml` and run `dart pub get`
+- [x] 2.3 Write failing tests in `server/test/src/oauth/client_store_test.dart`: `register` persists a JSON file keyed by `client_id`, secrets are stored hashed (file does not contain the raw secret), `get` round-trips, `verifySecret` accepts the right secret and rejects a wrong one, malformed files are skipped with a warning
+- [x] 2.4 Implement `lib/src/oauth/oauth_records.dart` (`OAuthClient`, `AuthorizationCode`, `OAuthToken` with `fromJson`/`toJson`) and `lib/src/oauth/client_store.dart` so 2.3 passes
+- [x] 2.5 Write failing tests in `server/test/src/oauth/code_store_test.dart`: `mint` returns a raw code and persists only its hash; `consume` returns the record once and throws on the second call; expired codes are rejected; the record keeps client id, redirect URI, challenge, scope, resource, actor, grant id
+- [x] 2.6 Implement `lib/src/oauth/code_store.dart` so 2.5 passes (10-minute TTL constant, per-hash mutex)
+- [x] 2.7 Write failing tests in `server/test/src/oauth/token_store_test.dart`: `issue` returns raw access and refresh tokens and persists hashed records with 1h/30d expiries; `lookupAccess` rejects refresh tokens, expired, and revoked records; `rotateRefresh` returns new tokens, marks the old one rotated, and a second rotation of the same token throws a reuse error; `revokeGrant` marks every record of the grant; `revokeToken` on an access token revokes only itself
+- [x] 2.8 Implement `lib/src/oauth/token_store.dart` so 2.7 passes
+- [x] 2.9 Write failing test in `server/test/src/oauth/purge_test.dart`: `purgeExpired(now)` deletes expired code and token files, keeps unexpired ones, returns the count; then implement it on the stores
+- [x] 2.10 Write failing test in `server/test/src/app_deps_test.dart`: `AppDeps.bootstrap` constructs the three stores under `<dataDir>/oauth/` and runs the purge; then wire them into `AppDeps` and `AppDeps.close`
+- [x] 2.11 Run `dart format .`, `dart analyze`, `cd server && dart test`; commit as `feat(server): add OAuth client, code, and token stores`
 
 ## 3. OAuth registration, consent, token, and revocation routes (PR 3)
 
