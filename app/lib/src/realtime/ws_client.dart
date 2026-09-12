@@ -185,7 +185,6 @@ class RobotNotesWsClient {
       }
 
       if (conn != null && !_disposed) {
-        _current = conn;
         offlineSince = null;
         _staleEmittedThisOutage = false;
         // Note: backoff is *not* reset just because the TCP/WS handshake
@@ -196,12 +195,15 @@ class RobotNotesWsClient {
 
         // Auth first, then re-subscribe. AuthMsg goes out synchronously, well
         // inside the spec's 2-second post-connect auth budget
-        // (openspec/specs/realtime-sync/spec.md).
+        // (openspec/specs/realtime-sync/spec.md). `_current` isn't set until
+        // after auth is sent, so a `subscribe`/`unsubscribe` call racing this
+        // block can never jump the queue ahead of it.
         conn.send(
           jsonEncode(
             AuthMsg(key: _config.apiKey, actor: _config.actor).toJson(),
           ),
         );
+        _current = conn;
         for (final id in _subscriptions) {
           conn.send(jsonEncode(SubscribeMsg(noteId: id).toJson()));
         }
