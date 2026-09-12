@@ -337,6 +337,7 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect \
+            ${{ steps.image.outputs.name }}:${{ needs.resolve-tag.outputs.tag_name }}
 
   # Ship the Flutter client from the same tag. One job per platform so an
   # Apple-side failure on one never blocks the other, and neither blocks the

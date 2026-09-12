@@ -1,3 +1,7 @@
 source "https://rubygems.org"
 
 gem "fastlane", "~> 2.238"
+# Flutter shells out to `pod` during `flutter build --config-only`. On the
+# CI runner ruby/setup-ruby replaces the Ruby the preinstalled CocoaPods was
+# built against, so provide it from the bundle instead.
+gem "cocoapods", "~> 1.17"
