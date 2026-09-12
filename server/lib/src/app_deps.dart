@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/invite_store.dart';
+import 'package:server/src/legacy_migration.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
@@ -80,6 +81,13 @@ class AppDeps {
   }) async {
     final log = logger ?? Logger('app_deps');
     final contentDir = Directory('${config.dataDir}/content');
+    final migrated = await migrateLegacyLayout(
+      contentDir: contentDir,
+      logger: Logger('legacy_migration'),
+    );
+    if (migrated > 0) {
+      log.info('Migrated $migrated legacy note file(s) to vault layout');
+    }
     final storage = Storage(contentDir: contentDir, clock: clock);
     final metaIndex = MetaIndex();
     final loaded = await metaIndex.scan(storage);
