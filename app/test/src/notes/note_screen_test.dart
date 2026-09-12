@@ -115,6 +115,8 @@ void main() {
     expect(find.byKey(const Key('note.body')), findsOneWidget);
     expect(find.text('body text'), findsOneWidget);
     expect(find.byKey(const Key('note.edit')), findsOneWidget);
+    expect(find.byTooltip('Close'), findsOneWidget);
+    expect(find.byTooltip('Edit'), findsOneWidget);
   });
 
   testWidgets('tapping edit acquires the lock and reveals the editor', (

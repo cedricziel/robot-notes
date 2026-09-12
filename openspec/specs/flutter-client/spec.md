@@ -15,6 +15,21 @@ The Flutter client SHALL build and run on at least Android, iOS, macOS, Windows,
 - **WHEN** `flutter build` is invoked for `apk`, `ios`, `macos`, `windows`, `linux`, and `web`
 - **THEN** each build SHALL succeed and produce a runnable artifact
 
+### Requirement: The UI exposes an accessibility tree on every platform
+
+The app SHALL enable Flutter's semantics tree at startup on Web, where Flutter leaves it off by default, so screen readers and browser automation see the same controls a sighted user does. On native platforms the app SHALL leave enabling semantics to the operating system. Every icon-only button SHALL carry a tooltip, which doubles as its accessible label.
+
+#### Scenario: Web build exposes interactive elements
+
+- **GIVEN** the app is running in a browser
+- **WHEN** an assistive technology or automation inspects the page
+- **THEN** it SHALL find the app's buttons, text fields, and list items in the accessibility tree without first activating a hidden "enable accessibility" control
+
+#### Scenario: Icon buttons are labelled
+
+- **WHEN** any screen renders an icon-only button
+- **THEN** the button SHALL have a tooltip naming its action
+
 ### Requirement: First-run flow captures server URL, API key, and actor name
 
 On first launch (no saved configuration) the app SHALL present a setup screen requesting three values: server base URL, API key, and actor display name. The app SHALL validate the configuration by issuing an authenticated request (e.g. `GET /healthz` followed by `GET /notes?limit=1`) before persisting it. On validation failure the app SHALL display the error code from the server and SHALL allow the user to correct and retry.

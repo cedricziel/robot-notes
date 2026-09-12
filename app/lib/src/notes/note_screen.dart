@@ -142,6 +142,7 @@ class _NoteScreenState extends State<NoteScreen> {
         appBar: AppBar(
           leading: IconButton(
             key: const Key('note.close'),
+            tooltip: 'Close',
             icon: const Icon(Icons.close),
             onPressed: _close,
           ),
@@ -162,6 +163,7 @@ class _NoteScreenState extends State<NoteScreen> {
             if (state.mode == NoteMode.viewing && note != null)
               IconButton(
                 key: const Key('note.edit'),
+                tooltip: 'Edit',
                 icon: const Icon(Icons.edit),
                 onPressed: _edit,
               ),
