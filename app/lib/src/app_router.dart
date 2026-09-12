@@ -114,6 +114,12 @@ GoRouter buildAppRouter({
   required ConfigHolder configHolder,
   String? initialLocation,
 }) {
+  // go_router 18 defaults this to false for backward compatibility, which
+  // means `context.push`/`pushReplacement` (used below for notes and search)
+  // navigate internally but leave the browser URL on the previous route.
+  // Every pushed route here is itself deep-link-able, so reflecting it is
+  // safe and required for bookmarking, sharing, and reload-to-same-note.
+  GoRouter.optionURLReflectsImperativeAPIs = true;
   return GoRouter(
     initialLocation: initialLocation ?? '/',
     refreshListenable: configHolder,

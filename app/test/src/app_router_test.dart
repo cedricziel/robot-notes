@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app/src/api/api_client.dart';
@@ -137,6 +138,43 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('search.input')), findsOneWidget);
+  });
+
+  testWidgets('pushing to a note updates the reported URL', (tester) async {
+    final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+    addTearDown(api.close);
+
+    final ws = RobotNotesWsClient(config: _config);
+    final list = NotesListController(api: api);
+    final router = buildAppRouter(
+      configHolder: ConfigHolder.seeded(_config),
+      initialLocation: '/',
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp.router(
+        routerConfig: router,
+        builder: (context, child) => AppSession(
+          api: api,
+          ws: ws,
+          list: list,
+          actor: _config.actor,
+          onReset: () {},
+          child: child!,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The notes list and search button both navigate with `context.push`
+    // (an imperative API), which go_router 18 ignores for the reported URL
+    // unless `optionURLReflectsImperativeAPIs` is set — without it, the
+    // browser address bar stays on the previous route forever.
+    unawaited(router.push('/notes/01H'));
+    await tester.pumpAndSettle();
+
+    expect(router.routeInformationProvider.value.uri.toString(), '/notes/01H');
   });
 
   testWidgets(
