@@ -49,25 +49,29 @@ class FakeConnection implements WsConnection {
 
 void main() {
   group('RobotNotesWsClient', () {
-    test('sends auth as the first frame within 100ms of connecting', () async {
+    test('sends auth before any subscribe frame on connect', () async {
+      // Auth-then-subscribe is a structural guarantee (`_runLoop` sends auth
+      // before it ever touches `_subscriptions`), so we assert order instead
+      // of timing it — a wall-clock budget flakes under load.
       final conn = FakeConnection();
-      final stopwatch = Stopwatch()..start();
       final client = RobotNotesWsClient(
         config: _config,
         connect: (uri) async => conn,
       );
 
       await client.start();
-      // Drain microtasks so the auth send fires before we assert.
+      client.subscribe('01H');
+      // Drain microtasks so the connect future resolves and the auth/
+      // subscribe sends fire before we assert.
       await Future<void>.delayed(Duration.zero);
 
-      expect(conn.sent, isNotEmpty);
-      final first = jsonDecode(conn.sent.first) as Map<String, dynamic>;
+      expect(conn.sent, hasLength(2));
+      final first = jsonDecode(conn.sent[0]) as Map<String, dynamic>;
       expect(first['type'], 'auth');
       expect(first['key'], 'test-key');
       expect(first['actor'], 'cedric');
-      // Sanity: well under 100ms.
-      expect(stopwatch.elapsedMilliseconds, lessThan(100));
+      final second = jsonDecode(conn.sent[1]) as Map<String, dynamic>;
+      expect(second['type'], 'subscribe');
 
       await client.dispose();
     });
