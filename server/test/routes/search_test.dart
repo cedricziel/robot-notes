@@ -52,9 +52,15 @@ void main() {
     test('returns ranked items for q=foo', () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
+      final stamp = DateTime.utc(2026, 3, 4, 5, 6);
       index
-        ..upsert(id: 'a', title: 'A', content: 'foo bar')
-        ..upsert(id: 'b', title: 'B', content: 'foo foo foo more foo');
+        ..upsert(id: 'a', title: 'A', content: 'foo bar', updatedAt: stamp)
+        ..upsert(
+          id: 'b',
+          title: 'B',
+          content: 'foo foo foo more foo',
+          updatedAt: stamp,
+        );
 
       final res = await route.onRequest(
         _ctx(
@@ -71,7 +77,11 @@ void main() {
       // The repeat-heavy note should rank first.
       expect((items.first as Map<String, dynamic>)['id'], 'b');
       final first = items.first as Map<String, dynamic>;
-      expect(first.keys, containsAll(['id', 'title', 'snippet', 'rank']));
+      expect(
+        first.keys,
+        containsAll(['id', 'title', 'snippet', 'rank', 'updated_at']),
+      );
+      expect(first['updated_at'], stamp.toIso8601String());
     });
 
     test('missing q returns 400 missing_query', () async {
@@ -129,7 +139,12 @@ void main() {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
       for (var i = 0; i < 25; i++) {
-        index.upsert(id: 'n$i', title: 't$i', content: 'orbit');
+        index.upsert(
+          id: 'n$i',
+          title: 't$i',
+          content: 'orbit',
+          updatedAt: DateTime.utc(2026),
+        );
       }
 
       // No limit → defaults to 20.

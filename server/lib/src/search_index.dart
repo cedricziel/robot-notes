@@ -9,7 +9,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// Schema version for the FTS5 search index. Bumping this constant forces a
 /// rebuild on the next startup — useful when the index columns or tokenizer
 /// configuration change in incompatible ways.
-const int kSearchSchemaVersion = 1;
+const int kSearchSchemaVersion = 2;
 
 /// Hard ceiling on a search `limit`, shared by `GET /search` and the
 /// `search_notes` MCP tool so both surfaces clamp/reject the same way.
@@ -24,6 +24,7 @@ class SearchHit {
     required this.title,
     required this.snippet,
     required this.rank,
+    required this.updatedAt,
   });
 
   /// Note id (ULID).
@@ -38,6 +39,9 @@ class SearchHit {
   /// FTS5 rank — lower is more relevant. Negative values come from
   /// `bm25()` and are passed through unchanged.
   final double rank;
+
+  /// The note's `updated_at` as of the last [SearchIndex.upsert].
+  final DateTime updatedAt;
 }
 
 /// Thrown by [SearchIndex.search] when the supplied query string is not a
@@ -74,8 +78,9 @@ class SearchIndex {
 
   final Database _db;
   late final PreparedStatement _upsertStmt = _db.prepare(
-    'INSERT OR REPLACE INTO notes_fts (rowid, id, title, content) '
-    'VALUES ((SELECT rowid FROM notes_fts WHERE id = ?1), ?1, ?2, ?3);',
+    'INSERT OR REPLACE INTO notes_fts '
+    '(rowid, id, title, content, updated_at) '
+    'VALUES ((SELECT rowid FROM notes_fts WHERE id = ?1), ?1, ?2, ?3, ?4);',
   );
   late final PreparedStatement _deleteStmt = _db.prepare(
     'DELETE FROM notes_fts WHERE id = ?1;',
@@ -120,13 +125,16 @@ class SearchIndex {
     return index;
   }
 
-  /// Inserts or replaces a row for [id] with [title] and [content].
+  /// Inserts or replaces a row for [id] with [title], [content], and
+  /// [updatedAt].
   void upsert({
     required String id,
     required String title,
     required String content,
+    required DateTime updatedAt,
   }) {
-    _upsertStmt.execute([id, title, content]);
+    _upsertStmt
+        .execute([id, title, content, updatedAt.toUtc().toIso8601String()]);
   }
 
   /// Removes the row for [id]. Idempotent: removing a missing row succeeds
@@ -143,7 +151,7 @@ class SearchIndex {
   List<SearchHit> search(String query, {int limit = 50}) {
     try {
       final rows = _db.select(
-        'SELECT id, title, '
+        'SELECT id, title, updated_at, '
         "snippet(notes_fts, 2, '<mark>', '</mark>', '…', 16) AS snippet, "
         'bm25(notes_fts) AS rank '
         'FROM notes_fts '
@@ -159,6 +167,7 @@ class SearchIndex {
             title: row['title'] as String,
             snippet: row['snippet'] as String,
             rank: (row['rank'] as num).toDouble(),
+            updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
           ),
       ];
     } on SqliteException catch (e) {
@@ -184,7 +193,12 @@ class SearchIndex {
       _db.execute('DELETE FROM notes_fts;');
       for (final summary in await storage.list()) {
         final note = await storage.read(summary.id);
-        upsert(id: note.id, title: note.title, content: note.content);
+        upsert(
+          id: note.id,
+          title: note.title,
+          content: note.content,
+          updatedAt: note.updatedAt,
+        );
         count++;
       }
       _db.execute('COMMIT');
@@ -248,6 +262,7 @@ class SearchIndex {
           id UNINDEXED,
           title,
           content,
+          updated_at UNINDEXED,
           tokenize = "porter unicode61"
         );
       ''');

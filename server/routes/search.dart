@@ -78,6 +78,7 @@ FutureOr<Response> onRequest(RequestContext context) {
             'title': hit.title,
             'snippet': hit.snippet,
             'rank': hit.rank,
+            'updated_at': hit.updatedAt.toIso8601String(),
           },
       ],
       'limit': effectiveLimit,
