@@ -792,5 +792,37 @@ void main() {
         throwsA(isA<McpUnknownToolException>()),
       );
     });
+
+    test('every tool declares a non-empty title annotation', () {
+      for (final tool in registry.tools) {
+        expect(tool.annotations['title'], isA<String>());
+        expect(tool.annotations['title'], isNotEmpty);
+      }
+    });
+
+    test('read-only tools are marked readOnlyHint with no side effects', () {
+      for (final name in ['list_notes', 'get_note', 'search_notes']) {
+        final tool = registry.tools.firstWhere((t) => t.name == name);
+        expect(tool.annotations['readOnlyHint'], isTrue, reason: name);
+        expect(tool.annotations['openWorldHint'], isFalse, reason: name);
+      }
+    });
+
+    test('delete_note is destructive and idempotent', () {
+      final tool = registry.tools.firstWhere((t) => t.name == 'delete_note');
+      expect(tool.annotations['readOnlyHint'], isFalse);
+      expect(tool.annotations['destructiveHint'], isTrue);
+      expect(tool.annotations['idempotentHint'], isTrue);
+    });
+
+    test(
+        'create_note and append_to_note are non-destructive and '
+        'non-idempotent', () {
+      for (final name in ['create_note', 'append_to_note']) {
+        final tool = registry.tools.firstWhere((t) => t.name == name);
+        expect(tool.annotations['destructiveHint'], isFalse, reason: name);
+        expect(tool.annotations['idempotentHint'], isFalse, reason: name);
+      }
+    });
   });
 }
