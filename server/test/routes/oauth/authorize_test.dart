@@ -338,6 +338,28 @@ void main() {
       expect(record.actor, 'Desk Assistant');
     });
 
+    test('an omitted resource binds the code to <base>/mcp', () async {
+      final form = validQuery()
+        ..remove('resource')
+        ..['api_key'] = _apiKey
+        ..['actor'] = 'desk-assistant';
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(form),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.found);
+      final location = Uri.parse(res.headers[HttpHeaders.locationHeader]!);
+      final code = location.queryParameters['code']!;
+      final record = await codeStore.consume(code, (code) async => code);
+      expect(record.resource, 'http://localhost/mcp');
+    });
+
     test('consent page carries CSP and X-Frame-Options headers', () async {
       final form = validQuery()..['api_key'] = 'wrong';
 

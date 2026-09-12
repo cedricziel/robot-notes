@@ -88,7 +88,10 @@ Future<Response> _exchangeCode(
             resource: record.resource,
             grantId: record.grantId,
           );
-      return _tokenResponse(issued);
+      return _tokenResponse(
+        issued,
+        includeRefresh: client.grantTypes.contains('refresh_token'),
+      );
     });
   } on CodeReusedException catch (e) {
     await context.read<TokenStore>().revokeGrant(e.grantId);
@@ -134,7 +137,7 @@ Future<Response> _refresh(
       refreshToken,
       scopes: requestedScopes,
     );
-    return _tokenResponse(issued);
+    return _tokenResponse(issued, includeRefresh: true);
   } on TokenNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on RefreshReuseException {
@@ -144,14 +147,14 @@ Future<Response> _refresh(
   }
 }
 
-Response _tokenResponse(IssuedTokens issued) {
+Response _tokenResponse(IssuedTokens issued, {required bool includeRefresh}) {
   return Response.json(
     headers: kNoStoreHeaders,
     body: {
       'access_token': issued.accessToken,
       'token_type': 'Bearer',
       'expires_in': issued.expiresIn,
-      'refresh_token': issued.refreshToken,
+      if (includeRefresh) 'refresh_token': issued.refreshToken,
       'scope': (issued.scopes.toList()..sort()).join(' '),
     },
   );

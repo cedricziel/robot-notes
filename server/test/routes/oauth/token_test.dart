@@ -437,7 +437,7 @@ void main() {
     expect(json['error'], 'unauthorized_client');
   });
 
-  test('a client not registered for refresh_token is unauthorized_client',
+  test('a client without the refresh_token grant gets no refresh_token',
       () async {
     final client = await clientStore.register(
       clientName: 'Code Only',
@@ -447,7 +447,8 @@ void main() {
       responseTypes: ['code'],
     );
     final code = await mintCode(client);
-    final exchangeRes = await route.onRequest(
+
+    final res = await route.onRequest(
       _ctx(
         clientStore: clientStore,
         codeStore: codeStore,
@@ -461,7 +462,29 @@ void main() {
         }),
       ),
     );
-    final exchangeJson = await exchangeRes.json() as Map<String, dynamic>;
+
+    expect(res.statusCode, HttpStatus.ok);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['access_token'], isNotEmpty);
+    expect(json.containsKey('refresh_token'), isFalse);
+  });
+
+  test('a client not registered for refresh_token is unauthorized_client',
+      () async {
+    final client = await clientStore.register(
+      clientName: 'Code Only',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['authorization_code'],
+      responseTypes: ['code'],
+    );
+    final issued = await tokenStore.issue(
+      clientId: client.client.clientId,
+      actor: 'desk-assistant',
+      scopes: const {'notes:read', 'notes:write'},
+      resource: _resource,
+      grantId: 'grant-1',
+    );
 
     final res = await route.onRequest(
       _ctx(
@@ -471,7 +494,7 @@ void main() {
         formBody: _formEncode({
           'grant_type': 'refresh_token',
           'client_id': client.client.clientId,
-          'refresh_token': exchangeJson['refresh_token'] as String,
+          'refresh_token': issued.refreshToken,
         }),
       ),
     );
