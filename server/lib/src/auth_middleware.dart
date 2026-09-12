@@ -37,6 +37,9 @@ Middleware bearerAuth({required String configuredKey}) {
 /// Paths exempt from the static bearer key, by method:
 ///
 /// - `GET /healthz`
+/// - `GET /otel-config` (runtime OTel export config for clients; carries at
+///   most an ingest-only key, handed to any client the same way `/healthz`
+///   is)
 /// - `GET /ws` (the WebSocket endpoint authenticates via its in-protocol
 ///   `auth` envelope rather than an HTTP header, since browsers can't set
 ///   arbitrary headers on the upgrade request)
@@ -62,6 +65,7 @@ bool _isExempt(Request request) {
   switch (request.method) {
     case HttpMethod.get:
       return path == _healthzPath ||
+          path == Routes.otelConfig ||
           path == _wsPath ||
           _onboardingPath.hasMatch(path) ||
           path == Routes.wellKnownProtectedResource ||

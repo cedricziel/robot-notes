@@ -2,6 +2,7 @@
 /// and client URL building both reference these so the two stay in lockstep.
 abstract final class Routes {
   static const String healthz = '/healthz';
+  static const String otelConfig = '/otel-config';
   static const String notes = '/notes';
   static const String search = '/search';
   static const String ws = '/ws';

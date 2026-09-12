@@ -9,6 +9,7 @@ import 'package:shared/shared.dart';
 /// regardless of `Authorization`.
 const _alwaysApiPrefixes = <String>{
   Routes.healthz,
+  Routes.otelConfig,
   Routes.ws,
   Routes.invites,
   Routes.mcp,
