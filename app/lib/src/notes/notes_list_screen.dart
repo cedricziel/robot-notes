@@ -144,14 +144,19 @@ class _NoteTile extends StatelessWidget {
     return ListTile(
       key: Key('notes.tile.${note.id}'),
       title: Text(note.title.isEmpty ? '(untitled)' : note.title),
-      subtitle: Text('v${note.version} · ${_formatTimestamp(note.updatedAt)}'),
+      subtitle:
+          Text('v${note.version} · ${formatNoteTimestamp(note.updatedAt)}'),
       onTap: onTap,
     );
   }
-
-  String _formatTimestamp(DateTime dt) {
-    final iso = dt.toUtc().toIso8601String();
-    // YYYY-MM-DD HH:MM — readable enough for v1, no localization needed yet.
-    return '${iso.substring(0, 10)} ${iso.substring(11, 16)}Z';
-  }
 }
+
+/// Formats [dt] in the device's local time zone as `YYYY-MM-DD HH:MM`.
+/// Kept top-level so tests can pin a known instant.
+String formatNoteTimestamp(DateTime dt) {
+  final t = dt.toLocal();
+  return '${t.year}-${_two(t.month)}-${_two(t.day)} '
+      '${_two(t.hour)}:${_two(t.minute)}';
+}
+
+String _two(int n) => n.toString().padLeft(2, '0');

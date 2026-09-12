@@ -214,4 +214,38 @@ void main() {
     expect(find.byKey(const Key('notes.error')), findsNothing);
     expect(find.text('recovered'), findsOneWidget);
   });
+
+  group('formatNoteTimestamp', () {
+    test('renders YYYY-MM-DD HH:MM with zero padding and no UTC marker', () {
+      expect(
+        formatNoteTimestamp(DateTime(2026, 1, 2, 3, 4, 5)),
+        '2026-01-02 03:04',
+      );
+    });
+
+    test('renders a UTC instant as the local wall-clock time', () {
+      final utc = DateTime.utc(2026, 9, 12, 10, 28);
+      final l = utc.toLocal();
+      final wallClock = DateTime(l.year, l.month, l.day, l.hour, l.minute);
+
+      expect(formatNoteTimestamp(utc), formatNoteTimestamp(wallClock));
+    });
+  });
+
+  testWidgets('the tile subtitle uses formatNoteTimestamp', (tester) async {
+    final mock = MockClient((request) async {
+      return _page(<Object?>[_metaJson(id: '01H')]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: NotesListScreen(controller: ctrl)),
+    );
+    await tester.pumpAndSettle();
+
+    final expected = formatNoteTimestamp(DateTime.parse(_now));
+    expect(find.text('v1 · $expected'), findsOneWidget);
+  });
 }
