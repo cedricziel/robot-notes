@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:server/src/app_deps.dart';
@@ -150,6 +151,42 @@ void main() {
       final error = response!['error']! as Map<String, Object?>;
       expect(error['code'], kInvalidParams);
     });
+
+    test(
+      'a tool that throws maps to a generic -32603 without leaking details',
+      () async {
+        final boomHandler = McpHandler(
+          tools: McpToolRegistry([
+            McpTool(
+              name: 'boom',
+              description: 'throws for the test',
+              inputSchema: const {
+                'type': 'object',
+                'properties': <String, Object?>{},
+                'required': <String>[],
+              },
+              requiresWrite: false,
+              handler: (args, principal) async {
+                throw StateError('/secret/data/path leaked');
+              },
+            ),
+          ]),
+          serverVersion: robotNotesVersion,
+        );
+
+        final response = await boomHandler.handle(
+          _req('tools/call', params: {'name': 'boom'}),
+          fullAccess,
+        );
+        final error = response!['error']! as Map<String, Object?>;
+        expect(error['code'], kInternalError);
+        expect(error['message'], 'Internal error');
+        expect(
+          jsonEncode(response),
+          isNot(contains('/secret/data/path')),
+        );
+      },
+    );
   });
 
   test('unknown method maps to -32601 and echoes the id', () async {
