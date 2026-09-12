@@ -125,6 +125,48 @@ Local dev build of the same image:
 make docker-build
 ```
 
+### Deploying as a TrueNAS SCALE Custom App
+
+TrueNAS SCALE's "Custom App" install path (the `ix-app` catalog entry)
+runs the same image as a single Docker container instead of a Compose
+stack. There's no wizard field for a bind-mounted host path or an
+environment variable list from the CLI, so if you're driving this via
+the `middleware` API (`app.create` / `app.update`), the `values`
+payload needs this shape:
+
+```jsonc
+{
+  "image": {
+    "repository": "ghcr.io/<owner>/robot-notes-server",
+    "tag": "main",
+  },
+  "envs": [{ "name": "ROBOT_NOTES_API_KEY", "value": "rn_your_secret" }],
+  "ports": [
+    { "container_port": 8080, "port_number": 30300, "protocol": "tcp" },
+  ],
+  "storage": [
+    {
+      "type": "host_path",
+      "host_path_config": { "path": "/mnt/<pool>/apps/robot-notes/data" },
+      "mount_path": "/data",
+    },
+  ],
+  "restart_policy": "unless-stopped",
+}
+```
+
+Notes:
+
+- The host path in `storage[].host_path_config.path` must already
+  exist (`filesystem.mkdir`) before `app.create`/`app.update` will
+  accept it, and should be owned by UID/GID `10001` (`filesystem.setperm`)
+  to match the image's non-root user.
+- `port_number` is the **host** port; `container_port` (`8080`) is
+  fixed by the image.
+- See the [tag scheme](RELEASING.md#tag-scheme) for what `:main` vs.
+  `:vX.Y.Z` means — `main` is hand-pushed, not CI-built, so re-push it
+  before relying on it for a fresh deployment.
+
 ### Onboarding an agent
 
 Agents bootstrap themselves with one HTTPS fetch. The operator mints a
