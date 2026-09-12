@@ -173,6 +173,31 @@ void main() {
       final store = _store(tmp);
       expect(await store.get('does-not-exist'), isNull);
     });
+
+    test(
+        'rejects a path-traversal token without touching the '
+        'filesystem', () async {
+      final store = _store(tmp);
+      // The invites directory must already exist for the traversal to be
+      // meaningful: `File('a/../b')` silently fails to resolve when `a`
+      // does not exist, which would make this test pass for the wrong
+      // reason. Minting a real invite first guarantees it.
+      await store.mint(label: 'real');
+      final decoy = File('${tmp.path}/decoy.json')
+        ..writeAsStringSync(
+          jsonEncode({
+            'token': 'decoy',
+            'label': 'Decoy',
+            'created_at': DateTime.utc(2026, 4, 25, 10).toIso8601String(),
+            'expires_at': DateTime.utc(2026, 4, 26, 10).toIso8601String(),
+            'burned_at': null,
+          }),
+        );
+
+      expect(await store.get('../decoy'), isNull);
+      expect(await store.get('../../decoy'), isNull);
+      expect(decoy.existsSync(), isTrue);
+    });
   });
 
   group('InviteStore.burn', () {
@@ -223,6 +248,14 @@ void main() {
         throwsA(isA<InviteNotFoundException>()),
       );
     });
+
+    test('a path-traversal token is rejected as not found', () async {
+      final store = _store(tmp);
+      await expectLater(
+        () => store.burn('../x'),
+        throwsA(isA<InviteNotFoundException>()),
+      );
+    });
   });
 
   group('InviteStore.revoke', () {
@@ -233,6 +266,14 @@ void main() {
       expect(
         File('${tmp.path}/invites/${invite.token}.json').existsSync(),
         isFalse,
+      );
+    });
+
+    test('a path-traversal token is rejected as not found', () async {
+      final store = _store(tmp);
+      await expectLater(
+        () => store.revoke('../x'),
+        throwsA(isA<InviteNotFoundException>()),
       );
     });
 

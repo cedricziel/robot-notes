@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/oauth/store_support.dart';
 import 'package:shared/shared.dart';
 
 /// Number of bytes of randomness in a minted token. 16 bytes = 128 bits
@@ -147,7 +148,7 @@ class InviteStore {
   final Clock _clock;
   final Random _random;
   final Logger _log;
-  final Map<String, Future<void>> _locks = {};
+  final _mutex = KeyedMutex();
 
   /// Mints a new invite with [label] and [ttl] (clamped to
   /// [kMaxInviteTtl]; defaults to [kDefaultInviteTtl]). Persists it
@@ -168,7 +169,7 @@ class InviteStore {
       createdAt: now,
       expiresAt: now.add(effectiveTtl),
     );
-    await _withLock(token, () => _atomicWrite(invite));
+    await _mutex.run(token, () => _atomicWrite(invite));
     return invite;
   }
 
@@ -192,8 +193,11 @@ class InviteStore {
     return entries;
   }
 
-  /// Returns the invite for [token] or `null` if no such file exists.
+  /// Returns the invite for [token], or `null` if [token] is not a
+  /// well-formed minted token, no such file exists, or its file fails to
+  /// parse (logged and skipped).
   Future<Invite?> get(String token) async {
+    if (!isSafeStoreKey(token)) return null;
     final file = _fileFor(token);
     if (!file.existsSync()) return null;
     try {
@@ -207,9 +211,13 @@ class InviteStore {
   /// Atomically marks [token] as burned. Returns the *previous*
   /// (unburned) state so the caller can render the bundle exactly once.
   /// Throws [AlreadyBurnedException] if the invite has already been
-  /// redeemed, or [InviteNotFoundException] if it does not exist.
+  /// redeemed, or [InviteNotFoundException] if it does not exist or is
+  /// not a well-formed minted token.
   Future<Invite> burn(String token) {
-    return _withLock(token, () async {
+    if (!isSafeStoreKey(token)) {
+      return Future<Invite>.error(InviteNotFoundException(token));
+    }
+    return _mutex.run(token, () async {
       final file = _fileFor(token);
       if (!file.existsSync()) throw InviteNotFoundException(token);
       final invite = await _readFile(file);
@@ -221,9 +229,13 @@ class InviteStore {
   }
 
   /// Deletes the invite file for [token]. Throws
-  /// [InviteNotFoundException] if it does not exist.
+  /// [InviteNotFoundException] if it does not exist or is not a
+  /// well-formed minted token.
   Future<void> revoke(String token) {
-    return _withLock(token, () async {
+    if (!isSafeStoreKey(token)) {
+      return Future<void>.error(InviteNotFoundException(token));
+    }
+    return _mutex.run(token, () async {
       final file = _fileFor(token);
       if (!file.existsSync()) throw InviteNotFoundException(token);
       await file.delete();
@@ -247,39 +259,6 @@ class InviteStore {
     return Invite.fromJson(json);
   }
 
-  Future<void> _atomicWrite(Invite invite) async {
-    if (!inviteDir.existsSync()) {
-      await inviteDir.create(recursive: true);
-    }
-    final encoded = jsonEncode(invite.toJson());
-    final finalFile = _fileFor(invite.token);
-    final tmp = File('${finalFile.path}.tmp');
-    final raf = await tmp.open(mode: FileMode.writeOnly);
-    try {
-      await raf.writeString(encoded);
-      await raf.flush();
-    } finally {
-      await raf.close();
-    }
-    await tmp.rename(finalFile.path);
-  }
-
-  /// Per-token mutex. Identical pattern to `Storage._withLock` —
-  /// serialises mutations on the same token so [burn] is exclusive.
-  Future<T> _withLock<T>(String token, Future<T> Function() body) {
-    final completer = Completer<T>();
-    final previous = _locks[token] ?? Future<void>.value();
-    final next = previous.catchError((Object _) {}).then((_) async {
-      try {
-        completer.complete(await body());
-      } catch (e, st) {
-        completer.completeError(e, st);
-      }
-    });
-    _locks[token] = next.then((_) {
-      // Drop stale entries to keep the map bounded.
-      if (identical(_locks[token], next)) _locks.remove(token);
-    });
-    return completer.future;
-  }
+  Future<void> _atomicWrite(Invite invite) =>
+      atomicWriteJsonFile(_fileFor(invite.token), invite.toJson());
 }

@@ -18,14 +18,6 @@ const int kClientIdBytes = 16;
 /// 256 bits.
 const int kClientSecretBytes = 32;
 
-/// `client_id` is attacker-controlled at `/oauth/authorize`,
-/// `/oauth/token`, and `/oauth/revoke`, and is used verbatim to build a
-/// filesystem path in [ClientStore.get]. A minted id (see [kClientIdBytes])
-/// always matches this pattern; anything that does not is rejected before
-/// it reaches the filesystem, closing off path traversal (`../`) and
-/// absolute-path injection.
-final RegExp _kValidClientId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
-
 /// Result of [ClientStore.register]: the persisted client record plus the
 /// raw secret, which is returned exactly once and never persisted.
 @immutable
@@ -103,7 +95,7 @@ class ClientStore {
   /// well-formed minted id, it does not exist, or its file fails to parse
   /// (logged and skipped).
   Future<OAuthClient?> get(String clientId) async {
-    if (!_kValidClientId.hasMatch(clientId)) return null;
+    if (!isSafeStoreKey(clientId)) return null;
     final file = _fileFor(clientId);
     if (!file.existsSync()) return null;
     try {
