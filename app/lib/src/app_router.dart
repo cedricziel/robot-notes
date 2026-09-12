@@ -26,6 +26,7 @@ import 'search/search_screen.dart';
 import 'setup/setup_controller.dart';
 import 'setup/setup_screen.dart';
 import 'widgets/connection_banner.dart';
+import 'widgets/error_strip.dart';
 
 /// Builds the placeholder title for a freshly-created note, prefixed
 /// with the calendar date so the list stays roughly chronological even
@@ -260,9 +261,8 @@ Future<void> _createNote(BuildContext context, AppSession session) async {
     if (!context.mounted) return;
     unawaited(context.push('/notes/${note.id}?edit=1'));
   } on ApiException catch (e) {
-    messenger.showSnackBar(
-      SnackBar(content: Text('Could not create note: ${e.message}')),
-    );
+    final message = describeError(e, fallback: 'Could not create note.');
+    messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
