@@ -93,14 +93,14 @@ The app SHALL provide a list view that pages through `GET /notes?sort=updated_de
 
 - **GIVEN** the user opened a note from the list and saved a new version
 - **WHEN** the note view is closed
-- **THEN** the list SHALL request `GET /notes` again and show the note's new version and updated time
+- **THEN** the list SHALL request `GET /notes?sort=updated_desc` again and show the note's new version and updated time
 
 #### Scenario: Failed fetch shows a non-blocking error with retry
 
 - **GIVEN** the list has already rendered items
 - **WHEN** a refresh or page fetch fails
 - **THEN** the app SHALL show an error strip above the list carrying the server's `message` (or a generic fallback) and a retry control, and the existing items SHALL remain visible
-- **AND** activating retry SHALL re-issue `GET /notes` and clear the strip on success
+- **AND** activating retry SHALL re-issue `GET /notes?sort=updated_desc` and clear the strip on success
 
 #### Scenario: Updated time is shown in local time
 
