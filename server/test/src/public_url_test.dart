@@ -89,6 +89,29 @@ void main() {
       );
       expect(publicBaseUrl(ctx), 'https://notes.example.com');
     });
+
+    test('rejects a forwarded proto that is not http or https', () {
+      final ctx = _ctx(
+        config: _config(),
+        headers: {
+          'host': 'notes.example.com',
+          'x-forwarded-proto': 'https://evil.example/a?x=',
+        },
+        uri: Uri.parse('http://localhost/mcp'),
+      );
+      expect(publicBaseUrl(ctx), 'http://notes.example.com');
+    });
+
+    test('accepts an upper-case or padded forwarded proto', () {
+      final ctx = _ctx(
+        config: _config(),
+        headers: {
+          'host': 'notes.example.com',
+          'x-forwarded-proto': ' HTTPS ',
+        },
+      );
+      expect(publicBaseUrl(ctx), 'https://notes.example.com');
+    });
   });
 
   group('mcpResourceUrl', () {
