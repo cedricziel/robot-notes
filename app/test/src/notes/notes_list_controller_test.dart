@@ -83,6 +83,47 @@ void main() {
       expect(ctrl.value.error, isNull);
     });
 
+    test('refresh requests sort=updated_desc', () async {
+      String? sort;
+      final mock = MockClient((request) async {
+        sort = request.url.queryParameters['sort'];
+        return _page(<Object?>[]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.refresh();
+
+      expect(sort, 'updated_desc');
+    });
+
+    test('loadMore requests sort=updated_desc', () async {
+      final sorts = <String?>[];
+      final mock = MockClient((request) async {
+        sorts.add(request.url.queryParameters['sort']);
+        if (request.url.queryParameters['after'] == null) {
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'items': <Object?>[_metaJson(id: '01H')],
+              'limit': 50,
+              'next_cursor': '01H',
+            }),
+            200,
+          );
+        }
+        return _page(<Object?>[_metaJson(id: '02H')]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.refresh();
+      await ctrl.loadMore();
+
+      expect(sorts, <String?>['updated_desc', 'updated_desc']);
+    });
+
     test('refresh called twice (pull-to-refresh) re-fetches', () async {
       var calls = 0;
       final mock = MockClient((request) async {
@@ -254,6 +295,48 @@ void main() {
         expect(ctrl.value.items.single.title, 'edited');
       },
     );
+
+    test('changed{updated} moves the entry to the top', () async {
+      final mock = MockClient((request) async {
+        if (request.url.path == '/notes' && request.method == 'GET') {
+          return _page(<Object?>[
+            _metaJson(id: '01H', title: 'first'),
+            _metaJson(id: '02H', title: 'second'),
+          ]);
+        }
+        if (request.url.path == '/notes/02H' && request.method == 'GET') {
+          return http.Response(
+            jsonEncode(_noteJson(id: '02H', title: 'edited', version: 2)),
+            200,
+          );
+        }
+        return http.Response('unexpected: ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final events = StreamController<RealtimeEvent>.broadcast();
+      addTearDown(events.close);
+      final ctrl = NotesListController(api: api, events: events.stream);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.refresh();
+      expect(ctrl.value.items.map((n) => n.id), <String>['01H', '02H']);
+
+      events.add(
+        const RealtimeMessage(
+          ChangedEvent(
+            noteId: '02H',
+            version: 2,
+            by: 'alice',
+            action: ChangeAction.updated,
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(ctrl.value.items.map((n) => n.id), <String>['02H', '01H']);
+      expect(ctrl.value.items.first.title, 'edited');
+    });
 
     test('changed{created} prepends the new entry', () async {
       final mock = MockClient((request) async {

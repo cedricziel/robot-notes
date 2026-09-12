@@ -70,18 +70,18 @@ The app SHALL store the API key and actor name using a per-platform secure mecha
 
 ### Requirement: Notes list view shows server state
 
-The app SHALL provide a list view that pages through `GET /notes`, showing each note's title and updated time in the device's local time zone, and supports pull-to-refresh, an explicit refresh action, and infinite scroll via `next_cursor`. The list SHALL update in response to `changed` WebSocket events without manual refresh, and SHALL re-fetch when the user returns from a note so edits show even when the realtime stream is unavailable. When a fetch fails the app SHALL surface the failure without hiding items that already loaded.
+The app SHALL provide a list view that pages through `GET /notes?sort=updated_desc`, showing each note's title and updated time in the device's local time zone in most-recently-updated-first order, and supports pull-to-refresh, an explicit refresh action, and infinite scroll via `next_cursor`. The list SHALL update in response to `changed` WebSocket events without manual refresh, and SHALL re-fetch when the user returns from a note so edits show even when the realtime stream is unavailable. When a fetch fails the app SHALL surface the failure without hiding items that already loaded.
 
 #### Scenario: Initial load fetches first page
 
 - **WHEN** the user opens the notes list
-- **THEN** the app SHALL request `GET /notes` and render the returned items
+- **THEN** the app SHALL request `GET /notes?sort=updated_desc` and render the returned items
 
 #### Scenario: Refresh action re-fetches the list
 
 - **GIVEN** the notes list is open
 - **WHEN** the user activates the Refresh action in the app bar
-- **THEN** the app SHALL request `GET /notes` again and render the returned items
+- **THEN** the app SHALL request `GET /notes?sort=updated_desc` again and render the returned items
 
 #### Scenario: Overlapping refreshes coalesce into one request
 
@@ -93,14 +93,14 @@ The app SHALL provide a list view that pages through `GET /notes`, showing each 
 
 - **GIVEN** the user opened a note from the list and saved a new version
 - **WHEN** the note view is closed
-- **THEN** the list SHALL request `GET /notes` again and show the note's new version and updated time
+- **THEN** the list SHALL request `GET /notes?sort=updated_desc` again and show the note's new version and updated time
 
 #### Scenario: Failed fetch shows a non-blocking error with retry
 
 - **GIVEN** the list has already rendered items
 - **WHEN** a refresh or page fetch fails
 - **THEN** the app SHALL show an error strip above the list carrying the server's `message` (or a generic fallback) and a retry control, and the existing items SHALL remain visible
-- **AND** activating retry SHALL re-issue `GET /notes` and clear the strip on success
+- **AND** activating retry SHALL re-issue `GET /notes?sort=updated_desc` and clear the strip on success
 
 #### Scenario: Updated time is shown in local time
 
@@ -112,12 +112,12 @@ The app SHALL provide a list view that pages through `GET /notes`, showing each 
 
 - **GIVEN** the notes list is open and subscribed to `*`
 - **WHEN** the server broadcasts `{"type":"changed","note_id":"X","action":"updated",...}`
-- **THEN** the entry for `X` SHALL move to its new position and SHALL display the updated metadata without manual refresh
+- **THEN** the entry for `X` SHALL move to the top of the list and SHALL display the updated metadata without manual refresh
 
 #### Scenario: Live created event prepends a new entry
 
 - **WHEN** a new note is created elsewhere and the WS broadcasts the `changed` event
-- **THEN** a new list entry SHALL appear without manual refresh
+- **THEN** a new list entry SHALL appear at the top of the list without manual refresh
 
 #### Scenario: Live deleted event removes the entry
 

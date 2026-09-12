@@ -203,6 +203,33 @@ void main() {
         throwsA(isA<McpInvalidParamsException>()),
       );
     });
+
+    test('sort: updated_desc returns newest-updated notes first', () async {
+      final a = await deps.noteWriteService.create(
+        title: 'a',
+        content: '',
+        actor: 'x',
+      );
+      await deps.noteWriteService.create(title: 'b', content: '', actor: 'x');
+      await deps.noteWriteService.update(
+        id: a.id,
+        title: 'a',
+        content: 'edited',
+        ifMatch: 1,
+        actor: 'x',
+      );
+
+      final result = await call('list_notes', {'sort': 'updated_desc'});
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.first['id'], a.id);
+    });
+
+    test('rejects an unsupported sort value', () async {
+      final result = await call('list_notes', {'sort': 'bogus'});
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], kErrorValidationFailed);
+    });
   });
 
   group('get_note', () {

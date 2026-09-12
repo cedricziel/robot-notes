@@ -318,6 +318,48 @@ void main() {
       expect(captured!.queryParameters['limit'], '25');
     });
 
+    test('sort is forwarded as a query param when given', () async {
+      Uri? captured;
+      final mock = MockClient((request) async {
+        captured = request.url;
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[],
+            'limit': 50,
+            'next_cursor': null,
+          }),
+          200,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      await client.listNotes(sort: 'updated_desc');
+
+      expect(captured, isNotNull);
+      expect(captured!.queryParameters['sort'], 'updated_desc');
+    });
+
+    test('sort is omitted when not given', () async {
+      Uri? captured;
+      final mock = MockClient((request) async {
+        captured = request.url;
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[],
+            'limit': 50,
+            'next_cursor': null,
+          }),
+          200,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      await client.listNotes();
+
+      expect(captured, isNotNull);
+      expect(captured!.queryParameters.containsKey('sort'), isFalse);
+    });
+
     test('400 surfaces BadRequest with server-supplied message', () async {
       final mock = MockClient((request) async {
         return http.Response(

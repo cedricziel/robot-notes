@@ -32,6 +32,14 @@ Response _list(RequestContext context) {
   final query = context.request.uri.queryParameters;
   final after = query['after'];
   final rawLimit = query['limit'];
+  final sort = query['sort'] ?? kSortId;
+
+  if (!kSupportedSorts.contains(sort)) {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: const {'error': 'bad_request', 'message': kSortErrorMessage},
+    );
+  }
 
   int? parsedLimit;
   if (rawLimit != null) {
@@ -51,7 +59,19 @@ Response _list(RequestContext context) {
     1,
     kMaxPageSize,
   );
-  final page = index.page(after: after, limit: effectiveLimit);
+
+  final MetaIndexPage page;
+  try {
+    page = index.page(after: after, limit: effectiveLimit, sort: sort);
+  } on InvalidCursorException {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: const {
+        'error': 'bad_request',
+        'message': 'after is not a valid cursor for this sort',
+      },
+    );
+  }
 
   return Response.json(
     body: {

@@ -224,6 +224,110 @@ void main() {
       final body = await res.json() as Map<String, dynamic>;
       expect(body['error'], 'bad_request');
     });
+
+    test('sort=updated_desc returns newest-updated notes first', () async {
+      final contentDir = Directory('${tmp.path}/content');
+      final early = Storage(
+        contentDir: contentDir,
+        clock: FixedClock.fixed(DateTime.utc(2026)),
+        idGenerator: () => '01ARZ3NDEKTSV4RRFFQ69G5FA1',
+      );
+      final late = Storage(
+        contentDir: contentDir,
+        clock: FixedClock.fixed(DateTime.utc(2026, 1, 2)),
+        idGenerator: () => '01ARZ3NDEKTSV4RRFFQ69G5FB1',
+      );
+      // 'b' has a later updated_at, so it should sort first.
+      final a = await early.create(title: 'a', content: '');
+      final b = await late.create(title: 'b', content: '');
+      final storage = Storage(contentDir: contentDir);
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?sort=updated_desc'),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      final ids = (body['items'] as List)
+          .map((e) => (e as Map<String, dynamic>)['id'])
+          .toList();
+      expect(ids.indexOf(b.id), lessThan(ids.indexOf(a.id)));
+    });
+
+    test('sort=updated_desc paginates with an opaque cursor', () async {
+      final storage = _storage(tmp);
+      for (var i = 0; i < 3; i++) {
+        await storage.create(title: 't$i', content: '');
+      }
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res1 = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?sort=updated_desc&limit=2'),
+        ),
+      );
+      final body1 = await res1.json() as Map<String, dynamic>;
+      expect(body1['items'] as List, hasLength(2));
+      expect(body1['next_cursor'], isNotNull);
+
+      final res2 = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse(
+            '/notes?sort=updated_desc&limit=2&after=${body1['next_cursor']}',
+          ),
+        ),
+      );
+      final body2 = await res2.json() as Map<String, dynamic>;
+      expect(body2['items'] as List, hasLength(1));
+      expect(body2['next_cursor'], isNull);
+    });
+
+    test('unknown sort value returns 400 bad_request', () async {
+      final storage = _storage(tmp);
+      final index = MetaIndex();
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?sort=bogus'),
+        ),
+      );
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['error'], 'bad_request');
+    });
+
+    test('malformed cursor for sort=updated_desc returns 400 bad_request',
+        () async {
+      final storage = _storage(tmp);
+      final index = MetaIndex();
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?sort=updated_desc&after=not-a-cursor'),
+        ),
+      );
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['error'], 'bad_request');
+    });
   });
 
   group('POST /notes', () {
