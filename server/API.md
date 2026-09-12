@@ -29,6 +29,14 @@ envelope. The key is whatever the server was started with
 (`--api-key` / `ROBOT_NOTES_API_KEY`); rotating the key means
 restarting the server.
 
+When the server is configured for OIDC login (see below), a REST or
+WebSocket request may also carry an OAuth access token issued by this
+server's own authorization server, scoped to `<base>` (as opposed to
+`<base>/mcp` — the two are different audiences and a token minted for
+one is rejected on the other). Such a token unlocks `notes:read` /
+`notes:write` per its granted scope; a request that needs a scope the
+token lacks gets `403` with `insufficient_scope` rather than `401`.
+
 ### Actor identity
 
 ```
@@ -36,7 +44,11 @@ X-Actor: cedric
 ```
 
 Free-form; trimmed to a sane length. Echoed back in lock holders,
-presence rosters, and `by` fields on `changed` events.
+presence rosters, and `by` fields on `changed` events. For a request
+authenticated with an OIDC-derived OAuth token, `X-Actor` is ignored —
+the actor comes from the token's grant instead (see OIDC login,
+below), since that identity is cryptographically verified rather than
+client-asserted.
 
 ### Optimistic concurrency
 
@@ -432,20 +444,46 @@ A client that doesn't already hold the static key discovers everything
 it needs from two unauthenticated metadata documents and registers
 itself without any operator involvement:
 
-| Endpoint                                          | Purpose                                                                                                                                                                        |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728 resource metadata: the resource URL, the authorization server, supported scopes.                                                                                      |
-| `GET /.well-known/oauth-authorization-server`     | RFC 8414 AS metadata: authorization/token/registration/revocation endpoints, supported PKCE methods and scopes.                                                                |
-| `POST /oauth/register`                            | RFC 7591 Dynamic Client Registration. No auth required; returns a `client_id` (and a `client_secret` for confidential clients).                                                |
-| `GET`/`POST /oauth/authorize`                     | Renders, then processes, a browser consent page. The page asks for the workspace API key (proof of ownership) and a display name — the actor the resulting grant writes under. |
-| `POST /oauth/token`                               | Authorization-code (with PKCE) and refresh-token exchange.                                                                                                                     |
-| `POST /oauth/revoke`                              | Revokes an access or refresh token; revoking a refresh token revokes the whole grant.                                                                                          |
+| Endpoint                                          | Purpose                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728 resource metadata: the resource URL, the authorization server, supported scopes.                                                                                                                                                                                                                                |
+| `GET /.well-known/oauth-authorization-server`     | RFC 8414 AS metadata: authorization/token/registration/revocation endpoints, supported PKCE methods and scopes.                                                                                                                                                                                                          |
+| `POST /oauth/register`                            | RFC 7591 Dynamic Client Registration. No auth required; returns a `client_id` (and a `client_secret` for confidential clients).                                                                                                                                                                                          |
+| `GET`/`POST /oauth/authorize`                     | Renders, then processes, a browser consent page. The page asks for the workspace API key (proof of ownership) and a display name — the actor the resulting grant writes under. When OIDC login is configured, the page instead offers a "Sign in with your identity provider" link as an alternative to pasting the key. |
+| `POST /oauth/token`                               | Authorization-code (with PKCE) and refresh-token exchange.                                                                                                                                                                                                                                                               |
+| `POST /oauth/revoke`                              | Revokes an access or refresh token; revoking a refresh token revokes the whole grant.                                                                                                                                                                                                                                    |
 
 Access tokens are valid for 1 hour; refresh tokens for 30 days and
-rotate on each use. Tokens are bound to the resource
-`<base>/mcp` and to a scope set drawn from `notes:read` and
-`notes:write`; a token missing `notes:write` gets an
-`insufficient_scope` tool error from any write tool.
+rotate on each use. Tokens are bound to the resource they were
+requested for (`<base>/mcp` for MCP clients, `<base>` for the app's
+own REST/WebSocket sign-in) and to a scope set drawn from `notes:read`
+and `notes:write`; a token missing `notes:write` gets an
+`insufficient_scope` tool error from any write tool, or a `403` on a
+REST write.
+
+### OIDC login
+
+Configuring all three of `--oidc-issuer`, `--oidc-client-id`, and
+`--oidc-client-secret` (env: `ROBOT_NOTES_OIDC_ISSUER`,
+`ROBOT_NOTES_OIDC_CLIENT_ID`, `ROBOT_NOTES_OIDC_CLIENT_SECRET`) turns
+on a second, human-facing way to satisfy consent, alongside — never
+instead of — the static key. Consent then branches:
+
+- `GET/POST /oauth/oidc/login` starts an OIDC authorization-code +
+  PKCE flow against the configured issuer, forwarding along the
+  original `/oauth/authorize` request's client/redirect/scope/state so
+  the callback can resume it.
+- `GET /oauth/oidc/callback` exchanges the provider's code, verifies
+  the returned ID token (signature via the issuer's published JWKS,
+  plus issuer/audience/expiry/nonce checks), derives the actor from
+  the token's `name`, falling back to `email`, then `sub`, and mints
+  the same kind of authorization code that the static-key path would
+  have.
+
+Any successful OIDC login grants full access — there is no per-user
+authorization tier. This server supports exactly one OIDC provider per
+deployment. Leaving the three settings unset disables OIDC entirely;
+the consent page falls back to the paste-the-key form as before.
 
 ### Tool catalog
 

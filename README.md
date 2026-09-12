@@ -53,17 +53,34 @@ cd server && dart_frog dev -- --api-key rn_your_secret --data-dir ./data
 
 Other knobs (with their env equivalents):
 
-| Flag           | Env var                  | Default      | What it controls                                                                                                                                                                                                                                             |
-| -------------- | ------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--api-key`    | `ROBOT_NOTES_API_KEY`    | _(required)_ | Bearer token for every request.                                                                                                                                                                                                                              |
-| `--data-dir`   | `ROBOT_NOTES_DATA_DIR`   | `./data`     | Root for `content/`, `invites/`, `oauth/`, `search.db`.                                                                                                                                                                                                      |
-| `--port`       | `ROBOT_NOTES_PORT`       | `8080`       | Listen port.                                                                                                                                                                                                                                                 |
-| `--web-dir`    | `ROBOT_NOTES_WEB_DIR`    | _(unset)_    | When set, serve a Flutter web bundle at `/`. The published Docker image sets this automatically.                                                                                                                                                             |
-| `--public-url` | `ROBOT_NOTES_PUBLIC_URL` | _(unset)_    | Absolute origin (scheme + host + optional port, no path) used in OAuth metadata, invite URLs, and MCP resource identifiers. Recommended whenever the server sits behind a reverse proxy; otherwise it's derived per request from `X-Forwarded-Proto`/`Host`. |
+| Flag                   | Env var                          | Default      | What it controls                                                                                                                                                                                                                                             |
+| ---------------------- | -------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--api-key`            | `ROBOT_NOTES_API_KEY`            | _(required)_ | Bearer token for every request.                                                                                                                                                                                                                              |
+| `--data-dir`           | `ROBOT_NOTES_DATA_DIR`           | `./data`     | Root for `content/`, `invites/`, `oauth/`, `search.db`.                                                                                                                                                                                                      |
+| `--port`               | `ROBOT_NOTES_PORT`               | `8080`       | Listen port.                                                                                                                                                                                                                                                 |
+| `--web-dir`            | `ROBOT_NOTES_WEB_DIR`            | _(unset)_    | When set, serve a Flutter web bundle at `/`. The published Docker image sets this automatically.                                                                                                                                                             |
+| `--public-url`         | `ROBOT_NOTES_PUBLIC_URL`         | _(unset)_    | Absolute origin (scheme + host + optional port, no path) used in OAuth metadata, invite URLs, and MCP resource identifiers. Recommended whenever the server sits behind a reverse proxy; otherwise it's derived per request from `X-Forwarded-Proto`/`Host`. |
+| `--oidc-issuer`        | `ROBOT_NOTES_OIDC_ISSUER`        | _(unset)_    | Base URL of an external OIDC provider to log humans in with, instead of pasting the static API key. All three `--oidc-*` settings are all-or-nothing.                                                                                                        |
+| `--oidc-client-id`     | `ROBOT_NOTES_OIDC_CLIENT_ID`     | _(unset)_    | This server's client id as registered with `--oidc-issuer`.                                                                                                                                                                                                  |
+| `--oidc-client-secret` | `ROBOT_NOTES_OIDC_CLIENT_SECRET` | _(unset)_    | This server's client secret as registered with `--oidc-issuer`.                                                                                                                                                                                              |
 
 Every HTTP request must carry `Authorization: Bearer <key>`. Clients
 self-declare their display name with the `X-Actor: <name>` header (defaulting
 to `unknown` when absent).
+
+#### OIDC login (optional, additive)
+
+The static API key is always required for agents, scripts, and
+invite-onboarded bots — it never goes away. Setting all three
+`--oidc-issuer`/`--oidc-client-id`/`--oidc-client-secret` values adds a
+**second**, human-facing way to authenticate: the Flutter app's setup screen
+and the MCP OAuth consent page both gain a "Sign in with your identity
+provider" option next to the existing "paste the API key" form. A successful
+OIDC login grants the same full access as the static key — there are no
+per-user permission tiers. Leaving the three settings unset disables OIDC
+entirely and the server behaves exactly as before. OIDC sign-in is available
+on desktop and web builds of the app only; mobile keeps the manual key-entry
+flow for now.
 
 ### Pointing the Flutter app at a server
 
