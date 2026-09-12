@@ -224,6 +224,8 @@ Widget _buildListPage(BuildContext context) {
         controller: session.list,
         onNoteTap: (id) => unawaited(context.push('/notes/$id')),
         onCreate: () => unawaited(_createNote(context, session)),
+        onSearch: () => unawaited(context.push('/search')),
+        onAccount: () => unawaited(_confirmReset(context, session)),
         sidebar: FolderTreeSidebar(
           controller: session.tree,
           selectedPath: listState.selectedPath,

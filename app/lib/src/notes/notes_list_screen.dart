@@ -18,6 +18,8 @@ class NotesListScreen extends StatefulWidget {
     required this.controller,
     this.onNoteTap,
     this.onCreate,
+    this.onSearch,
+    this.onAccount,
     this.appBarActions,
     this.sidebar,
     super.key,
@@ -27,15 +29,25 @@ class NotesListScreen extends StatefulWidget {
   final ValueChanged<String>? onNoteTap;
   final VoidCallback? onCreate;
 
+  /// Invoked by the narrow-layout bottom nav's "Search" destination.
+  /// Ignored on wide layouts, which keep [appBarActions] instead.
+  final VoidCallback? onSearch;
+
+  /// Invoked by the narrow-layout bottom nav's "Account" destination.
+  /// Ignored on wide layouts, which keep [appBarActions] instead.
+  final VoidCallback? onAccount;
+
   /// Optional widgets rendered as the AppBar actions (e.g. search + reset
-  /// affordances supplied by the host shell). When `null` the AppBar
-  /// shows just the title.
+  /// affordances supplied by the host shell) on wide layouts. Narrow
+  /// layouts never show these — the bottom nav ([onSearch], "Folders",
+  /// [onAccount]) replaces them, per the mobile redesign.
   final List<Widget>? appBarActions;
 
   /// The folder tree navigation panel. When supplied, it renders as a fixed
   /// column beside the list on wide screens (>= 700 logical pixels) and
-  /// inside a [Drawer] behind the usual hamburger affordance on narrow
-  /// ones. `null` renders no folder navigation at all.
+  /// inside a [Drawer] on narrow ones, opened via the bottom nav's
+  /// "Folders" destination (there is no AppBar hamburger). `null` renders
+  /// no folder navigation and no "Folders" destination.
   final Widget? sidebar;
 
   @override
@@ -44,6 +56,7 @@ class NotesListScreen extends StatefulWidget {
 
 class _NotesListScreenState extends State<NotesListScreen> {
   late final ScrollController _scroll;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -114,21 +127,29 @@ class _NotesListScreenState extends State<NotesListScreen> {
         final isWide = constraints.maxWidth >= _wideBreakpoint;
         final showSidebarInline = sidebar != null && isWide;
         return Scaffold(
+          key: _scaffoldKey,
           appBar: AppBar(
             title: const Text('Notes'),
-            actions: [
-              if (isWide && widget.onCreate != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: TextButton.icon(
-                    key: const Key('notes.create.toolbar'),
-                    onPressed: widget.onCreate,
-                    icon: const Icon(Icons.add),
-                    label: const Text('New note'),
-                  ),
-                ),
-              ...?widget.appBarActions,
-            ],
+            // The narrow bottom nav's "Folders" destination opens the
+            // drawer, so the default hamburger would be a redundant second
+            // way to do the same thing — suppress it there. Wide layouts
+            // never have a drawer, so this has no effect on them.
+            automaticallyImplyLeading: isWide,
+            actions: isWide
+                ? [
+                    if (widget.onCreate != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: TextButton.icon(
+                          key: const Key('notes.create.toolbar'),
+                          onPressed: widget.onCreate,
+                          icon: const Icon(Icons.add),
+                          label: const Text('New note'),
+                        ),
+                      ),
+                    ...?widget.appBarActions,
+                  ]
+                : const [],
           ),
           drawer: sidebar == null || showSidebarInline
               ? null
@@ -140,6 +161,14 @@ class _NotesListScreenState extends State<NotesListScreen> {
                   tooltip: 'New note',
                   onPressed: widget.onCreate,
                   child: const Icon(Icons.add),
+                ),
+          bottomNavigationBar: isWide
+              ? null
+              : _BottomNav(
+                  hasFolders: sidebar != null,
+                  onSearch: widget.onSearch,
+                  onFolders: () => _scaffoldKey.currentState?.openDrawer(),
+                  onAccount: widget.onAccount,
                 ),
           body: showSidebarInline
               ? Row(
@@ -233,6 +262,87 @@ class _NotesListScreenState extends State<NotesListScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Narrow-layout bottom nav: three always-visible destinations replacing
+/// the AppBar hamburger + icon actions the mobile UX review flagged as
+/// cramped. These are one-shot actions, not persistent tabs — there is no
+/// "selected" state to track — so this is a plain [BottomAppBar] row
+/// rather than a [NavigationBar]/[BottomNavigationBar], which both assume
+/// a currently-selected destination.
+class _BottomNav extends StatelessWidget {
+  const _BottomNav({
+    required this.hasFolders,
+    required this.onSearch,
+    required this.onFolders,
+    required this.onAccount,
+  });
+
+  final bool hasFolders;
+  final VoidCallback? onSearch;
+  final VoidCallback onFolders;
+  final VoidCallback? onAccount;
+
+  @override
+  Widget build(BuildContext context) {
+    return BottomAppBar(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _BottomNavItem(
+            itemKey: const Key('notes.bottomNav.search'),
+            icon: Icons.search,
+            label: 'Search',
+            onTap: onSearch,
+          ),
+          _BottomNavItem(
+            itemKey: const Key('notes.bottomNav.folders'),
+            icon: Icons.folder_outlined,
+            label: 'Folders',
+            onTap: hasFolders ? onFolders : null,
+          ),
+          _BottomNavItem(
+            itemKey: const Key('notes.bottomNav.account'),
+            icon: Icons.account_circle_outlined,
+            label: 'Account',
+            onTap: onAccount,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BottomNavItem extends StatelessWidget {
+  const _BottomNavItem({
+    required this.itemKey,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final Key itemKey;
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      key: itemKey,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon),
+            Text(label, style: Theme.of(context).textTheme.labelSmall),
+          ],
+        ),
+      ),
     );
   }
 }
