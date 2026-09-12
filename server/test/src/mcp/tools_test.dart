@@ -265,6 +265,37 @@ void main() {
       },
     );
 
+    test(
+      'omits current_content from version_conflict for a write-only '
+      'principal',
+      () async {
+        final note = await deps.noteWriteService.create(
+          title: 'Draft',
+          content: 'v1',
+          actor: 'x',
+        );
+        await deps.noteWriteService.update(
+          id: note.id,
+          title: 'Draft',
+          content: 'v2',
+          ifMatch: note.version,
+          actor: 'x',
+        );
+
+        final args = {
+          'id': note.id,
+          'version': note.version,
+          'content': 'v3',
+        };
+        final result = await call('update_note', args, writeOnly);
+        expect(result['isError'], isTrue);
+        final s = _structured(result);
+        expect(s['error'], ErrorCode.versionConflict.wire);
+        expect(s['current_version'], 2);
+        expect(s.containsKey('current_content'), isFalse);
+      },
+    );
+
     test('rejects an update with neither title nor content', () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',

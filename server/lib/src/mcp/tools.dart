@@ -436,13 +436,7 @@ McpTool _updateNoteTool(
         } on NoteNotFoundException {
           return toolFail(ErrorCode.notFound.wire);
         } on VersionConflictException catch (e) {
-          return toolFail(
-            ErrorCode.versionConflict.wire,
-            details: {
-              'current_version': e.current.version,
-              'current_content': e.current.content,
-            },
-          );
+          return _versionConflictFail(e.current, principal);
         }
       },
     );
@@ -513,13 +507,7 @@ McpTool _appendToNoteTool(
             return toolFail(ErrorCode.notFound.wire);
           }
         }
-        return toolFail(
-          ErrorCode.versionConflict.wire,
-          details: {
-            'current_version': current.version,
-            'current_content': current.content,
-          },
-        );
+        return _versionConflictFail(current, principal);
       },
     );
 
@@ -560,6 +548,22 @@ Map<String, Object?>? _lockConflict(
   if (active == null || active.holder == actor) return null;
   return toolFail(ErrorCode.locked.wire, details: {'holder': active.holder});
 }
+
+/// Builds a `version_conflict` tool error for [current], the note's state
+/// after losing the race. `current_content` is omitted for a principal
+/// lacking `notes:read` — a write-only token should not be able to read
+/// note bodies as a side effect of a failed write.
+Map<String, Object?> _versionConflictFail(
+  StoredNote current,
+  McpPrincipal principal,
+) =>
+    toolFail(
+      ErrorCode.versionConflict.wire,
+      details: {
+        'current_version': current.version,
+        if (principal.canRead) 'current_content': current.content,
+      },
+    );
 
 Map<String, Object?> _noteJson(StoredNote note) => {
       'id': note.id,
