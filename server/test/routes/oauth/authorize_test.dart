@@ -169,6 +169,34 @@ void main() {
       expect(res.headers.containsKey(HttpHeaders.locationHeader), isFalse);
     });
 
+    test(
+        'an unknown client_id and an unregistered redirect_uri render the '
+        'same generic error, so the page never reveals which one was wrong',
+        () async {
+      final unknownClientRes = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: validQuery()..['client_id'] = 'does-not-exist',
+        ),
+      );
+      final unregisteredRedirectRes = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: validQuery()
+            ..['redirect_uri'] = 'https://not-registered.example/callback',
+        ),
+      );
+
+      expect(
+        await unknownClientRes.body(),
+        await unregisteredRedirectRes.body(),
+      );
+    });
+
     test('missing PKCE challenge redirects with invalid_request', () async {
       final query = validQuery(state: 'xyz')..remove('code_challenge');
       final res = await route.onRequest(

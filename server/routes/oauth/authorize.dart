@@ -259,14 +259,17 @@ Future<_Validation> _validate(
     return const _ClientError('client_id and redirect_uri are required.');
   }
 
+  // Both failures render the same generic message: distinguishing them
+  // would let a caller enumerate valid client ids by observing which
+  // wording comes back.
+  const clientOrRedirectError =
+      _ClientError('Unknown client_id or unregistered redirect_uri.');
   final client = await context.read<ClientStore>().get(clientId);
   if (client == null) {
-    return const _ClientError('Unknown client_id.');
+    return clientOrRedirectError;
   }
   if (!client.redirectUris.contains(redirectUri)) {
-    return const _ClientError(
-      'redirect_uri is not registered for this client.',
-    );
+    return clientOrRedirectError;
   }
 
   final state = params['state'];
