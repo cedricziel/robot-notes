@@ -10,20 +10,31 @@ import 'package:dart_frog/dart_frog.dart';
 const Set<String> kLoopbackOriginHosts = {'localhost', '127.0.0.1', '::1'};
 
 /// Whether [origin] (an `Origin` header value) is acceptable for a `/mcp`
-/// request whose public base URL is [base]: either the exact public
-/// origin (scheme, host, port) or an `http` loopback origin at any port.
-/// An unparsable [origin] is rejected.
-bool isAllowedMcpOrigin(String origin, String base) {
+/// request: an `http` loopback origin at any port is always accepted, and
+/// when [publicUrl] (`Config.publicUrl`) is configured its exact origin
+/// (scheme, host, port) is also accepted. An unparsable [origin] is
+/// rejected.
+///
+/// [publicUrl] is deliberately the *configured* origin, never one derived
+/// from the request's `Host` header: a server with no configured public
+/// URL has no origin it can trust a client-controlled header to name, so
+/// a `null` [publicUrl] accepts loopback only. Trusting a Host-derived
+/// origin instead would let a DNS-rebinding attacker choose the accepted
+/// origin themselves by pointing a hostname they control at the server
+/// and browsing to it.
+bool isAllowedMcpOrigin(String origin, String? publicUrl) {
   final parsedOrigin = Uri.tryParse(origin);
   if (parsedOrigin == null) return false;
-  final parsedBase = Uri.parse(base);
-  if (parsedOrigin.scheme == parsedBase.scheme &&
-      parsedOrigin.host == parsedBase.host &&
-      parsedOrigin.port == parsedBase.port) {
+  if (parsedOrigin.scheme == 'http' &&
+      kLoopbackOriginHosts.contains(parsedOrigin.host)) {
     return true;
   }
-  return parsedOrigin.scheme == 'http' &&
-      kLoopbackOriginHosts.contains(parsedOrigin.host);
+  if (publicUrl == null) return false;
+  final parsedPublicUrl = Uri.tryParse(publicUrl);
+  if (parsedPublicUrl == null) return false;
+  return parsedOrigin.scheme == parsedPublicUrl.scheme &&
+      parsedOrigin.host == parsedPublicUrl.host &&
+      parsedOrigin.port == parsedPublicUrl.port;
 }
 
 /// The `405 Method Not Allowed` response for any non-`POST` request to

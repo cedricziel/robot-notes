@@ -1,11 +1,11 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/config.dart';
 import 'package:server/src/mcp/json_rpc.dart';
 import 'package:server/src/mcp/mcp_handler.dart';
 import 'package:server/src/mcp/mcp_http.dart';
 import 'package:server/src/mcp/principal.dart';
-import 'package:server/src/public_url.dart';
 
 /// `POST /mcp` — the sole Streamable HTTP MCP entrypoint.
 ///
@@ -25,7 +25,8 @@ Future<Response> onRequest(RequestContext context) async {
   }
 
   final origin = request.headers['origin'];
-  if (origin != null && !isAllowedMcpOrigin(origin, publicBaseUrl(context))) {
+  if (origin != null &&
+      !isAllowedMcpOrigin(origin, context.read<Config>().publicUrl)) {
     return mcpForbidden();
   }
 

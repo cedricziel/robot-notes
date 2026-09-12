@@ -39,6 +39,7 @@ RequestContext _ctx({
   Object? body,
   bool malformedJson = false,
   McpPrincipal principal = _principal,
+  String? configPublicUrl = _publicUrl,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
@@ -57,12 +58,12 @@ RequestContext _ctx({
   }
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<Config>()).thenReturn(
-    const Config(
+    Config(
       apiKey: 'test-key',
       dataDir: '/tmp',
       port: 8080,
       lockTtlSeconds: 60,
-      publicUrl: _publicUrl,
+      publicUrl: configPublicUrl,
     ),
   );
   when(() => ctx.read<McpHandler>()).thenReturn(handler);
@@ -160,6 +161,27 @@ void main() {
     );
     expect(res.statusCode, HttpStatus.accepted);
   });
+
+  test(
+    'a non-loopback origin matching the request Host header is 403 when '
+    'no publicUrl is configured — trusting a Host-derived origin would '
+    'let a DNS-rebinding attacker, who controls both, pick it themselves',
+    () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          handler: handler,
+          headers: const {
+            'Origin': 'https://attacker.example',
+            'Host': 'attacker.example',
+          },
+          body: {'jsonrpc': '2.0', 'method': 'notifications/initialized'},
+          configPublicUrl: null,
+        ),
+      );
+      expect(res.statusCode, HttpStatus.forbidden);
+    },
+  );
 
   test('absent Origin header is accepted', () async {
     final res = await route.onRequest(
