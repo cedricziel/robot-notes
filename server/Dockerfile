@@ -63,24 +63,14 @@ COPY app/ ./app/
 # (Flutter's tree-shaker can't follow Material Icons used by name).
 RUN flutter pub get
 
-# OTel export for the app's own telemetry, baked in via --dart-define.
-# Passed as BuildKit secrets (not --build-arg) so the endpoint/headers
-# don't end up in `docker history`/image metadata — though the compiled
-# JS bundle itself unavoidably still contains them, same as any
-# client-embedded credential. Omit both --secret flags at build time and
-# the bundle stays telemetry-off.
-RUN --mount=type=secret,id=otel_endpoint \
-    --mount=type=secret,id=otel_headers \
-    cd app && \
-    OTEL_ENDPOINT="$(cat /run/secrets/otel_endpoint 2>/dev/null || true)" && \
-    OTEL_HEADERS="$(cat /run/secrets/otel_headers 2>/dev/null || true)" && \
-    if [ -n "$OTEL_ENDPOINT" ] && [ -n "$OTEL_HEADERS" ]; then \
-      flutter build web --release --no-tree-shake-icons \
-        --dart-define=OTEL_EXPORTER_OTLP_ENDPOINT="$OTEL_ENDPOINT" \
-        --dart-define=OTEL_EXPORTER_OTLP_HEADERS="$OTEL_HEADERS"; \
-    else \
-      flutter build web --release --no-tree-shake-icons; \
-    fi
+# OTel export for the app's own telemetry is resolved at runtime (the app
+# fetches it from `GET /otel-config` on whichever server it's pointed at —
+# see app/lib/src/otel/remote_otel_config.dart), not baked in here. That
+# keeps every published image identical regardless of who's running it: an
+# operator turns telemetry on for their own deployment by setting
+# ROBOT_NOTES_OTEL_ENDPOINT/ROBOT_NOTES_OTEL_HEADERS on their server, never
+# by rebuilding the image with their own credentials compiled into the JS.
+RUN cd app && flutter build web --release --no-tree-shake-icons
 
 # ---------------------------------------------------------------------------
 # Web bundle — minimal stage that exposes ONLY the built SPA at the root.

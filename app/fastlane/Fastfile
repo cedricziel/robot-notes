@@ -48,23 +48,6 @@ def marketing_version(options)
   YAML.load_file(File.join(FLUTTER_ROOT, "pubspec.yaml"))["version"].to_s.split("+").first
 end
 
-# --dart-define flags wiring the release build to the app's OTel export.
-# Both values are secrets (SIGNALDB_OTEL_ENDPOINT / SIGNALDB_OTEL_HEADERS,
-# the latter the full "key=value,key=value" header string, tenant/dataset
-# included) — neither is hardcoded here, so nothing about the ingest host
-# or tenancy ends up in the repo. Empty (telemetry stays off) unless both
-# are set, so local builds without them behave exactly as before.
-def otel_dart_defines
-  endpoint = ENV["SIGNALDB_OTEL_ENDPOINT"].to_s.strip
-  headers = ENV["SIGNALDB_OTEL_HEADERS"].to_s.strip
-  return [] if endpoint.empty? || headers.empty?
-
-  [
-    "--dart-define=OTEL_EXPORTER_OTLP_ENDPOINT=#{endpoint}",
-    "--dart-define=OTEL_EXPORTER_OTLP_HEADERS=#{headers}",
-  ]
-end
-
 before_all do |_lane, _options|
   Dotenv.load(".env") if File.exist?(".env")
   # Without setup_ci, codesign on macOS runners hangs waiting for an
@@ -212,13 +195,14 @@ def build_target(key, options)
 
   match_appstore(t, api_key)
 
-  # Writes Flutter/Generated.xcconfig (FLUTTER_BUILD_NAME/NUMBER, SDK
-  # paths, and DART_DEFINES) and runs pod install, without compiling. The
-  # archive below does the single real build and is what actually reads
-  # DART_DEFINES via Xcode's Flutter build phase script.
-  dart_define_args = otel_dart_defines.map(&:shellescape).join(" ")
+  # Writes Flutter/Generated.xcconfig (FLUTTER_BUILD_NAME/NUMBER and SDK
+  # paths) and runs pod install, without compiling. The archive below does
+  # the single real build. OTel export is resolved at runtime by the app
+  # itself (it fetches it from the server it's pointed at — see
+  # app/lib/src/otel/remote_otel_config.dart), so no DART_DEFINES are needed
+  # here.
   sh("cd #{FLUTTER_ROOT.shellescape} && flutter build #{t[:flutter_platform]} --release --config-only " \
-     "--build-name=#{version.shellescape} --build-number=#{build_number.shellescape} #{dart_define_args}".strip)
+     "--build-name=#{version.shellescape} --build-number=#{build_number.shellescape}")
 
   update_code_signing_settings(
     path: t[:project],

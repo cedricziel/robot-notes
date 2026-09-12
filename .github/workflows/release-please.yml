@@ -177,14 +177,9 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build web bundle (Dockerfile target=web-bundle)
-        env:
-          SIGNALDB_OTEL_ENDPOINT: ${{ secrets.SIGNALDB_OTEL_ENDPOINT }}
-          SIGNALDB_OTEL_HEADERS: ${{ secrets.SIGNALDB_OTEL_HEADERS }}
         run: |
           docker buildx build \
             --target web-bundle \
-            --secret id=otel_endpoint,env=SIGNALDB_OTEL_ENDPOINT \
-            --secret id=otel_headers,env=SIGNALDB_OTEL_HEADERS \
             --output type=local,dest=./prebuilt-web \
             --file server/Dockerfile \
             .
@@ -452,10 +447,6 @@ jobs:
           FASTLANE_HIDE_CHANGELOG: "true"
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
           FASTLANE_XCODEBUILD_SETTINGS_RETRIES: "5"
-          # OTel export for the app's own telemetry. Both unset means the
-          # release build stays telemetry-off (see Fastfile#otel_dart_defines).
-          SIGNALDB_OTEL_ENDPOINT: ${{ secrets.SIGNALDB_OTEL_ENDPOINT }}
-          SIGNALDB_OTEL_HEADERS: ${{ secrets.SIGNALDB_OTEL_HEADERS }}
         run: |
           bundle exec fastlane ${{ matrix.lane_platform }} release \
             version:"${{ needs.resolve-tag.outputs.version }}"
