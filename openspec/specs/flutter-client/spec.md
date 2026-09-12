@@ -55,7 +55,7 @@ The app SHALL store the API key and actor name using a per-platform secure mecha
 
 ### Requirement: Notes list view shows server state
 
-The app SHALL provide a list view that pages through `GET /notes`, showing each note's title and updated time, and supports pull-to-refresh, an explicit refresh action, and infinite scroll via `next_cursor`. The list SHALL update in response to `changed` WebSocket events without manual refresh, and SHALL re-fetch when the user returns from a note so edits show even when the realtime stream is unavailable. When a fetch fails the app SHALL surface the failure without hiding items that already loaded.
+The app SHALL provide a list view that pages through `GET /notes`, showing each note's title and updated time in the device's local time zone, and supports pull-to-refresh, an explicit refresh action, and infinite scroll via `next_cursor`. The list SHALL update in response to `changed` WebSocket events without manual refresh, and SHALL re-fetch when the user returns from a note so edits show even when the realtime stream is unavailable. When a fetch fails the app SHALL surface the failure without hiding items that already loaded.
 
 #### Scenario: Initial load fetches first page
 
@@ -80,6 +80,12 @@ The app SHALL provide a list view that pages through `GET /notes`, showing each 
 - **WHEN** a refresh or page fetch fails
 - **THEN** the app SHALL show an error strip above the list carrying the server's `message` (or a generic fallback) and a retry control, and the existing items SHALL remain visible
 - **AND** activating retry SHALL re-issue `GET /notes` and clear the strip on success
+
+#### Scenario: Updated time is shown in local time
+
+- **GIVEN** a note whose `updated_at` is `2026-09-12T10:28:00Z`
+- **WHEN** the list renders on a device in UTC+2
+- **THEN** the entry SHALL show `2026-09-12 12:28` with no UTC marker
 
 #### Scenario: Live changed event updates the list
 
