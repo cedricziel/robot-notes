@@ -11,7 +11,7 @@
 - [x] 2.1 Write a failing test asserting that calling `save()` (or a new explicit-save entry point) does not leave a stale autosave generation able to fire a redundant second `PUT` shortly after.
 - [x] 2.2 Add `cancelPendingAutosave()` (bumps `_autosaveGen`) to `NoteController`.
 - [x] 2.3 `dart format`, `dart analyze` (or `flutter analyze` from `app/`) clean; confirm 2.1 passes.
-- [ ] 2.4 Commit: `feat(app): debounce-autosave note edits in NoteController`.
+- [x] 2.4 Commit: `feat(app): debounce-autosave note edits in NoteController` (combined with section 1's changes in the same commit — both landed together as one coherent controller change).
 
 ## 3. Editor: editing-status indicator replaces the lock banner
 
