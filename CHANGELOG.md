@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.6](https://github.com/cedricziel/robot-notes/compare/v0.1.5...v0.1.6) (2026-09-12)
+
+
+### Features
+
+* export logs via OpenTelemetry (server + app) ([#114](https://github.com/cedricziel/robot-notes/issues/114)) ([b9a169b](https://github.com/cedricziel/robot-notes/commit/b9a169bd58c1836b61d571244c11c6a08297f6c4))
+
+
+### Bug Fixes
+
+* **app:** make Cmd+S/Ctrl+S save reliably on web ([#126](https://github.com/cedricziel/robot-notes/issues/126)) ([a6e8f84](https://github.com/cedricziel/robot-notes/commit/a6e8f84a276ebc401bee5a6146d27569e99d521a))
+
 ## [0.1.5](https://github.com/cedricziel/robot-notes/compare/v0.1.4...v0.1.5) (2026-09-12)
 
 
