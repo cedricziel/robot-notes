@@ -70,8 +70,8 @@ untouched.
   `server/routes/oauth/authorize.dart`, `server/lib/src/auth_middleware.dart`,
   `server/lib/src/config.dart`, `app/lib/src/setup/setup_screen.dart`,
   `app/lib/src/config/config_store.dart`.
-- No new server dependency for JWT/JWKS verification is assumed yet — see
-  design.md for the hand-rolled-vs-package decision.
+- New server dependency: `package:pointycastle`, used only for the ID
+  token's RS256/ES256 signature verification — see design.md decision 3.
 - Docker image / README / deployment docs gain the three new optional env
   vars.
 

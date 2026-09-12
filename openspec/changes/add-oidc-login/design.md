@@ -65,22 +65,34 @@ Alternative considered: keep `/mcp`'s bespoke middleware pattern and add a
 near-identical one for REST/WS. Rejected — duplicates logic that's already
 subtle (constant-time comparison, scope checks, expiry) for no upside.
 
-### 3. Hand-roll ID-token/JWKS verification; no new server dependency
+### 3. Hand-roll discovery/JWKS/claims; use `package:pointycastle` only for the signature primitive
 
 The server verifies exactly one thing cryptographically: an ID token's
 signature (fetched via the issuer's `/.well-known/openid-configuration` →
-`jwks_uri`, standard RS256/ES256 JWS), plus `iss`/`aud`/`exp`/`nonce` claim
-checks. This is a small, well-understood surface, and the existing OAuth AS
-already hand-rolls comparable primitives (`oauth_crypto.dart`, PKCE
-challenge/verifier). Adding a general OIDC client package would pull in far
-more surface (userinfo, session management, provider quirks) than this
-change needs.
+`jwks_uri`, RS256 or ES256 JWS), plus `iss`/`aud`/`exp`/`nonce` claim checks.
+Discovery, JWKS fetch/cache, JWT structure parsing, and claim validation
+stay hand-rolled (small, well-understood, and directly testable against
+RFC 7517/7519 — the existing OAuth AS already hand-rolls comparable
+primitives in `oauth_crypto.dart`). The one piece deliberately **not**
+hand-rolled is the actual signature math: RSASSA-PKCS1-v1_5 verification is
+tractable with Dart's built-in `BigInt.modPow`, but ECDSA (P-256) requires
+elliptic-curve point arithmetic, which is a genuine correctness/security
+risk to implement from scratch. `package:pointycastle` (the standard,
+actively-maintained Dart/Flutter crypto primitives library) supplies RSA
+and ECDSA signature verification for both algorithms — used for exactly
+that one call, nothing else from it.
 
-Alternative considered: use a package such as `openid_client`. Rejected for
-now — it would be the first third-party OAuth/OIDC dependency in a codebase
-that has deliberately hand-rolled this category so far, for a verification
-step (JWS signature + claim checks) that's straightforward to implement and
-test directly against RFC 7517/7519.
+Alternatives considered:
+
+- Hand-roll RSA (via `BigInt.modPow`) and drop ES256 support. Rejected per
+  explicit product decision — ES256-configured providers (some Keycloak/
+  Authentik deployments) should work too, and a split "RSA hand-rolled, EC
+  via a library" implementation would be more code to maintain than one
+  library call for both algorithms.
+- A full OIDC/OAuth client package (e.g. `openid_client`). Rejected — this
+  change only needs the signature-verification primitive, not discovery,
+  session, or token-management logic this server already has its own
+  (audited, tested) implementation of.
 
 ### 4. The app's own OAuth client is minimal and desktop/web only
 
@@ -116,11 +128,14 @@ made directly against the REST/WS API (not through an OAuth grant).
   fail if the ephemeral port collides] → Mitigate by trying a small fixed
   range and surfacing a clear error with the manual-key fallback still
   available in the same screen.
-- [Hand-rolled JWT verification is a common source of auth bugs (alg
-  confusion, missing `aud` check, accepting `none`)] → Mitigate with an
-  explicit allowlist of accepted signing algorithms (RS256, ES256 only, no
-  `none`), mandatory `iss`/`aud`/`exp`/`nonce` checks, and a dedicated test
-  suite covering each rejection case per RFC 7519 §4.1 / OIDC Core §3.1.3.7.
+- [JWT verification is a common source of auth bugs (alg confusion, missing
+  `aud` check, accepting `none`)] → The signature math itself uses
+  `pointycastle`, not hand-rolled crypto; the hand-rolled part (structure
+  parsing, claim checks) is mitigated with an explicit allowlist of
+  accepted signing algorithms (RS256, ES256 only, no `none`, checked before
+  any signature verification is attempted), mandatory `iss`/`aud`/`exp`/
+  `nonce` checks, and a dedicated test suite covering each rejection case
+  per RFC 7519 §4.1 / OIDC Core §3.1.3.7.
 - [Widening `bearerAuth()` to accept scoped OAuth tokens on REST/WS changes a
   documented security invariant in `openspec/specs/auth/spec.md`] →
   Mitigated by making it strictly additive (the static key keeps working

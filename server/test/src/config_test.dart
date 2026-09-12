@@ -444,6 +444,108 @@ void main() {
         ),
       );
     });
+
+    group('OIDC login', () {
+      test('oidc is null when none of the three settings are set', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x'],
+          env: const {},
+        );
+        expect(config.oidc, isNull);
+      });
+
+      test('reads all three from CLI flags', () {
+        final config = Config.fromArgs(
+          const [
+            '--api-key',
+            'rn_x',
+            '--oidc-issuer',
+            'https://idp.example.com',
+            '--oidc-client-id',
+            'robot-notes',
+            '--oidc-client-secret',
+            'shh',
+          ],
+          env: const {},
+        );
+        expect(config.oidc, isNotNull);
+        expect(config.oidc!.issuer, 'https://idp.example.com');
+        expect(config.oidc!.clientId, 'robot-notes');
+        expect(config.oidc!.clientSecret, 'shh');
+      });
+
+      test('falls back to ROBOT_NOTES_OIDC_* env vars', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x'],
+          env: const {
+            'ROBOT_NOTES_OIDC_ISSUER': 'https://idp.example.com',
+            'ROBOT_NOTES_OIDC_CLIENT_ID': 'robot-notes',
+            'ROBOT_NOTES_OIDC_CLIENT_SECRET': 'shh',
+          },
+        );
+        expect(config.oidc, isNotNull);
+        expect(config.oidc!.issuer, 'https://idp.example.com');
+      });
+
+      test('CLI flag wins over env var per setting', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x', '--oidc-issuer', 'https://cli.example'],
+          env: const {
+            'ROBOT_NOTES_OIDC_ISSUER': 'https://env.example',
+            'ROBOT_NOTES_OIDC_CLIENT_ID': 'robot-notes',
+            'ROBOT_NOTES_OIDC_CLIENT_SECRET': 'shh',
+          },
+        );
+        expect(config.oidc!.issuer, 'https://cli.example');
+      });
+
+      test('throws naming the missing settings when only one is set', () {
+        expect(
+          () => Config.fromArgs(
+            const [
+              '--api-key',
+              'rn_x',
+              '--oidc-issuer',
+              'https://idp.example.com',
+            ],
+            env: const {},
+          ),
+          throwsA(
+            isA<ConfigError>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('--oidc-client-id'),
+                contains('--oidc-client-secret'),
+              ),
+            ),
+          ),
+        );
+      });
+
+      test('throws naming the missing setting when two of three are set', () {
+        expect(
+          () => Config.fromArgs(
+            const [
+              '--api-key',
+              'rn_x',
+              '--oidc-issuer',
+              'https://idp.example.com',
+              '--oidc-client-id',
+              'robot-notes',
+            ],
+            env: const {},
+          ),
+          throwsA(
+            isA<ConfigError>().having(
+              (e) => e.message,
+              'message',
+              contains('--oidc-client-secret'),
+            ),
+          ),
+        );
+      });
+    });
   });
 
   group('Config.loadOrExit', () {

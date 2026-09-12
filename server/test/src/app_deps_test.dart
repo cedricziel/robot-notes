@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:logging/logging.dart';
@@ -6,6 +7,7 @@ import 'package:server/src/app_deps_holder.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oidc/discovery.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
@@ -193,6 +195,67 @@ void main() {
         deps.codeStore.consume(code, (record) async => record),
         throwsA(isA<CodeNotFoundException>()),
       );
+    });
+
+    group('OIDC discovery', () {
+      Config oidcConfig(Directory dir) => Config(
+            apiKey: 'rn_test',
+            dataDir: dir.path,
+            port: 8080,
+            lockTtlSeconds: 60,
+            oidc: const OidcConfig(
+              issuer: 'https://idp.example.com',
+              clientId: 'robot-notes',
+              clientSecret: 'shh',
+            ),
+          );
+
+      Future<String> fakeDiscovery(Uri uri) async => jsonEncode({
+            'issuer': 'https://idp.example.com',
+            'authorization_endpoint': 'https://idp.example.com/authorize',
+            'token_endpoint': 'https://idp.example.com/token',
+            'jwks_uri': 'https://idp.example.com/jwks.json',
+          });
+
+      test('is not fetched when OIDC is not configured', () async {
+        var called = false;
+        final deps = await AppDeps.bootstrap(
+          _config(tmp),
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+          oidcHttpGet: (uri) async {
+            called = true;
+            return fakeDiscovery(uri);
+          },
+        );
+        addTearDown(deps.close);
+        expect(called, isFalse);
+        expect(deps.oidcDiscovery, isNull);
+      });
+
+      test('is fetched and exposed when OIDC is configured', () async {
+        final deps = await AppDeps.bootstrap(
+          oidcConfig(tmp),
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+          oidcHttpGet: fakeDiscovery,
+        );
+        addTearDown(deps.close);
+        expect(deps.oidcDiscovery, isNotNull);
+        expect(
+          deps.oidcDiscovery!.authorizationEndpoint,
+          'https://idp.example.com/authorize',
+        );
+      });
+
+      test('a discovery failure fails bootstrap', () async {
+        await expectLater(
+          AppDeps.bootstrap(
+            oidcConfig(tmp),
+            clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+            oidcHttpGet: (uri) async => throw Exception('unreachable'),
+          ),
+          throwsA(isA<OidcDiscoveryException>()),
+        );
+      });
     });
   });
 
