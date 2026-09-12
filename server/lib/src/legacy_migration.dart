@@ -5,9 +5,17 @@ import 'package:server/src/frontmatter.dart';
 import 'package:server/src/note_path.dart';
 
 /// Matches a legacy flat-layout filename: a 26-character Crockford
-/// base-32 ULID (uppercase letters and digits) followed by `.md`,
-/// directly under the content root.
-final RegExp _legacyUlidFilename = RegExp(r'^[0-9A-Z]{26}\.md$');
+/// base-32 ULID followed by `.md`, directly under the content root.
+///
+/// Case-insensitive: `Ulid().toString()` (package:ulid, used by
+/// `Storage`'s id generator) emits lowercase, but a canonical ULID's
+/// letters are conventionally uppercase and some external tooling may
+/// write them that way — matching either avoids silently skipping real
+/// legacy files (a lowercase-only production dataset went unmigrated
+/// until this was caught during manual deploy verification).
+final RegExp _legacyUlidFilename = RegExp(
+  r'^[0-9A-Za-z]{26}\.md$',
+);
 
 /// One-time startup step that brings pre-vault-structure note files up
 /// to date: a file directly under [contentDir] named `<ulid>.md` whose
