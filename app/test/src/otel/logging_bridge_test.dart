@@ -91,5 +91,27 @@ void main() {
       expect(record.attributes['exception.message'], contains('bad'));
       expect(record.attributes['exception.stacktrace'], stackTrace.toString());
     });
+
+    for (final entry in {
+      logging.Level.FINEST: otel.LogSeverity.trace,
+      logging.Level.FINER: otel.LogSeverity.trace,
+      logging.Level.FINE: otel.LogSeverity.debug,
+      logging.Level.CONFIG: otel.LogSeverity.debug,
+      logging.Level.INFO: otel.LogSeverity.info,
+      logging.Level.WARNING: otel.LogSeverity.warn,
+      logging.Level.SEVERE: otel.LogSeverity.error,
+      logging.Level.SHOUT: otel.LogSeverity.fatal,
+    }.entries) {
+      test('maps ${entry.key} to ${entry.value}', () async {
+        final processor = _FakeLogRecordProcessor();
+        final provider = _FakeLoggerProvider(processor);
+        subscription = installOtelLoggingBridge(provider);
+
+        namedLogger.log(entry.key, 'msg');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(processor.emitted.single.severity, entry.value);
+      });
+    }
   });
 }
