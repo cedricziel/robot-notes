@@ -10,7 +10,10 @@ dart run tool/setup_git_hooks.dart
 The second command installs a `pre-commit` hook into `.git/hooks/` that runs
 [`dart_pre_commit`](https://pub.dev/packages/dart_pre_commit) before each
 commit (formatting + analysis). The hook is per-clone — every contributor
-runs the install once.
+runs the install once. The installer also works from inside a git worktree:
+it resolves the shared hooks directory of the main checkout (via `git
+rev-parse --git-path hooks`) and installs there, so the hook applies to every
+worktree of the clone.
 
 ## Pre-commit checks
 
