@@ -291,6 +291,38 @@ void main() {
       expect(location.queryParameters['state'], 'xyz');
     });
 
+    test(
+        'an unsupported response_type takes priority over a client not '
+        'registered for the code response type', () async {
+      final restricted = await clientStore.register(
+        clientName: 'No Code Response Type',
+        redirectUris: ['https://restricted.example/callback'],
+        tokenEndpointAuthMethod: 'none',
+        grantTypes: ['authorization_code'],
+        responseTypes: const [],
+      );
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: {
+            'client_id': restricted.client.clientId,
+            'redirect_uri': restricted.client.redirectUris.first,
+            'response_type': 'token',
+            'code_challenge': 'challenge-abc',
+            'code_challenge_method': 'S256',
+            'state': 'xyz',
+          },
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.found);
+      final location = Uri.parse(res.headers[HttpHeaders.locationHeader]!);
+      expect(location.queryParameters['error'], 'unsupported_response_type');
+      expect(location.queryParameters['state'], 'xyz');
+    });
+
     test('a malformed percent-escape in the query renders an error page',
         () async {
       final res = await route.onRequest(
