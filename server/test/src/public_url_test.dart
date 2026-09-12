@@ -99,4 +99,18 @@ void main() {
       );
     });
   });
+
+  group('publicUrlStartupWarning', () {
+    test('names ROBOT_NOTES_PUBLIC_URL when the public URL is unset', () {
+      final warning = publicUrlStartupWarning(_config());
+      expect(warning, isNotNull);
+      expect(warning, contains('ROBOT_NOTES_PUBLIC_URL'));
+      expect(warning, contains('--public-url'));
+    });
+
+    test('is null when the public URL is configured', () {
+      final config = _config(publicUrl: 'https://notes.example.com');
+      expect(publicUrlStartupWarning(config), isNull);
+    });
+  });
 }

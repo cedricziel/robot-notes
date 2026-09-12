@@ -7,6 +7,7 @@ import 'package:server/src/app_deps.dart';
 import 'package:server/src/app_deps_holder.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/config_holder.dart';
+import 'package:server/src/public_url.dart';
 import 'package:shared/shared.dart';
 
 /// Custom Dart Frog entrypoint hook.
@@ -74,6 +75,9 @@ void _logResolvedConfig(Config config, int effectivePort) {
     ..info('  port:     $effectivePort')
     ..info('  data dir: ${config.dataDir}')
     ..info('  web dir:  ${config.webDir ?? '(unset — API-only mode)'}')
+    ..info('  public:   ${config.publicUrl ?? '(unset — derived per request)'}')
     ..info('  lock ttl: ${config.lockTtlSeconds}s')
     ..info('  api key:  configured (length=${config.apiKey.length})');
+  final warning = publicUrlStartupWarning(config);
+  if (warning != null) Logger('boot').warning(warning);
 }
