@@ -31,6 +31,7 @@ void main() {
             'title': 'hello',
             'snippet': 'hello world',
             'rank': -1.0,
+            'updated_at': '2026-01-01T00:00:00.000Z',
           },
         ]);
       });
@@ -82,6 +83,7 @@ void main() {
               'title': 'hello',
               'snippet': 'hi',
               'rank': -1.0,
+              'updated_at': '2026-01-01T00:00:00.000Z',
             },
           ]);
         });

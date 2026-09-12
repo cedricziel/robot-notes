@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
+import 'package:app/src/notes/notes_list_screen.dart' show formatNoteTimestamp;
 import 'package:app/src/search/search_controller.dart';
 import 'package:app/src/search/search_screen.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +26,7 @@ http.Response _hits(List<String> ids) => http.Response(
           'title': 'doc $id',
           'snippet': 'hi',
           'rank': -1.0,
+          'updated_at': '2026-01-01T00:00:00.000Z',
         },
     ],
     'limit': 50,
@@ -35,6 +37,11 @@ http.Response _hits(List<String> ids) => http.Response(
 http.Response _badRequest(String message) => http.Response(
   jsonEncode(<String, Object?>{'error': 'bad_request', 'message': message}),
   400,
+);
+
+http.Response _unauthorized(String message) => http.Response(
+  jsonEncode(<String, Object?>{'error': 'unauthorized', 'message': message}),
+  401,
 );
 
 void main() {
@@ -54,6 +61,7 @@ void main() {
               'title': 'doc',
               'snippet': 'pre <mark>hello</mark> post',
               'rank': -1.0,
+              'updated_at': '2026-01-01T00:00:00.000Z',
             },
           ],
           'limit': 50,
@@ -109,6 +117,7 @@ void main() {
               'title': 'doc',
               'snippet': 'hi',
               'rank': -1.0,
+              'updated_at': '2026-01-01T00:00:00.000Z',
             },
           ],
           'limit': 50,
@@ -238,5 +247,157 @@ void main() {
     expect((spans[1] as TextSpan).text, 'two');
     expect((spans[1] as TextSpan).style?.fontWeight, FontWeight.bold);
     expect((spans[2] as TextSpan).text, ' three');
+  });
+
+  testWidgets('clear button appears once typed, clears the field, and '
+      'refocuses it', (tester) async {
+    final mock = MockClient((request) async => _hits(<String>['01H']));
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
+    await tester.pump();
+
+    expect(find.byKey(const Key('search.clear')), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'hello');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('search.clear')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('search.clear')));
+    await tester.pump();
+
+    expect(find.byKey(const Key('search.clear')), findsNothing);
+    final field = tester.widget<TextField>(
+      find.byKey(const Key('search.input')),
+    );
+    expect(field.controller!.text, isEmpty);
+    expect(ctrl.value.query, isEmpty);
+    expect(
+      FocusScope.of(tester.element(find.byType(SearchScreen))).hasFocus,
+      isTrue,
+    );
+  });
+
+  testWidgets('result count line shows the match count, singular and plural', (
+    tester,
+  ) async {
+    var responseIds = <String>['01H'];
+    final mock = MockClient((request) async => _hits(responseIds));
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('search.count')), findsOneWidget);
+    expect(find.text('1 match'), findsOneWidget);
+
+    responseIds = <String>['01H', '02H', '03H'];
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs2');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('3 matches'), findsOneWidget);
+  });
+
+  testWidgets('empty results show a query-specific message', (tester) async {
+    final mock = MockClient((request) async => _hits(<String>[]));
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zzzqux');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('No matches for “zzzqux”.'), findsOneWidget);
+  });
+
+  testWidgets('a 400 error shows a syntax hint; other errors do not', (
+    tester,
+  ) async {
+    final mock = MockClient((request) async => _badRequest('bad query'));
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs "');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('search.hint')), findsOneWidget);
+    expect(find.text('Check quotes and special characters.'), findsOneWidget);
+  });
+
+  testWidgets('a non-400 error does not show the syntax hint', (tester) async {
+    final mock = MockClient((request) async => _unauthorized('bad key'));
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('search.error')), findsOneWidget);
+    expect(find.byKey(const Key('search.hint')), findsNothing);
+  });
+
+  testWidgets('a hit tile shows the note\'s formatted updated time', (
+    tester,
+  ) async {
+    final mock = MockClient((request) async {
+      return http.Response(
+        jsonEncode(<String, Object?>{
+          'items': <Object?>[
+            <String, Object?>{
+              'id': '01H',
+              'title': 'doc',
+              'snippet': 'hi',
+              'rank': -1.0,
+              'updated_at': '2026-01-02T03:04:00.000Z',
+            },
+          ],
+          'limit': 50,
+        }),
+        200,
+      );
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(MaterialApp(home: SearchScreen(controller: ctrl)));
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('search.input')), 'zfs');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('search.hit.01H.updated')), findsOneWidget);
+    expect(
+      find.text(
+        formatNoteTimestamp(DateTime.parse('2026-01-02T03:04:00.000Z')),
+      ),
+      findsOneWidget,
+    );
   });
 }
