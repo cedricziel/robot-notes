@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/oauth/metadata.dart';
+import 'package:server/src/oauth/oauth_response.dart';
 import 'package:server/src/public_url.dart';
 import 'package:shared/shared.dart';
 
@@ -35,13 +36,19 @@ Middleware wellKnownMiddleware() {
       if (isProtectedResource) {
         if (request.method != HttpMethod.get) return _methodNotAllowed();
         final base = publicBaseUrl(context);
-        return Response.json(body: protectedResourceMetadata(base));
+        return Response.json(
+          headers: kNoStoreHeaders,
+          body: protectedResourceMetadata(base),
+        );
       }
 
       if (path == Routes.wellKnownAuthorizationServer) {
         if (request.method != HttpMethod.get) return _methodNotAllowed();
         final base = publicBaseUrl(context);
-        return Response.json(body: authorizationServerMetadata(base));
+        return Response.json(
+          headers: kNoStoreHeaders,
+          body: authorizationServerMetadata(base),
+        );
       }
 
       return handler(context);

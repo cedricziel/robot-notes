@@ -200,6 +200,61 @@ void main() {
       expect(lookup, isNull);
     });
 
+    test(
+        'a concurrent replay of the same code yields exactly one success '
+        'and the winning grant is revoked', () async {
+      final client = await registerPublic();
+      final code = await mintCode(client);
+      final form = _formEncode({
+        'grant_type': 'authorization_code',
+        'client_id': client.client.clientId,
+        'code': code,
+        'redirect_uri': 'https://agent.example/callback',
+        'code_verifier': _verifier,
+      });
+
+      final results = await Future.wait([
+        route.onRequest(
+          _ctx(
+            clientStore: clientStore,
+            codeStore: codeStore,
+            tokenStore: tokenStore,
+            formBody: form,
+          ),
+        ),
+        route.onRequest(
+          _ctx(
+            clientStore: clientStore,
+            codeStore: codeStore,
+            tokenStore: tokenStore,
+            formBody: form,
+          ),
+        ),
+      ]);
+
+      final statuses = results.map((r) => r.statusCode).toList()..sort();
+      expect(statuses, [HttpStatus.ok, HttpStatus.badRequest]);
+
+      final success = results.singleWhere(
+        (r) => r.statusCode == HttpStatus.ok,
+      );
+      final failure = results.singleWhere(
+        (r) => r.statusCode == HttpStatus.badRequest,
+      );
+      final failureJson = await failure.json() as Map<String, dynamic>;
+      expect(failureJson['error'], 'invalid_grant');
+
+      final successJson = await success.json() as Map<String, dynamic>;
+      final accessToken = successJson['access_token'] as String;
+      final lookup = await tokenStore.lookupAccess(accessToken);
+      expect(
+        lookup,
+        isNull,
+        reason: "the winning exchange's tokens must be revoked once the "
+            'replay is detected, even though they were already issued',
+      );
+    });
+
     test('expired code is rejected', () async {
       final client = await registerPublic();
       final code = await mintCode(client);
@@ -351,6 +406,121 @@ void main() {
     expect(json['error'], 'unsupported_grant_type');
   });
 
+  test('a missing grant_type is invalid_request', () async {
+    final client = await registerPublic();
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({'client_id': client.client.clientId}),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_request');
+  });
+
+  test('a client not registered for authorization_code is unauthorized_client',
+      () async {
+    final client = await clientStore.register(
+      clientName: 'Refresh Only',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['refresh_token'],
+      responseTypes: ['code'],
+    );
+    final code = await mintCode(client);
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'grant_type': 'authorization_code',
+          'client_id': client.client.clientId,
+          'code': code,
+          'redirect_uri': 'https://agent.example/callback',
+          'code_verifier': _verifier,
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'unauthorized_client');
+  });
+
+  test('a client without the refresh_token grant gets no refresh_token',
+      () async {
+    final client = await clientStore.register(
+      clientName: 'Code Only',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['authorization_code'],
+      responseTypes: ['code'],
+    );
+    final code = await mintCode(client);
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'grant_type': 'authorization_code',
+          'client_id': client.client.clientId,
+          'code': code,
+          'redirect_uri': 'https://agent.example/callback',
+          'code_verifier': _verifier,
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.ok);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['access_token'], isNotEmpty);
+    expect(json.containsKey('refresh_token'), isFalse);
+  });
+
+  test('a client not registered for refresh_token is unauthorized_client',
+      () async {
+    final client = await clientStore.register(
+      clientName: 'Code Only',
+      redirectUris: ['https://agent.example/callback'],
+      tokenEndpointAuthMethod: 'none',
+      grantTypes: ['authorization_code'],
+      responseTypes: ['code'],
+    );
+    final issued = await tokenStore.issue(
+      clientId: client.client.clientId,
+      actor: 'desk-assistant',
+      scopes: const {'notes:read', 'notes:write'},
+      resource: _resource,
+      grantId: 'grant-1',
+    );
+
+    final res = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: _formEncode({
+          'grant_type': 'refresh_token',
+          'client_id': client.client.clientId,
+          'refresh_token': issued.refreshToken,
+        }),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'unauthorized_client');
+  });
+
   group('grant_type=refresh_token', () {
     Future<Map<String, dynamic>> exchange(RegisteredClient client) async {
       final code = await mintCode(client);
@@ -493,6 +663,30 @@ void main() {
       expect(res.statusCode, HttpStatus.badRequest);
       final json = await res.json() as Map<String, dynamic>;
       expect(json['error'], 'invalid_scope');
+    });
+
+    test("an empty scope on refresh keeps the grant's existing scope",
+        () async {
+      final client = await registerPublic();
+      final first = await exchange(client);
+
+      final res = await route.onRequest(
+        _ctx(
+          clientStore: clientStore,
+          codeStore: codeStore,
+          tokenStore: tokenStore,
+          formBody: _formEncode({
+            'grant_type': 'refresh_token',
+            'client_id': client.client.clientId,
+            'refresh_token': first['refresh_token'] as String,
+            'scope': '',
+          }),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final json = await res.json() as Map<String, dynamic>;
+      expect(json['scope'], 'notes:read notes:write');
     });
 
     test('expired refresh token is rejected', () async {

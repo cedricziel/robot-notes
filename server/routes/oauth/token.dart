@@ -27,6 +27,9 @@ Future<Response> onRequest(RequestContext context) async {
   }
 
   final grantType = form['grant_type'];
+  if (grantType == null || grantType.isEmpty) {
+    return oauthError(HttpStatus.badRequest, 'invalid_request');
+  }
   if (grantType != 'authorization_code' && grantType != 'refresh_token') {
     return oauthError(HttpStatus.badRequest, 'unsupported_grant_type');
   }
@@ -42,6 +45,9 @@ Future<Response> onRequest(RequestContext context) async {
     );
   }
   final client = authResult.client!;
+  if (!client.grantTypes.contains(grantType)) {
+    return oauthError(HttpStatus.badRequest, 'unauthorized_client');
+  }
 
   return grantType == 'authorization_code'
       ? _exchangeCode(context, client: client, form: form)
@@ -60,33 +66,42 @@ Future<Response> _exchangeCode(
     return oauthError(HttpStatus.badRequest, 'invalid_request');
   }
 
-  final AuthorizationCode record;
+  final requestedResource = form['resource'];
+
+  // Validation and token issuance both run inside the callback, while
+  // CodeStore still holds the per-code mutex. That closes a race where a
+  // concurrent replay of the same code could call `revokeGrant` (below)
+  // before this exchange's tokens exist, leaving them live: the replay
+  // now blocks until this callback — including `TokenStore.issue` — has
+  // fully finished.
   try {
-    record = await context.read<CodeStore>().consume(code);
+    return await context.read<CodeStore>().consume(code, (record) async {
+      final mismatched = record.clientId != client.clientId ||
+          record.redirectUri != redirectUri ||
+          !pkceVerify(challenge: record.codeChallenge, verifier: verifier) ||
+          (requestedResource != null && requestedResource != record.resource);
+      if (mismatched) {
+        return oauthError(HttpStatus.badRequest, 'invalid_grant');
+      }
+
+      final issued = await context.read<TokenStore>().issue(
+            clientId: client.clientId,
+            actor: record.actor,
+            scopes: record.scopes,
+            resource: record.resource,
+            grantId: record.grantId,
+          );
+      return _tokenResponse(
+        issued,
+        includeRefresh: client.grantTypes.contains('refresh_token'),
+      );
+    });
   } on CodeReusedException catch (e) {
     await context.read<TokenStore>().revokeGrant(e.grantId);
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on CodeNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   }
-
-  final requestedResource = form['resource'];
-  final mismatched = record.clientId != client.clientId ||
-      record.redirectUri != redirectUri ||
-      !pkceVerify(challenge: record.codeChallenge, verifier: verifier) ||
-      (requestedResource != null && requestedResource != record.resource);
-  if (mismatched) {
-    return oauthError(HttpStatus.badRequest, 'invalid_grant');
-  }
-
-  final issued = await context.read<TokenStore>().issue(
-        clientId: client.clientId,
-        actor: record.actor,
-        scopes: record.scopes,
-        resource: record.resource,
-        grantId: record.grantId,
-      );
-  return _tokenResponse(issued);
 }
 
 Future<Response> _refresh(
@@ -112,15 +127,20 @@ Future<Response> _refresh(
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   }
 
-  final requestedScopes =
-      form['scope']?.split(' ').where((s) => s.isNotEmpty).toSet();
+  // An empty or whitespace-only `scope` is treated as absent — the grant
+  // keeps its existing scopes — rather than as a request to narrow to no
+  // scopes at all.
+  final scopeParam = form['scope'];
+  final requestedScopes = (scopeParam == null || scopeParam.trim().isEmpty)
+      ? null
+      : scopeParam.split(' ').where((s) => s.isNotEmpty).toSet();
 
   try {
     final issued = await tokenStore.rotateRefresh(
       refreshToken,
       scopes: requestedScopes,
     );
-    return _tokenResponse(issued);
+    return _tokenResponse(issued, includeRefresh: true);
   } on TokenNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on RefreshReuseException {
@@ -130,14 +150,14 @@ Future<Response> _refresh(
   }
 }
 
-Response _tokenResponse(IssuedTokens issued) {
+Response _tokenResponse(IssuedTokens issued, {required bool includeRefresh}) {
   return Response.json(
     headers: kNoStoreHeaders,
     body: {
       'access_token': issued.accessToken,
       'token_type': 'Bearer',
       'expires_in': issued.expiresIn,
-      'refresh_token': issued.refreshToken,
+      if (includeRefresh) 'refresh_token': issued.refreshToken,
       'scope': (issued.scopes.toList()..sort()).join(' '),
     },
   );

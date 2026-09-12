@@ -261,5 +261,27 @@ void main() {
       final store = _store(tmp);
       await store.revokeToken('does-not-exist');
     });
+
+    test(
+        'a clientId guard mismatch leaves the token untouched (RFC 7009 '
+        '§2.1: a client may only revoke its own tokens)', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store, clientId: 'client-a');
+
+      await store.revokeToken(issued.refreshToken, clientId: 'client-b');
+
+      expect(await store.lookupRefresh(issued.refreshToken), isNotNull);
+      expect(await store.lookupAccess(issued.accessToken), isNotNull);
+    });
+
+    test('a matching clientId guard revokes as usual', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store, clientId: 'client-a');
+
+      await store.revokeToken(issued.refreshToken, clientId: 'client-a');
+
+      expect(await store.lookupRefresh(issued.refreshToken), isNull);
+      expect(await store.lookupAccess(issued.accessToken), isNull);
+    });
   });
 }
