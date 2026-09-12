@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:logging/logging.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
@@ -500,6 +501,28 @@ void main() {
       expect(res.headers.containsKey(HttpHeaders.locationHeader), isFalse);
       final body = await res.body();
       expect(body, contains('class="error"'));
+    });
+
+    test('wrong key logs a warning naming the client', () async {
+      hierarchicalLoggingEnabled = true;
+      Logger('oauth.authorize').level = Level.ALL;
+      final records = <LogRecord>[];
+      final sub = Logger('oauth.authorize').onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+      final form = validQuery()..['api_key'] = 'wrong';
+
+      await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(form),
+        ),
+      );
+
+      expect(records, isNotEmpty);
+      expect(records.single.level, Level.WARNING);
+      expect(records.single.message, contains(client.client.clientId));
     });
 
     test(

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:server/src/links.dart';
@@ -108,9 +109,11 @@ class InvalidSearchQueryException implements Exception {
 /// note save/delete must call [upsert] / [delete] to keep the index in
 /// sync.
 class SearchIndex {
-  SearchIndex._(this._db);
+  SearchIndex._(this._db, this._log, this._tracer);
 
   final Database _db;
+  final Logger _log;
+  final Tracer _tracer;
   late final PreparedStatement _upsertStmt = _db.prepare(
     'INSERT OR REPLACE INTO notes_fts '
     '(rowid, id, title, path, content, updated_at, tags) '
@@ -138,6 +141,7 @@ class SearchIndex {
     required File dbFile,
     required Storage storage,
     Logger? logger,
+    Tracer? tracer,
     bool forceRebuild = false,
   }) async {
     final log = logger ?? Logger('search_index');
@@ -159,7 +163,8 @@ class SearchIndex {
     final db = sqlite3.open(dbFile.path);
     _initSchema(db);
 
-    final index = SearchIndex._(db);
+    final index =
+        SearchIndex._(db, log, tracer ?? const NoopTracer('search_index'));
     if (rebuild) {
       final loaded = await index._rebuild(storage);
       log.info('search.db rebuilt with $loaded note(s)');
@@ -258,28 +263,34 @@ class SearchIndex {
   /// valid FTS5 expression.
   ///
   /// Snippets contain `<mark>...</mark>` markers around matched terms.
+  ///
+  /// Wrapped in a `search.query` span (not made [Span.current], since this
+  /// method is synchronous and [Tracer.startActiveSpan] requires an async
+  /// body — a nested log call still correlates to whichever span was
+  /// already ambient, typically the request's own).
   List<SearchHit> search(
     String query, {
     int limit = 50,
     String? path,
     String? tag,
   }) {
-    final conditions = ['notes_fts MATCH ?'];
-    final params = <Object?>[query];
-    if (path != null) {
-      // Avoided LIKE here: a folder name containing `%` or `_` would
-      // otherwise be misinterpreted as a wildcard.
-      conditions.add(
-        "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')",
-      );
-      params.addAll([path, path, path]);
-    }
-    if (tag != null) {
-      conditions.add("instr(tags, ' ' || ? || ' ') > 0");
-      params.add(tag.toLowerCase());
-    }
-    params.add(limit);
+    final span = _tracer.startSpan('search.query');
     try {
+      final conditions = ['notes_fts MATCH ?'];
+      final params = <Object?>[query];
+      if (path != null) {
+        // Avoided LIKE here: a folder name containing `%` or `_` would
+        // otherwise be misinterpreted as a wildcard.
+        conditions.add(
+          "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')",
+        );
+        params.addAll([path, path, path]);
+      }
+      if (tag != null) {
+        conditions.add("instr(tags, ' ' || ? || ' ') > 0");
+        params.add(tag.toLowerCase());
+      }
+      params.add(limit);
       final rows = _db.select(
         'SELECT id, title, path, updated_at, '
         "snippet(notes_fts, 3, '<mark>', '</mark>', '…', 16) AS snippet, "
@@ -290,7 +301,7 @@ class SearchIndex {
         'LIMIT ?;',
         params,
       );
-      return [
+      final hits = [
         for (final row in rows)
           SearchHit(
             id: row['id'] as String,
@@ -301,11 +312,25 @@ class SearchIndex {
             updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
           ),
       ];
-    } on SqliteException catch (e) {
-      throw InvalidSearchQueryException(
+      span.setAttribute('search.hit_count', hits.length);
+      return hits;
+    } on SqliteException catch (e, st) {
+      _log.warning('Invalid search query "$query": ${e.message}');
+      final exception = InvalidSearchQueryException(
         original: query,
         reason: e.message,
       );
+      span
+        ..recordException(exception, stackTrace: st)
+        ..setStatus(StatusCode.error, description: exception.toString());
+      throw exception;
+    } catch (e, st) {
+      span
+        ..recordException(e, stackTrace: st)
+        ..setStatus(StatusCode.error, description: e.toString());
+      rethrow;
+    } finally {
+      span.end();
     }
   }
 

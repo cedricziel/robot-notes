@@ -1,10 +1,25 @@
 import 'dart:io';
 
+import 'package:flutter_otel_api/flutter_otel_api.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
+import 'package:server/src/otel/sdk_tracer.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+class _RecordingSpanProcessor implements SpanProcessor {
+  final List<SpanData> ended = [];
+
+  @override
+  void onEnd(SpanData span) => ended.add(span);
+
+  @override
+  Future<void> forceFlush() async {}
+
+  @override
+  Future<void> shutdown() async {}
+}
 
 Directory _tempDir() {
   return Directory.systemTemp.createTempSync('robot-notes-search-test-');
@@ -40,12 +55,14 @@ Future<SearchIndex> _open(
   Directory tmp, {
   Storage? storage,
   Logger? logger,
+  Tracer? tracer,
   bool forceRebuild = false,
 }) {
   return SearchIndex.open(
     dbFile: _dbFile(tmp),
     storage: storage ?? _storage(tmp),
     logger: logger,
+    tracer: tracer,
     forceRebuild: forceRebuild,
   );
 }
@@ -445,6 +462,64 @@ void main() {
         () => index.search('"unterminated'),
         throwsA(isA<InvalidSearchQueryException>()),
       );
+    });
+
+    test('logs a warning naming the bad query on invalid FTS5 syntax',
+        () async {
+      final logger = Logger.detached('search-test')..level = Level.ALL;
+      final index = await _open(tmp, logger: logger);
+      addTearDown(index.close);
+      // Attached after open() so its own bootstrap logging (e.g. "search.db
+      // missing, rebuilding from storage") isn't captured alongside the
+      // warning search() logs below.
+      final records = <LogRecord>[];
+      final sub = logger.onRecord.listen(records.add);
+      addTearDown(sub.cancel);
+
+      expect(
+        () => index.search('"unterminated'),
+        throwsA(isA<InvalidSearchQueryException>()),
+      );
+
+      expect(records, isNotEmpty);
+      expect(records.single.level, Level.WARNING);
+      expect(records.single.message, contains('unterminated'));
+    });
+
+    test('starts a search.query span naming the hit count', () async {
+      final processor = _RecordingSpanProcessor();
+      final tracer =
+          SdkTracer(name: 'test', version: null, processor: processor);
+      final index = await _open(tmp, tracer: tracer)
+        ..upsert(
+          id: 'n1',
+          title: 'Hi',
+          content: 'hello world',
+          updatedAt: _testStamp,
+        );
+      addTearDown(index.close);
+
+      index.search('hello');
+
+      final span = processor.ended.single;
+      expect(span.name, 'search.query');
+      expect(span.attributes['search.hit_count'], 1);
+      expect(span.statusCode, StatusCode.unset);
+    });
+
+    test('sets an error status on the span for an invalid query', () async {
+      final processor = _RecordingSpanProcessor();
+      final tracer =
+          SdkTracer(name: 'test', version: null, processor: processor);
+      final index = await _open(tmp, tracer: tracer);
+      addTearDown(index.close);
+
+      expect(
+        () => index.search('"unterminated'),
+        throwsA(isA<InvalidSearchQueryException>()),
+      );
+
+      expect(processor.ended.single.statusCode, StatusCode.error);
     });
 
     test('returns id, title, snippet, rank; rows ordered by rank ascending',

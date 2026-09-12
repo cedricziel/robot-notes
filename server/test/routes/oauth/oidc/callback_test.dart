@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:logging/logging.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
@@ -72,6 +73,18 @@ RequestContext _ctx({
 
 Directory _tempDir() => Directory.systemTemp
     .createTempSync('robot-notes-oidc-callback-route-test-');
+
+/// Captures every record `routes/oauth/oidc/callback.dart` logs under its
+/// `oauth.oidc.callback` scope for the running test's duration, cancelling
+/// the listener via [addTearDown] so it doesn't leak across tests.
+List<LogRecord> _captureLogs() {
+  hierarchicalLoggingEnabled = true;
+  Logger('oauth.oidc.callback').level = Level.ALL;
+  final records = <LogRecord>[];
+  final sub = Logger('oauth.oidc.callback').onRecord.listen(records.add);
+  addTearDown(sub.cancel);
+  return records;
+}
 
 void main() {
   late Directory tmp;
@@ -264,6 +277,49 @@ void main() {
     );
 
     expect(res.statusCode, HttpStatus.badRequest);
+  });
+
+  test('an ID token with a bad signature logs a warning', () async {
+    final records = _captureLogs();
+    final pending = startPendingLogin();
+    final otherRsa = generateTestRsaKeyPair(kid: rsa.kid);
+    final idToken = signRs256(idTokenPayload(pending), otherRsa);
+
+    await route.onRequest(
+      _ctx(
+        queryParameters: {'code': 'provider-code', 'state': pending.state},
+        clientStore: clientStore,
+        codeStore: codeStore,
+        pendingLoginStore: pendingLoginStore,
+        jwksCache: jwksCache,
+        httpPostForm: tokenEndpointReturning(idToken),
+      ),
+    );
+
+    expect(records, isNotEmpty);
+    expect(records.single.level, Level.WARNING);
+  });
+
+  test('a failed token exchange is rejected and logs a warning', () async {
+    final records = _captureLogs();
+    final pending = startPendingLogin();
+
+    final res = await route.onRequest(
+      _ctx(
+        queryParameters: {'code': 'provider-code', 'state': pending.state},
+        clientStore: clientStore,
+        codeStore: codeStore,
+        pendingLoginStore: pendingLoginStore,
+        jwksCache: jwksCache,
+        httpPostForm: (uri, form) async =>
+            throw const HttpException('connection refused'),
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    expect(records, isNotEmpty);
+    expect(records.single.level, Level.WARNING);
+    expect(records.single.message, contains('connection refused'));
   });
 
   test('a wrong-issuer ID token is rejected without minting', () async {
