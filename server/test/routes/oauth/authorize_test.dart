@@ -6,6 +6,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/oauth/authorize.dart' as route;
@@ -31,6 +32,7 @@ RequestContext _ctx({
   String? rawQuery,
   String? formBody,
   Config? config,
+  ConsentThrottle? consentThrottle,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
@@ -51,6 +53,8 @@ RequestContext _ctx({
   when(() => ctx.read<ClientStore>()).thenReturn(clientStore);
   when(() => ctx.read<CodeStore>()).thenReturn(codeStore);
   when(() => ctx.read<Config>()).thenReturn(config ?? _config());
+  when(() => ctx.read<ConsentThrottle>())
+      .thenReturn(consentThrottle ?? ConsentThrottle());
   return ctx;
 }
 
@@ -451,6 +455,89 @@ void main() {
       expect(res.headers.containsKey(HttpHeaders.locationHeader), isFalse);
       final body = await res.body();
       expect(body, contains('class="error"'));
+    });
+
+    test(
+        'more than 10 failed submissions within the window are throttled '
+        'with 429, and the throttled response never checks the key', () async {
+      final throttle = ConsentThrottle();
+      final wrongForm = validQuery()..['api_key'] = 'wrong';
+      final correctForm = validQuery()
+        ..['api_key'] = _apiKey
+        ..['actor'] = 'desk-assistant';
+
+      for (var i = 0; i < 10; i++) {
+        final res = await route.onRequest(
+          _ctx(
+            method: HttpMethod.post,
+            clientStore: clientStore,
+            codeStore: codeStore,
+            formBody: _formEncode(wrongForm),
+            consentThrottle: throttle,
+          ),
+        );
+        expect(res.statusCode, HttpStatus.ok, reason: 'attempt $i');
+      }
+
+      final blockedWrong = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(wrongForm),
+          consentThrottle: throttle,
+        ),
+      );
+      expect(blockedWrong.statusCode, HttpStatus.tooManyRequests);
+
+      final blockedCorrect = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(correctForm),
+          consentThrottle: throttle,
+        ),
+      );
+      expect(
+        blockedCorrect.statusCode,
+        HttpStatus.tooManyRequests,
+        reason: 'the throttle blocks even a correct key once tripped',
+      );
+      expect(
+        blockedCorrect.headers.containsKey(HttpHeaders.locationHeader),
+        isFalse,
+        reason: 'a throttled request must never mint a code',
+      );
+    });
+
+    test('a throttled consent submission is not cacheable', () async {
+      final throttle = ConsentThrottle();
+      final wrongForm = validQuery()..['api_key'] = 'wrong';
+      for (var i = 0; i < 10; i++) {
+        await route.onRequest(
+          _ctx(
+            method: HttpMethod.post,
+            clientStore: clientStore,
+            codeStore: codeStore,
+            formBody: _formEncode(wrongForm),
+            consentThrottle: throttle,
+          ),
+        );
+      }
+
+      final blocked = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(wrongForm),
+          consentThrottle: throttle,
+        ),
+      );
+
+      expect(blocked.statusCode, HttpStatus.tooManyRequests);
+      expect(blocked.headers[HttpHeaders.cacheControlHeader], 'no-store');
     });
 
     test('empty actor falls back to the client name', () async {

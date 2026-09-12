@@ -7,6 +7,7 @@ import 'package:server/src/constant_time.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/consent_page.dart';
+import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/form_body.dart';
 import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oauth/oauth_crypto.dart';
@@ -89,9 +90,18 @@ Future<Response> _submitConsent(
   required _Valid valid,
   required Map<String, String> form,
 }) async {
+  final throttle = context.read<ConsentThrottle>();
+  if (throttle.isBlocked) {
+    return _errorPage(
+      'Too many failed attempts. Try again later.',
+      statusCode: HttpStatus.tooManyRequests,
+    );
+  }
+
   final config = context.read<Config>();
   final apiKey = form['api_key'] ?? '';
   if (!constantTimeEquals(config.apiKey, apiKey)) {
+    throttle.recordFailure(valid.client.clientId);
     return _renderConsent(
       client: valid.client,
       redirectUri: valid.redirectUri,
@@ -156,8 +166,12 @@ Response _renderConsent({
   );
 }
 
-Response _errorPage(String message) => Response(
-      statusCode: HttpStatus.badRequest,
+Response _errorPage(
+  String message, {
+  int statusCode = HttpStatus.badRequest,
+}) =>
+    Response(
+      statusCode: statusCode,
       body:
           '<!doctype html><html lang="en"><body><p>$message</p></body></html>',
       headers: _kConsentPageHeaders,
