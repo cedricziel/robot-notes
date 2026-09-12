@@ -16,8 +16,17 @@ runs the install once.
 
 The hook runs `dart format` and `dart analyze` against staged Dart files.
 Configuration lives in the root `pubspec.yaml` under the `dart_pre_commit:`
-key. Additional checks (`outdated`, `flutter-compat`, etc.) can be enabled
-there as the project grows.
+key.
+
+`dart_pre_commit`'s `outdated` task is explicitly disabled (`outdated:
+false`). It shells out to `dart pub outdated --show-all --json`, which Dart
+refuses to run against this workspace because the `app` member requires the
+Flutter SDK: `dart pub` cannot version-solve it and errors out ("Flutter
+users should use `flutter pub` instead of `dart pub`"), so the hook would
+fail before checking anything. Dependency freshness is instead covered by
+Dependabot (see `.github/dependabot.yml`, daily `pub` updates at the
+workspace root). Other checks (`flutter-compat`, etc.) can be enabled in the
+`dart_pre_commit:` block as the project grows.
 
 ## Commit messages
 
