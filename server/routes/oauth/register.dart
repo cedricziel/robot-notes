@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:meta/meta.dart';
+import 'package:server/src/bounded_body.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/oauth_response.dart';
 
@@ -38,14 +39,17 @@ Future<Response> onRequest(RequestContext context) async {
     );
   }
 
-  final body = await context.request.body();
-  if (utf8.encode(body).length > _kMaxBodyBytes) {
+  final bodyBytes = await readBoundedBody(
+    context.request,
+    maxBytes: _kMaxBodyBytes,
+  );
+  if (bodyBytes == null) {
     return oauthError(HttpStatus.badRequest, 'invalid_client_metadata');
   }
 
   final dynamic raw;
   try {
-    raw = jsonDecode(body);
+    raw = jsonDecode(utf8.decode(bodyBytes));
   } on FormatException {
     return oauthError(HttpStatus.badRequest, 'invalid_client_metadata');
   }

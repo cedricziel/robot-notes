@@ -23,7 +23,8 @@ RequestContext _ctx({
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.headers).thenReturn(const {});
-  when(req.body).thenAnswer((_) async => rawBody ?? jsonEncode(body));
+  final encoded = utf8.encode(rawBody ?? jsonEncode(body));
+  when(req.bytes).thenAnswer((_) => Stream.value(encoded));
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<ClientStore>()).thenReturn(store);
   return ctx;
@@ -357,6 +358,29 @@ void main() {
     );
 
     expect(res.statusCode, HttpStatus.created);
+  });
+
+  test('stops reading an unbounded body once it passes 16 KiB', () async {
+    var chunksRead = 0;
+    Stream<List<int>> endless() async* {
+      while (true) {
+        chunksRead++;
+        yield List<int>.filled(1024, 0x78);
+      }
+    }
+
+    final ctx = _MockRequestContext();
+    final req = _MockRequest();
+    when(() => req.method).thenReturn(HttpMethod.post);
+    when(() => req.headers).thenReturn(const {});
+    when(req.bytes).thenAnswer((_) => endless());
+    when(() => ctx.request).thenReturn(req);
+    when(() => ctx.read<ClientStore>()).thenReturn(store);
+
+    final res = await route.onRequest(ctx);
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    expect(chunksRead, lessThanOrEqualTo(18));
   });
 
   test('rejects a body larger than 16 KiB', () async {
