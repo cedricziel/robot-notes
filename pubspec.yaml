@@ -12,6 +12,33 @@ workspace:
   - server
   - app
 
+# flutter_otel's packages are unpublished (git-only), so its own version
+# constraints on its sibling packages (e.g. flutter_otel: ^0.1.0 on
+# flutter_otel_api) can't be resolved from pub.dev. These overrides pin the
+# whole family to one commit; bump all four refs together.
+#
+# NOTE: this block must stay ABOVE dev_dependencies/dart_pre_commit below —
+# server/Dockerfile strips everything from `dev_dependencies:` to end of
+# file when building the web/server images, and would silently drop these
+# overrides (breaking the web bundle's flutter_otel resolution) if they
+# were ordered after it.
+dependency_overrides:
+  flutter_otel_api:
+    git:
+      url: https://github.com/cedricziel/flutter-otel
+      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
+      path: packages/flutter_otel_api
+  flutter_otel_sdk:
+    git:
+      url: https://github.com/cedricziel/flutter-otel
+      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
+      path: packages/flutter_otel_sdk
+  flutter_otel_exporter_otlp_http:
+    git:
+      url: https://github.com/cedricziel/flutter-otel
+      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
+      path: packages/flutter_otel_exporter_otlp_http
+
 dev_dependencies:
   dart_pre_commit: ^6.1.4
   test: ^1.31.1
