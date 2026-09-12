@@ -307,6 +307,80 @@ void main() {
       final body = await res.json() as Map<String, dynamic>;
       expect(body['error'], 'not_found');
     });
+
+    test('accepts path and moves the note', () async {
+      final note = await storage.create(title: 'Inbox', content: 'c');
+      index.upsert(note.toSummary());
+      final writes = await _writeService(tmp, storage, index);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          writes: writes,
+          headers: {'if-match': '1'},
+          body: {'title': 'Inbox', 'content': 'c', 'path': 'Projects/Alpha'},
+        ),
+        note.id,
+      );
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['path'], 'Projects/Alpha');
+      expect(index.get(note.id)?.path, 'Projects/Alpha');
+    });
+
+    test('omitting path leaves the folder unchanged', () async {
+      final note = await storage.create(
+        title: 'Note',
+        content: 'c',
+        path: 'Folder',
+      );
+      index.upsert(note.toSummary());
+      final writes = await _writeService(tmp, storage, index);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          writes: writes,
+          headers: {'if-match': '1'},
+          body: {'title': 'Note', 'content': 'c2'},
+        ),
+        note.id,
+      );
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['path'], 'Folder');
+    });
+
+    test('a colliding move returns 409 path_conflict and leaves both files',
+        () async {
+      final a = await storage.create(title: 'A', content: 'a-content');
+      final b = await storage.create(title: 'B', content: 'b-content');
+      index
+        ..upsert(a.toSummary())
+        ..upsert(b.toSummary());
+      final writes = await _writeService(tmp, storage, index);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          writes: writes,
+          headers: {'if-match': '1'},
+          body: {'title': 'A', 'content': 'x'},
+        ),
+        b.id,
+      );
+      expect(res.statusCode, HttpStatus.conflict);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['error'], 'path_conflict');
+    });
   });
 
   group('DELETE /notes/{id}', () {
@@ -328,7 +402,7 @@ void main() {
 
       expect(res.statusCode, HttpStatus.noContent);
       expect(index.get(note.id), isNull);
-      final file = File('${tmp.path}/content/${note.id}.md');
+      final file = File('${tmp.path}/content/${note.title}.md');
       expect(file.existsSync(), isFalse);
     });
 
@@ -437,6 +511,47 @@ void main() {
       final ev = received.single as ChangedEvent;
       expect(ev.noteId, note.id);
       expect(ev.action, ChangeAction.updated);
+      expect(ev.version, 2);
+      expect(ev.by, 'alice');
+    });
+
+    test('a PUT that changes path emits a changed:moved event', () async {
+      final note = await storage.create(title: 'orig', content: 'c');
+      index.upsert(note.toSummary());
+
+      final broadcaster = Broadcaster();
+      addTearDown(broadcaster.close);
+      final received = <WsMessage>[];
+      broadcaster
+        ..register('listener').listen(received.add)
+        ..subscribeWildcard('listener');
+      final writes = await _writeService(
+        tmp,
+        storage,
+        index,
+        broadcaster: broadcaster,
+      );
+
+      await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          broadcaster: broadcaster,
+          writes: writes,
+          actor: const Actor('alice'),
+          headers: const {'if-match': '1'},
+          body: {'title': 'orig', 'content': 'c', 'path': 'Projects/Alpha'},
+        ),
+        note.id,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, hasLength(1));
+      final ev = received.single as ChangedEvent;
+      expect(ev.noteId, note.id);
+      expect(ev.action, ChangeAction.moved);
       expect(ev.version, 2);
       expect(ev.by, 'alice');
     });

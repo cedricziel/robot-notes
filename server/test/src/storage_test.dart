@@ -54,6 +54,23 @@ void main() {
       final summaries = await storage.list();
       expect(summaries.map((s) => s.id), [created.id]);
     });
+
+    test('finds notes nested under folders, not just at the root', () async {
+      final storage = _storage(
+        tmp,
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final root = await storage.create(title: 'Root note', content: '');
+      final nested = await storage.create(
+        title: 'Nested note',
+        content: '',
+        path: 'Projects/Alpha',
+      );
+      final summaries = await storage.list();
+      expect(summaries.map((s) => s.id), containsAll([root.id, nested.id]));
+      final nestedSummary = summaries.firstWhere((s) => s.id == nested.id);
+      expect(nestedSummary.path, 'Projects/Alpha');
+    });
   });
 
   group('Storage.create', () {
@@ -68,14 +85,16 @@ void main() {
       );
       expect(note.version, 1);
       expect(note.title, 'Hello');
+      expect(note.path, '');
       expect(note.id.length, 26);
       expect(note.createdAt, note.updatedAt);
 
-      final file = File('${tmp.path}/content/${note.id}.md');
+      final file = File('${tmp.path}/content/Hello.md');
       expect(file.existsSync(), isTrue);
       final fm = parseFrontmatter(file.readAsStringSync());
       expect(fm.metadata['id'], note.id);
       expect(fm.metadata['title'], 'Hello');
+      expect(fm.metadata['path'], '');
       expect(fm.metadata['version'], 1);
       expect(fm.metadata['created_at'], note.createdAt.toIso8601String());
       expect(fm.metadata['updated_at'], note.updatedAt.toIso8601String());
@@ -96,6 +115,48 @@ void main() {
       final sorted = [...ids]..sort();
       expect(ids, sorted);
     });
+
+    test('writes nested notes under their folder', () async {
+      final storage = _storage(
+        tmp,
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final note = await storage.create(
+        title: 'Meeting Notes',
+        content: 'agenda',
+        path: 'Projects/Alpha',
+      );
+      expect(note.path, 'Projects/Alpha');
+      final file = File(
+        '${tmp.path}/content/Projects/Alpha/Meeting Notes.md',
+      );
+      expect(file.existsSync(), isTrue);
+    });
+
+    test('rejects a title colliding with an existing note at the same path',
+        () async {
+      final storage = _storage(
+        tmp,
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      await storage.create(title: 'Ideas', content: '');
+      expect(
+        () => storage.create(title: 'Ideas', content: ''),
+        throwsA(isA<PathConflictException>()),
+      );
+    });
+
+    test('collision detection is case-insensitive', () async {
+      final storage = _storage(
+        tmp,
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      await storage.create(title: 'Ideas', content: '');
+      expect(
+        () => storage.create(title: 'ideas', content: ''),
+        throwsA(isA<PathConflictException>()),
+      );
+    });
   });
 
   group('Storage.read', () {
@@ -110,6 +171,24 @@ void main() {
       expect(read.title, 'A');
       expect(read.version, 1);
       expect(read.content, 'body');
+    });
+
+    test('finds a note by id after a fresh Storage instance scans the disk',
+        () async {
+      final clock = FixedClock.fixed(DateTime.utc(2026, 4, 25, 10));
+      final first = _storage(tmp, clock: clock);
+      final created = await first.create(
+        title: 'Persisted',
+        content: 'c',
+        path: 'Folder',
+      );
+
+      // A brand-new Storage instance (simulating a server restart) has an
+      // empty in-memory cache and must locate the note by scanning disk.
+      final second = _storage(tmp, clock: clock);
+      final read = await second.read(created.id);
+      expect(read.title, 'Persisted');
+      expect(read.path, 'Folder');
     });
 
     test('throws NoteNotFoundException for unknown id', () async {
@@ -180,7 +259,7 @@ void main() {
       final v1 = await storage.create(title: 'A', content: 'c1');
       // Inject an extra key directly into the file, simulating an external
       // tool or a future schema field.
-      final path = '${tmp.path}/content/${v1.id}.md';
+      final path = '${tmp.path}/content/A.md';
       final raw = File(path).readAsStringSync();
       File(path).writeAsStringSync(
         raw.replaceFirst(
@@ -195,9 +274,194 @@ void main() {
         ifMatch: 1,
       );
       expect(v2.extra['tags'], ['planning', 'ideas']);
-      final reread = File(path).readAsStringSync();
+      final reread = File('${tmp.path}/content/B.md').readAsStringSync();
       expect(reread, contains('tags:'));
       expect(reread, contains('"planning"'));
+    });
+
+    group('title/path changes move or rename the file', () {
+      test('title change renames the file within the same folder', () async {
+        final storage = _storage(
+          tmp,
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        );
+        final v1 = await storage.create(title: 'Draft', content: 'c');
+        await storage.update(
+          id: v1.id,
+          title: 'Final',
+          content: 'c',
+          ifMatch: 1,
+        );
+        expect(File('${tmp.path}/content/Final.md').existsSync(), isTrue);
+        expect(File('${tmp.path}/content/Draft.md').existsSync(), isFalse);
+      });
+
+      test('path change moves the file to the new folder', () async {
+        final storage = _storage(
+          tmp,
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        );
+        final v1 = await storage.create(title: 'Inbox', content: 'c');
+        final updated = await storage.update(
+          id: v1.id,
+          title: 'Inbox',
+          content: 'c',
+          ifMatch: 1,
+          path: 'Projects/Alpha',
+        );
+        expect(updated.path, 'Projects/Alpha');
+        expect(
+          File(
+            '${tmp.path}/content/Projects/Alpha/Inbox.md',
+          ).existsSync(),
+          isTrue,
+        );
+        expect(File('${tmp.path}/content/Inbox.md').existsSync(), isFalse);
+      });
+
+      test('omitting path leaves the folder unchanged', () async {
+        final storage = _storage(
+          tmp,
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        );
+        final v1 = await storage.create(
+          title: 'Note',
+          content: 'c',
+          path: 'Folder',
+        );
+        final updated = await storage.update(
+          id: v1.id,
+          title: 'Note',
+          content: 'c2',
+          ifMatch: 1,
+        );
+        expect(updated.path, 'Folder');
+      });
+
+      test('moving a note out of a folder leaves the now-empty folder',
+          () async {
+        final storage = _storage(
+          tmp,
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        );
+        final v1 = await storage.create(
+          title: 'Lonely',
+          content: 'c',
+          path: 'Projects/Alpha',
+        );
+        await storage.update(
+          id: v1.id,
+          title: 'Lonely',
+          content: 'c',
+          ifMatch: 1,
+          path: '',
+        );
+        expect(
+          Directory('${tmp.path}/content/Projects/Alpha').existsSync(),
+          isTrue,
+        );
+      });
+
+      test(
+          'renaming into an existing title is rejected and both files '
+          'are left unchanged', () async {
+        final storage = _storage(
+          tmp,
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        );
+        await storage.create(title: 'A', content: 'a-content');
+        final b = await storage.create(title: 'B', content: 'b-content');
+        await expectLater(
+          storage.update(id: b.id, title: 'A', content: 'x', ifMatch: 1),
+          throwsA(isA<PathConflictException>()),
+        );
+        expect(
+          File('${tmp.path}/content/A.md').readAsStringSync(),
+          contains('a-content'),
+        );
+        expect(
+          File('${tmp.path}/content/B.md').readAsStringSync(),
+          contains('b-content'),
+        );
+      });
+
+      test('renaming a note to its own current title/path is a no-op move',
+          () async {
+        final storage = _storage(
+          tmp,
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        );
+        final v1 = await storage.create(title: 'Same', content: 'c1');
+        final v2 = await storage.update(
+          id: v1.id,
+          title: 'Same',
+          content: 'c2',
+          ifMatch: 1,
+        );
+        expect(v2.version, 2);
+        expect(File('${tmp.path}/content/Same.md').existsSync(), isTrue);
+      });
+
+      test(
+          'two concurrent renames to the same target path: exactly one '
+          'succeeds, the other gets PathConflict, neither file is lost',
+          () async {
+        final storage = _storage(
+          tmp,
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        );
+        final b = await storage.create(title: 'B', content: 'b-content');
+        final c = await storage.create(title: 'C', content: 'c-content');
+
+        final results = await Future.wait<Object>([
+          storage
+              .update(
+                id: b.id,
+                title: 'Target',
+                content: 'b-content',
+                ifMatch: 1,
+              )
+              .then<Object>((n) => n)
+              .catchError((Object e) => e),
+          storage
+              .update(
+                id: c.id,
+                title: 'Target',
+                content: 'c-content',
+                ifMatch: 1,
+              )
+              .then<Object>((n) => n)
+              .catchError((Object e) => e),
+        ]);
+
+        final successes = results.whereType<StoredNote>().toList();
+        final conflicts = results.whereType<PathConflictException>().toList();
+        expect(successes.length, 1);
+        expect(conflicts.length, 1);
+
+        // Exactly one file exists at the target; the loser's original
+        // content is still readable from wherever it ended up (its own
+        // file was never touched, since the write only ever happens
+        // after the collision check).
+        expect(File('${tmp.path}/content/Target.md').existsSync(), isTrue);
+        final survivingContent =
+            File('${tmp.path}/content/Target.md').readAsStringSync();
+        expect(
+          survivingContent,
+          anyOf(contains('b-content'), contains('c-content')),
+        );
+
+        // The loser's own original file must still exist (it was never
+        // renamed away, since the whole point is its write never ran).
+        final loserId = conflicts.isNotEmpty
+            ? (successes.single.id == b.id ? c.id : b.id)
+            : null;
+        if (loserId == c.id) {
+          expect(File('${tmp.path}/content/C.md').existsSync(), isTrue);
+        } else {
+          expect(File('${tmp.path}/content/B.md').existsSync(), isTrue);
+        }
+      });
     });
   });
 
@@ -209,7 +473,7 @@ void main() {
       );
       final v1 = await storage.create(title: 'A', content: 'c');
       await storage.delete(v1.id);
-      expect(File('${tmp.path}/content/${v1.id}.md').existsSync(), isFalse);
+      expect(File('${tmp.path}/content/A.md').existsSync(), isFalse);
     });
 
     test('throws NoteNotFound for unknown id', () async {
@@ -244,8 +508,8 @@ void main() {
       final v1 = await storage.create(title: 'A', content: 'c1');
       // Simulate an interrupted write: the writer flushed the tmp file but
       // crashed before the rename. The canonical file is untouched.
-      File('${tmp.path}/content/${v1.id}.md.tmp').writeAsStringSync(
-        '---\nid: ${v1.id}\ntitle: ghost\nversion: 999\n'
+      File('${tmp.path}/content/A.md.tmp').writeAsStringSync(
+        '---\nid: ${v1.id}\ntitle: ghost\npath: ""\nversion: 999\n'
         'created_at: 2026-04-25T10:00:00.000Z\n'
         'updated_at: 2026-04-25T10:00:00.000Z\n---\nghost body\n',
       );

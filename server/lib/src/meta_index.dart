@@ -88,6 +88,10 @@ class MetaIndex {
   /// Number of entries currently held.
   int get length => _byId.length;
 
+  /// Snapshot of every currently-indexed summary, in no particular order.
+  /// Used by `path`/`tag` filtering (see [page]) and by `GET /notes/tree`.
+  Iterable<NoteSummary> get all => _byId.values;
+
   /// Replaces the index contents with everything [storage] reports as
   /// well-formed. Files that fail to parse are skipped and logged by
   /// [Storage.list]; this method itself never throws on malformed input.
@@ -150,54 +154,101 @@ class MetaIndex {
   /// For [kSortUpdatedDesc], [after] SHALL be a cursor previously
   /// returned by this method for the same sort; passing anything else
   /// throws [InvalidCursorException].
+  ///
+  /// [pathPrefix], when non-null, narrows the result to notes whose
+  /// `path` equals [pathPrefix] or is nested under it (`path ==
+  /// pathPrefix || path.startsWith('$pathPrefix/')`), applied *before*
+  /// pagination — a personal vault's note count doesn't warrant a
+  /// second sorted index per folder, so this is a linear pre-filter over
+  /// the same sorted candidate list [sort] would otherwise page over
+  /// directly.
   MetaIndexPage page({
     String? after,
     int limit = kDefaultPageSize,
     String sort = kSortId,
+    String? pathPrefix,
   }) {
     final effectiveLimit = limit.clamp(1, kMaxPageSize);
     switch (sort) {
       case kSortId:
-        return _pageById(after: after, limit: effectiveLimit);
+        return _pageById(
+          after: after,
+          limit: effectiveLimit,
+          pathPrefix: pathPrefix,
+        );
       case kSortUpdatedDesc:
-        return _pageByUpdated(after: after, limit: effectiveLimit);
+        return _pageByUpdated(
+          after: after,
+          limit: effectiveLimit,
+          pathPrefix: pathPrefix,
+        );
       default:
         throw ArgumentError.value(sort, 'sort', 'unsupported sort');
     }
   }
 
-  MetaIndexPage _pageById({required String? after, required int limit}) {
+  bool _matchesPathPrefix(NoteSummary summary, String? pathPrefix) {
+    if (pathPrefix == null) return true;
+    return summary.path == pathPrefix ||
+        summary.path.startsWith('$pathPrefix/');
+  }
+
+  MetaIndexPage _pageById({
+    required String? after,
+    required int limit,
+    String? pathPrefix,
+  }) {
+    final candidates = pathPrefix == null
+        ? _sortedIds
+        : [
+            for (final id in _sortedIds)
+              if (_matchesPathPrefix(_byId[id]!, pathPrefix)) id,
+          ];
     int startIdx;
     if (after == null) {
       startIdx = 0;
     } else {
-      final pos = _binarySearch(_sortedIds, after);
-      // If `after` is not in the index, find its insertion point — the
-      // next id in sort order. If it is, start at the entry after it.
+      final pos = _binarySearch(candidates, after);
+      // If `after` is not in the candidate list, find its insertion
+      // point — the next id in sort order. If it is, start at the entry
+      // after it.
       startIdx = pos >= 0 ? pos + 1 : -(pos + 1);
     }
-    final endIdx = (startIdx + limit).clamp(0, _sortedIds.length);
-    final pageIds = _sortedIds.sublist(startIdx, endIdx);
+    final endIdx = (startIdx + limit).clamp(0, candidates.length);
+    final pageIds = candidates.sublist(startIdx, endIdx);
     final items = [for (final id in pageIds) _byId[id]!];
-    final nextCursor = endIdx < _sortedIds.length ? pageIds.last : null;
+    final nextCursor = endIdx < candidates.length ? pageIds.last : null;
     return MetaIndexPage(items: items, nextCursor: nextCursor);
   }
 
-  MetaIndexPage _pageByUpdated({required String? after, required int limit}) {
+  MetaIndexPage _pageByUpdated({
+    required String? after,
+    required int limit,
+    String? pathPrefix,
+  }) {
+    final candidates = pathPrefix == null
+        ? _sortedByUpdated
+        : [
+            for (final id in _sortedByUpdated)
+              if (_matchesPathPrefix(_byId[id]!, pathPrefix)) id,
+          ];
     int startIdx;
     if (after == null) {
       startIdx = 0;
     } else {
       final cursor = _decodeUpdatedCursor(after);
-      final pos = _binarySearchByUpdated(cursor.updatedAt, cursor.id);
+      final pos = _binarySearchByUpdated(
+        cursor.updatedAt,
+        cursor.id,
+        candidates,
+      );
       startIdx = pos >= 0 ? pos + 1 : -(pos + 1);
     }
-    final endIdx = (startIdx + limit).clamp(0, _sortedByUpdated.length);
-    final pageIds = _sortedByUpdated.sublist(startIdx, endIdx);
+    final endIdx = (startIdx + limit).clamp(0, candidates.length);
+    final pageIds = candidates.sublist(startIdx, endIdx);
     final items = [for (final id in pageIds) _byId[id]!];
-    final nextCursor = endIdx < _sortedByUpdated.length
-        ? _encodeUpdatedCursor(items.last)
-        : null;
+    final nextCursor =
+        endIdx < candidates.length ? _encodeUpdatedCursor(items.last) : null;
     return MetaIndexPage(items: items, nextCursor: nextCursor);
   }
 
@@ -218,11 +269,19 @@ class MetaIndex {
     if (pos >= 0) _sortedByUpdated.removeAt(pos);
   }
 
-  // Locates (updatedAt, id) in _sortedByUpdated by delegating to the same
-  // index-based search _binarySearch uses for _sortedIds.
-  int _binarySearchByUpdated(DateTime updatedAt, NoteId id) {
-    return _binarySearchIndexed(_sortedByUpdated.length, (mid) {
-      final midSummary = _byId[_sortedByUpdated[mid]]!;
+  // Locates (updatedAt, id) in [candidates] (defaulting to the full
+  // _sortedByUpdated field) by delegating to the same index-based search
+  // _binarySearch uses for _sortedIds. Callers that already narrowed the
+  // candidate list to a path-filtered subset (see _pageByUpdated) pass it
+  // explicitly so the search matches what's actually being paged over.
+  int _binarySearchByUpdated(
+    DateTime updatedAt,
+    NoteId id, [
+    List<NoteId>? candidates,
+  ]) {
+    final list = candidates ?? _sortedByUpdated;
+    return _binarySearchIndexed(list.length, (mid) {
+      final midSummary = _byId[list[mid]]!;
       return _compareUpdatedKey(
         midSummary.updatedAt,
         midSummary.id,

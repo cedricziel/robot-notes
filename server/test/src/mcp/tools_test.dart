@@ -95,6 +95,7 @@ class _FlakyStorage extends Storage {
     required String title,
     required String content,
     required int ifMatch,
+    String? path,
   }) async {
     if (_calls < failCount) {
       _calls++;
@@ -110,6 +111,7 @@ class _FlakyStorage extends Storage {
       title: title,
       content: content,
       ifMatch: ifMatch,
+      path: path,
     );
   }
 }

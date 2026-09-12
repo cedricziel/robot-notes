@@ -9,11 +9,17 @@ Directory _tempDir() {
   return Directory.systemTemp.createTempSync('robot-notes-meta-index-test-');
 }
 
-NoteSummary _summary(String id, {int version = 1, String title = 't'}) {
+NoteSummary _summary(
+  String id, {
+  int version = 1,
+  String title = 't',
+  String path = '',
+}) {
   final t = DateTime.utc(2026, 4, 25, 10);
   return NoteSummary(
     id: id,
     title: title,
+    path: path,
     version: version,
     createdAt: t,
     updatedAt: t,
@@ -164,9 +170,11 @@ void main() {
   });
 
   group('MetaIndex.page sort=updated_desc', () {
-    NoteSummary at(String id, DateTime updatedAt) => NoteSummary(
+    NoteSummary at(String id, DateTime updatedAt, {String path = ''}) =>
+        NoteSummary(
           id: id,
           title: id,
+          path: path,
           version: 1,
           createdAt: updatedAt,
           updatedAt: updatedAt,
@@ -261,4 +269,84 @@ void main() {
       );
     });
   });
+
+  group('MetaIndex.page pathPrefix filter', () {
+    test('null pathPrefix returns everything (default sort)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A'))
+        ..upsert(_summary('B', path: 'Projects/Alpha'));
+      final page = idx.page(limit: 10);
+      expect(page.items.map((s) => s.id), ['A', 'B']);
+    });
+
+    test('exact path match is included', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Projects/Alpha'))
+        ..upsert(_summary('B', path: 'Projects/Beta'));
+      final page = idx.page(limit: 10, pathPrefix: 'Projects/Alpha');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('nested descendant is included, sibling is not', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Projects/Alpha/Sub'))
+        ..upsert(_summary('B', path: 'Projects/Beta'))
+        ..upsert(_summary('C'));
+      final page = idx.page(limit: 10, pathPrefix: 'Projects/Alpha');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test(
+        'a folder name that is a prefix but not a path segment boundary '
+        'is excluded', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Projects/AlphaExtra'))
+        ..upsert(_summary('B', path: 'Projects/Alpha'));
+      final page = idx.page(limit: 10, pathPrefix: 'Projects/Alpha');
+      expect(page.items.map((s) => s.id), ['B']);
+    });
+
+    test('pagination composes with the filter (sort=id)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Folder'))
+        ..upsert(_summary('B'))
+        ..upsert(_summary('C', path: 'Folder'))
+        ..upsert(_summary('D', path: 'Folder'));
+      final p1 = idx.page(limit: 2, pathPrefix: 'Folder');
+      expect(p1.items.map((s) => s.id), ['A', 'C']);
+      expect(p1.nextCursor, 'C');
+      final p2 = idx.page(after: p1.nextCursor, limit: 2, pathPrefix: 'Folder');
+      expect(p2.items.map((s) => s.id), ['D']);
+      expect(p2.nextCursor, isNull);
+    });
+
+    test('pagination composes with the filter (sort=updated_desc)', () {
+      final now = DateTime.utc(2026);
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Folder').copyWithUpdated(now))
+        ..upsert(
+          _summary('B').copyWithUpdated(now.add(const Duration(minutes: 1))),
+        )
+        ..upsert(
+          _summary(
+            'C',
+            path: 'Folder',
+          ).copyWithUpdated(now.add(const Duration(minutes: 2))),
+        );
+      final page =
+          idx.page(sort: 'updated_desc', limit: 10, pathPrefix: 'Folder');
+      expect(page.items.map((s) => s.id), ['C', 'A']);
+    });
+  });
+}
+
+extension _WithUpdated on NoteSummary {
+  NoteSummary copyWithUpdated(DateTime updatedAt) => NoteSummary(
+        id: id,
+        title: title,
+        path: path,
+        version: version,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
 }

@@ -96,7 +96,7 @@ void main() {
 
       // Drop the storage file so a rebuild would produce zero rows. If
       // the existing db is reused the row stays searchable.
-      File('${tmp.path}/content/${note.id}.md').deleteSync();
+      File('${tmp.path}/content/Cached.md').deleteSync();
 
       index = await _open(tmp, storage: storage);
       addTearDown(index.close);
