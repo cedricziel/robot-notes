@@ -71,6 +71,8 @@ void main() {
         'https://notes.example',
       );
       await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.tap(find.byKey(const Key('setup.continue')));
+      await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('setup.signInWithOidc')), findsOneWidget);
     });
@@ -98,6 +100,8 @@ void main() {
         'https://notes.example',
       );
       await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.tap(find.byKey(const Key('setup.continue')));
+      await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('setup.signInWithOidc')), findsNothing);
     });
@@ -125,6 +129,8 @@ void main() {
         'https://notes.example',
       );
       await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.tap(find.byKey(const Key('setup.continue')));
+      await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('setup.signInWithOidc')), findsNothing);
     });
@@ -166,6 +172,8 @@ void main() {
         'https://notes.example',
       );
       await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.tap(find.byKey(const Key('setup.continue')));
+      await tester.pumpAndSettle();
 
       oidcController.nextResult = signedInConfig;
       await tester.tap(find.byKey(const Key('setup.signInWithOidc')));

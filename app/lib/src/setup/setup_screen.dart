@@ -9,10 +9,12 @@ import '../auth/server_capabilities.dart';
 import '../config/app_config.dart';
 import 'setup_controller.dart';
 
-/// First-run flow. Three text fields + a submit button for manual API-key
-/// entry, plus — on web/desktop, when the entered server advertises OIDC
-/// support — a "Sign in" option instead. Renders the controllers' state
-/// directly: error banner on [SetupFailed]/[OidcSignInFailed], spinner on
+/// First-run flow, split into two steps: pick a server, then log in.
+/// Step 1 is just the server URL and a Continue button. Step 2 offers — on
+/// web/desktop, when the entered server advertises OIDC support — a "Sign
+/// in" option, plus manual API-key entry as the always-available fallback.
+/// Renders the controllers' state directly: error banner on
+/// [SetupFailed]/[OidcSignInFailed], spinner on
 /// [SetupSubmitting]/[OidcSignInInProgress], and on success (either path)
 /// hands the validated config back to [onConfigured].
 ///
@@ -57,12 +59,15 @@ bool _isMobilePlatform() =>
     (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS);
 
+enum _SetupStep { server, login }
+
 class _SetupScreenState extends State<SetupScreen> {
   late final TextEditingController _baseUrl;
   late final TextEditingController _apiKey;
   late final TextEditingController _actor;
   Timer? _capabilitiesDebounce;
   ServerCapabilities _capabilities = ServerCapabilities.none;
+  _SetupStep _step = _SetupStep.server;
 
   @override
   void initState() {
@@ -94,11 +99,22 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   void _onBaseUrlChanged() {
+    // Rebuilds so the Continue button's enabled state tracks the field
+    // live, not just after the capabilities debounce fires.
+    setState(() {});
     _capabilitiesDebounce?.cancel();
     _capabilitiesDebounce = Timer(
       widget.capabilitiesDebounce,
       _checkCapabilities,
     );
+  }
+
+  void _continue() {
+    setState(() => _step = _SetupStep.login);
+  }
+
+  void _changeServer() {
+    setState(() => _step = _SetupStep.server);
   }
 
   Future<void> _checkCapabilities() async {
@@ -156,6 +172,43 @@ class _SetupScreenState extends State<SetupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Connect to robot-notes')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: switch (_step) {
+          _SetupStep.server => _buildServerStep(context),
+          _SetupStep.login => _buildLoginStep(context),
+        },
+      ),
+    );
+  }
+
+  Widget _buildServerStep(BuildContext context) {
+    final canContinue = _baseUrl.text.trim().isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          key: const Key('setup.baseUrl'),
+          controller: _baseUrl,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            labelText: 'Server URL',
+            hintText: 'https://notes.example',
+          ),
+        ),
+        const SizedBox(height: 24),
+        FilledButton(
+          key: const Key('setup.continue'),
+          onPressed: canContinue ? _continue : null,
+          child: const Text('Continue'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoginStep(BuildContext context) {
     final state = widget.controller.value;
     final submitting = state is SetupSubmitting;
     final oidcState = widget.oidcController?.value;
@@ -165,77 +218,78 @@ class _SetupScreenState extends State<SetupScreen> {
         !_isMobilePlatform() &&
         _capabilities.supportsOidcLogin;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Connect to robot-notes')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
           children: [
-            if (state is SetupFailed) _ErrorBanner(message: state.message),
-            if (oidcState is OidcSignInFailed)
-              _ErrorBanner(message: oidcState.message),
-            TextField(
-              key: const Key('setup.baseUrl'),
-              controller: _baseUrl,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: 'Server URL',
-                hintText: 'https://notes.example',
+            Expanded(
+              child: Text(
+                _baseUrl.text.trim(),
+                style: Theme.of(context).textTheme.bodyMedium,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            if (showSignIn) ...[
-              const SizedBox(height: 24),
-              FilledButton(
-                key: const Key('setup.signInWithOidc'),
-                onPressed: signingIn ? null : _signIn,
-                child: signingIn
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Sign in with your identity provider'),
-              ),
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Or enter an API key manually:',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('setup.apiKey'),
-              controller: _apiKey,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'API key'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('setup.actor'),
-              controller: _actor,
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                helperText: 'Sent as X-Actor on every request.',
-              ),
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              key: const Key('setup.submit'),
-              onPressed: submitting ? null : _submit,
-              child: submitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Connect'),
+            TextButton(
+              key: const Key('setup.changeServer'),
+              onPressed: _changeServer,
+              child: const Text('Change server'),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 12),
+        if (state is SetupFailed) _ErrorBanner(message: state.message),
+        if (oidcState is OidcSignInFailed)
+          _ErrorBanner(message: oidcState.message),
+        if (showSignIn) ...[
+          FilledButton(
+            key: const Key('setup.signInWithOidc'),
+            onPressed: signingIn ? null : _signIn,
+            child: signingIn
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Sign in with your identity provider'),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Or enter an API key manually:',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        TextField(
+          key: const Key('setup.apiKey'),
+          controller: _apiKey,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'API key'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          key: const Key('setup.actor'),
+          controller: _actor,
+          decoration: const InputDecoration(
+            labelText: 'Display name',
+            helperText: 'Sent as X-Actor on every request.',
+          ),
+        ),
+        const SizedBox(height: 24),
+        FilledButton(
+          key: const Key('setup.submit'),
+          onPressed: submitting ? null : _submit,
+          child: submitting
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Connect'),
+        ),
+      ],
     );
   }
 }
