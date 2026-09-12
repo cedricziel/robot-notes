@@ -220,6 +220,9 @@ class _AppShellState extends State<_AppShell> {
         ),
       ),
     );
+    // The editor may have saved a new version; the list only learns about
+    // it through the realtime stream, which is not always connected.
+    if (mounted) await _list.refresh();
   }
 
   Future<void> _openSearch() async {
@@ -279,6 +282,12 @@ class _AppShellState extends State<_AppShell> {
       onNoteTap: _openNote,
       onCreate: _createNote,
       appBarActions: [
+        IconButton(
+          key: const Key('shell.refresh'),
+          tooltip: 'Refresh',
+          icon: const Icon(Icons.refresh),
+          onPressed: _list.refresh,
+        ),
         IconButton(
           key: const Key('shell.search'),
           tooltip: 'Search',

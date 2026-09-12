@@ -129,4 +129,49 @@ void main() {
     expect(calls, 2);
     expect(find.text('after-2'), findsOneWidget);
   });
+
+  testWidgets('a refresh action in the AppBar re-fetches the first page',
+      (tester) async {
+    var calls = 0;
+    final mock = MockClient((request) async {
+      calls += 1;
+      return http.Response(
+        jsonEncode(<String, Object?>{
+          'items': <Object?>[
+            _metaJson(id: '01H', title: 'after-$calls'),
+          ],
+          'limit': 50,
+          'next_cursor': null,
+        }),
+        200,
+      );
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotesListScreen(
+          controller: ctrl,
+          appBarActions: [
+            IconButton(
+              key: const Key('shell.refresh'),
+              tooltip: 'Refresh',
+              icon: const Icon(Icons.refresh),
+              onPressed: ctrl.refresh,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+
+    await tester.tap(find.byKey(const Key('shell.refresh')));
+    await tester.pumpAndSettle();
+
+    expect(calls, 2);
+    expect(find.text('after-2'), findsOneWidget);
+  });
 }
