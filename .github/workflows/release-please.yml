@@ -396,7 +396,7 @@ jobs:
         if: env.SUBMIT != 'true'
         working-directory: app
         run: |
-          bundle binstubs cocoapods --path bin
+          bundle binstubs cocoapods
           echo "$PWD/bin" >> "$GITHUB_PATH"
           bin/pod --version
 
