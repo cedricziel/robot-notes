@@ -92,14 +92,19 @@ Used by Docker `HEALTHCHECK` and external uptime monitors.
 
 ### `GET /notes`
 
-List notes, paginated by ULID cursor. Authenticated.
+List notes, paginated by cursor. Authenticated.
 
 Query parameters:
 
-| Param   | Type | Default | Notes                                                                          |
-| ------- | ---- | ------- | ------------------------------------------------------------------------------ |
-| `limit` | int  | 50      | Clamped to `[1, 200]`.                                                         |
-| `after` | ULID | —       | Returns notes whose id is lexicographically greater than `after` (i.e. newer). |
+| Param   | Type   | Default | Notes                                                                                             |
+| ------- | ------ | ------- | ------------------------------------------------------------------------------------------------- |
+| `limit` | int    | 50      | Clamped to `[1, 200]`.                                                                            |
+| `after` | string | —       | Opaque cursor from a previous response's `next_cursor`.                                           |
+| `sort`  | string | `id`    | `id` (ascending, backward-compatible) or `updated_desc` (most-recently-updated first).            |
+| `path`  | string | —       | Restrict to notes whose `path` equals or is nested under this folder, e.g. `path=Projects/Alpha`. |
+| `tag`   | string | —       | Restrict to notes carrying this tag (case-insensitive).                                           |
+
+`path` and `tag` compose with each other and with either `sort`.
 
 Response:
 
@@ -109,6 +114,7 @@ Response:
     {
       "id": "01HM2A...",
       "title": "Inbox",
+      "path": "",
       "version": 4,
       "updated_at": "2026-04-25T10:14:23Z"
     }
@@ -117,7 +123,47 @@ Response:
 }
 ```
 
-`next_cursor` is omitted when there is no further page.
+`next_cursor` is `null` when there is no further page.
+
+---
+
+### `GET /notes/tree`
+
+Return the vault's folder structure without paginating individual
+notes. Authenticated.
+
+```json
+{
+  "folders": [
+    { "path": "", "note_count": 2 },
+    { "path": "Projects/Alpha", "note_count": 1 }
+  ]
+}
+```
+
+Only folders that **directly** contain at least one note are listed
+(an intermediate folder with no notes of its own, only a populated
+descendant, is omitted); `note_count` counts direct notes only. A
+client that wants intermediate tree nodes or aggregate counts derives
+them from these leaf paths.
+
+---
+
+### `GET /tags`
+
+List every distinct tag across all notes, with counts, sorted by
+descending count. Authenticated.
+
+```json
+{
+  "items": [
+    { "tag": "urgent", "count": 3 },
+    { "tag": "later", "count": 1 }
+  ]
+}
+```
+
+See "Tags" in `STORAGE.md` for how a note's tags are computed.
 
 ---
 
@@ -130,11 +176,13 @@ Request:
 ```json
 {
   "title": "Meeting notes",
-  "content": "# Wed\n\n- Bob said …"
+  "content": "# Wed\n\n- Bob said …",
+  "path": "Projects/Alpha"
 }
 ```
 
-`title` defaults to empty string; `content` defaults to empty string.
+`title` defaults to empty string; `content` defaults to empty string;
+`path` defaults to the empty string (vault root).
 
 Response `201 Created`:
 
@@ -143,11 +191,16 @@ Response `201 Created`:
   "id": "01HM2A...",
   "version": 1,
   "title": "Meeting notes",
+  "path": "Projects/Alpha",
   "content": "# Wed\n\n- Bob said …",
   "created_at": "2026-04-25T10:14:23Z",
-  "updated_at": "2026-04-25T10:14:23Z"
+  "updated_at": "2026-04-25T10:14:23Z",
+  "tags": []
 }
 ```
+
+If the resolved `<path>/<title>` collides with another note's file,
+the response is `409 Conflict` with `{"error":"path_conflict"}` instead.
 
 Side-effect: a `changed { id, version: 1, by, action: "created" }`
 event is broadcast on the WebSocket.
@@ -162,10 +215,12 @@ Read a note. Authenticated. Returns `200 OK`:
 {
   "id": "01HM2A...",
   "title": "Meeting notes",
+  "path": "Projects/Alpha",
   "content": "...",
   "version": 4,
   "created_at": "...",
   "updated_at": "...",
+  "tags": ["urgent"],
   "lock": {
     "holder": "alice",
     "expires_at": "2026-04-25T10:15:23Z"
@@ -178,31 +233,72 @@ id does not exist.
 
 ---
 
+### `GET /notes/{id}/backlinks`
+
+List notes whose content contains a `[[...]]` link resolving to this
+note, most-recently-updated first. Authenticated. `404 Not Found` if
+the id does not exist.
+
+```json
+{
+  "items": [
+    {
+      "id": "01HM2B...",
+      "title": "Meeting Notes",
+      "snippet": "See [[Project Alpha]] for details"
+    }
+  ]
+}
+```
+
+### `GET /notes/{id}/links`
+
+List this note's own outgoing `[[...]]` links. Authenticated. `404 Not
+Found` if the id does not exist. `id` is present only when the link
+resolved to an existing note; an unresolved ("phantom") link has
+`resolved: false` and no `id`.
+
+```json
+{
+  "items": [
+    { "title": "Project Alpha", "resolved": true, "id": "01HM2A..." },
+    { "title": "Not Yet Written", "resolved": false }
+  ]
+}
+```
+
+---
+
 ### `PUT /notes/{id}`
 
 Update a note. Authenticated. Requires `If-Match: <version>`.
 
-Request:
+Request (any of `title`, `content`, `path`; `content` defaults to
+empty string when omitted, so a title/path-only rename should still
+send the note's current `content` if it must be preserved):
 
 ```json
-{ "title": "Meeting notes — Wed", "content": "…" }
+{ "title": "Meeting notes — Wed", "content": "…", "path": "Projects/Alpha" }
 ```
 
-Successful response `200 OK`:
-
-```json
-{ "id": "01HM2A...", "version": 5, "updated_at": "..." }
-```
+Successful response `200 OK` (same shape as `GET /notes/{id}` minus
+`lock`). A `title` change renames the underlying file; a `path` change
+moves it — both under the same `If-Match`/lock rules as any other
+write. If the note's title changes, every other note with a parsed
+`[[...]]` link to the old title is rewritten to the new title as a
+normal follow-up write (see "Links" in `STORAGE.md`).
 
 Failure modes:
 
-| Status            | Meaning                                                                     |
-| ----------------- | --------------------------------------------------------------------------- |
-| `400 Bad Request` | `If-Match` missing or malformed.                                            |
-| `409 Conflict`    | Version stale. Body includes `current_version` and `current_content`.       |
-| `423 Locked`      | Another actor holds the editor lock. Body includes the current lock object. |
+| Status            | Meaning                                                                                                                                   |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `400 Bad Request` | `If-Match` missing or malformed.                                                                                                          |
+| `409 Conflict`    | Version stale (`current_version`/`current_content`), or the resolved `path` collides with a different note (`{"error":"path_conflict"}`). |
+| `423 Locked`      | Another actor holds the editor lock. Body includes the current lock object.                                                               |
 
-Successful writes broadcast `changed { id, version, by, action: "updated" }`.
+Successful writes broadcast `changed { id, version, by, action }`,
+where `action` is `"moved"` when `path` changed (even alongside a
+title/content change) and `"updated"` otherwise.
 
 ---
 
@@ -253,10 +349,12 @@ Full-text search backed by SQLite FTS5. Authenticated.
 
 Query parameters:
 
-| Param   | Type   | Default | Notes                                                       |
-| ------- | ------ | ------- | ----------------------------------------------------------- |
-| `q`     | string | —       | Required. Empty/whitespace returns `400 validation_failed`. |
-| `limit` | int    | 20      | Clamped to `[1, 100]`.                                      |
+| Param   | Type   | Default | Notes                                                                         |
+| ------- | ------ | ------- | ----------------------------------------------------------------------------- |
+| `q`     | string | —       | Required. Empty/whitespace returns `400 validation_failed`.                   |
+| `limit` | int    | 20      | Clamped to `[1, 100]`.                                                        |
+| `path`  | string | —       | Restrict matches to notes whose `path` equals or is nested under this folder. |
+| `tag`   | string | —       | Restrict matches to notes carrying this tag.                                  |
 
 Response:
 
@@ -266,6 +364,7 @@ Response:
     {
       "id": "01HM2A...",
       "title": "Meeting notes",
+      "path": "Projects/Alpha",
       "snippet": "…the <mark>budget</mark> question is…",
       "rank": -1.41
     }
@@ -401,9 +500,14 @@ Or wildcard subscription:
   "by": "alice", "action": "updated" }
 ```
 
-`action` is one of `created`, `updated`, `deleted`. The server does
-**not** stream keystrokes — only version-bump notifications.
-Real-time editing convergence is intentionally out of scope for v1.
+`action` is one of `created`, `updated`, `moved`, `deleted`. `moved`
+fires when a `PUT` changes a note's `path` (even alongside a
+title/content change); a rename-propagation rewrite to a _different_
+note (see "Links" in `STORAGE.md`) broadcasts as an ordinary `updated`
+for that note, since it's just a normal write from the server's point
+of view. The server does **not** stream keystrokes — only version-bump
+notifications. Real-time editing convergence is intentionally out of
+scope for v1.
 
 ### Heartbeats
 
@@ -487,18 +591,20 @@ the consent page falls back to the paste-the-key form as before.
 
 ### Tool catalog
 
-`tools/list` always returns the same seven tools, regardless of scope
+`tools/list` always returns the same nine tools, regardless of scope
 (scope is enforced per call, not per listing):
 
-| Tool             | What it does                                                                                 |
-| ---------------- | -------------------------------------------------------------------------------------------- |
-| `list_notes`     | Paginated note metadata (id, title, version, timestamps) — mirrors `GET /notes`.             |
-| `get_note`       | Full content of one note by id, including lock status — mirrors `GET /notes/{id}`.           |
-| `search_notes`   | Full-text search with `<mark>` snippets — mirrors `GET /search`.                             |
-| `create_note`    | Create a note — mirrors `POST /notes`.                                                       |
-| `update_note`    | Update a note under optimistic concurrency (`version` required) — mirrors `PUT /notes/{id}`. |
-| `append_to_note` | Server-side read-append-write; retries on a lost version race.                               |
-| `delete_note`    | Delete a note — mirrors `DELETE /notes/{id}`.                                                |
+| Tool             | What it does                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| `list_notes`     | Paginated note metadata (id, title, path, version, timestamps); `path`/`tag` params — mirrors `GET /notes`.   |
+| `get_note`       | Full content of one note by id, including lock status — mirrors `GET /notes/{id}`.                            |
+| `search_notes`   | Full-text search with `<mark>` snippets; `path`/`tag` params — mirrors `GET /search`.                         |
+| `create_note`    | Create a note; accepts `path` — mirrors `POST /notes`.                                                        |
+| `update_note`    | Update a note under optimistic concurrency (`version` required); accepts `path` — mirrors `PUT /notes/{id}`.  |
+| `move_note`      | Change only a note's `path` under the same version/lock rules as `update_note`; broadcasts `action: "moved"`. |
+| `append_to_note` | Server-side read-append-write; retries on a lost version race.                                                |
+| `get_backlinks`  | Notes whose content links to this note — mirrors `GET /notes/{id}/backlinks`.                                 |
+| `delete_note`    | Delete a note — mirrors `DELETE /notes/{id}`.                                                                 |
 
 Every successful call returns both a `content[0].text` (JSON string)
 and an identical `structuredContent` object. Domain failures (not
