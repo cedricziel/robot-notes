@@ -91,23 +91,36 @@ Future<Response> _exchangeCode(
         return oauthError(HttpStatus.badRequest, 'invalid_grant');
       }
 
-      final issued = await context.read<TokenStore>().issue(
-            clientId: client.clientId,
-            actor: record.actor,
-            scopes: record.scopes,
-            resource: record.resource,
-            grantId: record.grantId,
-          );
-      return _tokenResponse(
-        issued,
-        includeRefresh: client.grantTypes.contains('refresh_token'),
-      );
+      final tokenStore = context.read<TokenStore>();
+      // A failure here (e.g. a filesystem error) can strike after the
+      // access token file is already written but before the response is
+      // built, leaving a half-issued grant with no refresh token minted
+      // for it. Revoke whatever was written before letting the error
+      // propagate, rather than leaving it live and unreachable.
+      try {
+        final issued = await tokenStore.issue(
+          clientId: client.clientId,
+          actor: record.actor,
+          scopes: record.scopes,
+          resource: record.resource,
+          grantId: record.grantId,
+        );
+        return _tokenResponse(
+          issued,
+          includeRefresh: client.grantTypes.contains('refresh_token'),
+        );
+      } on Object {
+        await tokenStore.revokeGrant(record.grantId);
+        rethrow;
+      }
     });
   } on CodeReusedException catch (e) {
     await context.read<TokenStore>().revokeGrant(e.grantId);
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on CodeNotFoundException {
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
+  } on Object {
+    return oauthError(HttpStatus.internalServerError, 'server_error');
   }
 }
 
