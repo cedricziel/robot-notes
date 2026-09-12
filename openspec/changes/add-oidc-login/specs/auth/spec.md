@@ -4,6 +4,8 @@
 
 Every HTTP endpoint SHALL require an `Authorization: Bearer <credential>` header, except the following unauthenticated paths: `GET /healthz`; `GET /ws` (authenticates in-protocol); `GET /invites/{token}/onboarding.txt` (the token is the credential); `GET /.well-known/oauth-protected-resource`, `GET /.well-known/oauth-protected-resource/mcp`, and `GET /.well-known/oauth-authorization-server` (public discovery documents); `POST /oauth/register`, `GET /oauth/authorize`, `POST /oauth/authorize`, `POST /oauth/token`, and `POST /oauth/revoke` (OAuth endpoints with their own authentication rules). The credential SHALL be accepted if it exactly matches the configured key (constant-time comparison), OR if it is a valid, unexpired, unrevoked OAuth access token issued by this server's own authorization server for resource `<base>` (the REST/WS audience, per the `oauth-authorization` capability — distinct from `<base>/mcp`) whose granted scopes are sufficient for the request: `notes:read` for safe (read-only) methods and `notes:write` for any method that creates, modifies, or deletes a note. A token issued for resource `<base>/mcp` SHALL NOT be accepted outside `/mcp`. A request bearing an otherwise-valid OAuth access token that lacks the scope required for the request SHALL be rejected with HTTP 403 and a JSON body `{ "error": "insufficient_scope" }`. A request with a missing, malformed header, or a credential that matches neither the configured key nor a valid, correctly-scoped, correctly-audienced OAuth access token, SHALL be rejected with HTTP 401.
 
+`GET /notes/{id}` and `GET /search` double as the bundled Flutter web app's own client-side routes (the note view and the search screen), served at the same path as the API endpoint of the same name. A request to either path with no `Authorization` header SHALL still be served the web app (not rejected with 401) when its `Accept` header names `text/html` — the signature of a plain browser navigation (reload, bookmark, or shared link) rather than an API call. Absent that `Accept` header, a missing, malformed, or mismatched `Authorization` header on those two paths SHALL still be rejected with HTTP 401 as usual. Because the representation returned from these two paths depends on `Accept` and `Authorization`, every response from either path SHALL include a `Vary: Accept, Authorization` header, so a cache cannot replay the web app's `index.html` for a request that should get the JSON API response or vice versa.
+
 #### Scenario: Valid bearer key is accepted
 
 - **WHEN** a request includes `Authorization: Bearer <configured-key>`
@@ -58,6 +60,21 @@ Every HTTP endpoint SHALL require an `Authorization: Bearer <credential>` header
 
 - **WHEN** a request to `GET /notes` carries a valid OAuth access token issued for resource `<base>/mcp` instead of the configured key
 - **THEN** the server SHALL respond with HTTP 401
+
+#### Scenario: Browser navigation to a note or search URL serves the web app without a key
+
+- **WHEN** a request reaches `GET /notes/{id}` or `GET /search` with no `Authorization` header and `Accept: text/html,...`
+- **THEN** the server SHALL respond with HTTP 200 and the web app's `index.html`, not a 401
+
+#### Scenario: A non-browser request to those same paths still requires the key
+
+- **WHEN** a request reaches `GET /notes/{id}` or `GET /search` with no `Authorization` header and an `Accept` header that does not name `text/html` (or no `Accept` header at all)
+- **THEN** the server SHALL respond with HTTP 401, not the web app
+
+#### Scenario: Dual-use paths always vary on Accept and Authorization
+
+- **WHEN** a request reaches `GET /notes/{id}` or `GET /search`, regardless of whether it is served the web app or the JSON API response
+- **THEN** the response SHALL include `Vary: Accept, Authorization`
 
 ### Requirement: Every WebSocket connection requires a valid bearer token
 
