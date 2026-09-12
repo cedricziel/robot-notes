@@ -66,8 +66,9 @@ class IssuedTokens {
   /// Raw bearer credential for `/mcp`.
   final String accessToken;
 
-  /// Raw credential for the next `/oauth/token` refresh.
-  final String refreshToken;
+  /// Raw credential for the next `/oauth/token` refresh, or `null` when
+  /// [TokenStore.issue] was called with `withRefresh: false`.
+  final String? refreshToken;
 
   /// Access-token lifetime in seconds, for the token-response `expires_in`
   /// field.
@@ -125,8 +126,12 @@ class TokenStore {
   final Future<void> Function(String grantId)? _onGrantRevoked;
   final _mutex = KeyedMutex();
 
-  /// Mints a fresh access/refresh pair for [grantId] and persists both as
-  /// hashed records sharing the same issue time.
+  /// Mints a fresh access token for [grantId], persisted as a hashed
+  /// record; also mints and persists a paired refresh token unless
+  /// [withRefresh] is `false`, in which case [IssuedTokens.refreshToken]
+  /// is `null` and no refresh file is ever written — for clients not
+  /// registered for the `refresh_token` grant, which have no way to use
+  /// one.
   ///
   /// Runs under the grant's lock (see the class doc), so it can never
   /// interleave with a concurrent [rotateRefresh] or [revokeGrant] for the
@@ -137,6 +142,7 @@ class TokenStore {
     required Set<String> scopes,
     required String resource,
     required String grantId,
+    bool withRefresh = true,
   }) =>
       _mutex.run(
         _grantKey(grantId),
@@ -146,6 +152,7 @@ class TokenStore {
           scopes: scopes,
           resource: resource,
           grantId: grantId,
+          withRefresh: withRefresh,
         ),
       );
 
@@ -155,10 +162,10 @@ class TokenStore {
     required Set<String> scopes,
     required String resource,
     required String grantId,
+    bool withRefresh = true,
   }) async {
     final now = _clock.nowUtc();
     final rawAccess = generateRandomToken(_random, kOAuthTokenBytes);
-    final rawRefresh = generateRandomToken(_random, kOAuthTokenBytes);
     final access = OAuthToken(
       tokenHash: hashSecret(rawAccess),
       kind: OAuthTokenKind.access,
@@ -170,19 +177,23 @@ class TokenStore {
       createdAt: now,
       expiresAt: now.add(accessTtl),
     );
-    final refresh = OAuthToken(
-      tokenHash: hashSecret(rawRefresh),
-      kind: OAuthTokenKind.refresh,
-      clientId: clientId,
-      actor: actor,
-      scopes: scopes,
-      resource: resource,
-      grantId: grantId,
-      createdAt: now,
-      expiresAt: now.add(refreshTtl),
-    );
     await _write(access);
-    await _write(refresh);
+    String? rawRefresh;
+    if (withRefresh) {
+      rawRefresh = generateRandomToken(_random, kOAuthTokenBytes);
+      final refresh = OAuthToken(
+        tokenHash: hashSecret(rawRefresh),
+        kind: OAuthTokenKind.refresh,
+        clientId: clientId,
+        actor: actor,
+        scopes: scopes,
+        resource: resource,
+        grantId: grantId,
+        createdAt: now,
+        expiresAt: now.add(refreshTtl),
+      );
+      await _write(refresh);
+    }
     return IssuedTokens(
       accessToken: rawAccess,
       refreshToken: rawRefresh,
@@ -197,9 +208,11 @@ class TokenStore {
       _lookup(raw, OAuthTokenKind.access);
 
   /// Returns the record for [raw] only if it is a refresh token, is
-  /// unexpired, unrevoked, and unrotated; otherwise `null`.
-  Future<OAuthToken?> lookupRefresh(String raw) =>
-      _lookup(raw, OAuthTokenKind.refresh);
+  /// unexpired, unrevoked, and unrotated; otherwise `null`. Accepts a
+  /// `null` [raw] (returning `null`) since [IssuedTokens.refreshToken] is
+  /// itself nullable.
+  Future<OAuthToken?> lookupRefresh(String? raw) =>
+      raw == null ? Future.value() : _lookup(raw, OAuthTokenKind.refresh);
 
   Future<OAuthToken?> _lookup(String raw, OAuthTokenKind kind) async {
     final record = await _readByRaw(raw);
@@ -214,11 +227,15 @@ class TokenStore {
   /// pair for the same grant. [scopes], when supplied, SHALL be a subset
   /// of the grant's current scopes (else [ScopeWideningException]).
   ///
-  /// Throws [TokenNotFoundException] when [raw] is unknown, not a refresh
-  /// token, or expired. Throws [RefreshReuseException] — after revoking
-  /// every token of the grant — when [raw] was already rotated or
-  /// revoked, since presenting a dead refresh token is a sign of theft.
-  Future<IssuedTokens> rotateRefresh(String raw, {Set<String>? scopes}) async {
+  /// Throws [TokenNotFoundException] when [raw] is `null`, unknown, not a
+  /// refresh token, or expired. Throws [RefreshReuseException] — after
+  /// revoking every token of the grant — when [raw] was already rotated
+  /// or revoked, since presenting a dead refresh token is a sign of theft.
+  Future<IssuedTokens> rotateRefresh(
+    String? raw, {
+    Set<String>? scopes,
+  }) async {
+    if (raw == null) throw const TokenNotFoundException();
     final hash = hashSecret(raw);
     final file = _fileFor(hash);
     // Peeked without holding any lock, purely to learn which grant to
@@ -307,12 +324,13 @@ class TokenStore {
 
   /// Revokes [raw]. An access token is revoked alone; a refresh token
   /// cascades to [revokeGrant] for its whole family. A no-op when [raw]
-  /// is unknown.
+  /// is `null` or unknown.
   ///
   /// When [clientId] is supplied, it SHALL match the token's own
   /// `client_id` or this is a no-op: RFC 7009 §2.1 allows a client to
   /// revoke only tokens it was issued itself.
-  Future<void> revokeToken(String raw, {String? clientId}) async {
+  Future<void> revokeToken(String? raw, {String? clientId}) async {
+    if (raw == null) return;
     final peeked = await _readByRaw(raw);
     if (peeked == null) return;
     if (clientId != null && peeked.clientId != clientId) return;

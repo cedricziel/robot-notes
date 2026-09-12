@@ -511,7 +511,7 @@ void main() {
         formBody: _formEncode({
           'grant_type': 'refresh_token',
           'client_id': client.client.clientId,
-          'refresh_token': issued.refreshToken,
+          'refresh_token': issued.refreshToken!,
         }),
       ),
     );

@@ -53,7 +53,7 @@ void main() {
       for (final file in files) {
         final raw = await file.readAsString();
         expect(raw.contains(issued.accessToken), isFalse);
-        expect(raw.contains(issued.refreshToken), isFalse);
+        expect(raw.contains(issued.refreshToken!), isFalse);
       }
       expect(issued.expiresIn, TokenStore.accessTtl.inSeconds);
       expect(issued.scopes, {'notes:read', 'notes:write'});
@@ -71,13 +71,33 @@ void main() {
       final record = await store.lookupAccess(issued.accessToken);
       expect(record, isNotNull);
     });
+
+    test('withRefresh: false mints no refresh token and writes no file',
+        () async {
+      final store = _store(tmp);
+      final issued = await store.issue(
+        clientId: 'client-1',
+        actor: 'desk-assistant',
+        scopes: {'notes:read'},
+        resource: 'https://notes.example/mcp',
+        grantId: 'grant-1',
+        withRefresh: false,
+      );
+
+      expect(issued.refreshToken, isNull);
+      final files =
+          Directory('${tmp.path}/tokens').listSync().whereType<File>();
+      expect(files, hasLength(1));
+      final record = await store.lookupAccess(issued.accessToken);
+      expect(record, isNotNull);
+    });
   });
 
   group('TokenStore.lookupAccess', () {
     test('rejects a refresh token presented as access', () async {
       final store = _store(tmp);
       final issued = await _issue(store);
-      expect(await store.lookupAccess(issued.refreshToken), isNull);
+      expect(await store.lookupAccess(issued.refreshToken!), isNull);
     });
 
     test('rejects an expired access token', () async {
