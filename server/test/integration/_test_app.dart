@@ -17,6 +17,9 @@ import 'package:server/src/invite_store.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
+import 'package:server/src/oauth/client_store.dart';
+import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/well_known_middleware.dart';
@@ -32,6 +35,10 @@ import '../../routes/invites/index.dart' as invites_index_route;
 import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
 import '../../routes/notes/index.dart' as notes_index_route;
+import '../../routes/oauth/authorize.dart' as oauth_authorize_route;
+import '../../routes/oauth/register.dart' as oauth_register_route;
+import '../../routes/oauth/revoke.dart' as oauth_revoke_route;
+import '../../routes/oauth/token.dart' as oauth_token_route;
 import '../../routes/search.dart' as search_route;
 import '../../routes/ws.dart' as ws_route;
 
@@ -61,6 +68,9 @@ Future<HttpServer> startTestServer({
       .addMiddleware(provider<LockManager>((_) => deps.lockManager))
       .addMiddleware(provider<SearchIndex>((_) => deps.searchIndex))
       .addMiddleware(provider<InviteStore>((_) => deps.inviteStore))
+      .addMiddleware(provider<ClientStore>((_) => deps.clientStore))
+      .addMiddleware(provider<CodeStore>((_) => deps.codeStore))
+      .addMiddleware(provider<TokenStore>((_) => deps.tokenStore))
       .addMiddleware(provider<MetaIndex>((_) => deps.metaIndex))
       .addMiddleware(provider<NoteWriteService>((_) => deps.noteWriteService))
       .addMiddleware(provider<Storage>((_) => deps.storage))
@@ -76,6 +86,10 @@ Future<HttpServer> startTestServer({
     ..all('/healthz', healthz_route.onRequest)
     ..all('/search', search_route.onRequest)
     ..all('/ws', ws_route.onRequest)
+    ..all('/oauth/register', oauth_register_route.onRequest)
+    ..all('/oauth/authorize', oauth_authorize_route.onRequest)
+    ..all('/oauth/token', oauth_token_route.onRequest)
+    ..all('/oauth/revoke', oauth_revoke_route.onRequest)
     ..all('/', root_index.onRequest);
 
   final handler = pipeline.addHandler(root);
