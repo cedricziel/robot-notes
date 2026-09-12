@@ -18,6 +18,8 @@ import 'package:server/src/oidc/discovery.dart';
 import 'package:server/src/oidc/jwks.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
 import 'package:server/src/oidc/token_exchange.dart';
+import 'package:server/src/otel/http_trace_middleware.dart';
+import 'package:server/src/otel/otel_tracer_holder.dart' as otel_tracer_holder;
 import 'package:server/src/search_index.dart';
 import 'package:server/src/static_web_middleware.dart';
 import 'package:server/src/storage.dart';
@@ -46,13 +48,17 @@ import 'package:server/src/ws/presence.dart';
 ///      provides it via `context.read<Actor>()`. This runs after auth so
 ///      we never expose an actor to a handler that wouldn't otherwise
 ///      execute.
-///   5. [staticWebMiddleware] runs outermost. When [Config.webDir] is
-///      set, it serves the Flutter web bundle at the root and short-
-///      circuits before the bearer-key check — the bundle is the same
-///      static asset for everyone and never contains secrets. Requests
-///      that match an API path (`/notes`, `/search`, `/ws`,
-///      `/invites`, `/healthz`, `/mcp`, `/oauth`, `/.well-known`) pass
-///      straight through to the rest of the chain.
+///   5. [staticWebMiddleware]. When [Config.webDir] is set, it serves the
+///      Flutter web bundle at the root and short-circuits before the
+///      bearer-key check — the bundle is the same static asset for
+///      everyone and never contains secrets. Requests that match an API
+///      path (`/notes`, `/search`, `/ws`, `/invites`, `/healthz`, `/mcp`,
+///      `/oauth`, `/.well-known`) pass straight through to the rest of
+///      the chain.
+///   6. [otelHttpTraceMiddleware] runs outermost, wrapping every request
+///      (including static-asset serving and auth failures) in one
+///      server-kind span, so its duration and status cover the full
+///      request rather than only the authenticated API path.
 ///
 /// The chain is built lazily on first request because the dart_frog
 /// generated entrypoint calls `buildRootHandler()` before our
@@ -86,7 +92,14 @@ Handler middleware(Handler handler) {
           .use(provider<Storage>((_) => deps.storage))
           .use(provider<Clock>((_) => deps.clock))
           .use(provider<Config>((_) => config))
-          .use(staticWebMiddleware(webDir: config.webDir));
+          .use(staticWebMiddleware(webDir: config.webDir))
+          .use(
+            otelHttpTraceMiddleware(
+              otel_tracer_holder.otelTracerProvider.getTracer(
+                name: 'robot-notes-server',
+              ),
+            ),
+          );
     }();
     return chain!(context);
   };
