@@ -4,9 +4,19 @@ import 'dart:io';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/invite_store.dart';
+import 'package:server/src/lock_manager.dart';
 import 'package:server/src/mcp/principal.dart';
 import 'package:server/src/mcp/tool_results.dart';
 import 'package:server/src/mcp/tools.dart';
+import 'package:server/src/meta_index.dart';
+import 'package:server/src/oauth/client_store.dart';
+import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/token_store.dart';
+import 'package:server/src/search_index.dart';
+import 'package:server/src/storage.dart';
+import 'package:server/src/ws/broadcaster.dart';
+import 'package:server/src/ws/presence.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
@@ -56,6 +66,81 @@ Future<AppDeps> _bootstrap(Directory tmp, {Clock? clock}) {
     lockTtlSeconds: 60,
   );
   return AppDeps.bootstrap(config, clock: clock ?? const Clock());
+}
+
+/// A [Storage] whose [update] reports a version conflict for the first
+/// [failCount] calls regardless of the caller's `ifMatch`, then behaves
+/// normally — used to force append_to_note's retry loop to exhaust
+/// without racing real concurrent writers.
+class _FlakyStorage extends Storage {
+  _FlakyStorage({
+    required super.contentDir,
+    required this.failCount,
+    this.onConflict,
+  });
+
+  final int failCount;
+
+  /// Invoked synchronously each time [update] reports a synthetic
+  /// conflict — lets a test simulate another actor acting in the gap
+  /// between one failed attempt and the caller's next retry.
+  final void Function()? onConflict;
+
+  int _calls = 0;
+
+  @override
+  Future<StoredNote> update({
+    required NoteId id,
+    required String title,
+    required String content,
+    required int ifMatch,
+  }) async {
+    if (_calls < failCount) {
+      _calls++;
+      final current = await read(id);
+      onConflict?.call();
+      throw VersionConflictException(
+        current: current,
+        suppliedIfMatch: ifMatch,
+      );
+    }
+    return super.update(
+      id: id,
+      title: title,
+      content: content,
+      ifMatch: ifMatch,
+    );
+  }
+}
+
+/// Builds a standalone [AppDeps] backed by [_FlakyStorage], rooted at a
+/// fresh temp directory the caller is responsible for cleaning up.
+Future<AppDeps> _bootstrapFlaky(
+  Directory tmp, {
+  required int failCount,
+  void Function()? onConflict,
+}) async {
+  final storage = _FlakyStorage(
+    contentDir: Directory('${tmp.path}/content'),
+    failCount: failCount,
+    onConflict: onConflict,
+  );
+  return AppDeps(
+    storage: storage,
+    metaIndex: MetaIndex(),
+    searchIndex: await SearchIndex.open(
+      dbFile: File('${tmp.path}/search.db'),
+      storage: storage,
+    ),
+    inviteStore: InviteStore(inviteDir: Directory('${tmp.path}/invites')),
+    clientStore: ClientStore(dir: Directory('${tmp.path}/oauth/clients')),
+    codeStore: CodeStore(dir: Directory('${tmp.path}/oauth/codes')),
+    tokenStore: TokenStore(dir: Directory('${tmp.path}/oauth/tokens')),
+    lockManager: LockManager(),
+    broadcaster: Broadcaster(),
+    presence: PresenceTracker(),
+    clock: const Clock(),
+  );
 }
 
 Map<String, Object?> _structured(Map<String, Object?> result) =>
@@ -513,6 +598,21 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
+    test('rejects whitespace-only text as validation_failed', () async {
+      final note = await deps.noteWriteService.create(
+        title: 'Log',
+        content: 'line one',
+        actor: 'x',
+      );
+
+      final result = await call('append_to_note', {
+        'id': note.id,
+        'text': '   ',
+      });
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'validation_failed');
+    });
+
     test(
       'rejects a path-traversal id as not_found without writing the file',
       () async {
@@ -568,6 +668,76 @@ void main() {
       expect(reread.content, contains('beta'));
       expect(reread.version, 3);
     });
+
+    test(
+      'returns version_conflict after exhausting all retries',
+      () async {
+        final flakyTmp = _tempDir();
+        addTearDown(() {
+          if (flakyTmp.existsSync()) flakyTmp.deleteSync(recursive: true);
+        });
+        final flakyDeps = await _bootstrapFlaky(
+          flakyTmp,
+          failCount: kMcpAppendMaxRetries + 1,
+        );
+        addTearDown(flakyDeps.close);
+        final note = await flakyDeps.noteWriteService.create(
+          title: 'Log',
+          content: 'line one',
+          actor: 'x',
+        );
+        final flakyRegistry = McpToolRegistry.forDeps(flakyDeps);
+
+        final result = await flakyRegistry.call(
+          'append_to_note',
+          {'id': note.id, 'text': 'line two'},
+          fullAccess,
+        );
+
+        expect(result['isError'], isTrue);
+        final s = _structured(result);
+        expect(s['error'], ErrorCode.versionConflict.wire);
+        expect(s['current_version'], note.version);
+        expect(s['current_content'], note.content);
+      },
+    );
+
+    test(
+      'returns locked if another actor acquires the lock between retries',
+      () async {
+        final flakyTmp = _tempDir();
+        addTearDown(() {
+          if (flakyTmp.existsSync()) flakyTmp.deleteSync(recursive: true);
+        });
+        late LockManager lockManager;
+        late String noteId;
+        final flakyDeps = await _bootstrapFlaky(
+          flakyTmp,
+          failCount: 1,
+          onConflict: () => lockManager.acquire(noteId: noteId, actor: 'alice'),
+        );
+        lockManager = flakyDeps.lockManager;
+        addTearDown(flakyDeps.close);
+        final note = await flakyDeps.noteWriteService.create(
+          title: 'Log',
+          content: 'line one',
+          actor: 'x',
+        );
+        noteId = note.id;
+        final flakyRegistry = McpToolRegistry.forDeps(flakyDeps);
+
+        final result = await flakyRegistry.call(
+          'append_to_note',
+          {'id': note.id, 'text': 'line two'},
+          fullAccess,
+        );
+
+        expect(result['isError'], isTrue);
+        final s = _structured(result);
+        expect(s['error'], ErrorCode.locked.wire);
+        expect(s['holder'], 'alice');
+      },
+    );
   });
 
   group('scope gating', () {

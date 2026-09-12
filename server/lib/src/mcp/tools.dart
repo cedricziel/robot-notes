@@ -471,15 +471,15 @@ McpTool _appendToNoteTool(
         final id = _requiredNoteId(args);
         if (id == null) return toolFail(ErrorCode.notFound.wire);
         final text = args['text']! as String;
-        if (text.isEmpty) {
+        if (text.trim().isEmpty) {
           return toolFail(
             kErrorValidationFailed,
             message: 'text must not be empty',
           );
         }
 
-        final conflict = _lockConflict(lockManager, id, principal.actor);
-        if (conflict != null) return conflict;
+        final initialConflict = _lockConflict(lockManager, id, principal.actor);
+        if (initialConflict != null) return initialConflict;
 
         StoredNote current;
         try {
@@ -489,6 +489,12 @@ McpTool _appendToNoteTool(
         }
 
         for (var attempt = 0; attempt <= kMcpAppendMaxRetries; attempt++) {
+          // Re-checked every attempt, not just once up front: another actor
+          // may acquire the lock in the gap between a lost version race and
+          // this retry.
+          final conflict = _lockConflict(lockManager, id, principal.actor);
+          if (conflict != null) return conflict;
+
           final needsNewline =
               current.content.isNotEmpty && !current.content.endsWith('\n');
           final nextContent = current.content.isEmpty
