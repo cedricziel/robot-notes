@@ -38,10 +38,10 @@
 
 ## 6. Client: labelled New-note action and FAB placement
 
-- [ ] 6.1 Write a failing widget test asserting a labelled "New note" action appears in the AppBar and the FAB is absent at wide layout, while narrow layout keeps the FAB and no labelled action (unchanged from today).
-- [ ] 6.2 Add the labelled "New note" AppBar action in `notes_list_screen.dart`/`app_router.dart`, gated on the existing `wide` breakpoint, reusing the current `onCreate` callback; hide the FAB only when wide.
-- [ ] 6.3 `flutter test`, `flutter analyze`, `dart format` clean.
-- [ ] 6.4 Commit: `feat(app): move New-note action into the toolbar on wide layouts`.
+- [x] 6.1 Write a failing widget test asserting a labelled "New note" action appears in the AppBar and the FAB is absent at wide layout, while narrow layout keeps the FAB and no labelled action (unchanged from today).
+- [x] 6.2 Add the labelled "New note" AppBar action in `notes_list_screen.dart`/`app_router.dart`, gated on the existing `wide` breakpoint, reusing the current `onCreate` callback; hide the FAB only when wide.
+- [x] 6.3 `flutter test`, `flutter analyze`, `dart format` clean.
+- [x] 6.4 Commit: `feat(app): move New-note action into the toolbar on wide layouts`.
 
 ## 7. Full verification
 

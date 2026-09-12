@@ -109,6 +109,12 @@ void main() {
     // "message" key, so ApiException.message is null. The FAB handler
     // used to interpolate that raw into the SnackBar text, literally
     // showing "Could not create note: null" with no diagnostic value.
+    //
+    // Forced narrow: the FAB only renders below the wide-layout
+    // breakpoint, and this test is about the error message, not layout.
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final api = RobotNotesClient(
       config: _config,
       httpClient: MockClient((request) async {

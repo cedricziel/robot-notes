@@ -84,6 +84,12 @@ void main() {
     // outbound `title` is empty, which is exactly the regression this
     // change fixes — the original implementation sent `title: ''` and
     // got rejected with 400 by the server's title validation.
+    //
+    // Forced narrow: the FAB only renders below the wide-layout
+    // breakpoint, and this test is about the create request, not layout.
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     String? createBody;
     final mock = MockClient((request) async {
       if (request.method == 'POST' && request.url.path == '/notes') {

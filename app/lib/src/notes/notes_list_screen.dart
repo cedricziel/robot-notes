@@ -116,12 +116,24 @@ class _NotesListScreenState extends State<NotesListScreen> {
         return Scaffold(
           appBar: AppBar(
             title: const Text('Notes'),
-            actions: widget.appBarActions,
+            actions: [
+              if (isWide && widget.onCreate != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: TextButton.icon(
+                    key: const Key('notes.create.toolbar'),
+                    onPressed: widget.onCreate,
+                    icon: const Icon(Icons.add),
+                    label: const Text('New note'),
+                  ),
+                ),
+              ...?widget.appBarActions,
+            ],
           ),
           drawer: sidebar == null || showSidebarInline
               ? null
               : Drawer(key: const Key('notes.sidebar.drawer'), child: sidebar),
-          floatingActionButton: widget.onCreate == null
+          floatingActionButton: widget.onCreate == null || isWide
               ? null
               : FloatingActionButton(
                   key: const Key('notes.create'),

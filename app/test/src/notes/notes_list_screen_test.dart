@@ -641,21 +641,87 @@ void main() {
     );
   });
 
-  testWidgets('the create FAB has a tooltip naming its action', (tester) async {
-    final mock = MockClient((request) async {
-      return _page(<Object?>[]);
+  group('create action placement', () {
+    testWidgets('on a narrow screen, the FAB has a tooltip naming its action', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final mock = MockClient((request) async {
+        return _page(<Object?>[]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(controller: ctrl, onCreate: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('New note'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'New note'), findsNothing);
     });
-    final api = RobotNotesClient(config: _config, httpClient: mock);
-    final ctrl = NotesListController(api: api);
-    addTearDown(ctrl.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: NotesListScreen(controller: ctrl, onCreate: () {}),
-      ),
+    testWidgets(
+      'on a wide screen, a labelled New note action replaces the FAB',
+      (tester) async {
+        tester.view.physicalSize = const Size(1200, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final mock = MockClient((request) async {
+          return _page(<Object?>[]);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NotesListController(api: api);
+        addTearDown(ctrl.dispose);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: NotesListScreen(controller: ctrl, onCreate: () {}),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(FloatingActionButton), findsNothing);
+        expect(find.text('New note'), findsOneWidget);
+
+        await tester.tap(find.text('New note'));
+        await tester.pump();
+      },
     );
-    await tester.pumpAndSettle();
 
-    expect(find.byTooltip('New note'), findsOneWidget);
+    testWidgets('the wide New note action invokes onCreate when tapped', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final mock = MockClient((request) async {
+        return _page(<Object?>[]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      var created = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            onCreate: () => created = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('New note'));
+      await tester.pump();
+
+      expect(created, isTrue);
+    });
   });
 }
