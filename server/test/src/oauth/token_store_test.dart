@@ -269,6 +269,40 @@ void main() {
         throwsA(isA<TokenNotFoundException>()),
       );
     });
+
+    test(
+        'an onGrantRevoked callback that re-enters the same grant lock '
+        'completes instead of hanging', () async {
+      var callbackRuns = 0;
+      late TokenStore store;
+      store = TokenStore(
+        dir: Directory('${tmp.path}/tokens'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        onGrantRevoked: (grantId) async {
+          callbackRuns++;
+          // Only re-enter once: revokeGrant itself calls onGrantRevoked
+          // again on completion, and this guard stops that from
+          // recursing forever while still exercising the re-entrant
+          // call this test is about.
+          if (callbackRuns == 1) {
+            await store.revokeGrant(grantId);
+          }
+        },
+      );
+      final issued = await _issue(store);
+      await store.rotateRefresh(issued.refreshToken);
+
+      await expectLater(
+        store.rotateRefresh(issued.refreshToken),
+        throwsA(isA<RefreshReuseException>()),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail(
+          'rotateRefresh deadlocked: onGrantRevoked must not run while '
+          "still holding the grant's lock",
+        ),
+      );
+    });
   });
 
   group('TokenStore.revokeGrant', () {

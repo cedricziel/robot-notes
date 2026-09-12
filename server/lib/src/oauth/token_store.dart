@@ -245,44 +245,58 @@ class TokenStore {
     // re-read below, which that re-read handles.
     final peekedGrantId = await _peekGrantId(file);
     if (peekedGrantId == null) throw const TokenNotFoundException();
-    return _mutex.run(_grantKey(peekedGrantId), () async {
-      if (!file.existsSync()) throw const TokenNotFoundException();
-      OAuthToken record;
-      try {
-        record = await _readFile(file);
-      } on Object catch (e) {
-        _log.warning('Skipping malformed OAuth token ${file.path}: $e');
-        throw const TokenNotFoundException();
+    // Set only on the reuse path, and read after the mutex below has
+    // released the grant lock: `_onGrantRevoked` can cross into another
+    // store (e.g. CodeStore.revokeGrant) that takes its own per-record
+    // lock, and calling it while still holding this grant's lock risks a
+    // lock-ordering deadlock against a caller that holds that other lock
+    // first and is waiting on this one (e.g. a code-exchange callback
+    // that itself calls TokenStore.issue for the same grant).
+    String? reusedGrantId;
+    try {
+      return await _mutex.run(_grantKey(peekedGrantId), () async {
+        if (!file.existsSync()) throw const TokenNotFoundException();
+        OAuthToken record;
+        try {
+          record = await _readFile(file);
+        } on Object catch (e) {
+          _log.warning('Skipping malformed OAuth token ${file.path}: $e');
+          throw const TokenNotFoundException();
+        }
+        if (record.kind != OAuthTokenKind.refresh) {
+          throw const TokenNotFoundException();
+        }
+        if (record.isRevoked || record.isRotated) {
+          final now = _clock.nowUtc();
+          await _write(record.revokedCopy(now));
+          // Already holding this grant's lock, so revoke directly instead
+          // of calling the public revokeGrant (which would re-acquire it
+          // and deadlock).
+          await _revokeGrantLocked(record.grantId);
+          reusedGrantId = record.grantId;
+          throw RefreshReuseException(record.grantId);
+        }
+        if (record.isExpired(_clock.nowUtc())) {
+          throw const TokenNotFoundException();
+        }
+        final requestedScopes = scopes ?? record.scopes;
+        if (!record.scopes.containsAll(requestedScopes)) {
+          throw const ScopeWideningException();
+        }
+        await _write(record.rotatedCopy(_clock.nowUtc()));
+        return _issueLocked(
+          clientId: record.clientId,
+          actor: record.actor,
+          scopes: requestedScopes,
+          resource: record.resource,
+          grantId: record.grantId,
+        );
+      });
+    } finally {
+      if (reusedGrantId != null) {
+        await _onGrantRevoked?.call(reusedGrantId!);
       }
-      if (record.kind != OAuthTokenKind.refresh) {
-        throw const TokenNotFoundException();
-      }
-      if (record.isRevoked || record.isRotated) {
-        final now = _clock.nowUtc();
-        await _write(record.revokedCopy(now));
-        // Already holding this grant's lock, so revoke directly instead
-        // of calling the public revokeGrant (which would re-acquire it
-        // and deadlock).
-        await _revokeGrantLocked(record.grantId);
-        await _onGrantRevoked?.call(record.grantId);
-        throw RefreshReuseException(record.grantId);
-      }
-      if (record.isExpired(_clock.nowUtc())) {
-        throw const TokenNotFoundException();
-      }
-      final requestedScopes = scopes ?? record.scopes;
-      if (!record.scopes.containsAll(requestedScopes)) {
-        throw const ScopeWideningException();
-      }
-      await _write(record.rotatedCopy(_clock.nowUtc()));
-      return _issueLocked(
-        clientId: record.clientId,
-        actor: record.actor,
-        scopes: requestedScopes,
-        resource: record.resource,
-        grantId: record.grantId,
-      );
-    });
+    }
   }
 
   /// Marks every unrevoked record of [grantId] as revoked, then runs the
