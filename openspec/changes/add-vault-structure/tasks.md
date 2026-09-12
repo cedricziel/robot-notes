@@ -10,46 +10,46 @@
 
 ### 2. Write path to `<path>/<Title>.md`
 
-- [ ] 2.1 Write failing tests in `server/test/src/storage_test.dart` asserting a new note is written at `<data-dir>/content/<path>/<sanitized-title>.md` instead of `<id>.md`, for both root and nested paths
-- [ ] 2.2 Update `server/lib/src/storage.dart` write path to compute the target path from `path`+`title` instead of `id`; run tests green
-- [ ] 2.3 Write failing test: startup index scan (`meta_index.dart`) recursively walks `content/**/*.md` and keys by frontmatter `id`
-- [ ] 2.4 Update `server/lib/src/meta_index.dart` to scan recursively; run tests green
-- [ ] 2.5 Commit: `feat(server): write and index notes under folder/title paths`
+- [x] 2.1 Write failing tests in `server/test/src/storage_test.dart` asserting a new note is written at `<data-dir>/content/<path>/<sanitized-title>.md` instead of `<id>.md`, for both root and nested paths
+- [x] 2.2 Update `server/lib/src/storage.dart` write path to compute the target path from `path`+`title` instead of `id`; run tests green
+- [x] 2.3 Write failing test: startup index scan (`meta_index.dart`) recursively walks `content/**/*.md` and keys by frontmatter `id` — implemented as `Storage._scanAll()` (id→relative-path cache, since `id` no longer determines the file location) rather than in `meta_index.dart` itself, which continues to key off whatever `Storage.list()` reports
+- [x] 2.4 ~~Update `server/lib/src/meta_index.dart` to scan recursively~~ — see 2.3; `meta_index.dart` gains `path` on `NoteSummary` and a `pathPrefix` filter on `page()` (pulled forward from task group 5, since it's the same edit)
+- [x] 2.5 Commit — folded into the task-group-3 commit below (`storage.dart` rewrite is one inseparable diff covering both write-path and rename/move); see that commit's body
 
 ### 3. Rename/move on write + atomic, case-insensitive collision handling
 
-- [ ] 3.1 Write failing tests: changing `title` renames the file in place; changing `path` moves it; both bump `version` via the existing tmp+fsync+rename path
-- [ ] 3.2 Implement rename/move in `server/lib/src/note_write_service.dart`; run tests green
-- [ ] 3.3 Write failing test: a title/path change whose target path already belongs to a different note (exact match, and case-only match, e.g. `Ideas` vs `ideas`) leaves both files untouched and surfaces a distinguishable conflict result
-- [ ] 3.4 Implement the collision check comparing NFC-normalized, lowercased target paths against the meta index, returning a `PathConflict` result type; run tests green
-- [ ] 3.5 Write a failing test: two concurrent renames/moves that resolve to the same target path — exactly one succeeds, the other gets `PathConflict`, and neither note's file is lost or overwritten
-- [ ] 3.6 Implement per-target-path serialization for the check-then-write sequence (a lock keyed by the normalized target path, alongside the existing per-note-id write serialization); run the concurrency test green
-- [ ] 3.7 Write failing test: moving a note out of a folder does not delete the now-empty folder
-- [ ] 3.8 Assert with a test using `Directory.exists` (implementation should already satisfy this by construction — fix if it doesn't)
-- [ ] 3.9 Commit: `feat(server): move and rename note files atomically with case-insensitive collision detection`
+- [x] 3.1 Write failing tests: changing `title` renames the file in place; changing `path` moves it; both bump `version` via the existing tmp+fsync+rename path
+- [x] 3.2 Implement rename/move in `server/lib/src/storage.dart` directly (not `note_write_service.dart` — that layer only orchestrates search/meta/broadcast side effects around `Storage`, which is where the file-location logic already lived); run tests green
+- [x] 3.3 Write failing test: a title/path change whose target path already belongs to a different note (exact match, and case-only match, e.g. `Ideas` vs `ideas`) leaves both files untouched and surfaces a distinguishable conflict result
+- [x] 3.4 Implement the collision check comparing NFC-normalized, lowercased target paths against an id↔path cache in `Storage`, returning `PathConflictException`; run tests green
+- [x] 3.5 Write a failing test: two concurrent renames/moves that resolve to the same target path — exactly one succeeds, the other gets `PathConflict`, and neither note's file is lost or overwritten
+- [x] 3.6 Implement per-target-path serialization for the check-then-write sequence (a lock keyed by the normalized target path, alongside the existing per-note-id write serialization); run the concurrency test green
+- [x] 3.7 Write failing test: moving a note out of a folder does not delete the now-empty folder
+- [x] 3.8 Asserted with a `Directory.existsSync()` test — true by construction, no fix needed
+- [x] 3.9 Commit: `feat(server): store, move, and rename notes under folder/title paths` (covers task groups 2 and 3 together — see 2.5)
 
 ### 4. Legacy layout migration
 
-- [ ] 4.1 Write failing tests in a new `server/test/src/migration_test.dart`: a `<ulid>.md` file with no `path` key is renamed to `<Title>.md` at root with `path: ""` added; a file that already has `path` is untouched; colliding titles among migrating files get ` (2)`, ` (3)` suffixes; a legacy file whose natural title collides with an already-existing non-legacy note (e.g. `Ideas (2)` already exists) is not overwritten — de-dup checks the full target namespace, not just other migrating files; files are processed in ascending-id order; a single bad file is logged and skipped without failing the migration
-- [ ] 4.2 Implement the migration as a startup step that runs before `meta_index` build (new small module, e.g. `server/lib/src/legacy_migration.dart`), reusing the same normalized-path collision check from task 3.4 to pick each target name
-- [ ] 4.3 Wire the migration into server startup (`main.dart` / `app_deps.dart`); run tests green
-- [ ] 4.4 Commit: `feat(server): migrate legacy <id>.md files to vault-style paths on startup`
+- [x] 4.1 Write failing tests in a new `server/test/src/legacy_migration_test.dart`: a `<ulid>.md` file with no `path` key is renamed to `<Title>.md` at root with `path: ""` added; a file that already has `path` is untouched; colliding titles among migrating files get ` (2)`, ` (3)` suffixes; a legacy file whose natural title collides with an already-existing non-legacy note (e.g. `Ideas (2)` already exists) is not overwritten — de-dup checks the full target namespace, not just other migrating files; files are processed in ascending-id order; a single bad file is logged and skipped without failing the migration
+- [x] 4.2 Implement the migration as a startup step that runs before `meta_index` build (`server/lib/src/legacy_migration.dart`), reusing `note_path.dart`'s sanitizer/normalizer/collision-key
+- [x] 4.3 Wire the migration into server startup (`app_deps.dart`, before `Storage`/`MetaIndex` are constructed); run tests green
+- [x] 4.4 Commit: `feat(server): migrate legacy <id>.md files to vault-style paths on startup`
 
-### 5. API: move/rename, tree, path/tag filters — preserving existing sort/pagination
+### 5. API: move/rename, tree, path filter — preserving existing sort/pagination
 
-- [ ] 5.1 Write failing route tests: `PUT /notes/{id}` accepts `path` and returns the moved note; a collision (including case-only) returns `409 {"error":"path_conflict"}`
-- [ ] 5.2 Update `server/routes/notes/[id]/index.dart` (or equivalent PUT handler) to accept `path` and map `PathConflict` to 409; run tests green
-- [ ] 5.3 Write failing route tests: `GET /notes` accepts `path` (prefix filter) and `tag`, returns matching items only, and — critically — the existing `sort=updated_desc`/`after` behavior (per current `notes-api` baseline) is unaffected and composes correctly with `path`/`tag`
-- [ ] 5.4 Implement the `path`/`tag` filters on the list handler as an additional `WHERE`-style narrowing applied before existing sort/pagination, not a replacement of it; run tests green including the pre-existing sort tests
-- [ ] 5.5 Write failing route tests: `GET /notes/tree` returns `{folders: [{path, note_count}]}` for folders that directly contain at least one note (intermediate folders with no direct notes are omitted)
-- [ ] 5.6 Implement `server/routes/notes/tree.dart` reading from the meta index; run tests green
-- [ ] 5.7 Commit: `feat(server): expose move, path/tag filters, and folder tree endpoints`
+- [x] 5.1 Write failing route tests: `PUT /notes/{id}` accepts `path` and returns the moved note; a collision (including case-only) returns `409 {"error":"path_conflict"}`
+- [x] 5.2 Update `server/routes/notes/[id]/index.dart` to accept `path` and map `PathConflictException` to 409; run tests green
+- [x] 5.3 Write failing route tests: `GET /notes` accepts `path` (prefix filter), returns matching items only, and the existing `sort=updated_desc`/`after` behavior is unaffected and composes correctly with `path` — `tag` deferred to task group 11, where tag data first exists (there is nothing to filter by yet in Phase 1)
+- [x] 5.4 Implement the `path` filter on the list handler as an additional pre-filter applied before existing sort/pagination, not a replacement of it (see `MetaIndex.page`'s `pathPrefix` param); run tests green including the pre-existing sort tests
+- [x] 5.5 Write failing route tests: `GET /notes/tree` returns `{folders: [{path, note_count}]}` for folders that directly contain at least one note (intermediate folders with no direct notes are omitted)
+- [x] 5.6 Implement `server/routes/notes/tree.dart` reading from the meta index; run tests green
+- [x] 5.7 Commit: `feat(server): expose move, path filter, and folder tree endpoints` (`tag` filter tracked under task group 11)
 
 ### 6. Realtime: `moved` action
 
-- [ ] 6.1 Write failing test: a path-changing `PUT` broadcasts `changed` with `action: "moved"`
-- [ ] 6.2 Update the broadcast call site in the notes write handler / `ws/broadcaster.dart` to emit `moved` when `path` changed and no other action applies; run tests green
-- [ ] 6.3 Commit: `feat(server): broadcast moved action on note relocation`
+- [x] 6.1 Write failing test: a path-changing `PUT` broadcasts `changed` with `action: "moved"`
+- [x] 6.2 Add `ChangeAction.moved` to `shared/lib/src/ws.dart` and pick it in `NoteWriteService.update` when the resolved path differs from the note's prior path (compared via a pre-lock read, which is race-safe here since any real interleaving would also fail the caller's own `ifMatch` check — see commit body for the full argument); run tests green. Also required a one-line compile fix in `app/lib/src/notes/notes_list_controller.dart`'s exhaustive `switch (ChangeAction)` (treats `moved` like `updated` for now; richer folder-tree-aware handling is task group 14)
+- [x] 6.3 Commit — folded into the task-group-5 commit above, since the route test asserting `action: "moved"` and the enum/service change landed together
 
 ## Phase 2 — Links and backlinks
 

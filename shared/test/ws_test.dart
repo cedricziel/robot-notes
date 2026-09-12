@@ -117,6 +117,17 @@ void main() {
       expect(ChangedEvent.fromJson(json), equals(evt));
     });
 
+    test('moved event round-trips its action', () {
+      final ev = ChangedEvent(
+        noteId: 'n1',
+        version: 3,
+        by: 'alice',
+        action: ChangeAction.moved,
+      );
+      expect(ev.toJson()['action'], 'moved');
+      expect(ChangedEvent.fromJson(ev.toJson()).action, ChangeAction.moved);
+    });
+
     test('created event has version 1 and action created', () {
       final evt = ChangedEvent(
         noteId: 'X',

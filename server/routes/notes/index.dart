@@ -5,6 +5,7 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
+import 'package:server/src/storage.dart';
 
 /// `GET /notes`  — paginated listing of note metadata (no content).
 /// `POST /notes` — create a new note.
@@ -33,6 +34,7 @@ Response _list(RequestContext context) {
   final after = query['after'];
   final rawLimit = query['limit'];
   final sort = query['sort'] ?? kSortId;
+  final pathPrefix = query['path'];
 
   if (!kSupportedSorts.contains(sort)) {
     return Response.json(
@@ -62,7 +64,12 @@ Response _list(RequestContext context) {
 
   final MetaIndexPage page;
   try {
-    page = index.page(after: after, limit: effectiveLimit, sort: sort);
+    page = index.page(
+      after: after,
+      limit: effectiveLimit,
+      sort: sort,
+      pathPrefix: pathPrefix,
+    );
   } on InvalidCursorException {
     return Response.json(
       statusCode: HttpStatus.badRequest,
@@ -80,6 +87,7 @@ Response _list(RequestContext context) {
           {
             'id': s.id,
             'title': s.title,
+            'path': s.path,
             'version': s.version,
             'created_at': s.createdAt.toUtc().toIso8601String(),
             'updated_at': s.updatedAt.toUtc().toIso8601String(),
@@ -134,24 +142,43 @@ Future<Response> _create(RequestContext context) async {
     );
   }
   final content = (contentRaw as String?) ?? '';
+  final pathRaw = raw['path'];
+  if (pathRaw != null && pathRaw is! String) {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: const {
+        'error': 'bad_request',
+        'message': 'path must be a string when provided',
+      },
+    );
+  }
+  final path = (pathRaw as String?) ?? '';
 
   final actor = context.read<Actor>();
   final writes = context.read<NoteWriteService>();
-  final note = await writes.create(
-    title: title,
-    content: content,
-    actor: actor.name,
-  );
-
-  return Response.json(
-    statusCode: HttpStatus.created,
-    body: {
-      'id': note.id,
-      'title': note.title,
-      'content': note.content,
-      'version': note.version,
-      'created_at': note.createdAt.toUtc().toIso8601String(),
-      'updated_at': note.updatedAt.toUtc().toIso8601String(),
-    },
-  );
+  try {
+    final note = await writes.create(
+      title: title,
+      content: content,
+      actor: actor.name,
+      path: path,
+    );
+    return Response.json(
+      statusCode: HttpStatus.created,
+      body: {
+        'id': note.id,
+        'title': note.title,
+        'path': note.path,
+        'content': note.content,
+        'version': note.version,
+        'created_at': note.createdAt.toUtc().toIso8601String(),
+        'updated_at': note.updatedAt.toUtc().toIso8601String(),
+      },
+    );
+  } on PathConflictException {
+    return Response.json(
+      statusCode: HttpStatus.conflict,
+      body: const {'error': 'path_conflict'},
+    );
+  }
 }

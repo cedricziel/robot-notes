@@ -142,6 +142,7 @@ class NotesListController extends ValueNotifier<NotesListState> {
         _removeById(msg.noteId);
       case ChangeAction.created:
       case ChangeAction.updated:
+      case ChangeAction.moved:
         // Content isn't shipped on the WS event — fetch the note so the
         // list shows the current title and version.
         try {

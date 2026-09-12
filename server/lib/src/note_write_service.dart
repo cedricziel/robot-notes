@@ -56,8 +56,13 @@ class NoteWriteService {
     required String title,
     required String content,
     required String actor,
+    String path = '',
   }) async {
-    final note = await storage.create(title: title, content: content);
+    final note = await storage.create(
+      title: title,
+      content: content,
+      path: path,
+    );
     searchIndex.upsert(
       id: note.id,
       title: note.title,
@@ -84,12 +89,15 @@ class NoteWriteService {
     required String content,
     required int ifMatch,
     required String actor,
+    String? path,
   }) async {
+    final before = await storage.read(id);
     final updated = await storage.update(
       id: id,
       title: title,
       content: content,
       ifMatch: ifMatch,
+      path: path,
     );
     searchIndex.upsert(
       id: updated.id,
@@ -98,12 +106,18 @@ class NoteWriteService {
       updatedAt: updated.updatedAt,
     );
     metaIndex.upsert(updated.toSummary());
+    // A path change broadcasts as `moved` rather than `updated` (per
+    // notes-api), even if title/content changed in the same request —
+    // "moved" is what tells subscribed clients their folder tree view
+    // needs a re-fetch, which a plain `updated` wouldn't trigger.
+    final action =
+        updated.path != before.path ? ChangeAction.moved : ChangeAction.updated;
     _safeBroadcast(
       ChangedEvent(
         noteId: updated.id,
         version: updated.version,
         by: actor,
-        action: ChangeAction.updated,
+        action: action,
       ),
     );
     return updated;
