@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared/shared.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/io.dart' as io_ws;
 
 import '../config/app_config.dart';
 
@@ -17,14 +16,15 @@ abstract class WsConnection {
   Future<void> close();
 }
 
-/// Default [WsConnect] using `package:web_socket_channel`. Connects with the
-/// `Authorization` and `X-Actor` headers so the server's auth gate accepts
-/// the upgrade *before* we send the AuthMsg (the server still requires the
-/// AuthMsg as a sanity check; both gates exist on purpose).
 typedef WsConnect = Future<WsConnection> Function(Uri url);
 
+/// Default [WsConnect] using `package:web_socket_channel`, which picks the
+/// browser or `dart:io` implementation for the current platform. The upgrade
+/// request carries no credentials: browsers cannot set custom headers on it,
+/// so the server exempts `GET /ws` from bearer auth and authenticates the
+/// session from the in-band [AuthMsg] instead.
 Future<WsConnection> defaultWsConnect(Uri url) async {
-  final channel = io_ws.IOWebSocketChannel.connect(url);
+  final channel = WebSocketChannel.connect(url);
   await channel.ready;
   return _ChannelConnection(channel);
 }
@@ -176,10 +176,12 @@ class RobotNotesWsClient {
 
     while (!_disposed) {
       WsConnection? conn;
+      final uri = _wsUri;
       try {
-        conn = await _connect(_wsUri);
-      } catch (_) {
+        conn = await _connect(uri);
+      } catch (e) {
         conn = null;
+        if (kDebugMode) debugPrint('ws connect to $uri failed: $e');
       }
 
       if (conn != null && !_disposed) {
