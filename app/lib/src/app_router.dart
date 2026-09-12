@@ -223,9 +223,12 @@ Widget _buildNotePage(BuildContext context, GoRouterState state) {
 /// The list only learns about a save through the realtime stream, which is
 /// not always connected — refresh explicitly, but only when a save actually
 /// happened, so viewing a note doesn't cost an extra fetch on every close.
+///
+/// Only needed on the `canPop()` branch: the no-history branch remounts
+/// [NotesListScreen], which already refreshes itself in `initState`.
 void _handleNoteClosed(BuildContext context, AppSession session, bool saved) {
-  if (saved) unawaited(session.list.refresh());
   if (context.canPop()) {
+    if (saved) unawaited(session.list.refresh());
     context.pop();
   } else {
     // A deep-linked note (reload, bookmark, or a search hit reached via
