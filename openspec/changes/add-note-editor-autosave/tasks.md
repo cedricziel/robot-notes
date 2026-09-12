@@ -36,7 +36,7 @@
 
 ## 6. Spec and PR
 
-- [ ] 6.1 Open a PR for this change (base `main`, since this branch is independent of the other unmerged UX-review PRs), referencing the OpenSpec change in the description and flagging the discard-prompt removal as a behavior change.
+- [x] 6.1 Opened PR #165 (base `feat/note-edit-redesign`, stacked on #163 since this branch builds on its note_screen.dart changes — will need rebasing onto `main` once #163 merges), referencing the OpenSpec change and flagging the discard-prompt removal as a breaking behavior change.
 - [ ] 6.2 After merge, archive the OpenSpec change per the repo's archive workflow.
 
 ## Definition of Done
