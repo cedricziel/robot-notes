@@ -18,6 +18,13 @@ The hook runs `dart format` and `dart analyze` against staged Dart files.
 Configuration lives in the root `pubspec.yaml` under the `dart_pre_commit:`
 key.
 
+The installed hook script unsets `GIT_DIR`, `GIT_INDEX_FILE`, and
+`GIT_WORK_TREE` before invoking `dart_pre_commit`: git exports those into
+every hook process, and Flutter's own `git`-based version detection picks
+them up and resolves against this repo instead of the Flutter SDK checkout,
+which corrupts the reported Flutter version and breaks the workspace's
+`environment: flutter` constraint check.
+
 `dart_pre_commit`'s `outdated` task is explicitly disabled (`outdated:
 false`). It shells out to `dart pub outdated --show-all --json`, which Dart
 refuses to run against this workspace because the `app` member requires the
