@@ -234,6 +234,7 @@ void main() {
                   'title': 'hi',
                   'snippet': 'hello world',
                   'rank': -1.5,
+                  'updated_at': _now,
                 },
               ],
               'limit': 50,

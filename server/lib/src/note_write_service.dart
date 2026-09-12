@@ -62,6 +62,7 @@ class NoteWriteService {
       id: note.id,
       title: note.title,
       content: note.content,
+      updatedAt: note.updatedAt,
     );
     metaIndex.upsert(note.toSummary());
     _safeBroadcast(
@@ -94,6 +95,7 @@ class NoteWriteService {
       id: updated.id,
       title: updated.title,
       content: updated.content,
+      updatedAt: updated.updatedAt,
     );
     metaIndex.upsert(updated.toSummary());
     _safeBroadcast(

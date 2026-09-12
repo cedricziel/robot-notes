@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../api/api_exceptions.dart';
+import '../notes/notes_list_screen.dart' show formatNoteTimestamp;
 import '../widgets/error_strip.dart';
 import 'search_controller.dart';
 
@@ -23,11 +25,19 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _input = TextEditingController();
+  final FocusNode _inputFocus = FocusNode();
 
   @override
   void dispose() {
     _input.dispose();
+    _inputFocus.dispose();
     super.dispose();
+  }
+
+  void _clear() {
+    _input.clear();
+    widget.controller.setQuery('');
+    _inputFocus.requestFocus();
   }
 
   @override
@@ -37,18 +47,32 @@ class _SearchScreenState extends State<SearchScreen> {
         title: TextField(
           key: const Key('search.input'),
           controller: _input,
+          focusNode: _inputFocus,
           autofocus: true,
           onChanged: widget.controller.setQuery,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: 'Search notes…',
             border: InputBorder.none,
+            suffixIcon: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _input,
+              builder: (context, value, _) {
+                if (value.text.isEmpty) return const SizedBox.shrink();
+                return IconButton(
+                  key: const Key('search.clear'),
+                  icon: const Icon(Icons.clear),
+                  tooltip: 'Clear',
+                  onPressed: _clear,
+                );
+              },
+            ),
           ),
         ),
       ),
       body: ValueListenableBuilder<SearchState>(
         valueListenable: widget.controller,
         builder: (context, state, _) {
-          if (state.query.trim().isEmpty) {
+          final trimmedQuery = state.query.trim();
+          if (trimmedQuery.isEmpty) {
             return const Center(child: Text('Type to search.'));
           }
           final error = state.error;
@@ -60,24 +84,43 @@ class _SearchScreenState extends State<SearchScreen> {
               return Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
-                  child: Text(
-                    _describe(error),
-                    key: const Key('search.error'),
-                    textAlign: TextAlign.center,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _describe(error),
+                        key: const Key('search.error'),
+                        textAlign: TextAlign.center,
+                      ),
+                      _SyntaxHint(error: error, textAlign: TextAlign.center),
+                    ],
                   ),
                 ),
               );
             }
-            return const Center(child: Text('No matches.'));
+            return Center(child: Text('No matches for “$trimmedQuery”.'));
           }
           return Column(
             children: [
               if (state.isLoading) const LinearProgressIndicator(minHeight: 2),
-              if (error != null)
+              if (error != null) ...[
                 ErrorStrip(
                   key: const Key('search.error'),
                   message: _describe(error),
                 ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _SyntaxHint(error: error),
+                ),
+              ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Text(
+                  _matchCountLabel(state.hits.length),
+                  key: const Key('search.count'),
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+              ),
               Expanded(
                 child: ListView.separated(
                   key: const Key('search.results'),
@@ -105,6 +148,39 @@ class _SearchScreenState extends State<SearchScreen> {
 String _describe(Object error) =>
     describeError(error, fallback: 'Search failed.');
 
+/// FTS5 syntax errors surface as a 400. Keyed off the exception type (the
+/// only 400 a search request can produce), not the query text, so we never
+/// guess at what in the query looked wrong.
+String? _syntaxHintFor(Object error) => error is BadRequestException
+    ? 'Check quotes and special characters.'
+    : null;
+
+String _matchCountLabel(int count) => count == 1 ? '1 match' : '$count matches';
+
+/// The "Check quotes and special characters." line shown under a search
+/// error, when there is one. Renders nothing for any other error type.
+class _SyntaxHint extends StatelessWidget {
+  const _SyntaxHint({required this.error, this.textAlign});
+
+  final Object error;
+  final TextAlign? textAlign;
+
+  @override
+  Widget build(BuildContext context) {
+    final hint = _syntaxHintFor(error);
+    if (hint == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Text(
+        hint,
+        key: const Key('search.hint'),
+        textAlign: textAlign,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+    );
+  }
+}
+
 class _HitTile extends StatelessWidget {
   const _HitTile({required this.hit, this.onTap});
   final SearchHit hit;
@@ -116,6 +192,11 @@ class _HitTile extends StatelessWidget {
       key: Key('search.hit.${hit.id}'),
       title: Text(hit.title.isEmpty ? '(untitled)' : hit.title),
       subtitle: _SnippetText(snippet: hit.snippet),
+      trailing: Text(
+        formatNoteTimestamp(hit.updatedAt),
+        key: Key('search.hit.${hit.id}.updated'),
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
       onTap: onTap,
     );
   }

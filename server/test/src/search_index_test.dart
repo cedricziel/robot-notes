@@ -15,6 +15,10 @@ Storage _storage(Directory tmp) =>
 
 File _dbFile(Directory tmp) => File('${tmp.path}/search.db');
 
+/// Arbitrary fixed instant for tests that don't care about the actual
+/// value of `updatedAt`, only that one was supplied.
+final _testStamp = DateTime.utc(2026);
+
 Future<SearchIndex> _open(
   Directory tmp, {
   Storage? storage,
@@ -153,10 +157,20 @@ void main() {
       final index = await _open(tmp);
       addTearDown(index.close);
 
-      index.upsert(id: 'n1', title: 'Original', content: 'kangaroo jumps');
+      index.upsert(
+        id: 'n1',
+        title: 'Original',
+        content: 'kangaroo jumps',
+        updatedAt: _testStamp,
+      );
       expect(index.search('kangaroo'), hasLength(1));
 
-      index.upsert(id: 'n1', title: 'Updated', content: 'wallaby hops');
+      index.upsert(
+        id: 'n1',
+        title: 'Updated',
+        content: 'wallaby hops',
+        updatedAt: _testStamp,
+      );
       expect(index.search('kangaroo'), isEmpty);
       final hits = index.search('wallaby');
       expect(hits, hasLength(1));
@@ -167,7 +181,12 @@ void main() {
       final index = await _open(tmp);
       addTearDown(index.close);
 
-      index.upsert(id: 'n1', title: 'Doomed', content: 'transient');
+      index.upsert(
+        id: 'n1',
+        title: 'Doomed',
+        content: 'transient',
+        updatedAt: _testStamp,
+      );
       expect(index.search('transient'), hasLength(1));
 
       index
@@ -181,7 +200,12 @@ void main() {
     Future<SearchIndex> seed(Map<String, (String, String)> notes) async {
       final index = await _open(tmp);
       notes.forEach((id, tc) {
-        index.upsert(id: id, title: tc.$1, content: tc.$2);
+        index.upsert(
+          id: id,
+          title: tc.$1,
+          content: tc.$2,
+          updatedAt: _testStamp,
+        );
       });
       addTearDown(index.close);
       return index;
@@ -229,7 +253,12 @@ void main() {
     test('throws InvalidSearchQueryException on bad FTS5 syntax', () async {
       final index = await _open(tmp);
       addTearDown(index.close);
-      index.upsert(id: 'n1', title: 'Hi', content: 'hello');
+      index.upsert(
+        id: 'n1',
+        title: 'Hi',
+        content: 'hello',
+        updatedAt: _testStamp,
+      );
 
       expect(
         () => index.search('"unterminated'),
@@ -262,6 +291,21 @@ void main() {
       expect(hits.first.rank, lessThanOrEqualTo(hits.last.rank));
     });
 
+    test('returns the updatedAt passed to upsert', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+      final stamp = DateTime.utc(2026, 1, 2, 3, 4, 5);
+      index.upsert(
+        id: 'n1',
+        title: 'Doc',
+        content: 'kangaroo',
+        updatedAt: stamp,
+      );
+
+      final hits = index.search('kangaroo');
+      expect(hits.single.updatedAt, stamp);
+    });
+
     test('snippet wraps matches with <mark>...</mark>', () async {
       final index = await seed({
         'n1': ('Doc', 'The quick brown fox jumps over the lazy dog.'),
@@ -276,7 +320,12 @@ void main() {
       final index = await _open(tmp);
       addTearDown(index.close);
       for (var i = 0; i < 10; i++) {
-        index.upsert(id: 'n$i', title: 't$i', content: 'orbit');
+        index.upsert(
+          id: 'n$i',
+          title: 't$i',
+          content: 'orbit',
+          updatedAt: _testStamp,
+        );
       }
       expect(index.search('orbit', limit: 3), hasLength(3));
     });

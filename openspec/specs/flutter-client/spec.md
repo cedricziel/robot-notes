@@ -389,7 +389,7 @@ While the note view is open the app SHALL display a presence indicator (list of 
 
 ### Requirement: App provides a search view backed by /search
 
-The app SHALL provide a search view that issues `GET /search?q=...` as the user types (debounced ~250ms) and renders titles, snippets (rendering `<mark>` markers as visual highlight), and ranks. Tapping a result SHALL open that note in the note view.
+The app SHALL provide a search view that issues `GET /search?q=...` as the user types (debounced ~250ms) and renders titles, snippets (rendering `<mark>` markers as visual highlight), ranks, and each note's updated time (if the server returns `updated_at`). Tapping a result SHALL open that note in the note view. The field SHALL show a clear button while it holds text.
 
 #### Scenario: Debounced search triggers request
 
@@ -402,17 +402,41 @@ The app SHALL provide a search view that issues `GET /search?q=...` as the user 
 - **WHEN** the user empties the search field
 - **THEN** the app SHALL clear results and SHALL NOT issue a request
 
+#### Scenario: Clear button empties the field
+
+- **GIVEN** the search field holds text
+- **WHEN** the user taps the clear button
+- **THEN** the app SHALL empty the field and the controller's query and SHALL return focus to the field
+
 #### Scenario: Snippet markers are rendered as visual highlight
 
 - **GIVEN** the server returns `snippet: "...the <mark>architecture</mark> doc..."`
 - **WHEN** the result is rendered
 - **THEN** the word `architecture` SHALL be visually emphasized (color, weight, or background)
 
+#### Scenario: Results show a match count
+
+- **GIVEN** a query returns three results
+- **WHEN** the results render
+- **THEN** the app SHALL show "3 matches" above the list (singular "1 match" for exactly one result)
+
+#### Scenario: Empty results name the query
+
+- **GIVEN** a query returns no results
+- **WHEN** the empty state renders
+- **THEN** the app SHALL show a message naming the query, for example `No matches for "meet".`
+
 #### Scenario: Search error is shown to the user
 
 - **GIVEN** the user types a query the server rejects (for example an unbalanced quote, which returns 400)
 - **WHEN** the response arrives
 - **THEN** the app SHALL display the server's `message` (or a generic fallback); if results from an earlier query are still on screen they SHALL stay visible beneath the error
+
+#### Scenario: A syntax error hints at the cause
+
+- **GIVEN** the server rejects the query with HTTP 400
+- **WHEN** the error renders
+- **THEN** the app SHALL show a hint ("Check quotes and special characters.") below the error message, determined from the error's status rather than by inspecting the query text
 
 #### Scenario: New query over old results shows progress
 

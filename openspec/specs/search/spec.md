@@ -1,8 +1,11 @@
 # search Specification
 
 ## Purpose
+
 TBD - created by archiving change add-mvp-foundation. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Server provides full-text search via SQLite FTS5
 
 The server SHALL expose `GET /search?q=<query>` returning notes matching the query. Search SHALL be powered by SQLite FTS5 over a virtual table indexing each note's `id`, `title`, and `content`. The index SHALL be persisted at `<data-dir>/search.db`.
@@ -19,7 +22,7 @@ The server SHALL expose `GET /search?q=<query>` returning notes matching the que
 
 ### Requirement: Search returns ranked results with snippets
 
-`GET /search` SHALL return a JSON object with `items`, where each item contains `id`, `title`, `snippet`, and `rank`. Results SHALL be sorted by relevance (lowest BM25 rank first). The snippet SHALL be a substring of the matching content with HTML-safe markers (`<mark>` and `</mark>`) wrapping matched terms.
+`GET /search` SHALL return a JSON object with `items`, where each item contains `id`, `title`, `snippet`, `rank`, and `updated_at` (the note's last-updated timestamp, ISO 8601 UTC). Results SHALL be sorted by relevance (lowest BM25 rank first). The snippet SHALL be a substring of the matching content with HTML-safe markers (`<mark>` and `</mark>`) wrapping matched terms.
 
 #### Scenario: Matches are returned in rank order
 
@@ -32,6 +35,12 @@ The server SHALL expose `GET /search?q=<query>` returning notes matching the que
 - **GIVEN** a note contains the word `architecture` in its content
 - **WHEN** a client searches for `architecture`
 - **THEN** the snippet for that result SHALL contain `<mark>architecture</mark>` (or a token-matching variant)
+
+#### Scenario: Results carry the note's updated time
+
+- **GIVEN** a note was last updated at a known instant
+- **WHEN** a client searches for a term matching that note
+- **THEN** the matching item's `updated_at` SHALL equal that instant, formatted as ISO 8601 UTC
 
 #### Scenario: Empty query returns 400
 
@@ -154,4 +163,3 @@ The `q` parameter SHALL be passed to FTS5 as a `MATCH` query. Clients MAY use FT
 
 - **WHEN** a client searches with `q="unbalanced`
 - **THEN** the response SHALL be HTTP 400 with body `{"error":"invalid_query"}`
-

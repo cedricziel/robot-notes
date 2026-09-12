@@ -27,6 +27,7 @@ class SearchHit {
     required this.title,
     required this.snippet,
     required this.rank,
+    required this.updatedAt,
   });
 
   final String id;
@@ -34,11 +35,15 @@ class SearchHit {
   final String snippet;
   final double rank;
 
+  /// When the note was last updated.
+  final DateTime updatedAt;
+
   factory SearchHit.fromJson(Map<String, dynamic> json) => SearchHit(
     id: json['id'] as String,
     title: json['title'] as String,
     snippet: json['snippet'] as String,
     rank: (json['rank'] as num).toDouble(),
+    updatedAt: DateTime.parse(json['updated_at'] as String).toUtc(),
   );
 }
 
