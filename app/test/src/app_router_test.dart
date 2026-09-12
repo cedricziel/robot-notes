@@ -46,7 +46,7 @@ http.Response _emptyList() => http.Response(
 /// Fake backend shared by every scenario below: `GET /notes/01H` returns a
 /// fixed note, `/notes/01H/lock` grants the lock the edit-mode scenario
 /// needs, and a bare `GET /notes` returns an empty list page.
-MockClient _mockClient() => MockClient((request) async {
+Future<http.Response> _fakeBackend(http.Request request) async {
   final path = request.url.path;
   final method = request.method;
   if (method == 'GET' && path == '/notes/01H') {
@@ -68,7 +68,9 @@ MockClient _mockClient() => MockClient((request) async {
     return http.Response(jsonEncode(<String, Object?>{'folders': []}), 200);
   }
   return http.Response('not found', 404);
-});
+}
+
+MockClient _mockClient() => MockClient(_fakeBackend);
 
 /// Router-level test harness: a real [GoRouter] from [buildAppRouter], but
 /// wrapped in a hand-rolled [AppSession] instead of the production
@@ -100,6 +102,34 @@ Widget _harness({
 }
 
 void main() {
+  testWidgets('a failed create-note request shows a real error, not "null"', (
+    tester,
+  ) async {
+    // Regression test: the server's error body for a 500 carries no
+    // "message" key, so ApiException.message is null. The FAB handler
+    // used to interpolate that raw into the SnackBar text, literally
+    // showing "Could not create note: null" with no diagnostic value.
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((request) async {
+        if (request.method == 'POST' && request.url.path == '/notes') {
+          return http.Response('', 500);
+        }
+        return _fakeBackend(request);
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('notes.create')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('null'), findsNothing);
+    expect(find.text('Could not create note.'), findsOneWidget);
+  });
+
   testWidgets('/notes/01H deep link renders that note', (tester) async {
     final api = RobotNotesClient(config: _config, httpClient: _mockClient());
     addTearDown(api.close);
