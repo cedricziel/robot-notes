@@ -107,6 +107,40 @@ void main() {
       expect(ctrl.value.items.single.title, 'fresh-2');
     });
 
+    test('overlapping refresh calls coalesce into a single request', () async {
+      var calls = 0;
+      final requests = <Completer<void>>[];
+      final mock = MockClient((request) async {
+        calls += 1;
+        final gate = Completer<void>();
+        requests.add(gate);
+        await gate.future;
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[_metaJson(id: '01H', title: 'fresh')],
+            'limit': 50,
+            'next_cursor': null,
+          }),
+          200,
+        );
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      final first = ctrl.refresh();
+      final second = ctrl.refresh();
+      // Let the first request reach the (single) in-flight gate before
+      // releasing it, proving a second call never issued its own request.
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 1);
+      requests.single.complete();
+      await Future.wait(<Future<void>>[first, second]);
+
+      expect(calls, 1);
+      expect(ctrl.value.items.single.title, 'fresh');
+    });
+
     test('loadMore forwards the cursor and appends', () async {
       final cursors = <String?>[];
       final mock = MockClient((request) async {
