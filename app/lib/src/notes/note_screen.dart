@@ -186,9 +186,14 @@ class _NoteScreenState extends State<NoteScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Center(
-                  child: Text(
-                    '${state.viewers.length} viewer${state.viewers.length == 1 ? '' : 's'}',
-                    key: const Key('note.presence'),
+                  child: Tooltip(
+                    message: state.viewers.join(', '),
+                    child: Text(
+                      state.viewers.length <= 3
+                          ? state.viewers.join(', ')
+                          : '${state.viewers.length} viewers',
+                      key: const Key('note.presence'),
+                    ),
                   ),
                 ),
               ),
@@ -303,6 +308,16 @@ class _NoteScreenState extends State<NoteScreen> {
         _Banner(
           key: const Key('note.banner.lock'),
           text: '${state.lock!.holder} is editing this note.',
+          tone: _BannerTone.info,
+        ),
+      );
+    } else if (state.mode == NoteMode.editing && state.lock != null) {
+      banners.add(
+        _Banner(
+          key: const Key('note.banner.ownLock'),
+          text:
+              'You are editing (lock until '
+              '${formatLockExpiry(state.lock!.expiresAt)})',
           tone: _BannerTone.info,
         ),
       );
@@ -610,6 +625,15 @@ class _DiffPane extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Formats [dt] in the device's local time zone as `HH:MM`, for the "you
+/// hold the lock until" banner. Kept top-level so tests can pin a known
+/// instant.
+String formatLockExpiry(DateTime dt) {
+  final t = dt.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(t.hour)}:${two(t.minute)}';
 }
 
 enum _BannerTone { info, warning }
