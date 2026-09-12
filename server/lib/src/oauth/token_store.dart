@@ -80,10 +80,17 @@ class IssuedTokens {
 /// Filesystem-backed store of hashed OAuth access and refresh tokens.
 ///
 /// On-disk layout: each token lives at `<dir>/<sha256(token)>.json`,
-/// following the same tmp+fsync+rename and per-key mutex pattern as
-/// `InviteStore`. Only the SHA-256 hash of the raw token is ever written.
-/// Every token minted from one consent shares a `grant_id`, so
-/// [revokeGrant] can cascade with a single directory scan.
+/// following the same tmp+fsync+rename pattern as `InviteStore`. Only the
+/// SHA-256 hash of the raw token is ever written. Every token minted from
+/// one consent shares a `grant_id`, so [revokeGrant] can cascade with a
+/// single directory scan.
+///
+/// [issue], [rotateRefresh], and [revokeGrant] all serialize on a
+/// `grant:<grantId>` key of the same [KeyedMutex], rather than on
+/// individual token hashes: a grant's tokens must be mutated as one unit,
+/// since [revokeGrant]'s directory scan and [rotateRefresh]'s mint of a
+/// replacement pair both need a consistent view of "every token of this
+/// grant," not just of the one token hash each happens to know about.
 class TokenStore {
   /// Constructs a store rooted at [dir] (created on first write). [clock]
   /// stamps issue/revoke/rotate time. [random] supplies the entropy for
@@ -113,7 +120,29 @@ class TokenStore {
 
   /// Mints a fresh access/refresh pair for [grantId] and persists both as
   /// hashed records sharing the same issue time.
+  ///
+  /// Runs under the grant's lock (see the class doc), so it can never
+  /// interleave with a concurrent [rotateRefresh] or [revokeGrant] for the
+  /// same [grantId].
   Future<IssuedTokens> issue({
+    required String clientId,
+    required String actor,
+    required Set<String> scopes,
+    required String resource,
+    required String grantId,
+  }) =>
+      _mutex.run(
+        _grantKey(grantId),
+        () => _issueLocked(
+          clientId: clientId,
+          actor: actor,
+          scopes: scopes,
+          resource: resource,
+          grantId: grantId,
+        ),
+      );
+
+  Future<IssuedTokens> _issueLocked({
     required String clientId,
     required String actor,
     required Set<String> scopes,
@@ -145,8 +174,8 @@ class TokenStore {
       createdAt: now,
       expiresAt: now.add(refreshTtl),
     );
-    await _mutex.run(access.tokenHash, () => _write(access));
-    await _mutex.run(refresh.tokenHash, () => _write(refresh));
+    await _write(access);
+    await _write(refresh);
     return IssuedTokens(
       accessToken: rawAccess,
       refreshToken: rawRefresh,
@@ -182,10 +211,17 @@ class TokenStore {
   /// token, or expired. Throws [RefreshReuseException] — after revoking
   /// every token of the grant — when [raw] was already rotated or
   /// revoked, since presenting a dead refresh token is a sign of theft.
-  Future<IssuedTokens> rotateRefresh(String raw, {Set<String>? scopes}) {
+  Future<IssuedTokens> rotateRefresh(String raw, {Set<String>? scopes}) async {
     final hash = hashSecret(raw);
-    return _mutex.run(hash, () async {
-      final file = _fileFor(hash);
+    final file = _fileFor(hash);
+    // Peeked without holding any lock, purely to learn which grant to
+    // lock: `grantId` never changes once a record is written (no copy
+    // method touches it), so this can't observe a torn value — at worst
+    // the record vanishes or changes underneath us before the locked
+    // re-read below, which that re-read handles.
+    final peekedGrantId = await _peekGrantId(file);
+    if (peekedGrantId == null) throw const TokenNotFoundException();
+    return _mutex.run(_grantKey(peekedGrantId), () async {
       if (!file.existsSync()) throw const TokenNotFoundException();
       OAuthToken record;
       try {
@@ -200,7 +236,10 @@ class TokenStore {
       if (record.isRevoked || record.isRotated) {
         final now = _clock.nowUtc();
         await _write(record.revokedCopy(now));
-        await _revokeGrant(record.grantId, skipHash: hash);
+        // Already holding this grant's lock, so revoke directly instead
+        // of calling the public revokeGrant (which would re-acquire it
+        // and deadlock).
+        await _revokeGrantLocked(record.grantId);
         throw RefreshReuseException(record.grantId);
       }
       if (record.isExpired(_clock.nowUtc())) {
@@ -211,7 +250,7 @@ class TokenStore {
         throw const ScopeWideningException();
       }
       await _write(record.rotatedCopy(_clock.nowUtc()));
-      return issue(
+      return _issueLocked(
         clientId: record.clientId,
         actor: record.actor,
         scopes: requestedScopes,
@@ -223,9 +262,15 @@ class TokenStore {
 
   /// Marks every unrevoked record of [grantId] as revoked. Returns the
   /// number of records changed.
-  Future<int> revokeGrant(String grantId) => _revokeGrant(grantId);
+  ///
+  /// Runs under the grant's lock, so a concurrent [issue] or
+  /// [rotateRefresh] for the same [grantId] can never mint a token this
+  /// scan misses: either it completes before this starts (and gets
+  /// caught by the scan), or it waits for this to finish first.
+  Future<int> revokeGrant(String grantId) =>
+      _mutex.run(_grantKey(grantId), () => _revokeGrantLocked(grantId));
 
-  Future<int> _revokeGrant(String grantId, {String? skipHash}) async {
+  Future<int> _revokeGrantLocked(String grantId) async {
     if (!dir.existsSync()) return 0;
     final now = _clock.nowUtc();
     var count = 0;
@@ -239,14 +284,7 @@ class TokenStore {
         continue;
       }
       if (record.grantId != grantId || record.isRevoked) continue;
-      final revoked = record.revokedCopy(now);
-      // The caller already holds the mutex for `skipHash` (it is mid
-      // rotation), so re-locking it here would deadlock; write directly.
-      if (record.tokenHash == skipHash) {
-        await _write(revoked);
-      } else {
-        await _mutex.run(record.tokenHash, () => _write(revoked));
-      }
+      await _write(record.revokedCopy(now));
       count++;
     }
     return count;
@@ -260,17 +298,35 @@ class TokenStore {
   /// `client_id` or this is a no-op: RFC 7009 §2.1 allows a client to
   /// revoke only tokens it was issued itself.
   Future<void> revokeToken(String raw, {String? clientId}) async {
-    final record = await _readByRaw(raw);
-    if (record == null) return;
-    if (clientId != null && record.clientId != clientId) return;
-    if (record.kind == OAuthTokenKind.refresh) {
-      await revokeGrant(record.grantId);
+    final peeked = await _readByRaw(raw);
+    if (peeked == null) return;
+    if (clientId != null && peeked.clientId != clientId) return;
+    if (peeked.kind == OAuthTokenKind.refresh) {
+      await revokeGrant(peeked.grantId);
       return;
     }
-    if (record.isRevoked) return;
-    final now = _clock.nowUtc();
-    await _mutex.run(record.tokenHash, () => _write(record.revokedCopy(now)));
+    await _mutex.run(_grantKey(peeked.grantId), () async {
+      // Re-read under the grant's lock: `peeked` may be stale if a
+      // concurrent revokeGrant or rotateRefresh already touched it.
+      final record = await _readByRaw(raw);
+      if (record == null || record.kind != OAuthTokenKind.access) return;
+      if (clientId != null && record.clientId != clientId) return;
+      if (record.isRevoked) return;
+      await _write(record.revokedCopy(_clock.nowUtc()));
+    });
   }
+
+  Future<String?> _peekGrantId(File file) async {
+    if (!file.existsSync()) return null;
+    try {
+      return (await _readFile(file)).grantId;
+    } on Object catch (e) {
+      _log.warning('Skipping malformed OAuth token ${file.path}: $e');
+      return null;
+    }
+  }
+
+  String _grantKey(String grantId) => 'grant:$grantId';
 
   /// Deletes every token file whose expiry has passed. Returns the count
   /// removed.

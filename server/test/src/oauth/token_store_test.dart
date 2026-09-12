@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:logging/logging.dart';
@@ -129,6 +130,18 @@ void main() {
       expect(logs, isNotEmpty);
       expect(logs.single.level, Level.WARNING);
     });
+
+    test(
+        'finds a token written by a prior store instance pointed at the '
+        'same directory', () async {
+      final store1 = _store(tmp);
+      final issued = await _issue(store1);
+
+      final store2 = _store(tmp);
+      final record = await store2.lookupAccess(issued.accessToken);
+      expect(record, isNotNull);
+      expect(record!.grantId, 'grant-1');
+    });
   });
 
   group('TokenStore.lookupRefresh', () {
@@ -257,6 +270,40 @@ void main() {
       await store.revokeGrant('grant-1');
       expect(await store.lookupAccess(issued1.accessToken), isNull);
       expect(await store.lookupAccess(issued2.accessToken), isNotNull);
+    });
+
+    test(
+        'racing a rotateRefresh of the same grant never leaves a live '
+        'token behind', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+
+      // Whichever of these wins the race for the grant lock, the other
+      // must observe its effect rather than a torn intermediate state:
+      // either revokeGrant sees the freshly rotated pair too (because it
+      // ran second), or rotateRefresh finds the token already revoked and
+      // cascades again itself (because revokeGrant ran first).
+      await Future.wait<void>([
+        store.revokeGrant('grant-1'),
+        store.rotateRefresh(issued.refreshToken).then<void>(
+              (_) {},
+              onError: (Object _) {},
+            ),
+      ]);
+
+      final dir = Directory('${tmp.path}/tokens');
+      final files = dir.listSync().whereType<File>();
+      for (final file in files) {
+        final json =
+            jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        if (json['grant_id'] == 'grant-1') {
+          expect(
+            json['revoked_at'],
+            isNotNull,
+            reason: 'live token left behind: ${file.path}',
+          );
+        }
+      }
     });
   });
 
