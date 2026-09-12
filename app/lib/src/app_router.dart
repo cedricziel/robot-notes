@@ -361,11 +361,14 @@ class _NoteRouteState extends State<NoteRoute> {
   }
 
   /// Remembers the version the note had when it first loaded, so [_close]
-  /// can tell whether a save happened while it was open.
+  /// can tell whether a save happened while it was open. Detaches itself
+  /// once captured — nothing left for it to do for the rest of the note's
+  /// lifetime.
   void _captureOpenedVersion() {
-    if (_openedVersion != null) return;
-    final version = _controller.value.note?.version;
-    if (version != null) _openedVersion = version;
+    _openedVersion ??= _controller.value.note?.version;
+    if (_openedVersion != null) {
+      _controller.removeListener(_captureOpenedVersion);
+    }
   }
 
   @override
