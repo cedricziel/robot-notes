@@ -310,7 +310,11 @@ McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
         'type': 'object',
         'properties': {
           'query': {'type': 'string'},
-          'limit': {'type': 'integer', 'minimum': 1, 'maximum': kMaxPageSize},
+          'limit': {
+            'type': 'integer',
+            'minimum': 1,
+            'maximum': kMaxSearchLimit,
+          },
         },
         'required': ['query'],
       },

@@ -159,7 +159,7 @@ The server SHALL parse the POST body as a single JSON-RPC 2.0 message. A body th
 
 ### Requirement: tools/list returns the fixed note tool catalog
 
-`tools/list` SHALL return exactly these tools, each with a `description` and a JSON Schema `inputSchema` of type `object` declaring the listed properties and `required` set: `list_notes` (`limit` integer 1..200, `after` string), `get_note` (`id` required), `create_note` (`title` required, `content`), `update_note` (`id` and `version` required, `title`, `content`), `append_to_note` (`id` and `text` required), `delete_note` (`id` required), `search_notes` (`query` required, `limit` integer 1..200). The catalog SHALL be the same regardless of the caller's scopes. The result SHALL NOT include a `nextCursor`.
+`tools/list` SHALL return exactly these tools, each with a `description` and a JSON Schema `inputSchema` of type `object` declaring the listed properties and `required` set: `list_notes` (`limit` integer 1..200, `after` string), `get_note` (`id` required), `create_note` (`title` required, `content`), `update_note` (`id` and `version` required, `title`, `content`), `append_to_note` (`id` and `text` required), `delete_note` (`id` required), `search_notes` (`query` required, `limit` integer 1..100). The catalog SHALL be the same regardless of the caller's scopes. The result SHALL NOT include a `nextCursor`.
 
 #### Scenario: Catalog contents
 

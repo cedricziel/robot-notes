@@ -180,6 +180,16 @@ void main() {
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
+
+    test(
+      'rejects a limit above 100 as an invalid param, matching GET /search',
+      () async {
+        await expectLater(
+          call('search_notes', {'query': 'budget', 'limit': 101}),
+          throwsA(isA<McpInvalidParamsException>()),
+        );
+      },
+    );
   });
 
   group('create_note', () {

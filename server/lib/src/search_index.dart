@@ -11,6 +11,10 @@ import 'package:sqlite3/sqlite3.dart';
 /// configuration change in incompatible ways.
 const int kSearchSchemaVersion = 1;
 
+/// Hard ceiling on a search `limit`, shared by `GET /search` and the
+/// `search_notes` MCP tool so both surfaces clamp/reject the same way.
+const int kMaxSearchLimit = 100;
+
 /// Result row returned by [SearchIndex.search].
 @immutable
 class SearchHit {
