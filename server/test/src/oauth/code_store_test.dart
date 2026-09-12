@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/oauth/code_store.dart';
+import 'package:server/src/oauth/oauth_crypto.dart';
 import 'package:test/test.dart';
 
 Directory _tempDir() =>
@@ -198,6 +201,113 @@ void main() {
             'grant-1',
           ),
         ),
+      );
+    });
+
+    test(
+        'a wrong-typed field throws a TypeError, which is treated like '
+        'any other malformed file', () async {
+      final logs = <LogRecord>[];
+      final store = CodeStore(
+        dir: Directory('${tmp.path}/codes'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        logger: Logger.detached('test')..onRecord.listen(logs.add),
+      );
+      const rawCode = 'not-a-real-code';
+      final dir = Directory('${tmp.path}/codes')..createSync(recursive: true);
+      File(
+        '${dir.path}/${hashSecret(rawCode)}.json',
+      ).writeAsStringSync('{"client_id":123}');
+
+      await expectLater(
+        store.consume(rawCode, (record) async => record),
+        throwsA(isA<CodeNotFoundException>()),
+      );
+      expect(logs, isNotEmpty);
+      expect(logs.single.level, Level.WARNING);
+    });
+  });
+
+  group('CodeStore.revokeGrant', () {
+    Future<String> mintFor(CodeStore store, String grantId) => store.mint(
+          clientId: 'client-1',
+          redirectUri: 'https://agent.example/callback',
+          codeChallenge: 'challenge',
+          scopes: {'notes:read'},
+          resource: 'https://notes.example/mcp',
+          actor: 'desk-assistant',
+          grantId: grantId,
+        );
+
+    test('marks an outstanding code of the grant consumed, not exchangeable',
+        () async {
+      final store = _store(tmp);
+      final code = await mintFor(store, 'grant-1');
+
+      final count = await store.revokeGrant('grant-1');
+      expect(count, 1);
+
+      await expectLater(
+        store.consume(code, (record) async => record),
+        throwsA(isA<CodeNotFoundException>()),
+      );
+    });
+
+    test('does not touch codes from another grant', () async {
+      final store = _store(tmp);
+      final untouched = await mintFor(store, 'grant-2');
+      await mintFor(store, 'grant-1');
+
+      await store.revokeGrant('grant-1');
+      final record = await store.consume(untouched, (record) async => record);
+      expect(record.grantId, 'grant-2');
+    });
+
+    test('is a no-op for an already-consumed code', () async {
+      final store = _store(tmp);
+      final code = await mintFor(store, 'grant-1');
+      await store.consume(code, (record) async => record);
+
+      final count = await store.revokeGrant('grant-1');
+      expect(count, 0);
+    });
+
+    test('is a no-op when nothing was ever minted for the grant', () async {
+      final store = _store(tmp);
+      expect(await store.revokeGrant('no-such-grant'), 0);
+    });
+
+    test(
+        'does not clobber a consume that persists consumedAt while the '
+        'scan is in flight', () async {
+      final store = _store(tmp);
+      final code = await mintFor(store, 'grant-1');
+
+      final revokeFuture = store.revokeGrant('grant-1');
+      final consumeGate = Completer<void>();
+      final consumeEntered = Completer<void>();
+      final consumeFuture = store.consume(code, (record) async {
+        consumeEntered.complete();
+        await consumeGate.future;
+        return record;
+      });
+
+      await consumeEntered.future;
+      consumeGate.complete();
+
+      await consumeFuture;
+      await revokeFuture;
+
+      final dir = Directory('${tmp.path}/codes');
+      final files = dir.listSync().whereType<File>().toList();
+      expect(files, hasLength(1));
+      final json =
+          jsonDecode(await files.single.readAsString()) as Map<String, dynamic>;
+      expect(
+        json['consumed_at'],
+        isNotNull,
+        reason: 'revokeGrant must not overwrite a concurrently consumed '
+            'record with a stale, unconsumed copy',
       );
     });
   });

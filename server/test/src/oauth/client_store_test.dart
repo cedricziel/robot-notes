@@ -156,6 +156,25 @@ void main() {
       expect(logs, isNotEmpty);
       expect(logs.single.level, Level.WARNING);
     });
+
+    test(
+        'a wrong-typed field throws a TypeError, which is skipped like '
+        'any other malformed file', () async {
+      final logs = <LogRecord>[];
+      final store = ClientStore(
+        dir: Directory('${tmp.path}/clients'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        logger: Logger.detached('test')..onRecord.listen(logs.add),
+      );
+      final dir = Directory('${tmp.path}/clients')..createSync(recursive: true);
+      File(
+        '${dir.path}/wrong-type.json',
+      ).writeAsStringSync(jsonEncode({'client_id': 123}));
+
+      expect(await store.get('wrong-type'), isNull);
+      expect(logs, isNotEmpty);
+      expect(logs.single.level, Level.WARNING);
+    });
   });
 
   group('ClientStore.verifySecret', () {

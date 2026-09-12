@@ -81,7 +81,7 @@ void main() {
         tokenStore: tokenStore,
         formBody: _formEncode({
           'client_id': client.client.clientId,
-          'token': issued.refreshToken,
+          'token': issued.refreshToken!,
         }),
       ),
     );
@@ -178,7 +178,7 @@ void main() {
         tokenStore: tokenStore,
         formBody: _formEncode({
           'client_id': clientA.client.clientId,
-          'token': issuedForB.refreshToken,
+          'token': issuedForB.refreshToken!,
         }),
       ),
     );

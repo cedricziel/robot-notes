@@ -94,6 +94,7 @@ class AppDeps {
     final tokenStore = TokenStore(
       dir: Directory('${config.dataDir}/oauth/tokens'),
       clock: clock,
+      onGrantRevoked: codeStore.revokeGrant,
     );
     final purgedCodes = await codeStore.purgeExpired();
     final purgedTokens = await tokenStore.purgeExpired();

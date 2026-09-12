@@ -8,6 +8,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/oauth/oauth_crypto.dart';
 import 'package:server/src/oauth/oauth_records.dart';
 import 'package:server/src/oauth/store_support.dart';
+import 'package:server/src/oauth/token_store.dart';
 
 /// Number of bytes of randomness in a minted authorization code. 32 bytes
 /// = 256 bits.
@@ -126,10 +127,14 @@ class CodeStore {
       AuthorizationCode record;
       try {
         record = await _readFile(file);
-      } on Exception catch (e) {
+      } on Object catch (e) {
         _log.warning('Skipping malformed OAuth code ${file.path}: $e');
         throw const CodeNotFoundException();
       }
+      // Checked ahead of consumedAt: a revoked-but-unconsumed code never
+      // had tokens minted from it, so there is nothing to cascade-revoke
+      // — treating it as reused would trigger that cascade for no reason.
+      if (record.isRevoked) throw const CodeNotFoundException();
       if (record.consumedAt != null) {
         throw CodeReusedException(record.grantId);
       }
@@ -141,8 +146,56 @@ class CodeStore {
     });
   }
 
-  /// Deletes every code file whose expiry has passed. Returns the count
-  /// removed.
+  /// Marks every outstanding (unconsumed, unrevoked) code of [grantId] as
+  /// revoked, so a code minted before its grant was revoked can no longer
+  /// be exchanged. Returns the number of records changed.
+  Future<int> revokeGrant(String grantId) async {
+    if (!dir.existsSync()) return 0;
+    final now = _clock.nowUtc();
+    var count = 0;
+    await for (final entity in dir.list()) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      // Peeked without holding the code's mutex, purely to filter out
+      // codes from other grants before paying for a lock. The decision to
+      // write is made from a fresh, lock-protected re-read below: a
+      // concurrent `consume` could persist `consumedAt` between this peek
+      // and the write, and writing this stale copy would clobber it,
+      // losing replay detection.
+      AuthorizationCode peeked;
+      try {
+        peeked = await _readFile(entity);
+      } on Object catch (e) {
+        _log.warning('Skipping malformed OAuth code ${entity.path}: $e');
+        continue;
+      }
+      if (peeked.grantId != grantId) continue;
+      final revoked = await _mutex.run(peeked.codeHash, () async {
+        AuthorizationCode record;
+        try {
+          record = await _readFile(entity);
+        } on Object catch (e) {
+          _log.warning('Skipping malformed OAuth code ${entity.path}: $e');
+          return false;
+        }
+        if (record.grantId != grantId ||
+            record.isRevoked ||
+            record.consumedAt != null) {
+          return false;
+        }
+        await _write(record.revokedCopy(now));
+        return true;
+      });
+      if (revoked) count++;
+    }
+    return count;
+  }
+
+  /// Deletes every code file whose expiry has passed. A consumed code is
+  /// kept for an extra [TokenStore.accessTtl] past its expiry: purging it
+  /// the instant it expires would let a code replayed just after a
+  /// restart look unknown ([CodeNotFoundException]) instead of reused
+  /// ([CodeReusedException]), losing the reuse-detection cascade that
+  /// revokes its grant's tokens. Returns the count removed.
   Future<int> purgeExpired() async {
     if (!dir.existsSync()) return 0;
     final now = _clock.nowUtc();
@@ -152,11 +205,14 @@ class CodeStore {
       AuthorizationCode record;
       try {
         record = await _readFile(entity);
-      } on Exception catch (e) {
+      } on Object catch (e) {
         _log.warning('Skipping malformed OAuth code ${entity.path}: $e');
         continue;
       }
-      if (record.isExpired(now)) {
+      final purgeAt = record.consumedAt == null
+          ? record.expiresAt
+          : record.expiresAt.add(TokenStore.accessTtl);
+      if (!now.isBefore(purgeAt)) {
         await entity.delete();
         purged++;
       }

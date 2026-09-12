@@ -59,6 +59,54 @@ void main() {
           Directory('${tmp.path}/codes').listSync().whereType<File>();
       expect(remaining, hasLength(1));
     });
+
+    test(
+        'keeps a consumed code past its expiry, for reuse detection, '
+        'until accessTtl after expiry', () async {
+      final mintClock = FixedClock.fixed(DateTime.utc(2026, 4, 25, 10));
+      final mintingStore = CodeStore(
+        dir: Directory('${tmp.path}/codes'),
+        clock: mintClock,
+      );
+      final code = await mintingStore.mint(
+        clientId: 'c1',
+        redirectUri: 'https://agent.example/callback',
+        codeChallenge: 'challenge',
+        scopes: {'notes:read'},
+        resource: 'https://notes.example/mcp',
+        actor: 'a',
+        grantId: 'g-consumed',
+      );
+      await mintingStore.consume(code, (record) async => record);
+
+      // codeTtl is 10 minutes, so the code expired at 10:10. Just past
+      // that, but still inside the accessTtl (1h) grace window: a
+      // restart's purge must not delete it yet, or a replay of this code
+      // after the restart would look unknown instead of reused.
+      final justAfterExpiry = CodeStore(
+        dir: Directory('${tmp.path}/codes'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10, 11)),
+      );
+      expect(await justAfterExpiry.purgeExpired(), 0);
+      expect(
+        Directory('${tmp.path}/codes').listSync().whereType<File>(),
+        hasLength(1),
+      );
+
+      // Once accessTtl has elapsed past expiry, the reuse-detection
+      // window is over and the file is fair game for purging.
+      final wellAfterGrace = CodeStore(
+        dir: Directory('${tmp.path}/codes'),
+        clock: FixedClock.fixed(
+          DateTime.utc(2026, 4, 25, 10, 10).add(TokenStore.accessTtl),
+        ),
+      );
+      expect(await wellAfterGrace.purgeExpired(), 1);
+      expect(
+        Directory('${tmp.path}/codes').listSync().whereType<File>(),
+        isEmpty,
+      );
+    });
   });
 
   group('TokenStore.purgeExpired', () {

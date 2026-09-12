@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/oauth/oauth_crypto.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:test/test.dart';
 
@@ -50,7 +53,7 @@ void main() {
       for (final file in files) {
         final raw = await file.readAsString();
         expect(raw.contains(issued.accessToken), isFalse);
-        expect(raw.contains(issued.refreshToken), isFalse);
+        expect(raw.contains(issued.refreshToken!), isFalse);
       }
       expect(issued.expiresIn, TokenStore.accessTtl.inSeconds);
       expect(issued.scopes, {'notes:read', 'notes:write'});
@@ -68,13 +71,33 @@ void main() {
       final record = await store.lookupAccess(issued.accessToken);
       expect(record, isNotNull);
     });
+
+    test('withRefresh: false mints no refresh token and writes no file',
+        () async {
+      final store = _store(tmp);
+      final issued = await store.issue(
+        clientId: 'client-1',
+        actor: 'desk-assistant',
+        scopes: {'notes:read'},
+        resource: 'https://notes.example/mcp',
+        grantId: 'grant-1',
+        withRefresh: false,
+      );
+
+      expect(issued.refreshToken, isNull);
+      final files =
+          Directory('${tmp.path}/tokens').listSync().whereType<File>();
+      expect(files, hasLength(1));
+      final record = await store.lookupAccess(issued.accessToken);
+      expect(record, isNotNull);
+    });
   });
 
   group('TokenStore.lookupAccess', () {
     test('rejects a refresh token presented as access', () async {
       final store = _store(tmp);
       final issued = await _issue(store);
-      expect(await store.lookupAccess(issued.refreshToken), isNull);
+      expect(await store.lookupAccess(issued.refreshToken!), isNull);
     });
 
     test('rejects an expired access token', () async {
@@ -106,6 +129,38 @@ void main() {
     test('returns null for an unknown token', () async {
       final store = _store(tmp);
       expect(await store.lookupAccess('does-not-exist'), isNull);
+    });
+
+    test(
+        'a wrong-typed field throws a TypeError, which is treated like '
+        'any other malformed file', () async {
+      final logs = <LogRecord>[];
+      final store = TokenStore(
+        dir: Directory('${tmp.path}/tokens'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        logger: Logger.detached('test')..onRecord.listen(logs.add),
+      );
+      const rawToken = 'not-a-real-token';
+      final dir = Directory('${tmp.path}/tokens')..createSync(recursive: true);
+      File(
+        '${dir.path}/${hashSecret(rawToken)}.json',
+      ).writeAsStringSync('{"client_id":123}');
+
+      expect(await store.lookupAccess(rawToken), isNull);
+      expect(logs, isNotEmpty);
+      expect(logs.single.level, Level.WARNING);
+    });
+
+    test(
+        'finds a token written by a prior store instance pointed at the '
+        'same directory', () async {
+      final store1 = _store(tmp);
+      final issued = await _issue(store1);
+
+      final store2 = _store(tmp);
+      final record = await store2.lookupAccess(issued.accessToken);
+      expect(record, isNotNull);
+      expect(record!.grantId, 'grant-1');
     });
   });
 
@@ -214,6 +269,40 @@ void main() {
         throwsA(isA<TokenNotFoundException>()),
       );
     });
+
+    test(
+        'an onGrantRevoked callback that re-enters the same grant lock '
+        'completes instead of hanging', () async {
+      var callbackRuns = 0;
+      late TokenStore store;
+      store = TokenStore(
+        dir: Directory('${tmp.path}/tokens'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        onGrantRevoked: (grantId) async {
+          callbackRuns++;
+          // Only re-enter once: revokeGrant itself calls onGrantRevoked
+          // again on completion, and this guard stops that from
+          // recursing forever while still exercising the re-entrant
+          // call this test is about.
+          if (callbackRuns == 1) {
+            await store.revokeGrant(grantId);
+          }
+        },
+      );
+      final issued = await _issue(store);
+      await store.rotateRefresh(issued.refreshToken);
+
+      await expectLater(
+        store.rotateRefresh(issued.refreshToken),
+        throwsA(isA<RefreshReuseException>()),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail(
+          'rotateRefresh deadlocked: onGrantRevoked must not run while '
+          "still holding the grant's lock",
+        ),
+      );
+    });
   });
 
   group('TokenStore.revokeGrant', () {
@@ -235,6 +324,121 @@ void main() {
       await store.revokeGrant('grant-1');
       expect(await store.lookupAccess(issued1.accessToken), isNull);
       expect(await store.lookupAccess(issued2.accessToken), isNotNull);
+    });
+
+    test('invokes onGrantRevoked with the revoked grant id', () async {
+      final notified = <String>[];
+      final store = TokenStore(
+        dir: Directory('${tmp.path}/tokens'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        onGrantRevoked: (grantId) async => notified.add(grantId),
+      );
+      await _issue(store);
+
+      await store.revokeGrant('grant-1');
+      expect(notified, ['grant-1']);
+    });
+
+    test('a reuse-triggered cascade also invokes onGrantRevoked', () async {
+      final notified = <String>[];
+      final store = TokenStore(
+        dir: Directory('${tmp.path}/tokens'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        onGrantRevoked: (grantId) async => notified.add(grantId),
+      );
+      final issued = await _issue(store);
+      await store.rotateRefresh(issued.refreshToken);
+
+      await expectLater(
+        () => store.rotateRefresh(issued.refreshToken),
+        throwsA(isA<RefreshReuseException>()),
+      );
+      expect(notified, ['grant-1']);
+    });
+
+    test(
+        'racing a rotateRefresh of the same grant never leaves a live '
+        'token behind', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+
+      // Whichever of these wins the race for the grant lock, the other
+      // must observe its effect rather than a torn intermediate state:
+      // either revokeGrant sees the freshly rotated pair too (because it
+      // ran second), or rotateRefresh finds the token already revoked and
+      // cascades again itself (because revokeGrant ran first).
+      await Future.wait<void>([
+        store.revokeGrant('grant-1'),
+        store.rotateRefresh(issued.refreshToken).then<void>((_) {}).catchError(
+              (Object _) {},
+              test: (error) => error is RefreshReuseException,
+            ),
+      ]);
+
+      final dir = Directory('${tmp.path}/tokens');
+      final files = dir.listSync().whereType<File>();
+      for (final file in files) {
+        final json =
+            jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+        if (json['grant_id'] == 'grant-1') {
+          expect(
+            json['revoked_at'],
+            isNotNull,
+            reason: 'live token left behind: ${file.path}',
+          );
+        }
+      }
+    });
+  });
+
+  group('TokenStore.issue racing TokenStore.revokeGrant', () {
+    test('revokeGrant winning the race leaves no live token behind', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+
+      Object? issueOutcome;
+      await Future.wait<void>([
+        store.revokeGrant('grant-1'),
+        _issue(store).then(
+          (tokens) => issueOutcome = tokens,
+          onError: (Object e) => issueOutcome = e,
+        ),
+      ]);
+
+      expect(await store.lookupAccess(issued.accessToken), isNull);
+      expect(await store.lookupRefresh(issued.refreshToken), isNull);
+      if (issueOutcome is IssuedTokens) {
+        final raced = issueOutcome! as IssuedTokens;
+        expect(await store.lookupAccess(raced.accessToken), isNull);
+        expect(await store.lookupRefresh(raced.refreshToken), isNull);
+      } else {
+        expect(issueOutcome, isA<GrantRevokedException>());
+      }
+    });
+
+    test('issue winning the race is still revoked once revokeGrant runs',
+        () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+
+      Object? issueOutcome;
+      await Future.wait<void>([
+        _issue(store).then(
+          (tokens) => issueOutcome = tokens,
+          onError: (Object e) => issueOutcome = e,
+        ),
+        store.revokeGrant('grant-1'),
+      ]);
+
+      expect(await store.lookupAccess(issued.accessToken), isNull);
+      expect(await store.lookupRefresh(issued.refreshToken), isNull);
+      if (issueOutcome is IssuedTokens) {
+        final raced = issueOutcome! as IssuedTokens;
+        expect(await store.lookupAccess(raced.accessToken), isNull);
+        expect(await store.lookupRefresh(raced.refreshToken), isNull);
+      } else {
+        expect(issueOutcome, isA<GrantRevokedException>());
+      }
     });
   });
 
