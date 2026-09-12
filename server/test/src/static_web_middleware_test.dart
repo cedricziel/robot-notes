@@ -199,20 +199,54 @@ void main() {
     });
 
     test(
-        'falls back to index.html for GET /notes/{id} and /search without '
-        'Authorization — a browser reload of the client-side route, not an '
-        'API call', () async {
+        'falls back to index.html for GET /notes/{id} and /search with no '
+        'Authorization and an html Accept header — a browser reload of the '
+        'client-side route, not an API call', () async {
       final dir = _scratchWeb();
       addTearDown(() => dir.deleteSync(recursive: true));
 
       for (final path in const ['/notes/01ABC', '/notes/01/lock', '/search']) {
-        final ctx = _ctx(path: path);
+        final ctx = _ctx(
+          path: path,
+          headers: const {
+            'accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+          },
+        );
         final response = await _run(
           staticWebMiddleware(webDir: dir.path),
           ctx,
         );
         expect(response.statusCode, HttpStatus.ok, reason: 'path=$path');
         expect(await response.body(), '<html>app</html>', reason: 'path=$path');
+      }
+    });
+
+    test(
+        'stays on the API pipeline for GET /notes/{id} and /search with no '
+        'Authorization when Accept does not ask for html — an API caller '
+        "with a missing/typo'd header, not a browser, so it still 401s "
+        'downstream instead of getting HTML', () async {
+      final dir = _scratchWeb();
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      for (final path in const ['/notes/01ABC', '/notes/01/lock', '/search']) {
+        for (final headers in const [
+          <String, String>{},
+          <String, String>{'accept': 'application/json'},
+          <String, String>{'accept': '*/*'},
+        ]) {
+          final ctx = _ctx(path: path, headers: headers);
+          final response = await _run(
+            staticWebMiddleware(webDir: dir.path),
+            ctx,
+            handler: () => Response(body: 'api'),
+          );
+          expect(
+            await response.body(),
+            'api',
+            reason: 'path=$path headers=$headers',
+          );
+        }
       }
     });
 

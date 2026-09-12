@@ -46,10 +46,14 @@ const _mimeTypes = <String, String>{
 /// Resolution order for an incoming `GET` (or `HEAD`):
 ///   1. If [webDir] is `null` or does not exist on disk → no-op pass-through.
 ///   2. If the path matches a known API prefix → pass-through (the auth +
-///      route pipeline takes over). `/notes/{id}` and `/search` only count
-///      as API paths here when the request carries `Authorization` — the
-///      Flutter app uses those same paths for its own note-view and search
-///      routes, reached by a plain browser navigation with no such header.
+///      route pipeline takes over, so a missing/malformed/mismatched key
+///      still gets the documented 401). `/notes/{id}` and `/search` count
+///      as the app's own client-side routes — not API paths — only when the
+///      request has no `Authorization` header *and* its `Accept` header
+///      names `text/html`, the signature of a plain browser navigation
+///      (reload, bookmark, shared link). Any other request to those paths,
+///      including one with no `Authorization` at all, stays on the API
+///      pipeline.
 ///   3. If `<webDir>/<path>` exists → serve it with the inferred MIME type.
 ///   4. If the path looks like an SPA route (no file extension) → fall
 ///      back to `<webDir>/index.html`.
@@ -114,15 +118,27 @@ bool _isApiPath(Request request) {
   // `/notes/{id}` and `/search` are *also* client-side routes in the
   // Flutter app (the note view and the search screen), reached by a plain
   // browser navigation — reload, bookmark, or a shared link — at the same
-  // path as the API call of the same name. The app's own HTTP client
-  // always sends `Authorization`; a browser navigation never does, so its
-  // presence is what tells the two apart here.
+  // path as the API call of the same name. Treat a request here as that
+  // browser navigation, rather than an API call, only when it has neither
+  // signal an API client sends: no `Authorization` header *and* an `Accept`
+  // header naming `text/html` (what a browser sends on navigation; the
+  // app's own HTTP client, curl, and MCP/agent clients don't ask for
+  // `text/html`). Anything else — including a request with no
+  // `Authorization` at all but an `Accept` the app wouldn't send — stays on
+  // the API pipeline and gets the documented 401, not HTML.
   final sharesPathWithAClientRoute =
       path == '/search' || path.startsWith('/notes/');
   if (sharesPathWithAClientRoute) {
-    return request.headers['authorization'] != null;
+    final looksLikeBrowserNavigation =
+        request.headers['authorization'] == null && _acceptsHtml(request);
+    return !looksLikeBrowserNavigation;
   }
   return false;
+}
+
+bool _acceptsHtml(Request request) {
+  final accept = request.headers['accept'];
+  return accept != null && accept.contains('text/html');
 }
 
 /// Joins [requestPath] onto [root], rejecting traversal. `/` resolves to
