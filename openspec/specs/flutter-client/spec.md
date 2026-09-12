@@ -470,22 +470,73 @@ The app SHALL maintain at most one WebSocket connection while signed in. On disc
 - **WHEN** the WS connection is re-established
 - **THEN** the app SHALL request `GET /notes` again and render the returned items
 
-### Requirement: Realtime connection state is visible in the notes list
+### Requirement: Realtime connection state is visible on every screen
 
-The notes list SHALL show a strip above the list whenever the WebSocket connection is not established: "Reconnecting…" while the reconnect loop runs, and "Connection lost — showing cached notes" once the outage has lasted longer than the stale threshold. While connected, nothing SHALL be shown. Already-loaded notes SHALL stay visible and usable throughout.
+The app SHALL show a strip above the routed content on every screen — list, note, and search alike — whenever the WebSocket connection is not established: "Reconnecting…" while the reconnect loop runs, and "Connection lost — showing cached notes" once the outage has lasted longer than the stale threshold. While connected, nothing SHALL be shown. Already-loaded content SHALL stay visible and usable throughout.
 
 #### Scenario: Connected shows no indicator
 
 - **GIVEN** the WS connection is established
-- **WHEN** the notes list renders
+- **WHEN** any screen renders
 - **THEN** no connection strip SHALL be shown
 
 #### Scenario: Short outage shows reconnecting
 
 - **WHEN** the WS connection drops
-- **THEN** the list SHALL show "Reconnecting…" above the loaded notes until the connection is re-established
+- **THEN** every screen SHALL show "Reconnecting…" above its content until the connection is re-established
 
-#### Scenario: Long outage marks the list as cached
+#### Scenario: Long outage marks the content as cached
 
 - **WHEN** the WS connection has been down for more than the stale threshold
-- **THEN** the strip SHALL read "Connection lost — showing cached notes" and SHALL stay until the connection is re-established
+- **THEN** the strip SHALL read "Connection lost — showing cached notes" on every screen and SHALL stay until the connection is re-established
+
+### Requirement: The app is routed by URL and supports deep links
+
+The Flutter app SHALL use declarative, URL-addressable routes for its three screens: `/` (notes list), `/notes/{id}` (note view; a `edit=1` query parameter starts it in edit mode), and `/search`. On Web the app SHALL use the path URL strategy, so these routes appear as `/notes/{id}` rather than `/#/notes/{id}`, and reloading, bookmarking, or sharing any of these URLs SHALL restore the same screen. While no `AppConfig` is stored, every route SHALL show the first-run setup screen instead; once setup completes, the app SHALL continue to whichever location was originally requested.
+
+#### Scenario: A note URL can be bookmarked and reloaded
+
+- **GIVEN** the app is configured and note `01H` exists
+- **WHEN** the user navigates the browser directly to `/notes/01H`
+- **THEN** the app SHALL render that note's view, not the notes list
+
+#### Scenario: An edit-mode URL opens the editor
+
+- **WHEN** the user navigates directly to `/notes/01H?edit=1`
+- **THEN** the app SHALL open note `01H` straight into the editor, as the create flow does
+
+#### Scenario: A search URL renders the search screen
+
+- **WHEN** the user navigates directly to `/search`
+- **THEN** the app SHALL render the search screen
+
+#### Scenario: An unconfigured deep link goes to setup first, then continues
+
+- **GIVEN** the app has no saved configuration
+- **WHEN** the user navigates directly to `/notes/01H`
+- **THEN** the app SHALL show the setup screen
+- **AND** once setup succeeds, the app SHALL continue on to `/notes/01H` rather than the notes list
+
+#### Scenario: Closing a deep-linked note with no history returns to the list
+
+- **GIVEN** the user navigated directly to a note URL (or reached it from search) with no prior screen on the navigation stack
+- **WHEN** the user closes the note
+- **THEN** the app SHALL go to `/`
+
+#### Scenario: Closing a note opened from the list returns to the list
+
+- **GIVEN** the user opened a note by tapping it in the notes list
+- **WHEN** the user closes the note
+- **THEN** the app SHALL return to the notes list rather than going to `/` from scratch
+
+#### Scenario: Tapping a search result opens the note
+
+- **GIVEN** the search screen shows a result for note `01H`
+- **WHEN** the user taps it
+- **THEN** the app SHALL navigate to `/notes/01H`
+
+#### Scenario: The server serves the app shell for a reloaded client route
+
+- **GIVEN** the app is deployed behind the bundled server
+- **WHEN** a browser issues a plain `GET /notes/01H` or `GET /search` with no `Authorization` header
+- **THEN** the server SHALL respond with the app's `index.html`, not the JSON API response for that path
