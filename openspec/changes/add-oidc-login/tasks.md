@@ -64,10 +64,10 @@ Desktop and web only, per proposal.md - Non-goals.
 
 ## 5. Docs and definition of done (PR 5)
 
-- [ ] 5.1 Update `README.md`: document `--oidc-issuer`/`--oidc-client-id`/`--oidc-client-secret` and their env vars next to `--api-key`, explain the coexistence model (static key for agents, OIDC for humans), and note the desktop/web-only scope for the app's sign-in option
-- [ ] 5.2 Update `server/API.md` (or wherever the consent flow is documented) to describe the OIDC branch of the consent page
-- [ ] 5.3 Every scenario in `specs/oidc-login` and the `auth`, `oauth-authorization`, and `flutter-client` deltas maps to at least one test that failed before and passes after its implementation task
-- [ ] 5.4 `dart format --set-exit-if-changed .` and `dart analyze` are clean; `make test` passes on the top of the stack
-- [ ] 5.5 `openspec validate add-oidc-login --strict` passes
+- [x] 5.1 Update `README.md`: document `--oidc-issuer`/`--oidc-client-id`/`--oidc-client-secret` and their env vars next to `--api-key`, explain the coexistence model (static key for agents, OIDC for humans), and note the desktop/web-only scope for the app's sign-in option
+- [x] 5.2 Update `server/API.md` (or wherever the consent flow is documented) to describe the OIDC branch of the consent page: added an "OIDC login" subsection under the MCP/OAuth docs, and noted resource-scoped REST/WS token acceptance plus the `X-Actor`-is-ignored-for-OIDC-sessions rule in the top-level Conventions section
+- [x] 5.3 Every scenario in `specs/oidc-login` and the `auth`, `oauth-authorization`, and `flutter-client` deltas maps to at least one test that failed before and passes after its implementation task. Audited: full coverage, with one pre-existing-convention caveat — the `flutter-client` scenario for session refresh across restarts is tested in isolation (`oidc_session_refresher_test.dart`) rather than through `main.dart`'s actual startup path, matching this repo's existing `test/widget_test.dart` convention of not exercising the full bootstrap path end-to-end
+- [x] 5.4 `dart format --set-exit-if-changed .` and `dart analyze` are clean; `make test` passes on the top of the stack (206 files, no format changes; 0 analyzer issues; shared+server (803)+app (182) all green)
+- [x] 5.5 `openspec validate add-oidc-login --strict` passes
 - [ ] 5.6 Manual smoke run against a real OIDC provider (e.g. a local Keycloak/Authentik container or a free-tier test tenant): configure the three env vars, open the app's setup screen, sign in, confirm notes load; separately complete an MCP consent via the sign-in link instead of pasting the key
 - [ ] 5.7 Five PRs opened as a stack in dependency order, each under 500 changed lines, each green on CI
