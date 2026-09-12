@@ -94,7 +94,7 @@ class NotesListController extends ValueNotifier<NotesListState> {
   Future<void> _doRefresh() async {
     value = value.copyWith(isLoadingFirst: true, error: null);
     try {
-      final page = await _api.listNotes(limit: _pageSize);
+      final page = await _api.listNotes(limit: _pageSize, sort: 'updated_desc');
       if (_disposed) return;
       value = value.copyWith(
         items: page.items,
@@ -119,6 +119,7 @@ class NotesListController extends ValueNotifier<NotesListState> {
       final page = await _api.listNotes(
         after: value.nextCursor,
         limit: _pageSize,
+        sort: 'updated_desc',
       );
       if (_disposed) return;
       value = value.copyWith(
@@ -170,15 +171,15 @@ class NotesListController extends ValueNotifier<NotesListState> {
       updatedAt: note.updatedAt,
     );
     final idx = value.items.indexWhere((n) => n.id == note.id);
-    final List<NoteMeta> next;
-    if (idx >= 0) {
-      next = <NoteMeta>[...value.items];
-      next[idx] = meta;
-    } else if (prepend) {
-      next = <NoteMeta>[meta, ...value.items];
-    } else {
-      next = <NoteMeta>[...value.items, meta];
-    }
+    final rest = idx >= 0
+        ? <NoteMeta>[...value.items.take(idx), ...value.items.skip(idx + 1)]
+        : value.items;
+    // The list is newest-updated-first, so an already-listed note that
+    // just changed is now the most recent and belongs at the top, not in
+    // its old slot — the same place a brand-new ("prepend") note goes.
+    final next = (idx >= 0 || prepend)
+        ? <NoteMeta>[meta, ...rest]
+        : <NoteMeta>[...rest, meta];
     value = value.copyWith(items: next);
   }
 

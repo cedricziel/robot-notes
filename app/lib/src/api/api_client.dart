@@ -81,10 +81,11 @@ class RobotNotesClient {
     );
   }
 
-  Future<NotePage> listNotes({String? after, int? limit}) async {
+  Future<NotePage> listNotes({String? after, int? limit, String? sort}) async {
     final query = <String, String>{
       'after': ?after,
       if (limit != null) 'limit': '$limit',
+      'sort': ?sort,
     };
     final res = await _http.get(_uri('/notes', query), headers: _baseHeaders);
     final body = _ok(res);
