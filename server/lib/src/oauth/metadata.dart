@@ -16,8 +16,13 @@ Map<String, Object?> protectedResourceMetadata(String base) => {
     };
 
 /// Builds the RFC 8414 authorization-server metadata document for the
-/// given public [base] URL.
-Map<String, Object?> authorizationServerMetadata(String base) => {
+/// given public [base] URL. Includes `robotnotes_oidc_login_supported:
+/// true` when [oidcConfigured] is set; the field is omitted otherwise.
+Map<String, Object?> authorizationServerMetadata(
+  String base, {
+  bool oidcConfigured = false,
+}) =>
+    {
       'issuer': base,
       'authorization_endpoint': '$base${Routes.oauthAuthorize}',
       'token_endpoint': '$base${Routes.oauthToken}',
@@ -32,4 +37,5 @@ Map<String, Object?> authorizationServerMetadata(String base) => {
         'client_secret_basic',
       ],
       'scopes_supported': kOAuthScopes,
+      if (oidcConfigured) 'robotnotes_oidc_login_supported': true,
     };

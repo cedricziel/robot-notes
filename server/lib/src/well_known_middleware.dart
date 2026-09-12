@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/config.dart';
 import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oauth/oauth_response.dart';
 import 'package:server/src/public_url.dart';
@@ -45,7 +46,10 @@ Middleware wellKnownMiddleware() {
         final base = publicBaseUrl(context);
         return Response.json(
           headers: kNoStoreHeaders,
-          body: authorizationServerMetadata(base),
+          body: authorizationServerMetadata(
+            base,
+            oidcConfigured: context.read<Config>().oidc != null,
+          ),
         );
       }
 

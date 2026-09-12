@@ -7,6 +7,7 @@ import 'package:server/src/config.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/consent_throttle.dart';
+import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/oauth/authorize.dart' as route;
@@ -126,6 +127,35 @@ void main() {
       expect(body, contains('type="password"'));
       expect(body, contains('name="api_key"'));
       expect(body, contains('name="actor"'));
+    });
+
+    test(
+        'renders a sign-in link instead of the api_key form when OIDC is '
+        'configured', () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: validQuery(),
+          config: const Config(
+            apiKey: _apiKey,
+            dataDir: '/tmp',
+            port: 8080,
+            lockTtlSeconds: 60,
+            oidc: OidcConfig(
+              issuer: 'https://idp.example.com',
+              clientId: 'robot-notes',
+              clientSecret: 'shh',
+            ),
+          ),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.body();
+      expect(body, isNot(contains('name="api_key"')));
+      expect(body, contains(Routes.oauthOidcLogin));
     });
 
     test('unregistered redirect_uri does not redirect', () async {

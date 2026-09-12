@@ -354,6 +354,44 @@ void main() {
       expect(response.statusCode, HttpStatus.ok);
     });
 
+    test('GET /oauth/oidc/login bypasses auth', () async {
+      final ctx = _ctx(path: '/oauth/oidc/login', method: HttpMethod.get);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response(statusCode: HttpStatus.found),
+      );
+      expect(response.statusCode, HttpStatus.found);
+    });
+
+    test('POST /oauth/oidc/login still requires auth', () async {
+      final ctx = _ctx(path: '/oauth/oidc/login', method: HttpMethod.post);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
+    test('GET /oauth/oidc/callback bypasses auth', () async {
+      final ctx = _ctx(path: '/oauth/oidc/callback', method: HttpMethod.get);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response(statusCode: HttpStatus.found),
+      );
+      expect(response.statusCode, HttpStatus.found);
+    });
+
+    test('POST /oauth/oidc/callback still requires auth', () async {
+      final ctx = _ctx(path: '/oauth/oidc/callback', method: HttpMethod.post);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
     test('every method on /mcp bypasses the static key', () async {
       for (final method in [
         HttpMethod.get,

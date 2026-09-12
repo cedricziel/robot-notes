@@ -42,5 +42,10 @@ void main() {
         '/.well-known/oauth-authorization-server',
       );
     });
+
+    test('exposes the OIDC login paths', () {
+      expect(Routes.oauthOidcLogin, '/oauth/oidc/login');
+      expect(Routes.oauthOidcCallback, '/oauth/oidc/callback');
+    });
   });
 }
