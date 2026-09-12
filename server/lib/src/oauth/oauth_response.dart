@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 
 /// Headers required on every `/oauth/register`, `/oauth/token`, and
-/// `/oauth/revoke` response (RFC 6749 §5.1): these bodies carry secrets
-/// and SHALL NOT be cached.
+/// `/oauth/revoke` response (RFC 6749 §5.1), and reused for the
+/// `/.well-known/oauth-*` discovery documents: these bodies carry
+/// secrets, or metadata that SHALL stay in sync with the server's live
+/// configuration, and so SHALL NOT be cached.
 const Map<String, String> kNoStoreHeaders = {
   HttpHeaders.cacheControlHeader: 'no-store',
   'Pragma': 'no-cache',

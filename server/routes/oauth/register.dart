@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
@@ -23,6 +24,10 @@ const int _kMaxClientNameLength = 256;
 const int _kMaxRedirectUris = 10;
 const int _kMaxRedirectUriLength = 2048;
 
+/// Upper bound on the raw registration body, checked before it is
+/// decoded, so an oversized request never reaches `jsonDecode`.
+const int _kMaxBodyBytes = 16 * 1024;
+
 /// `POST /oauth/register` — Dynamic Client Registration (RFC 7591). Mints
 /// a public or confidential client from an unauthenticated JSON request.
 Future<Response> onRequest(RequestContext context) async {
@@ -33,9 +38,14 @@ Future<Response> onRequest(RequestContext context) async {
     );
   }
 
+  final body = await context.request.body();
+  if (utf8.encode(body).length > _kMaxBodyBytes) {
+    return oauthError(HttpStatus.badRequest, 'invalid_client_metadata');
+  }
+
   final dynamic raw;
   try {
-    raw = await context.request.json();
+    raw = jsonDecode(body);
   } on FormatException {
     return oauthError(HttpStatus.badRequest, 'invalid_client_metadata');
   }

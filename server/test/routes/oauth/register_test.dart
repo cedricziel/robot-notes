@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
@@ -16,12 +17,13 @@ RequestContext _ctx({
   required HttpMethod method,
   required ClientStore store,
   Object? body,
+  String? rawBody,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.headers).thenReturn(const {});
-  when(req.json).thenAnswer((_) async => body);
+  when(req.body).thenAnswer((_) async => rawBody ?? jsonEncode(body));
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<ClientStore>()).thenReturn(store);
   return ctx;
@@ -260,6 +262,37 @@ void main() {
           'redirect_uris': ['https://agent.example/callback'],
           'token_endpoint_auth_method': 'private_key_jwt',
         },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_client_metadata');
+  });
+
+  test('accepts a body of exactly 16 KiB', () async {
+    final base = {
+      'client_name': 'Padded',
+      'redirect_uris': ['https://agent.example/callback'],
+      'padding': '',
+    };
+    final baseLength = jsonEncode(base).length;
+    final padded = {...base, 'padding': 'a' * (16 * 1024 - baseLength)};
+    expect(jsonEncode(padded).length, 16 * 1024);
+
+    final res = await route.onRequest(
+      _ctx(method: HttpMethod.post, store: store, body: padded),
+    );
+
+    expect(res.statusCode, HttpStatus.created);
+  });
+
+  test('rejects a body larger than 16 KiB', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        rawBody: 'x' * (16 * 1024 + 1),
       ),
     );
 
