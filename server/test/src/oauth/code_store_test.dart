@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:logging/logging.dart';
@@ -274,6 +275,40 @@ void main() {
     test('is a no-op when nothing was ever minted for the grant', () async {
       final store = _store(tmp);
       expect(await store.revokeGrant('no-such-grant'), 0);
+    });
+
+    test(
+        'does not clobber a consume that persists consumedAt while the '
+        'scan is in flight', () async {
+      final store = _store(tmp);
+      final code = await mintFor(store, 'grant-1');
+
+      final revokeFuture = store.revokeGrant('grant-1');
+      final consumeGate = Completer<void>();
+      final consumeEntered = Completer<void>();
+      final consumeFuture = store.consume(code, (record) async {
+        consumeEntered.complete();
+        await consumeGate.future;
+        return record;
+      });
+
+      await consumeEntered.future;
+      consumeGate.complete();
+
+      await consumeFuture;
+      await revokeFuture;
+
+      final dir = Directory('${tmp.path}/codes');
+      final files = dir.listSync().whereType<File>().toList();
+      expect(files, hasLength(1));
+      final json =
+          jsonDecode(await files.single.readAsString()) as Map<String, dynamic>;
+      expect(
+        json['consumed_at'],
+        isNotNull,
+        reason: 'revokeGrant must not overwrite a concurrently consumed '
+            'record with a stale, unconsumed copy',
+      );
     });
   });
 }

@@ -155,20 +155,37 @@ class CodeStore {
     var count = 0;
     await for (final entity in dir.list()) {
       if (entity is! File || !entity.path.endsWith('.json')) continue;
-      AuthorizationCode record;
+      // Peeked without holding the code's mutex, purely to filter out
+      // codes from other grants before paying for a lock. The decision to
+      // write is made from a fresh, lock-protected re-read below: a
+      // concurrent `consume` could persist `consumedAt` between this peek
+      // and the write, and writing this stale copy would clobber it,
+      // losing replay detection.
+      AuthorizationCode peeked;
       try {
-        record = await _readFile(entity);
+        peeked = await _readFile(entity);
       } on Object catch (e) {
         _log.warning('Skipping malformed OAuth code ${entity.path}: $e');
         continue;
       }
-      if (record.grantId != grantId ||
-          record.isRevoked ||
-          record.consumedAt != null) {
-        continue;
-      }
-      await _mutex.run(record.codeHash, () => _write(record.revokedCopy(now)));
-      count++;
+      if (peeked.grantId != grantId) continue;
+      final revoked = await _mutex.run(peeked.codeHash, () async {
+        AuthorizationCode record;
+        try {
+          record = await _readFile(entity);
+        } on Object catch (e) {
+          _log.warning('Skipping malformed OAuth code ${entity.path}: $e');
+          return false;
+        }
+        if (record.grantId != grantId ||
+            record.isRevoked ||
+            record.consumedAt != null) {
+          return false;
+        }
+        await _write(record.revokedCopy(now));
+        return true;
+      });
+      if (revoked) count++;
     }
     return count;
   }
