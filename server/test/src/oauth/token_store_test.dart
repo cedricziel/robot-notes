@@ -272,6 +272,36 @@ void main() {
       expect(await store.lookupAccess(issued2.accessToken), isNotNull);
     });
 
+    test('invokes onGrantRevoked with the revoked grant id', () async {
+      final notified = <String>[];
+      final store = TokenStore(
+        dir: Directory('${tmp.path}/tokens'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        onGrantRevoked: (grantId) async => notified.add(grantId),
+      );
+      await _issue(store);
+
+      await store.revokeGrant('grant-1');
+      expect(notified, ['grant-1']);
+    });
+
+    test('a reuse-triggered cascade also invokes onGrantRevoked', () async {
+      final notified = <String>[];
+      final store = TokenStore(
+        dir: Directory('${tmp.path}/tokens'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        onGrantRevoked: (grantId) async => notified.add(grantId),
+      );
+      final issued = await _issue(store);
+      await store.rotateRefresh(issued.refreshToken);
+
+      await expectLater(
+        () => store.rotateRefresh(issued.refreshToken),
+        throwsA(isA<RefreshReuseException>()),
+      );
+      expect(notified, ['grant-1']);
+    });
+
     test(
         'racing a rotateRefresh of the same grant never leaves a live '
         'token behind', () async {

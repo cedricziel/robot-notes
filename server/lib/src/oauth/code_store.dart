@@ -131,6 +131,10 @@ class CodeStore {
         _log.warning('Skipping malformed OAuth code ${file.path}: $e');
         throw const CodeNotFoundException();
       }
+      // Checked ahead of consumedAt: a revoked-but-unconsumed code never
+      // had tokens minted from it, so there is nothing to cascade-revoke
+      // — treating it as reused would trigger that cascade for no reason.
+      if (record.isRevoked) throw const CodeNotFoundException();
       if (record.consumedAt != null) {
         throw CodeReusedException(record.grantId);
       }
@@ -140,6 +144,33 @@ class CodeStore {
       await _write(consumed);
       return onConsumed(consumed);
     });
+  }
+
+  /// Marks every outstanding (unconsumed, unrevoked) code of [grantId] as
+  /// revoked, so a code minted before its grant was revoked can no longer
+  /// be exchanged. Returns the number of records changed.
+  Future<int> revokeGrant(String grantId) async {
+    if (!dir.existsSync()) return 0;
+    final now = _clock.nowUtc();
+    var count = 0;
+    await for (final entity in dir.list()) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      AuthorizationCode record;
+      try {
+        record = await _readFile(entity);
+      } on Object catch (e) {
+        _log.warning('Skipping malformed OAuth code ${entity.path}: $e');
+        continue;
+      }
+      if (record.grantId != grantId ||
+          record.isRevoked ||
+          record.consumedAt != null) {
+        continue;
+      }
+      await _mutex.run(record.codeHash, () => _write(record.revokedCopy(now)));
+      count++;
+    }
+    return count;
   }
 
   /// Deletes every code file whose expiry has passed. A consumed code is

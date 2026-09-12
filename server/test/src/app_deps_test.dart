@@ -5,6 +5,7 @@ import 'package:server/src/app_deps.dart';
 import 'package:server/src/app_deps_holder.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/oauth/code_store.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
@@ -158,6 +159,40 @@ void main() {
         isTrue,
       );
       addTearDown(reloaded.close);
+    });
+
+    test(
+        'revoking a grant through tokenStore also revokes its outstanding '
+        'authorization code', () async {
+      final deps = await AppDeps.bootstrap(
+        _config(tmp),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+      );
+      addTearDown(deps.close);
+
+      final code = await deps.codeStore.mint(
+        clientId: 'c1',
+        redirectUri: 'https://agent.example/callback',
+        codeChallenge: 'challenge',
+        scopes: {'notes:read'},
+        resource: 'https://notes.example/mcp',
+        actor: 'a',
+        grantId: 'shared-grant',
+      );
+      await deps.tokenStore.issue(
+        clientId: 'c1',
+        actor: 'a',
+        scopes: {'notes:read'},
+        resource: 'https://notes.example/mcp',
+        grantId: 'shared-grant',
+      );
+
+      await deps.tokenStore.revokeGrant('shared-grant');
+
+      await expectLater(
+        deps.codeStore.consume(code, (record) async => record),
+        throwsA(isA<CodeNotFoundException>()),
+      );
     });
   });
 

@@ -226,4 +226,54 @@ void main() {
       expect(logs.single.level, Level.WARNING);
     });
   });
+
+  group('CodeStore.revokeGrant', () {
+    Future<String> mintFor(CodeStore store, String grantId) => store.mint(
+          clientId: 'client-1',
+          redirectUri: 'https://agent.example/callback',
+          codeChallenge: 'challenge',
+          scopes: {'notes:read'},
+          resource: 'https://notes.example/mcp',
+          actor: 'desk-assistant',
+          grantId: grantId,
+        );
+
+    test('marks an outstanding code of the grant consumed, not exchangeable',
+        () async {
+      final store = _store(tmp);
+      final code = await mintFor(store, 'grant-1');
+
+      final count = await store.revokeGrant('grant-1');
+      expect(count, 1);
+
+      await expectLater(
+        store.consume(code, (record) async => record),
+        throwsA(isA<CodeNotFoundException>()),
+      );
+    });
+
+    test('does not touch codes from another grant', () async {
+      final store = _store(tmp);
+      final untouched = await mintFor(store, 'grant-2');
+      await mintFor(store, 'grant-1');
+
+      await store.revokeGrant('grant-1');
+      final record = await store.consume(untouched, (record) async => record);
+      expect(record.grantId, 'grant-2');
+    });
+
+    test('is a no-op for an already-consumed code', () async {
+      final store = _store(tmp);
+      final code = await mintFor(store, 'grant-1');
+      await store.consume(code, (record) async => record);
+
+      final count = await store.revokeGrant('grant-1');
+      expect(count, 0);
+    });
+
+    test('is a no-op when nothing was ever minted for the grant', () async {
+      final store = _store(tmp);
+      expect(await store.revokeGrant('no-such-grant'), 0);
+    });
+  });
 }

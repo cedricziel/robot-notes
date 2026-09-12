@@ -94,15 +94,21 @@ class IssuedTokens {
 class TokenStore {
   /// Constructs a store rooted at [dir] (created on first write). [clock]
   /// stamps issue/revoke/rotate time. [random] supplies the entropy for
-  /// minted tokens; tests inject a deterministic source.
+  /// minted tokens; tests inject a deterministic source. [onGrantRevoked],
+  /// when supplied, runs after every successful [revokeGrant] (explicit or
+  /// reuse-triggered) with the revoked grant id, so a caller can cascade
+  /// the revocation to other stores that share the same `grant_id` (e.g.
+  /// revoking outstanding authorization codes).
   TokenStore({
     required this.dir,
     Clock clock = const Clock(),
     Random? random,
     Logger? logger,
+    Future<void> Function(String grantId)? onGrantRevoked,
   })  : _clock = clock,
         _random = random ?? Random.secure(),
-        _log = logger ?? Logger('oauth.token_store');
+        _log = logger ?? Logger('oauth.token_store'),
+        _onGrantRevoked = onGrantRevoked;
 
   /// Access tokens are valid for 1 hour from issue.
   static const accessTtl = Duration(hours: 1);
@@ -116,6 +122,7 @@ class TokenStore {
   final Clock _clock;
   final Random _random;
   final Logger _log;
+  final Future<void> Function(String grantId)? _onGrantRevoked;
   final _mutex = KeyedMutex();
 
   /// Mints a fresh access/refresh pair for [grantId] and persists both as
@@ -240,6 +247,7 @@ class TokenStore {
         // of calling the public revokeGrant (which would re-acquire it
         // and deadlock).
         await _revokeGrantLocked(record.grantId);
+        await _onGrantRevoked?.call(record.grantId);
         throw RefreshReuseException(record.grantId);
       }
       if (record.isExpired(_clock.nowUtc())) {
@@ -260,15 +268,22 @@ class TokenStore {
     });
   }
 
-  /// Marks every unrevoked record of [grantId] as revoked. Returns the
+  /// Marks every unrevoked record of [grantId] as revoked, then runs the
+  /// `onGrantRevoked` callback (if supplied) with [grantId]. Returns the
   /// number of records changed.
   ///
   /// Runs under the grant's lock, so a concurrent [issue] or
   /// [rotateRefresh] for the same [grantId] can never mint a token this
   /// scan misses: either it completes before this starts (and gets
   /// caught by the scan), or it waits for this to finish first.
-  Future<int> revokeGrant(String grantId) =>
-      _mutex.run(_grantKey(grantId), () => _revokeGrantLocked(grantId));
+  Future<int> revokeGrant(String grantId) async {
+    final count = await _mutex.run(
+      _grantKey(grantId),
+      () => _revokeGrantLocked(grantId),
+    );
+    await _onGrantRevoked?.call(grantId);
+    return count;
+  }
 
   Future<int> _revokeGrantLocked(String grantId) async {
     if (!dir.existsSync()) return 0;
