@@ -120,7 +120,7 @@ The app SHALL provide a list view that pages through `GET /notes`, showing each 
 
 ### Requirement: Note view supports edit, lock, and concurrency UX
 
-When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS events, and acquire the editor lock before allowing edits. While editing, the app SHALL heartbeat the lock periodically. On save the app SHALL `PUT /notes/{id}` with the version it last loaded. The app SHALL handle 409 by reloading the server state and presenting a "your local changes are out of date" UI. The app SHALL handle 423 by switching to read-only mode and surfacing the lock holder.
+When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS events, and acquire the editor lock before allowing edits. While editing, the app SHALL heartbeat the lock periodically. On save the app SHALL `PUT /notes/{id}` with the version it last loaded. The app SHALL handle 409 by presenting a conflict view with the server's title and content beside the user's own, editable, title and content; the view SHALL mark the title when the two differ and SHALL mark the content lines each side has that the other does not. The user SHALL be able to take the server's version, or edit their own version in place and save it against the server's current version. The app SHALL handle 423 by switching to read-only mode and surfacing the lock holder.
 
 #### Scenario: Edit acquires the lock
 
@@ -162,6 +162,29 @@ When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS
 - **GIVEN** the local copy is at version 5 but the server is at version 7
 - **WHEN** the save returns 409
 - **THEN** the app SHALL present the server's current title and content, the user's local edits, and a clear path to retry the save against the new version
+
+#### Scenario: Conflict view shows both titles
+
+- **GIVEN** the save returned 409 and the server's title differs from the user's
+- **WHEN** the conflict view is shown
+- **THEN** the server pane SHALL show the server's title, the user's pane SHALL show the user's title, and both SHALL be marked as differing
+
+#### Scenario: Conflict view marks the lines the versions do not share
+
+- **GIVEN** the server's content is `a`, `b`, `c` and the user's is `a`, `b`, `d`
+- **WHEN** the conflict view is shown
+- **THEN** the server pane SHALL mark `c`, the user's pane SHALL mark `d`, and neither SHALL mark `a` or `b`
+
+#### Scenario: Editing yours in the conflict view and saving mine sends the edited text
+
+- **GIVEN** the conflict view is shown with the server at version 7
+- **WHEN** the user edits the content in the "Yours" pane and taps "Save mine"
+- **THEN** the app SHALL send `PUT /notes/{id}` with the edited title and content and `If-Match: 7`
+
+#### Scenario: Conflict panes stack on narrow screens
+
+- **WHEN** the conflict view is narrower than 600 logical pixels
+- **THEN** the server pane SHALL be shown above the user's pane instead of beside it
 
 #### Scenario: 423 switches to read-only
 

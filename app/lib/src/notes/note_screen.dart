@@ -22,7 +22,13 @@ class NoteScreen extends StatefulWidget {
 
 class _NoteScreenState extends State<NoteScreen> {
   final TextEditingController _title = TextEditingController();
-  final TextEditingController _content = TextEditingController();
+  late final _DiffTextController _content = _DiffTextController(_serverContent);
+
+  String? _serverContent() {
+    final s = widget.controller.value;
+    if (s.mode != NoteMode.conflict) return null;
+    return s.conflictCurrent?.content ?? '';
+  }
 
   @override
   void initState() {
@@ -224,6 +230,8 @@ class _NoteScreenState extends State<NoteScreen> {
         controller: widget.controller,
         state: state,
         onKeepMine: _keepMine,
+        title: _title,
+        content: _content,
       );
     }
 
@@ -309,20 +317,122 @@ class _Editor extends StatelessWidget {
   }
 }
 
+/// One span per line of [text]; lines [other] does not contain get [mark].
+List<TextSpan> _lineDiffSpans(String text, String other, TextStyle mark) {
+  final lines = text.split('\n');
+  final otherLines = other.split('\n').toSet();
+  return [
+    for (var i = 0; i < lines.length; i++) ...[
+      TextSpan(
+        text: lines[i],
+        style: otherLines.contains(lines[i]) ? null : mark,
+      ),
+      if (i < lines.length - 1) const TextSpan(text: '\n'),
+    ],
+  ];
+}
+
+/// Highlight for text one side of a conflict has and the other lacks.
+TextStyle _mark(ColorScheme scheme, {required bool mine}) => TextStyle(
+  backgroundColor: mine ? scheme.primaryContainer : scheme.tertiaryContainer,
+  color: mine ? scheme.onPrimaryContainer : scheme.onTertiaryContainer,
+);
+
+/// Content buffer that, while a conflict is open, shades the lines the
+/// server's copy does not contain — the editable "Yours" pane then carries
+/// the same marks as the read-only server pane.
+class _DiffTextController extends TextEditingController {
+  _DiffTextController(this._serverContent);
+
+  final String? Function() _serverContent;
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final server = _serverContent();
+    if (server == null) {
+      return super.buildTextSpan(
+        context: context,
+        style: style,
+        withComposing: withComposing,
+      );
+    }
+    final mark = _mark(Theme.of(context).colorScheme, mine: true);
+    return TextSpan(style: style, children: _lineDiffSpans(text, server, mark));
+  }
+}
+
 class _ConflictView extends StatelessWidget {
   const _ConflictView({
     required this.controller,
     required this.state,
     required this.onKeepMine,
+    required this.title,
+    required this.content,
   });
 
   final NoteController controller;
   final NoteState state;
   final VoidCallback onKeepMine;
+  final TextEditingController title;
+  final TextEditingController content;
 
   @override
   Widget build(BuildContext context) {
     final theirs = state.conflictCurrent;
+    final serverTitle = theirs?.title ?? '';
+    final titleDiffers = serverTitle != (state.editTitle ?? '');
+    final theme = Theme.of(context);
+    final titleStyle = theme.textTheme.titleMedium;
+    final serverMark = _mark(theme.colorScheme, mine: false);
+    final mineMark = _mark(theme.colorScheme, mine: true);
+
+    final server = _DiffPane(
+      key: const Key('note.conflict.server'),
+      label: 'Server (v${theirs?.version ?? '?'})',
+      title: Text(
+        serverTitle.isEmpty ? '(untitled)' : serverTitle,
+        key: const Key('note.conflict.serverTitle'),
+        style: titleStyle?.merge(titleDiffers ? serverMark : null),
+      ),
+      body: SingleChildScrollView(
+        child: SelectableText.rich(
+          TextSpan(
+            children: _lineDiffSpans(
+              theirs?.content ?? '',
+              state.editContent ?? '',
+              serverMark,
+            ),
+          ),
+          key: const Key('note.conflict.serverContent'),
+        ),
+      ),
+    );
+
+    final yours = _DiffPane(
+      key: const Key('note.conflict.yours'),
+      label: 'Yours',
+      title: TextField(
+        key: const Key('note.conflict.title'),
+        controller: title,
+        onChanged: controller.setEditTitle,
+        style: titleStyle?.merge(titleDiffers ? mineMark : null),
+        decoration: const InputDecoration(labelText: 'Title', isDense: true),
+      ),
+      body: TextField(
+        key: const Key('note.conflict.content'),
+        controller: content,
+        onChanged: controller.setEditContent,
+        decoration: const InputDecoration.collapsed(hintText: 'Content'),
+        maxLines: null,
+        expands: true,
+        textAlignVertical: TextAlignVertical.top,
+      ),
+    );
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -331,43 +441,39 @@ class _ConflictView extends StatelessWidget {
           const _Banner(
             key: Key('note.banner.conflict'),
             text:
-                'This note has been updated on the server. Pick a version to continue.',
+                'This note changed on the server. Use the server version, or edit yours and save it.',
             tone: _BannerTone.warning,
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: _DiffPane(
-                    label: 'Server (v${theirs?.version ?? '?'})',
-                    body: theirs?.content ?? '',
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _DiffPane(
-                    label: 'Yours',
-                    body: state.editContent ?? '',
-                  ),
-                ),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) => Flex(
+                direction: constraints.maxWidth < 600
+                    ? Axis.vertical
+                    : Axis.horizontal,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: server),
+                  const SizedBox.square(dimension: 12),
+                  Expanded(child: yours),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
             children: [
               OutlinedButton(
                 key: const Key('note.conflict.acceptServer'),
                 onPressed: controller.resolveConflictAcceptServer,
                 child: const Text('Use server version'),
               ),
-              const SizedBox(width: 12),
               FilledButton(
                 key: const Key('note.conflict.keepMine'),
                 onPressed: onKeepMine,
-                child: const Text('Force overwrite with mine'),
+                child: const Text('Save mine'),
               ),
             ],
           ),
@@ -378,9 +484,16 @@ class _ConflictView extends StatelessWidget {
 }
 
 class _DiffPane extends StatelessWidget {
-  const _DiffPane({required this.label, required this.body});
+  const _DiffPane({
+    required this.label,
+    required this.title,
+    required this.body,
+    super.key,
+  });
+
   final String label;
-  final String body;
+  final Widget title;
+  final Widget body;
 
   @override
   Widget build(BuildContext context) {
@@ -392,11 +505,13 @@ class _DiffPane extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(label, style: Theme.of(context).textTheme.labelSmall),
             const SizedBox(height: 8),
-            Expanded(child: SingleChildScrollView(child: SelectableText(body))),
+            title,
+            const SizedBox(height: 8),
+            Expanded(child: body),
           ],
         ),
       ),

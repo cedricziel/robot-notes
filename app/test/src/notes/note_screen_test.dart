@@ -41,9 +41,23 @@ Map<String, Object?> _lockJson({
 
 const _titleField = Key('note.editor.title');
 const _contentField = Key('note.editor.content');
+const _conflictTitleField = Key('note.conflict.title');
+const _conflictContentField = Key('note.conflict.content');
 
 TextEditingController _fieldController(WidgetTester tester, Key key) =>
     tester.widget<TextField>(find.byKey(key)).controller!;
+
+/// Text of every span in [span] that carries a diff highlight.
+List<String> _markedLines(InlineSpan span) {
+  final marked = <String>[];
+  span.visitChildren((child) {
+    if (child is TextSpan && child.style?.backgroundColor != null) {
+      marked.add(child.text!);
+    }
+    return true;
+  });
+  return marked;
+}
 
 /// Pumps a [NoteScreen] and taps edit. [onLock] answers the
 /// `POST /notes/{id}/lock` (granted by default); [onSave] answers the
@@ -97,6 +111,50 @@ MockClient _editableNote({VoidCallback? onRelease}) =>
       }
       return http.Response('unexpected', 500);
     });
+
+/// Pumps a [NoteScreen] into conflict mode: types the local edits, then
+/// saves against a server that answers the first `PUT` with a 409 at
+/// version 3. Later `PUT`s go to [onRetry]; every `PUT` is recorded in
+/// [puts].
+Future<void> _pumpConflict(
+  WidgetTester tester, {
+  String serverTitle = 'hello',
+  required String serverContent,
+  String? myTitle,
+  required String myContent,
+  http.Response Function(http.Request)? onRetry,
+  List<http.Request>? puts,
+}) async {
+  final conflict = http.Response(
+    jsonEncode(<String, Object?>{
+      'error': 'version_conflict',
+      'current': _noteJson(
+        title: serverTitle,
+        content: serverContent,
+        version: 3,
+      ),
+    }),
+    409,
+  );
+  var saves = 0;
+  await _pumpEditor(
+    tester,
+    onSave: (request) {
+      saves += 1;
+      puts?.add(request);
+      if (saves == 1) return conflict;
+      return onRetry?.call(request) ?? http.Response('unexpected', 500);
+    },
+  );
+
+  if (myTitle != null) {
+    await tester.enterText(find.byKey(_titleField), myTitle);
+  }
+  await tester.enterText(find.byKey(_contentField), myContent);
+  await tester.tap(find.byKey(const Key('note.save')));
+  await tester.pumpAndSettle();
+  expect(find.byKey(const Key('note.banner.conflict')), findsOneWidget);
+}
 
 void main() {
   testWidgets('renders the note body in read-only view by default', (
@@ -170,21 +228,7 @@ void main() {
   testWidgets('editor fields follow the buffers after accepting the server', (
     tester,
   ) async {
-    await _pumpEditor(
-      tester,
-      onSave: (_) => http.Response(
-        jsonEncode(<String, Object?>{
-          'error': 'version_conflict',
-          'current': _noteJson(content: 'theirs', version: 3),
-        }),
-        409,
-      ),
-    );
-
-    await tester.enterText(find.byKey(_contentField), 'mine');
-    await tester.tap(find.byKey(const Key('note.save')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('note.banner.conflict')), findsOneWidget);
+    await _pumpConflict(tester, serverContent: 'theirs', myContent: 'mine');
 
     await tester.tap(find.byKey(const Key('note.conflict.acceptServer')));
     await tester.pumpAndSettle();
@@ -439,6 +483,84 @@ void main() {
       expect(find.text('Could not load the note: down'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
     });
+  });
+
+  testWidgets('conflict view shows the server title next to yours', (
+    tester,
+  ) async {
+    await _pumpConflict(
+      tester,
+      serverTitle: 'server title',
+      serverContent: 'theirs',
+      myTitle: 'my title',
+      myContent: 'mine',
+    );
+
+    expect(find.text('server title'), findsOneWidget);
+    expect(_fieldController(tester, _conflictTitleField).text, 'my title');
+    expect(_fieldController(tester, _conflictContentField).text, 'mine');
+    expect(find.text('Save mine'), findsOneWidget);
+  });
+
+  testWidgets('editing yours in the conflict view then saving mine sends it', (
+    tester,
+  ) async {
+    final puts = <http.Request>[];
+    await _pumpConflict(
+      tester,
+      serverContent: 'theirs',
+      myContent: 'mine',
+      puts: puts,
+      onRetry: (_) => http.Response(
+        jsonEncode(_noteJson(content: 'merged', version: 4)),
+        200,
+      ),
+    );
+
+    await tester.enterText(find.byKey(_conflictContentField), 'merged');
+    await tester.tap(find.byKey(const Key('note.conflict.keepMine')));
+    await tester.pumpAndSettle();
+
+    expect(puts, hasLength(2));
+    expect(puts.last.headers['If-Match'], '3');
+    expect(jsonDecode(puts.last.body), containsPair('content', 'merged'));
+    expect(_fieldController(tester, _contentField).text, 'merged');
+  });
+
+  testWidgets('conflict view marks the lines the two versions do not share', (
+    tester,
+  ) async {
+    await _pumpConflict(tester, serverContent: 'a\nb\nc', myContent: 'a\nb\nd');
+
+    final server = tester
+        .widget<SelectableText>(
+          find.byKey(const Key('note.conflict.serverContent')),
+        )
+        .textSpan!;
+    expect(_markedLines(server), ['c']);
+
+    final yours = find.byKey(_conflictContentField);
+    final mine = _fieldController(
+      tester,
+      _conflictContentField,
+    ).buildTextSpan(context: tester.element(yours), withComposing: false);
+    expect(_markedLines(mine), ['d']);
+  });
+
+  testWidgets('conflict panes stack vertically on a narrow screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await _pumpConflict(tester, serverContent: 'theirs', myContent: 'mine');
+
+    final server = tester.getRect(
+      find.byKey(const Key('note.conflict.server')),
+    );
+    final yours = tester.getRect(find.byKey(const Key('note.conflict.yours')));
+    expect(yours.top, greaterThanOrEqualTo(server.bottom));
   });
 
   testWidgets('presence event renders the viewer count', (tester) async {
