@@ -83,6 +83,12 @@ The app SHALL provide a list view that pages through `GET /notes`, showing each 
 - **WHEN** the user activates the Refresh action in the app bar
 - **THEN** the app SHALL request `GET /notes` again and render the returned items
 
+#### Scenario: Overlapping refreshes coalesce into one request
+
+- **GIVEN** a refresh is already in flight (e.g. from pull-to-refresh)
+- **WHEN** another refresh is requested before it completes (e.g. a stale-reconnect refetch)
+- **THEN** the app SHALL NOT issue a second `GET /notes` and SHALL apply the single in-flight request's result to both callers
+
 #### Scenario: Returning from a note refreshes the list
 
 - **GIVEN** the user opened a note from the list and saved a new version

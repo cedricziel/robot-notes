@@ -78,10 +78,20 @@ class NotesListController extends ValueNotifier<NotesListState> {
   final int _pageSize;
   StreamSubscription<RealtimeEvent>? _sub;
   bool _disposed = false;
+  Future<void>? _refreshInFlight;
 
   /// Re-fetches the first page. Used both for initial load and pull-to-refresh.
-  Future<void> refresh() async {
-    if (_disposed) return;
+  ///
+  /// A refresh already in flight (e.g. a stale-reconnect refetch landing
+  /// during a pull-to-refresh) is coalesced into the same request rather than
+  /// issuing a second one, so the two results can't race to overwrite each
+  /// other.
+  Future<void> refresh() {
+    if (_disposed) return Future<void>.value();
+    return _refreshInFlight ??= _doRefresh();
+  }
+
+  Future<void> _doRefresh() async {
     value = value.copyWith(isLoadingFirst: true, error: null);
     try {
       final page = await _api.listNotes(limit: _pageSize);
@@ -94,6 +104,8 @@ class NotesListController extends ValueNotifier<NotesListState> {
     } catch (e) {
       if (_disposed) return;
       value = value.copyWith(isLoadingFirst: false, error: e);
+    } finally {
+      _refreshInFlight = null;
     }
   }
 
