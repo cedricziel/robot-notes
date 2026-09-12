@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 import 'package:server/src/actor.dart';
+import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
 import 'package:shared/shared.dart';
@@ -59,12 +60,16 @@ class WsConnection {
     required Broadcaster broadcaster,
     required PresenceTracker presence,
     required String apiKey,
+    required TokenStore tokenStore,
+    required String restResource,
     Duration authTimeout = kDefaultWsAuthTimeout,
     Logger? logger,
   })  : _sink = sink,
         _broadcaster = broadcaster,
         _presence = presence,
         _apiKey = apiKey,
+        _tokenStore = tokenStore,
+        _restResource = restResource,
         _authTimeout = authTimeout,
         _log = logger ?? Logger('ws_connection');
 
@@ -76,6 +81,8 @@ class WsConnection {
   final Broadcaster _broadcaster;
   final PresenceTracker _presence;
   final String _apiKey;
+  final TokenStore _tokenStore;
+  final String _restResource;
   final Duration _authTimeout;
   final Logger _log;
 
@@ -103,7 +110,7 @@ class WsConnection {
   /// Feeds an inbound socket frame into the state machine. Strings are
   /// parsed as JSON envelopes; any other type (typically binary data) is
   /// treated as a protocol violation and the connection is closed.
-  void handleMessage(Object? data) {
+  Future<void> handleMessage(Object? data) async {
     if (_closed) return;
     if (data is! String) {
       _close(kCloseUnsupportedData, 'unsupported_data');
@@ -122,7 +129,7 @@ class WsConnection {
       return;
     }
     if (!isAuthed) {
-      _handleConnectingMessage(json, raw: data);
+      await _handleConnectingMessage(json, raw: data);
     } else {
       _handleAuthedMessage(json, raw: data);
     }
@@ -152,10 +159,10 @@ class WsConnection {
     _close(kCloseAuthFailure, ErrorCode.authTimeout.wire);
   }
 
-  void _handleConnectingMessage(
+  Future<void> _handleConnectingMessage(
     Map<String, dynamic> json, {
     required String raw,
-  }) {
+  }) async {
     final type = json['type'];
     if (type != 'auth') {
       // Pre-auth: any non-auth message is silently ignored per the spec.
@@ -168,17 +175,30 @@ class WsConnection {
       _sendError(ErrorCode.unknownType, received: raw);
       return;
     }
-    if (msg.key != _apiKey) {
+
+    if (msg.key == _apiKey) {
+      _completeAuth(Actor.fromHeader(msg.actor));
+      return;
+    }
+
+    final record = await _tokenStore.lookupAccess(msg.key);
+    if (record == null ||
+        record.resource != _restResource ||
+        !record.scopes.contains('notes:read')) {
       _log.fine('auth_failed for $id (bad key)');
       _close(kCloseAuthFailure, ErrorCode.authFailed.wire);
       return;
     }
+    _completeAuth(Actor(record.actor));
+  }
+
+  void _completeAuth(Actor actor) {
     _authTimer?.cancel();
     _authTimer = null;
-    _actor = Actor.fromHeader(msg.actor);
+    _actor = actor;
     _send(const AuthOkMsg());
     _attachBroadcaster();
-    _log.fine('auth_ok for $id as ${_actor!.name}');
+    _log.fine('auth_ok for $id as ${actor.name}');
   }
 
   void _handleAuthedMessage(

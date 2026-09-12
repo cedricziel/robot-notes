@@ -58,11 +58,13 @@ Future<HttpServer> startTestServer({
 }) {
   // Unlike the `.use()` chain in routes/_middleware.dart (where the last
   // `.use` is outermost), shelf's Pipeline runs the first-added middleware
-  // first. `provider<Config>` is therefore added first so it is available
-  // to every downstream middleware, including [wellKnownMiddleware], which
-  // must run before [bearerAuth].
+  // first. `provider<Config>` and `provider<TokenStore>` are therefore
+  // added before [wellKnownMiddleware] and [bearerAuth], which need them
+  // (`bearerAuth` reads `TokenStore` to accept a scoped OAuth access token
+  // as an alternative to the static key on the REST API and WebSocket).
   final pipeline = const Pipeline()
       .addMiddleware(provider<Config>((_) => config))
+      .addMiddleware(provider<TokenStore>((_) => deps.tokenStore))
       .addMiddleware(wellKnownMiddleware())
       .addMiddleware(bearerAuth(configuredKey: config.apiKey))
       .addMiddleware(actorIdentity())
@@ -73,7 +75,6 @@ Future<HttpServer> startTestServer({
       .addMiddleware(provider<InviteStore>((_) => deps.inviteStore))
       .addMiddleware(provider<ClientStore>((_) => deps.clientStore))
       .addMiddleware(provider<CodeStore>((_) => deps.codeStore))
-      .addMiddleware(provider<TokenStore>((_) => deps.tokenStore))
       .addMiddleware(provider<ConsentThrottle>((_) => deps.consentThrottle))
       .addMiddleware(provider<MetaIndex>((_) => deps.metaIndex))
       .addMiddleware(provider<NoteWriteService>((_) => deps.noteWriteService))

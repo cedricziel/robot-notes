@@ -4,13 +4,17 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/actor_middleware.dart';
+import 'package:server/src/rest_principal.dart';
 import 'package:test/test.dart';
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
 class _MockRequest extends Mock implements Request {}
 
-RequestContext _ctx({Map<String, String> headers = const {}}) {
+RequestContext _ctx({
+  Map<String, String> headers = const {},
+  RestPrincipal principal = const RestPrincipal.staticKey(),
+}) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
   when(() => req.method).thenReturn(HttpMethod.get);
@@ -20,6 +24,7 @@ RequestContext _ctx({Map<String, String> headers = const {}}) {
   };
   when(() => req.headers).thenReturn(lower);
   when(() => ctx.request).thenReturn(req);
+  when(() => ctx.read<RestPrincipal>()).thenReturn(principal);
   // `provide<T>()` must return a fresh context whose `read<T>()` yields the
   // supplied value. Mocktail's default `provide` returns null, so we wire a
   // tiny stub that records the latest provider and routes `read<Actor>()`
@@ -84,6 +89,32 @@ void main() {
       final ctx = _ctx(headers: {'X-Actor': "Alice's laptop"});
       final actor = await _runAndCaptureActor(ctx);
       expect(actor.name, "Alice's laptop");
+    });
+
+    test(
+        "an OAuth-token request uses the grant's recorded actor, ignoring "
+        'X-Actor', () async {
+      final ctx = _ctx(
+        headers: {'X-Actor': 'someone-else'},
+        principal: const RestPrincipal.oauth(
+          actor: 'Alice Example',
+          scopes: {'notes:read', 'notes:write'},
+        ),
+      );
+      final actor = await _runAndCaptureActor(ctx);
+      expect(actor.name, 'Alice Example');
+    });
+
+    test('an OAuth-token request with no X-Actor still uses the grant actor',
+        () async {
+      final ctx = _ctx(
+        principal: const RestPrincipal.oauth(
+          actor: 'Alice Example',
+          scopes: {'notes:read'},
+        ),
+      );
+      final actor = await _runAndCaptureActor(ctx);
+      expect(actor.name, 'Alice Example');
     });
   });
 
