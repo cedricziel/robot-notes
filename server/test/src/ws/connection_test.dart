@@ -1,12 +1,24 @@
+// `handleMessage` returns `Future<void>` because the auth path may need an
+// async OAuth-token lookup, but every call below that doesn't `await` it
+// either supplies the static key (a synchronous fast path with no `await`
+// inside it) or is a post-auth/pre-auth message (handled fully
+// synchronously) — so the side effects the assertions check already
+// happened by the time the call returns.
+// ignore_for_file: unawaited_futures
+
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
+import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/connection.dart';
 import 'package:server/src/ws/presence.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
+
+const _restResource = 'http://localhost';
 
 class _FakeSink implements WsSink {
   final List<String> sent = [];
@@ -36,21 +48,27 @@ Map<String, dynamic> _decode(String raw) =>
 void main() {
   late Broadcaster broadcaster;
   late PresenceTracker presence;
+  late Directory tmp;
+  late TokenStore tokenStore;
   const apiKey = 'rn_test';
 
   setUp(() {
     broadcaster = Broadcaster();
     presence = PresenceTracker();
+    tmp = Directory.systemTemp.createTempSync('robot-notes-ws-conn-test-');
+    tokenStore = TokenStore(dir: Directory('${tmp.path}/tokens'));
   });
 
   tearDown(() async {
     await broadcaster.close();
+    if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
   WsConnection makeConn(
     String id, {
     required _FakeSink sink,
     Duration authTimeout = const Duration(seconds: 2),
+    TokenStore? tokenStoreOverride,
   }) {
     return WsConnection(
       id: id,
@@ -58,6 +76,8 @@ void main() {
       broadcaster: broadcaster,
       presence: presence,
       apiKey: apiKey,
+      tokenStore: tokenStoreOverride ?? tokenStore,
+      restResource: _restResource,
       authTimeout: authTimeout,
     );
   }
@@ -75,11 +95,10 @@ void main() {
       });
     });
 
-    test('auth with wrong key closes 4001 auth_failed', () {
+    test('auth with wrong key closes 4001 auth_failed', () async {
       final sink = _FakeSink();
-      makeConn('c1', sink: sink)
-        ..start()
-        ..handleMessage(jsonEncode({'type': 'auth', 'key': 'nope'}));
+      final conn = makeConn('c1', sink: sink)..start();
+      await conn.handleMessage(jsonEncode({'type': 'auth', 'key': 'nope'}));
       expect(sink.closes, hasLength(1));
       expect(sink.closes.single.code, 4001);
       expect(sink.closes.single.reason, 'auth_failed');
@@ -120,6 +139,79 @@ void main() {
         async.elapse(const Duration(seconds: 5));
         expect(conn.isClosed, isFalse);
         expect(sink.closes, isEmpty);
+      });
+    });
+
+    group('OAuth access tokens', () {
+      Future<String> issueToken({
+        Set<String> scopes = const {'notes:read'},
+        String resource = _restResource,
+        String actor = 'Alice Example',
+      }) async {
+        final issued = await tokenStore.issue(
+          clientId: 'client-1',
+          actor: actor,
+          scopes: scopes,
+          resource: resource,
+          grantId: 'grant-1',
+        );
+        return issued.accessToken;
+      }
+
+      test(
+          'a REST-audience token with notes:read authenticates and binds '
+          'the recorded actor', () async {
+        final token = await issueToken();
+        final sink = _FakeSink();
+        final conn = makeConn('c1', sink: sink)..start();
+        await conn.handleMessage(jsonEncode({'type': 'auth', 'key': token}));
+
+        expect(conn.isAuthed, isTrue);
+        expect(conn.actor!.name, 'Alice Example');
+        expect(sink.closes, isEmpty);
+        expect(_decode(sink.sent.single)['type'], 'auth_ok');
+      });
+
+      test('an MCP-audience token is rejected', () async {
+        final token = await issueToken(resource: '$_restResource/mcp');
+        final sink = _FakeSink();
+        final conn = makeConn('c1', sink: sink)..start();
+        await conn.handleMessage(jsonEncode({'type': 'auth', 'key': token}));
+
+        expect(sink.closes, hasLength(1));
+        expect(sink.closes.single.code, 4001);
+        expect(sink.closes.single.reason, 'auth_failed');
+      });
+
+      test('a token lacking notes:read is rejected', () async {
+        final token = await issueToken(scopes: {'notes:write'});
+        final sink = _FakeSink();
+        final conn = makeConn('c1', sink: sink)..start();
+        await conn.handleMessage(jsonEncode({'type': 'auth', 'key': token}));
+
+        expect(sink.closes, hasLength(1));
+        expect(sink.closes.single.code, 4001);
+        expect(sink.closes.single.reason, 'auth_failed');
+      });
+
+      test(
+          'a connection closed while the token lookup is pending does not '
+          'complete auth afterwards', () async {
+        final token = await issueToken();
+        final sink = _FakeSink();
+        final conn = makeConn('c1', sink: sink)..start();
+
+        final authFuture = conn.handleMessage(
+          jsonEncode({'type': 'auth', 'key': token}),
+        );
+        // The client disconnects (or the auth timer fires) while the async
+        // token-store lookup above is still pending.
+        await conn.handleDone();
+        await authFuture;
+
+        expect(conn.isAuthed, isFalse);
+        expect(sink.sent, isEmpty);
+        expect(broadcaster.isRegistered('c1'), isFalse);
       });
     });
   });

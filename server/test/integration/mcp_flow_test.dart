@@ -9,6 +9,7 @@ import 'package:server/src/app_deps.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/mcp/mcp_chain.dart';
+import 'package:server/src/rest_principal.dart';
 import 'package:server/src/static_web_middleware.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
@@ -516,11 +517,18 @@ void main() {
         // Mirrors production ordering (routes/_middleware.dart): Config
         // provider and actorIdentity (mcpAuth's static-key path reads
         // `context.read<Actor>()`) innermost, staticWebMiddleware
-        // outermost so it gets first refusal on every request.
+        // outermost so it gets first refusal on every request. `/mcp` is
+        // exempt from `bearerAuth` in production, so `actorIdentity` (which
+        // now consults the `RestPrincipal` `bearerAuth` provides) is fed a
+        // stand-in exempt principal directly rather than wiring up the
+        // whole REST auth middleware this test doesn't otherwise exercise.
         final root = Router()
           ..all('/mcp', mcpChain(mcp_route.onRequest, deps: deps));
         final pipeline = const Pipeline()
             .addMiddleware(provider<Config>((_) => config))
+            .addMiddleware(
+              provider<RestPrincipal>((_) => const RestPrincipal.exempt()),
+            )
             .addMiddleware(actorIdentity())
             .addMiddleware(staticWebMiddleware(webDir: config.webDir))
             .addHandler(root.call);

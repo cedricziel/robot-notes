@@ -233,6 +233,21 @@ void main() {
       expect(location.queryParameters['error'], 'invalid_target');
     });
 
+    test('the bare base URL is accepted as the REST/WS resource', () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: validQuery(resource: 'http://localhost'),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.body();
+      expect(body, contains('Desk Assistant'));
+    });
+
     test('unknown scope redirects with invalid_scope', () async {
       final res = await route.onRequest(
         _ctx(
@@ -580,6 +595,27 @@ void main() {
       final code = location.queryParameters['code']!;
       final record = await codeStore.consume(code, (code) async => code);
       expect(record.resource, 'http://localhost/mcp');
+    });
+
+    test('resource=<base> binds the code to the REST/WS resource', () async {
+      final form = validQuery(resource: 'http://localhost')
+        ..['api_key'] = _apiKey
+        ..['actor'] = 'desk-assistant';
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(form),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.found);
+      final location = Uri.parse(res.headers[HttpHeaders.locationHeader]!);
+      final code = location.queryParameters['code']!;
+      final record = await codeStore.consume(code, (code) async => code);
+      expect(record.resource, 'http://localhost');
     });
 
     test('consent page CSP does not restrict form-action', () async {

@@ -3,16 +3,30 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/auth_middleware.dart';
+import 'package:server/src/config.dart';
+import 'package:server/src/oauth/token_store.dart';
+import 'package:server/src/rest_principal.dart';
 import 'package:test/test.dart';
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
 class _MockRequest extends Mock implements Request {}
 
+const _publicUrl = 'http://localhost';
+
+Config _config() => const Config(
+      apiKey: 'rn_test_key',
+      dataDir: '/tmp',
+      port: 8080,
+      lockTtlSeconds: 60,
+      publicUrl: _publicUrl,
+    );
+
 RequestContext _ctx({
   required String path,
   required HttpMethod method,
   Map<String, String> headers = const {},
+  TokenStore? tokenStore,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
@@ -24,6 +38,26 @@ RequestContext _ctx({
   };
   when(() => req.headers).thenReturn(lower);
   when(() => ctx.request).thenReturn(req);
+  when(() => ctx.read<Config>()).thenReturn(_config());
+  // Tests that don't care about OAuth tokens get a store backed by a
+  // directory that is never written to, so lookups naturally miss.
+  when(() => ctx.read<TokenStore>()).thenReturn(
+    tokenStore ??
+        TokenStore(
+          dir: Directory(
+            '${Directory.systemTemp.path}/robot-notes-auth-mw-test-unused',
+          ),
+        ),
+  );
+  // `provide<T>()` must return a fresh context whose `read<T>()` yields the
+  // supplied value — mirrors the stub in mcp_auth_middleware_test.dart.
+  when(() => ctx.provide<RestPrincipal>(any())).thenAnswer((invocation) {
+    final create =
+        invocation.positionalArguments.first as RestPrincipal Function();
+    final value = create();
+    when(() => ctx.read<RestPrincipal>()).thenReturn(value);
+    return ctx;
+  });
   return ctx;
 }
 
@@ -387,6 +421,120 @@ void main() {
         );
         expect(response.statusCode, HttpStatus.notFound, reason: path);
       }
+    });
+
+    group('OAuth access tokens', () {
+      late Directory tmp;
+      late TokenStore tokenStore;
+
+      setUp(() {
+        tmp = Directory.systemTemp.createTempSync('robot-notes-bearer-oauth-');
+        tokenStore = TokenStore(dir: Directory('${tmp.path}/tokens'));
+      });
+
+      tearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+
+      Future<String> issueRestToken({
+        Set<String> scopes = const {'notes:read', 'notes:write'},
+        String resource = _publicUrl,
+        String actor = 'Alice Example',
+      }) async {
+        final issued = await tokenStore.issue(
+          clientId: 'client-1',
+          actor: actor,
+          scopes: scopes,
+          resource: resource,
+          grantId: 'grant-1',
+        );
+        return issued.accessToken;
+      }
+
+      test('a REST-audience token with notes:read opens a GET request',
+          () async {
+        final token = await issueRestToken(scopes: {'notes:read'});
+        final ctx = _ctx(
+          path: '/notes',
+          method: HttpMethod.get,
+          headers: {'Authorization': 'Bearer $token'},
+          tokenStore: tokenStore,
+        );
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+        );
+        expect(response.statusCode, HttpStatus.ok);
+      });
+
+      test(
+          'a REST-audience token without notes:write is rejected on a '
+          'mutating request', () async {
+        final token = await issueRestToken(scopes: {'notes:read'});
+        final ctx = _ctx(
+          path: '/notes',
+          method: HttpMethod.post,
+          headers: {'Authorization': 'Bearer $token'},
+          tokenStore: tokenStore,
+        );
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+        );
+        expect(response.statusCode, HttpStatus.forbidden);
+        expect(await response.json(), {'error': 'insufficient_scope'});
+      });
+
+      test('an MCP-audience token does not open the REST API', () async {
+        final token = await issueRestToken(resource: '$_publicUrl/mcp');
+        final ctx = _ctx(
+          path: '/notes',
+          method: HttpMethod.get,
+          headers: {'Authorization': 'Bearer $token'},
+          tokenStore: tokenStore,
+        );
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+        );
+        expect(response.statusCode, HttpStatus.unauthorized);
+      });
+
+      test('a revoked REST-audience token is rejected', () async {
+        final issued = await tokenStore.issue(
+          clientId: 'client-1',
+          actor: 'Alice Example',
+          scopes: {'notes:read'},
+          resource: _publicUrl,
+          grantId: 'grant-1',
+        );
+        await tokenStore.revokeToken(issued.accessToken);
+        final ctx = _ctx(
+          path: '/notes',
+          method: HttpMethod.get,
+          headers: {'Authorization': 'Bearer ${issued.accessToken}'},
+          tokenStore: tokenStore,
+        );
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+        );
+        expect(response.statusCode, HttpStatus.unauthorized);
+      });
+
+      test('the static key still works unchanged', () async {
+        final ctx = _ctx(
+          path: '/notes',
+          method: HttpMethod.post,
+          headers: {'Authorization': 'Bearer $configured'},
+          tokenStore: tokenStore,
+        );
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+        );
+        expect(response.statusCode, HttpStatus.ok);
+      });
     });
   });
 

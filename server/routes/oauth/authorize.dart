@@ -329,9 +329,15 @@ Future<_Validation> _validate(
     );
   }
 
-  final canonicalResource = mcpResourceUrl(publicBaseUrl(context));
+  final base = publicBaseUrl(context);
+  final mcpResource = mcpResourceUrl(base);
   final resourceParam = params['resource'];
-  if (resourceParam != null && resourceParam != canonicalResource) {
+  final String resource;
+  if (resourceParam == null) {
+    resource = mcpResource;
+  } else if (resourceParam == mcpResource || resourceParam == base) {
+    resource = resourceParam;
+  } else {
     return _RedirectError(
       redirectUri: redirectUri,
       error: 'invalid_target',
@@ -344,7 +350,7 @@ Future<_Validation> _validate(
     redirectUri: redirectUri,
     codeChallenge: codeChallenge,
     scopes: requestedScopes,
-    resource: canonicalResource,
+    resource: resource,
     state: state,
   );
 }

@@ -1,6 +1,9 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:meta/meta.dart';
 import 'package:server/src/constant_time.dart';
+import 'package:server/src/oauth/token_store.dart';
+import 'package:server/src/public_url.dart';
+import 'package:server/src/rest_principal.dart';
 import 'package:shared/shared.dart';
 
 const String _healthzPath = '/healthz';
@@ -8,10 +11,17 @@ const String _wsPath = '/ws';
 final RegExp _onboardingPath = RegExp(r'^/invites/[^/]+/onboarding\.txt$');
 
 /// Builds a Dart Frog [Middleware] that enforces a single configured bearer
-/// key on every request except a fixed set of unauthenticated paths (see
-/// [_isExempt]).
+/// key — or a scoped OAuth access token issued by this server's own
+/// authorization server for the REST/WS resource — on every request except
+/// a fixed set of unauthenticated paths (see [_isExempt]).
 ///
-/// Failure responses are JSON `{"error": "unauthorized"}` with HTTP 401.
+/// An accepted request always has a [RestPrincipal] provided via
+/// `context.read<RestPrincipal>()`, so downstream middleware (actor
+/// resolution) and handlers can tell how it authenticated.
+///
+/// Failure responses are JSON `{"error": "unauthorized"}` with HTTP 401,
+/// except a recognized OAuth token that lacks the scope the request's
+/// method requires, which is HTTP 403 `{"error": "insufficient_scope"}`.
 /// The configured key is compared in constant time against the supplied
 /// header value to avoid leaking it via response timing.
 Middleware bearerAuth({required String configuredKey}) {
@@ -19,20 +29,48 @@ Middleware bearerAuth({required String configuredKey}) {
     return (context) async {
       final request = context.request;
       if (_isExempt(request)) {
-        return handler(context);
+        return handler(
+          context.provide<RestPrincipal>(() => const RestPrincipal.exempt()),
+        );
       }
 
       final supplied = extractBearerToken(request.headers['authorization']);
       if (supplied == null) {
         return _unauthorized();
       }
-      if (!constantTimeEquals(configuredKey, supplied)) {
+      if (constantTimeEquals(configuredKey, supplied)) {
+        return handler(
+          context.provide<RestPrincipal>(() => const RestPrincipal.staticKey()),
+        );
+      }
+
+      final tokenStore = context.read<TokenStore>();
+      final record = await tokenStore.lookupAccess(supplied);
+      final restResource = publicBaseUrl(context);
+      if (record == null || record.resource != restResource) {
         return _unauthorized();
       }
-      return handler(context);
+      final requiredScope =
+          _isSafeMethod(request.method) ? 'notes:read' : 'notes:write';
+      if (!record.scopes.contains(requiredScope)) {
+        return _insufficientScope();
+      }
+      return handler(
+        context.provide<RestPrincipal>(
+          () => RestPrincipal.oauth(actor: record.actor, scopes: record.scopes),
+        ),
+      );
     };
   };
 }
+
+/// Whether [method] is a read-only (safe) HTTP method, per RFC 9110 §9.2.1
+/// — the set of methods an OAuth access token can use with only
+/// `notes:read`. Every other method requires `notes:write`.
+bool _isSafeMethod(HttpMethod method) =>
+    method == HttpMethod.get ||
+    method == HttpMethod.head ||
+    method == HttpMethod.options;
 
 /// Paths exempt from the static bearer key, by method:
 ///
@@ -110,6 +148,13 @@ Response _unauthorized() {
   return Response.json(
     statusCode: 401,
     body: const {'error': 'unauthorized'},
+  );
+}
+
+Response _insufficientScope() {
+  return Response.json(
+    statusCode: 403,
+    body: const {'error': 'insufficient_scope'},
   );
 }
 
