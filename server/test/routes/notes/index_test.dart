@@ -136,6 +136,25 @@ void main() {
       expect(first['title'], 'with-body');
     });
 
+    test('list items include a computed excerpt and sorted tags', () async {
+      final storage = _storage(tmp);
+      await storage.create(
+        title: 'with-tags',
+        content: '# Heading\nSome body text here. #zebra #apple',
+      );
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(method: HttpMethod.get, storage: storage, metaIndex: index),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final first = (body['items'] as List).first as Map<String, dynamic>;
+      expect(first['excerpt'], 'Heading Some body text here.');
+      expect(first['tags'], ['apple', 'zebra']);
+    });
+
     test('clamps limit to kMaxPageSize when caller asks for more', () async {
       final storage = _storage(tmp);
       for (var i = 0; i < 5; i++) {

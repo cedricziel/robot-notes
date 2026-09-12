@@ -1,18 +1,18 @@
 ## 1. Server: excerpt computation
 
-- [ ] 1.1 Write failing unit tests in `server/test/src/excerpt_test.dart` for `computeExcerpt`: strips headings/lists/emphasis/code spans, unwraps `[[Link|Alias]]` and `[[Link]]`, drops inline `#tags`, collapses whitespace, truncates at a word boundary with `…`, leaves short content untouched (no ellipsis), handles empty content.
-- [ ] 1.2 Implement `server/lib/src/excerpt.dart` (`computeExcerpt`) to make 1.1 pass.
-- [ ] 1.3 `dart analyze` and `dart format` clean for the new file.
+- [x] 1.1 Write failing unit tests in `server/test/src/excerpt_test.dart` for `computeExcerpt`: strips headings/lists/emphasis/code spans, unwraps `[[Link|Alias]]` and `[[Link]]`, drops inline `#tags`, collapses whitespace, truncates at a word boundary with `…`, leaves short content untouched (no ellipsis), handles empty content.
+- [x] 1.2 Implement `server/lib/src/excerpt.dart` (`computeExcerpt`) to make 1.1 pass.
+- [x] 1.3 `dart analyze` and `dart format` clean for the new file.
 
 ## 2. Server: wire excerpt + tags into NoteSummary and the list API
 
-- [ ] 2.1 Write/extend a failing test in `server/test/src/storage_test.dart` (or the nearest existing summary-focused test) asserting `StoredNote.toSummary()` populates `excerpt` via `computeExcerpt(content)`.
-- [ ] 2.2 Add `excerpt` field to `NoteSummary` (`server/lib/src/storage.dart`) and compute it in `toSummary()`.
-- [ ] 2.3 Write/extend a failing test in `server/test/routes/notes/index_test.dart` asserting `GET /notes` items include `excerpt` and a sorted `tags` array.
-- [ ] 2.4 Update `routes/notes/index.dart`'s list-item JSON serialization to include `excerpt` and `tags` (sorted ascending, case-insensitive) — confirm 2.3 passes.
-- [ ] 2.5 Update `server/API.md` to document `excerpt` and `tags` on list items.
-- [ ] 2.6 `dart test` (server), `dart analyze`, `dart format` all clean.
-- [ ] 2.7 Commit: `feat(server): expose excerpt and tags on GET /notes list items`.
+- [x] 2.1 Write/extend a failing test in `server/test/src/storage_test.dart` (or the nearest existing summary-focused test) asserting `StoredNote.toSummary()` populates `excerpt` via `computeExcerpt(content)`.
+- [x] 2.2 Add `excerpt` field to `NoteSummary` (`server/lib/src/storage.dart`) and compute it in `toSummary()`.
+- [x] 2.3 Write/extend a failing test in `server/test/routes/notes/index_test.dart` asserting `GET /notes` items include `excerpt` and a sorted `tags` array.
+- [x] 2.4 Update `routes/notes/index.dart`'s list-item JSON serialization to include `excerpt` and `tags` (sorted ascending, case-insensitive) — confirm 2.3 passes.
+- [x] 2.5 Update `server/API.md` to document `excerpt` and `tags` on list items.
+- [x] 2.6 `dart test` (server), `dart analyze`, `dart format` all clean.
+- [x] 2.7 Commit: `feat(server): expose excerpt and tags on GET /notes list items`.
 
 ## 3. Shared DTO
 

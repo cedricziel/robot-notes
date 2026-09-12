@@ -586,4 +586,34 @@ void main() {
       expect(futures.map((n) => n.version), [2, 2]);
     });
   });
+
+  group('StoredNote.toSummary', () {
+    StoredNote note({
+      required String content,
+      Map<String, Object?> extra = const {},
+    }) {
+      final now = DateTime.utc(2026, 4, 25, 10);
+      return StoredNote(
+        id: '01HXY0000000000000000000',
+        title: 'Weekend Trip',
+        path: '',
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+        content: content,
+        extra: extra,
+      );
+    }
+
+    test('populates excerpt from content via computeExcerpt', () {
+      final summary = note(
+        content: '# Weekend Trip\nLeaving Friday, back Sunday.',
+      ).toSummary();
+      expect(summary.excerpt, 'Weekend Trip Leaving Friday, back Sunday.');
+    });
+
+    test('excerpt is empty for empty content', () {
+      expect(note(content: '').toSummary().excerpt, '');
+    });
+  });
 }
