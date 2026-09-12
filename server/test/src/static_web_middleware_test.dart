@@ -318,8 +318,9 @@ void main() {
       expect(response.headers['cache-control'], isNull);
     });
 
-    test('passes through to handler for /healthz, /mcp, /oauth, /.well-known',
-        () async {
+    test(
+        'passes through to handler for /healthz, /mcp, /oauth, '
+        '/.well-known, /tags', () async {
       final dir = _scratchWeb();
       addTearDown(() => dir.deleteSync(recursive: true));
 
@@ -328,6 +329,7 @@ void main() {
         '/mcp',
         '/oauth/token',
         '/.well-known/oauth-authorization-server',
+        '/tags',
       ]) {
         final ctx = _ctx(path: path);
         final response = await _run(
