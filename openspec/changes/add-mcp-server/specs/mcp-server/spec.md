@@ -6,7 +6,7 @@ Exposes the note workspace to any MCP-capable agent over the Streamable HTTP tra
 
 ### Requirement: Server exposes a single stateless MCP endpoint at /mcp
 
-The server SHALL serve the MCP Streamable HTTP transport at the single path `/mcp`. `POST /mcp` SHALL accept exactly one JSON-RPC 2.0 message per request and SHALL always answer with `Content-Type: application/json` (never `text/event-stream`). The server SHALL NOT issue an `Mcp-Session-Id` header and SHALL ignore one supplied by the client. `GET /mcp` and `DELETE /mcp` SHALL respond `405 Method Not Allowed` with an `Allow: POST` header.
+The server SHALL serve the MCP Streamable HTTP transport at the single path `/mcp`. `POST /mcp` SHALL accept exactly one JSON-RPC 2.0 message per request and SHALL always answer with `Content-Type: application/json` (never `text/event-stream`). The server SHALL NOT issue an `Mcp-Session-Id` header and SHALL ignore one supplied by the client. Authentication (next requirement) SHALL run before the method check, so an unauthenticated request receives 401 regardless of method; for an authenticated caller, `GET /mcp` and `DELETE /mcp` SHALL respond `405 Method Not Allowed` with an `Allow: POST` header.
 
 #### Scenario: POST returns a JSON body
 
@@ -15,12 +15,17 @@ The server SHALL serve the MCP Streamable HTTP transport at the single path `/mc
 
 #### Scenario: GET is refused
 
-- **WHEN** a client sends `GET /mcp` with `Accept: text/event-stream`
+- **WHEN** an authenticated client sends `GET /mcp` with `Accept: text/event-stream`
 - **THEN** the response status SHALL be 405 with header `Allow: POST`
+
+#### Scenario: Unauthenticated GET is 401, not 405
+
+- **WHEN** a client sends `GET /mcp` without an `Authorization` header
+- **THEN** the response status SHALL be 401 with a `WWW-Authenticate` header
 
 #### Scenario: DELETE is refused
 
-- **WHEN** a client sends `DELETE /mcp` with an `Mcp-Session-Id` header
+- **WHEN** an authenticated client sends `DELETE /mcp` with an `Mcp-Session-Id` header
 - **THEN** the response status SHALL be 405
 
 #### Scenario: Session header is ignored

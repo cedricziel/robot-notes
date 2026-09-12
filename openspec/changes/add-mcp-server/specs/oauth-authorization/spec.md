@@ -6,7 +6,7 @@ Lets any MCP client register itself and obtain access tokens for this server thr
 
 ### Requirement: Server resolves a single public base URL
 
-The server SHALL derive one absolute public base URL (`<base>`, scheme plus host plus optional port, no trailing slash, no path) used for OAuth metadata, redirects, and invite URLs. When `--public-url` or `ROBOT_NOTES_PUBLIC_URL` is set it SHALL be used verbatim after validation; the value SHALL be an absolute `http` or `https` URL with no path, query, or fragment, and an invalid value SHALL abort startup with an error naming both configuration mechanisms. When unset, `<base>` SHALL be built per request from the `X-Forwarded-Proto` header when present (else the request scheme) and the `Host` header. The canonical MCP resource identifier SHALL be `<base>/mcp`.
+The server SHALL derive one absolute public base URL (`<base>`, scheme plus host plus optional port, no trailing slash, no path) used for OAuth metadata, redirects, and invite URLs. When `--public-url` or `ROBOT_NOTES_PUBLIC_URL` is set it SHALL be used verbatim after validation; the value SHALL be an absolute `http` or `https` URL with no path, query, or fragment, and an invalid value SHALL abort startup with an error naming both configuration mechanisms. When unset, `<base>` SHALL be built per request from the `X-Forwarded-Proto` header when present (else the request scheme) and the `Host` header, and the server SHALL log a startup warning stating that the public URL should be configured for any deployment that is not loopback-only, since request headers are then trusted for the OAuth issuer. The canonical MCP resource identifier SHALL be `<base>/mcp`.
 
 #### Scenario: Configured public URL wins
 
@@ -17,6 +17,11 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 - **WHEN** no public URL is configured and a request arrives with `Host: notes.example.com` and `X-Forwarded-Proto: https`
 - **THEN** metadata documents SHALL use `https://notes.example.com` as `<base>`
+
+#### Scenario: Unset public URL warns at startup
+
+- **WHEN** the server starts without `--public-url` or `ROBOT_NOTES_PUBLIC_URL`
+- **THEN** the startup log SHALL contain a warning naming `ROBOT_NOTES_PUBLIC_URL`
 
 #### Scenario: Invalid public URL aborts startup
 
@@ -82,7 +87,7 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 ### Requirement: Authorization endpoint validates the request and renders a consent page
 
-`GET /oauth/authorize` SHALL be served without bearer authentication. If `client_id` is unknown or `redirect_uri` does not exactly match one of the client's registered URIs, the server SHALL respond 400 with an HTML error page and SHALL NOT redirect. Otherwise, if `response_type` is not `code` the server SHALL redirect to `redirect_uri` with `error=unsupported_response_type`; if `code_challenge` is missing or `code_challenge_method` is not `S256` it SHALL redirect with `error=invalid_request`; if `scope` names a value outside `notes:read notes:write` it SHALL redirect with `error=invalid_scope`; if `resource` is present and is not `<base>/mcp` it SHALL redirect with `error=invalid_target`. Error redirects SHALL echo `state` when supplied. A valid request SHALL respond 200 with an HTML consent form that displays the client's name and requested scopes, contains a password field `api_key`, a text field `actor` prefilled with the client name, and carries every authorization parameter forward to `POST /oauth/authorize`. A missing `scope` SHALL be treated as `notes:read notes:write`.
+`GET /oauth/authorize` SHALL be served without bearer authentication. If `client_id` is unknown or `redirect_uri` does not exactly match one of the client's registered URIs, the server SHALL respond 400 with an HTML error page and SHALL NOT redirect. Otherwise, if `response_type` is not `code` the server SHALL redirect to `redirect_uri` with `error=unsupported_response_type`; if the client's registered `response_types` does not include `code` it SHALL redirect with `error=unauthorized_client`; if `code_challenge` is missing or `code_challenge_method` is not `S256` it SHALL redirect with `error=invalid_request`; if `scope` names a value outside `notes:read notes:write` it SHALL redirect with `error=invalid_scope`; if `resource` is present and is not `<base>/mcp` it SHALL redirect with `error=invalid_target`; an omitted `resource` SHALL be treated as `<base>/mcp`. Error redirects SHALL echo `state` when supplied. A valid request SHALL respond 200 with an HTML consent form that displays the client's name and requested scopes, contains a password field `api_key`, a text field `actor` prefilled with the client name, and carries every authorization parameter forward to `POST /oauth/authorize`. A missing `scope` SHALL be treated as `notes:read notes:write`.
 
 #### Scenario: Consent page renders
 
@@ -99,6 +104,11 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 - **WHEN** a request omits `code_challenge`
 - **THEN** the response SHALL be 302 to `redirect_uri` with `error=invalid_request` and `state=xyz`
 
+#### Scenario: Client not registered for the code response type
+
+- **WHEN** a client registered with `response_types: ["token"]` requests `response_type=code`
+- **THEN** the response SHALL be 302 to `redirect_uri` with `error=unauthorized_client`
+
 #### Scenario: Wrong resource
 
 - **WHEN** a request carries `resource=https://other.example/mcp`
@@ -106,7 +116,7 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 ### Requirement: Consent submission proves ownership with the API key and mints a code
 
-`POST /oauth/authorize` SHALL accept `application/x-www-form-urlencoded` fields: the authorization parameters plus `api_key` and `actor`. The server SHALL re-run the validations of the GET step. `api_key` SHALL be compared in constant time to the configured API key; on mismatch the server SHALL respond 200 with the consent form re-rendered showing an error and SHALL NOT mint a code. On success it SHALL mint an authorization code with at least 128 bits of entropy, valid for 10 minutes, single-use, bound to `client_id`, `redirect_uri`, `code_challenge`, the granted scope set, `resource`, and the trimmed `actor` (falling back to the client name, then `mcp-client`, when empty), then respond 302 to `redirect_uri` with query parameters `code`, `iss=<base>`, and `state` when supplied.
+`POST /oauth/authorize` SHALL accept `application/x-www-form-urlencoded` fields: the authorization parameters plus `api_key` and `actor`. The server SHALL re-run the validations of the GET step. `api_key` SHALL be compared in constant time to the configured API key; on mismatch the server SHALL respond 200 with the consent form re-rendered showing an error and SHALL NOT mint a code. On success it SHALL mint an authorization code with at least 128 bits of entropy, valid for 10 minutes, single-use, bound to `client_id`, `redirect_uri`, `code_challenge`, the granted scope set, the resource (`<base>/mcp` when `resource` was omitted), and the trimmed `actor` (falling back to the client name, then `mcp-client`, when empty), then respond 302 to `redirect_uri` with query parameters `code`, `iss=<base>`, and `state` when supplied.
 
 #### Scenario: Correct key redirects with a code
 
@@ -118,6 +128,11 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 - **WHEN** the form is submitted with `api_key=wrong`
 - **THEN** the response SHALL be 200 HTML containing an error message and no `Location` header, and no authorization code SHALL exist
 
+#### Scenario: Omitted resource still binds the token to /mcp
+
+- **WHEN** the authorization request omitted `resource` and the resulting code is exchanged
+- **THEN** the access token SHALL be accepted at `/mcp`
+
 #### Scenario: Empty actor falls back to client name
 
 - **WHEN** the form is submitted with `actor=` (empty) for a client named `Desk Assistant`
@@ -125,7 +140,7 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 ### Requirement: Token endpoint exchanges codes with PKCE verification
 
-`POST /oauth/token` SHALL accept `application/x-www-form-urlencoded` and SHALL be served without bearer authentication. Client authentication SHALL follow the client's registered method: `none` requires `client_id` in the body; `client_secret_post` requires `client_id` and `client_secret` in the body; `client_secret_basic` requires HTTP Basic credentials. A failed client authentication SHALL respond 401 `{ "error": "invalid_client" }`. For `grant_type=authorization_code` the server SHALL require `code`, `redirect_uri`, and `code_verifier`, and SHALL reject with 400 `{ "error": "invalid_grant" }` when the code is unknown, expired, already used, issued to a different client, bound to a different `redirect_uri`, when `BASE64URL(SHA256(code_verifier))` differs from the bound `code_challenge`, or when a supplied `resource` differs from the bound one. Reuse of an already-consumed code SHALL additionally revoke every token issued from that code. Success SHALL respond 200 with `Cache-Control: no-store` and JSON `{ access_token, token_type: "Bearer", expires_in: 3600, refresh_token, scope }`, where both tokens are opaque with at least 256 bits of entropy. Missing parameters SHALL yield 400 `{ "error": "invalid_request" }`; unknown `grant_type` SHALL yield 400 `{ "error": "unsupported_grant_type" }`.
+`POST /oauth/token` SHALL accept `application/x-www-form-urlencoded` and SHALL be served without bearer authentication. Client authentication SHALL follow the client's registered method: `none` requires `client_id` in the body; `client_secret_post` requires `client_id` and `client_secret` in the body; `client_secret_basic` requires HTTP Basic credentials. A failed client authentication SHALL respond 401 `{ "error": "invalid_client" }`. A `grant_type` absent from the client's registered `grant_types` SHALL yield 400 `{ "error": "unauthorized_client" }`, and `refresh_token` SHALL be omitted from the response when the client's registered `grant_types` lacks `refresh_token`. For `grant_type=authorization_code` the server SHALL require `code`, `redirect_uri`, and `code_verifier`, and SHALL reject with 400 `{ "error": "invalid_grant" }` when the code is unknown, expired, already used, issued to a different client, bound to a different `redirect_uri`, when `BASE64URL(SHA256(code_verifier))` differs from the bound `code_challenge`, or when a supplied `resource` differs from the bound one. Reuse of an already-consumed code SHALL additionally revoke every token issued from that code. Success SHALL respond 200 with `Cache-Control: no-store` and JSON `{ access_token, token_type: "Bearer", expires_in: 3600, refresh_token, scope }`, where both tokens are opaque with at least 256 bits of entropy. Missing parameters SHALL yield 400 `{ "error": "invalid_request" }`; unknown `grant_type` SHALL yield 400 `{ "error": "unsupported_grant_type" }`.
 
 #### Scenario: Successful exchange
 
@@ -151,6 +166,16 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 - **WHEN** a `client_secret_post` client posts the exchange with a wrong `client_secret`
 - **THEN** the response SHALL be 401 with `error == "invalid_client"`
+
+#### Scenario: Grant type not registered for the client
+
+- **WHEN** a client registered with `grant_types: ["authorization_code"]` posts `grant_type=refresh_token`
+- **THEN** the response SHALL be 400 with `error == "unauthorized_client"`
+
+#### Scenario: No refresh token for clients without the refresh grant
+
+- **WHEN** a client registered with `grant_types: ["authorization_code"]` exchanges a code
+- **THEN** the response SHALL be 200 without a `refresh_token` field
 
 #### Scenario: Unsupported grant type
 
