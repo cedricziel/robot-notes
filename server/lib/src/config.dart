@@ -14,6 +14,31 @@ class ConfigError implements Exception {
   String toString() => 'ConfigError: $message';
 }
 
+/// OIDC login configuration: an external issuer this server delegates
+/// human authentication to, per the `oidc-login` capability. Present only
+/// when all three of `--oidc-issuer`, `--oidc-client-id`, and
+/// `--oidc-client-secret` (or their `ROBOT_NOTES_OIDC_*` env equivalents)
+/// are configured.
+@immutable
+class OidcConfig {
+  /// Creates a fully-resolved OIDC configuration.
+  const OidcConfig({
+    required this.issuer,
+    required this.clientId,
+    required this.clientSecret,
+  });
+
+  /// The external OpenID Connect issuer's base URL (discovery is fetched
+  /// from `<issuer>/.well-known/openid-configuration`).
+  final String issuer;
+
+  /// This server's client id, as registered with [issuer].
+  final String clientId;
+
+  /// This server's client secret, as registered with [issuer].
+  final String clientSecret;
+}
+
 /// Resolved server runtime configuration. CLI flags take precedence over
 /// the matching `ROBOT_NOTES_*` environment variables; both are evaluated
 /// at startup and frozen for the life of the process.
@@ -29,6 +54,7 @@ class Config {
     this.publicUrl,
     this.otlpEndpoint,
     this.otlpHeaders = const {},
+    this.oidc,
   });
 
   /// Resolves a [Config] from CLI [args] and the supplied environment.
@@ -114,6 +140,8 @@ class Config {
       ),
     );
 
+    final oidc = _resolveOidc(parsed, env);
+
     return Config(
       apiKey: apiKey,
       dataDir: dataDir,
@@ -123,6 +151,7 @@ class Config {
       publicUrl: publicUrl,
       otlpEndpoint: otlpEndpoint,
       otlpHeaders: otlpHeaders,
+      oidc: oidc,
     );
   }
 
@@ -171,6 +200,10 @@ class Config {
   /// Empty by default.
   final Map<String, String> otlpHeaders;
 
+  /// OIDC login configuration, or `null` when OIDC login is disabled (the
+  /// default — every request behaves exactly as without this capability).
+  final OidcConfig? oidc;
+
   /// Builds an [ArgParser] mirroring the documented CLI surface.
   static ArgParser buildParser() => ArgParser()
     ..addOption('api-key', help: 'Bearer API key required on every request.')
@@ -203,6 +236,20 @@ class Config {
       'otel-headers',
       help: 'Comma-separated key=value headers sent with every OTLP '
           'export request (e.g. an auth token).',
+    )
+    ..addOption(
+      'oidc-issuer',
+      help: 'External OIDC issuer base URL. Requires --oidc-client-id and '
+          '--oidc-client-secret to also be set.',
+    )
+    ..addOption(
+      'oidc-client-id',
+      help: "This server's client id as registered with --oidc-issuer.",
+    )
+    ..addOption(
+      'oidc-client-secret',
+      help: "This server's client secret as registered with "
+          '--oidc-issuer.',
     )
     ..addFlag('help', abbr: 'h', negatable: false, help: 'Print usage.');
 
@@ -297,6 +344,51 @@ class Config {
       headers[entry.substring(0, separator)] = entry.substring(separator + 1);
     }
     return headers;
+  }
+
+  /// Resolves [OidcConfig] from the three `--oidc-*` flags / `ROBOT_NOTES_
+  /// OIDC_*` env vars (CLI wins per-setting). Returns `null` when none of
+  /// the three are set. Throws [ConfigError] naming whichever setting(s)
+  /// are missing when one or two (but not all three) are set.
+  static OidcConfig? _resolveOidc(
+    ArgResults parsed,
+    Map<String, String> env,
+  ) {
+    final issuer = _coalesce(
+      parsed['oidc-issuer'] as String?,
+      env['ROBOT_NOTES_OIDC_ISSUER'],
+    );
+    final clientId = _coalesce(
+      parsed['oidc-client-id'] as String?,
+      env['ROBOT_NOTES_OIDC_CLIENT_ID'],
+    );
+    final clientSecret = _coalesce(
+      parsed['oidc-client-secret'] as String?,
+      env['ROBOT_NOTES_OIDC_CLIENT_SECRET'],
+    );
+
+    if (issuer == null && clientId == null && clientSecret == null) {
+      return null;
+    }
+
+    final missing = <String>[
+      if (issuer == null) '--oidc-issuer / ROBOT_NOTES_OIDC_ISSUER',
+      if (clientId == null) '--oidc-client-id / ROBOT_NOTES_OIDC_CLIENT_ID',
+      if (clientSecret == null)
+        '--oidc-client-secret / ROBOT_NOTES_OIDC_CLIENT_SECRET',
+    ];
+    if (missing.isNotEmpty) {
+      throw ConfigError(
+        'OIDC login is partially configured; also set: '
+        '${missing.join(', ')}.',
+      );
+    }
+
+    return OidcConfig(
+      issuer: issuer!,
+      clientId: clientId!,
+      clientSecret: clientSecret!,
+    );
   }
 
   static int _parseInt(

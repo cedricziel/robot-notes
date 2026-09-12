@@ -19,17 +19,17 @@ Testable end-to-end today via the existing `api_key` consent form.
 
 ## 2. OIDC relying-party core (PR 2)
 
-- [ ] 2.1 Write failing tests in `server/test/src/config_test.dart`: all three of `--oidc-issuer`/`ROBOT_NOTES_OIDC_ISSUER`, `--oidc-client-id`/`ROBOT_NOTES_OIDC_CLIENT_ID`, `--oidc-client-secret`/`ROBOT_NOTES_OIDC_CLIENT_SECRET` set resolves into `Config.oidc` (issuer, clientId, clientSecret); none set yields `Config.oidc == null`; exactly one or two set throws `ConfigError` naming the missing setting(s); CLI flag beats env var per setting
-- [ ] 2.2 Implement `Config.oidc` so 2.1 passes
-- [ ] 2.3 Write failing tests in `server/test/src/oidc/discovery_test.dart`: fetching a well-formed `/.well-known/openid-configuration` extracts `authorization_endpoint`, `token_endpoint`, `jwks_uri`; a missing field or unreachable issuer throws a startup error naming the issuer
-- [ ] 2.4 Implement `lib/src/oidc/discovery.dart` so 2.3 passes; wire a fetch-at-startup call into `AppDeps.bootstrap` (only when `Config.oidc != null`), failing startup non-zero on error
-- [ ] 2.5 Write failing tests in `server/test/src/oidc/jwks_test.dart`: a JWKS document's keys are indexed by `kid`; verifying a token whose `kid` is absent from the cache triggers exactly one refetch before failing or succeeding; a token using `alg=none` or any algorithm outside `RS256`/`ES256` is rejected before signature verification is attempted
-- [ ] 2.6 Implement `lib/src/oidc/jwks.dart` (fetch, cache, refetch-on-miss, algorithm allowlist) so 2.5 passes
-- [ ] 2.7 Write failing tests in `server/test/src/oidc/id_token_test.dart`: a validly signed token with correct `iss`/`aud`/unexpired `exp`/matching `nonce` verifies and yields its claims; wrong `iss`, wrong `aud`, expired `exp`, mismatched `nonce`, and a bad signature are each rejected with a distinct, testable reason
-- [ ] 2.8 Implement `lib/src/oidc/id_token.dart` (JWS signature check via `jwks.dart` + claim validation) so 2.7 passes
-- [ ] 2.9 Write failing tests in `server/test/src/oidc/pending_login_test.dart`: starting a login persists a PKCE verifier/challenge, `state`, and `nonce` bound to a pending `/oauth/authorize` consent request, expiring after 10 minutes; looking up by `state` after expiry fails
-- [ ] 2.10 Implement `lib/src/oidc/pending_login_store.dart` so 2.9 passes
-- [ ] 2.11 Run `dart format .`, `dart analyze`, `cd server && dart test`; commit as `feat(server): add OIDC discovery, JWKS verification, and pending-login store`
+- [x] 2.1 Write failing tests in `server/test/src/config_test.dart`: all three of `--oidc-issuer`/`ROBOT_NOTES_OIDC_ISSUER`, `--oidc-client-id`/`ROBOT_NOTES_OIDC_CLIENT_ID`, `--oidc-client-secret`/`ROBOT_NOTES_OIDC_CLIENT_SECRET` set resolves into `Config.oidc` (issuer, clientId, clientSecret); none set yields `Config.oidc == null`; exactly one or two set throws `ConfigError` naming the missing setting(s); CLI flag beats env var per setting
+- [x] 2.2 Implement `Config.oidc` so 2.1 passes
+- [x] 2.3 Write failing tests in `server/test/src/oidc/discovery_test.dart`: fetching a well-formed `/.well-known/openid-configuration` extracts `authorization_endpoint`, `token_endpoint`, `jwks_uri`; a missing field or unreachable issuer throws a startup error naming the issuer
+- [x] 2.4 Implement `lib/src/oidc/discovery.dart` so 2.3 passes; wire a fetch-at-startup call into `AppDeps.bootstrap` (only when `Config.oidc != null`), failing startup non-zero on error
+- [x] 2.5 Write failing tests in `server/test/src/oidc/jwks_test.dart`: a JWKS document's keys are indexed by `kid`; verifying a token whose `kid` is absent from the cache triggers exactly one refetch before failing or succeeding; a token using `alg=none` or any algorithm outside `RS256`/`ES256` is rejected before signature verification is attempted
+- [x] 2.6 Implement `lib/src/oidc/jwks.dart` (fetch, cache, refetch-on-miss, algorithm allowlist) so 2.5 passes
+- [x] 2.7 Write failing tests in `server/test/src/oidc/id_token_test.dart`: a validly signed token with correct `iss`/`aud`/unexpired `exp`/matching `nonce` verifies and yields its claims; wrong `iss`, wrong `aud`, expired `exp`, mismatched `nonce`, and a bad signature are each rejected with a distinct, testable reason — tested with real RS256 and ES256 signatures generated via `package:pointycastle` in `_id_token_test_helpers.dart`, not mocked crypto
+- [x] 2.8 Implement `lib/src/oidc/id_token.dart` (JWS signature check via `jwks.dart` + claim validation) so 2.7 passes — signature verification (RS256 and ES256) uses `package:pointycastle`, added as a new server dependency per design.md decision 3 (revised from the original hand-roll-everything plan after ECDSA proved unsafe to hand-roll); structure parsing and claim checks remain hand-rolled
+- [x] 2.9 Write failing tests in `server/test/src/oidc/pending_login_test.dart`: starting a login persists a PKCE verifier/challenge, `state`, and `nonce` bound to a pending `/oauth/authorize` consent request, expiring after 10 minutes; looking up by `state` after expiry fails
+- [x] 2.10 Implement `lib/src/oidc/pending_login_store.dart` so 2.9 passes — process-local, non-persisted (matches `ConsentThrottle`'s precedent for ephemeral OAuth-adjacent state)
+- [x] 2.11 Run `dart format .`, `dart analyze`, `cd server && dart test`; commit as `feat(server): add OIDC discovery, JWKS verification, and pending-login store`
 
 ## 3. OIDC login and callback routes (PR 3)
 

@@ -12,6 +12,7 @@ import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/token_store.dart';
+import 'package:server/src/oidc/discovery.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
@@ -41,6 +42,7 @@ class AppDeps {
     required this.broadcaster,
     required this.presence,
     required this.clock,
+    this.oidcDiscovery,
     NoteWriteService? noteWriteService,
   }) : noteWriteService = noteWriteService ??
             NoteWriteService(
@@ -62,10 +64,14 @@ class AppDeps {
   ///   `<dataDir>/oauth/{clients,codes,tokens}`, with expired codes and
   ///   tokens purged before the bundle is returned
   /// - [ConsentThrottle], sharing [clock] with everything else
+  /// - [oidcDiscovery], fetched from `config.oidc.issuer` when OIDC login
+  ///   is configured; a failure here fails bootstrap, since a
+  ///   misconfigured issuer should not silently disable OIDC login
   static Future<AppDeps> bootstrap(
     Config config, {
     Clock clock = const Clock(),
     Logger? logger,
+    HttpGet oidcHttpGet = httpGetViaHttpClient,
   }) async {
     final log = logger ?? Logger('app_deps');
     final contentDir = Directory('${config.dataDir}/content');
@@ -106,6 +112,17 @@ class AppDeps {
       'Purged $purgedCodes expired OAuth code(s) and '
       '$purgedTokens expired OAuth token(s)',
     );
+
+    OidcDiscoveryDocument? oidcDiscovery;
+    final oidcConfig = config.oidc;
+    if (oidcConfig != null) {
+      oidcDiscovery = await fetchOidcDiscovery(
+        oidcConfig.issuer,
+        httpGet: oidcHttpGet,
+      );
+      log.info('Resolved OIDC discovery document from ${oidcConfig.issuer}');
+    }
+
     return AppDeps(
       storage: storage,
       metaIndex: metaIndex,
@@ -119,6 +136,7 @@ class AppDeps {
       broadcaster: Broadcaster(),
       presence: PresenceTracker(),
       clock: clock,
+      oidcDiscovery: oidcDiscovery,
     );
   }
 
@@ -159,6 +177,10 @@ class AppDeps {
 
   /// Clock injected into every time-stamping component.
   final Clock clock;
+
+  /// The configured OIDC issuer's resolved discovery document, or `null`
+  /// when OIDC login is not configured (`config.oidc == null`).
+  final OidcDiscoveryDocument? oidcDiscovery;
 
   /// Orchestrates filesystem + search + meta + broadcast on every note
   /// write, so the routes don't have to remember the dependency order.
