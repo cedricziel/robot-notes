@@ -30,22 +30,24 @@ Map<String, Object?> _metaJson({
       'updated_at': _now,
     };
 
+http.Response _page(List<Object?> items) => http.Response(
+      jsonEncode(<String, Object?>{
+        'items': items,
+        'limit': 50,
+        'next_cursor': null,
+      }),
+      200,
+    );
+
 void main() {
   testWidgets('initial render fetches the first page', (tester) async {
     var calls = 0;
     final mock = MockClient((request) async {
       calls += 1;
-      return http.Response(
-        jsonEncode(<String, Object?>{
-          'items': <Object?>[
-            _metaJson(id: '01H', title: 'hello'),
-            _metaJson(id: '02H', title: 'world'),
-          ],
-          'limit': 50,
-          'next_cursor': null,
-        }),
-        200,
-      );
+      return _page(<Object?>[
+        _metaJson(id: '01H', title: 'hello'),
+        _metaJson(id: '02H', title: 'world'),
+      ]);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
     final ctrl = NotesListController(api: api);
@@ -65,14 +67,7 @@ void main() {
   testWidgets('tapping a note tile invokes onNoteTap with the id',
       (tester) async {
     final mock = MockClient((request) async {
-      return http.Response(
-        jsonEncode(<String, Object?>{
-          'items': <Object?>[_metaJson(id: '01H', title: 'tap me')],
-          'limit': 50,
-          'next_cursor': null,
-        }),
-        200,
-      );
+      return _page(<Object?>[_metaJson(id: '01H', title: 'tap me')]);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
     final ctrl = NotesListController(api: api);
@@ -99,16 +94,9 @@ void main() {
     var calls = 0;
     final mock = MockClient((request) async {
       calls += 1;
-      return http.Response(
-        jsonEncode(<String, Object?>{
-          'items': <Object?>[
-            _metaJson(id: '01H', title: 'after-$calls'),
-          ],
-          'limit': 50,
-          'next_cursor': null,
-        }),
-        200,
-      );
+      return _page(<Object?>[
+        _metaJson(id: '01H', title: 'after-$calls'),
+      ]);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
     final ctrl = NotesListController(api: api);
@@ -135,16 +123,7 @@ void main() {
     var calls = 0;
     final mock = MockClient((request) async {
       calls += 1;
-      return http.Response(
-        jsonEncode(<String, Object?>{
-          'items': <Object?>[
-            _metaJson(id: '01H', title: 'after-$calls'),
-          ],
-          'limit': 50,
-          'next_cursor': null,
-        }),
-        200,
-      );
+      return _page(<Object?>[_metaJson(id: '01H', title: 'after-$calls')]);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
     final ctrl = NotesListController(api: api);
@@ -173,5 +152,66 @@ void main() {
 
     expect(calls, 2);
     expect(find.text('after-2'), findsOneWidget);
+  });
+
+  testWidgets('a failed refresh shows a banner and keeps loaded items',
+      (tester) async {
+    var calls = 0;
+    final mock = MockClient((request) async {
+      calls += 1;
+      if (calls == 1) {
+        return _page(<Object?>[_metaJson(id: '01H', title: 'still here')]);
+      }
+      return http.Response(
+        jsonEncode(<String, Object?>{'message': 'database is locked'}),
+        500,
+      );
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: NotesListScreen(controller: ctrl)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('notes.error')), findsNothing);
+
+    await ctrl.refresh();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('notes.error')), findsOneWidget);
+    expect(find.text('database is locked'), findsOneWidget);
+    expect(find.text('still here'), findsOneWidget);
+  });
+
+  testWidgets('the error banner retry re-fetches and clears the banner',
+      (tester) async {
+    var calls = 0;
+    final mock = MockClient((request) async {
+      calls += 1;
+      if (calls == 1) {
+        return http.Response('', 503);
+      }
+      return _page(<Object?>[_metaJson(id: '01H', title: 'recovered')]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: NotesListScreen(controller: ctrl)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('notes.error')), findsOneWidget);
+    expect(find.text('Could not load notes.'), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(calls, 2);
+    expect(find.byKey(const Key('notes.error')), findsNothing);
+    expect(find.text('recovered'), findsOneWidget);
   });
 }
