@@ -153,6 +153,7 @@ class NoteController extends ValueNotifier<NoteState> {
     DateTime Function()? clock,
     Duration Function(Lock lock, DateTime now)? heartbeatInterval,
     Future<void> Function(Duration)? scheduler,
+    Future<void> Function(Duration)? autosaveScheduler,
   }) : _api = api,
        _noteId = noteId,
        _actor = actor,
@@ -161,6 +162,7 @@ class NoteController extends ValueNotifier<NoteState> {
        _now = clock ?? DateTime.now,
        _heartbeatInterval = heartbeatInterval ?? _defaultHeartbeatInterval,
        _scheduler = scheduler ?? Future<void>.delayed,
+       _autosaveScheduler = autosaveScheduler ?? Future<void>.delayed,
        super(NoteState.initial) {
     if (events != null) {
       _sub = events.listen(_onEvent);
@@ -173,6 +175,9 @@ class NoteController extends ValueNotifier<NoteState> {
     return Duration(microseconds: remaining.inMicroseconds ~/ 2);
   }
 
+  /// How long after the last edit an automatic save fires.
+  static const Duration autosaveDebounce = Duration(seconds: 2);
+
   final RobotNotesClient _api;
   final String _noteId;
   final String _actor;
@@ -181,10 +186,12 @@ class NoteController extends ValueNotifier<NoteState> {
   final DateTime Function() _now;
   final Duration Function(Lock, DateTime) _heartbeatInterval;
   final Future<void> Function(Duration) _scheduler;
+  final Future<void> Function(Duration) _autosaveScheduler;
 
   StreamSubscription<RealtimeEvent>? _sub;
   bool _disposed = false;
   int _heartbeatGen = 0;
+  int _autosaveGen = 0;
 
   /// Loads the note and tells the realtime layer to subscribe so we receive
   /// `presence`, `lock`, and `changed` events for it.
@@ -289,6 +296,7 @@ class NoteController extends ValueNotifier<NoteState> {
       return;
     }
     value = value.copyWith(editTitle: title);
+    _scheduleAutosave();
   }
 
   void setEditContent(String content) {
@@ -296,6 +304,35 @@ class NoteController extends ValueNotifier<NoteState> {
       return;
     }
     value = value.copyWith(editContent: content);
+    _scheduleAutosave();
+  }
+
+  /// Cancels any autosave scheduled by a prior edit, without affecting the
+  /// heartbeat. Callers that are about to save explicitly (button tap,
+  /// keyboard shortcut, or the close-flush) call this first so a
+  /// coincidentally-due autosave doesn't also fire and race a second save.
+  void cancelPendingAutosave() {
+    _autosaveGen += 1;
+  }
+
+  /// Schedules a debounced autosave [autosaveDebounce] after the most
+  /// recent edit. Only ever schedules while [NoteMode.editing] — edits
+  /// made from the conflict view are resolved explicitly ("Use server
+  /// version" / "Save mine"), never autosaved.
+  void _scheduleAutosave() {
+    if (value.mode != NoteMode.editing) return;
+    _autosaveGen += 1;
+    final gen = _autosaveGen;
+    unawaited(_runAutosave(gen));
+  }
+
+  Future<void> _runAutosave(int gen) async {
+    await _autosaveScheduler(autosaveDebounce);
+    if (_disposed) return;
+    if (_autosaveGen != gen) return;
+    if (value.mode != NoteMode.editing) return;
+    if (!value.isDirty) return;
+    await save();
   }
 
   /// Sends `PUT /notes/{id}` with the last-loaded version as `If-Match`.

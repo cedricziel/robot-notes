@@ -1,16 +1,16 @@
 ## 1. Controller: autosave scheduling
 
-- [ ] 1.1 Write failing tests in `app/test/src/notes/note_controller_test.dart` (mirror the existing heartbeat test setup: injected `clock`, and a new injected `autosaveScheduler` alongside the existing `scheduler`) for: (a) a debounced autosave fires ~2s after the last `setEditContent`/`setEditTitle` call and issues `PUT /notes/{id}` with the current buffers; (b) a second edit within the debounce window postpones the save — only one `PUT` fires, with the final content; (c) autosave does not fire while `mode == NoteMode.conflict`; (d) autosave only saves if still dirty when the debounce elapses (edit back to the original content → no `PUT`); (e) a conflict (409) returned from an autosave-triggered save transitions to `NoteMode.conflict` exactly as a manual save would.
-- [ ] 1.2 Add an `autosaveScheduler` constructor parameter to `NoteController` (`Future<void> Function(Duration)?`, default `Future<void>.delayed`), a fixed 2-second debounce constant, and `_autosaveGen`/`_scheduleAutosave()`/`_runAutosave(gen)` mirroring the existing `_heartbeatGen`/`_scheduleHeartbeat`/`_runHeartbeat` shape.
-- [ ] 1.3 Call `_scheduleAutosave()` at the end of both `setEditTitle` and `setEditContent`.
-- [ ] 1.4 `_runAutosave(gen)`: after the delay, return early if disposed, if `_autosaveGen != gen`, if `mode != NoteMode.editing`, or if `!isDirty`; otherwise call `save()`.
-- [ ] 1.5 Confirm all of 1.1's tests pass; run the full existing `note_controller_test.dart` suite to confirm no regressions (existing heartbeat/save/conflict tests untouched).
+- [x] 1.1 Write failing tests in `app/test/src/notes/note_controller_test.dart` (mirror the existing heartbeat test setup: injected `clock`, and a new injected `autosaveScheduler` alongside the existing `scheduler`) for: (a) a debounced autosave fires ~2s after the last `setEditContent`/`setEditTitle` call and issues `PUT /notes/{id}` with the current buffers; (b) a second edit within the debounce window postpones the save — only one `PUT` fires, with the final content; (c) autosave does not fire while `mode == NoteMode.conflict`; (d) autosave only saves if still dirty when the debounce elapses (edit back to the original content → no `PUT`); (e) a conflict (409) returned from an autosave-triggered save transitions to `NoteMode.conflict` exactly as a manual save would.
+- [x] 1.2 Add an `autosaveScheduler` constructor parameter to `NoteController` (`Future<void> Function(Duration)?`, default `Future<void>.delayed`), a fixed 2-second debounce constant, and `_autosaveGen`/`_scheduleAutosave()`/`_runAutosave(gen)` mirroring the existing `_heartbeatGen`/`_scheduleHeartbeat`/`_runHeartbeat` shape.
+- [x] 1.3 Call `_scheduleAutosave()` at the end of both `setEditTitle` and `setEditContent`.
+- [x] 1.4 `_runAutosave(gen)`: after the delay, return early if disposed, if `_autosaveGen != gen`, if `mode != NoteMode.editing`, or if `!isDirty`; otherwise call `save()`.
+- [x] 1.5 Confirm all of 1.1's tests pass; run the full existing `note_controller_test.dart` suite to confirm no regressions (existing heartbeat/save/conflict tests untouched).
 
 ## 2. Controller: manual save no longer races autosave
 
-- [ ] 2.1 Write a failing test asserting that calling `save()` (or a new explicit-save entry point) does not leave a stale autosave generation able to fire a redundant second `PUT` shortly after.
-- [ ] 2.2 Add `cancelPendingAutosave()` (bumps `_autosaveGen`) to `NoteController`.
-- [ ] 2.3 `dart format`, `dart analyze` (or `flutter analyze` from `app/`) clean; confirm 2.1 passes.
+- [x] 2.1 Write a failing test asserting that calling `save()` (or a new explicit-save entry point) does not leave a stale autosave generation able to fire a redundant second `PUT` shortly after.
+- [x] 2.2 Add `cancelPendingAutosave()` (bumps `_autosaveGen`) to `NoteController`.
+- [x] 2.3 `dart format`, `dart analyze` (or `flutter analyze` from `app/`) clean; confirm 2.1 passes.
 - [ ] 2.4 Commit: `feat(app): debounce-autosave note edits in NoteController`.
 
 ## 3. Editor: editing-status indicator replaces the lock banner

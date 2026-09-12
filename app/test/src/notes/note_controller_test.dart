@@ -516,6 +516,240 @@ void main() {
       },
     );
 
+    group('autosave', () {
+      /// Standard editable-note mock: `GET`/`POST lock`/`PUT` all succeed,
+      /// recording every `PUT /notes/01H` body in [puts].
+      MockClient editableMock(List<String> puts) {
+        return MockClient((request) async {
+          final path = request.url.path;
+          if (request.method == 'GET' && path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          if (request.method == 'POST' && path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.method == 'PUT' && path == '/notes/01H') {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            puts.add(body['content'] as String);
+            return http.Response(
+              jsonEncode(
+                _noteJson(
+                  version: 2,
+                  title: body['title'] as String,
+                  content: body['content'] as String,
+                ),
+              ),
+              200,
+            );
+          }
+          return http.Response('unexpected', 500);
+        });
+      }
+
+      test('fires a save ~2s after the last edit', () async {
+        final puts = <String>[];
+        Completer<void>? gate;
+        Completer<void> nextGate() {
+          gate = Completer<void>();
+          return gate!;
+        }
+
+        final scheduledDelays = <Duration>[];
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: editableMock(puts),
+        );
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+          autosaveScheduler: (d) async {
+            scheduledDelays.add(d);
+            await nextGate().future;
+          },
+        );
+        addTearDown(ctrl.dispose);
+
+        await ctrl.open();
+        await ctrl.enterEditMode();
+        ctrl.setEditContent('edited');
+
+        expect(scheduledDelays, [const Duration(seconds: 2)]);
+        expect(puts, isEmpty);
+
+        gate!.complete();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(puts, ['edited']);
+        expect(ctrl.value.mode, NoteMode.editing);
+      });
+
+      test(
+        'a new edit within the debounce window postpones the save',
+        () async {
+          final puts = <String>[];
+          final gates = <Completer<void>>[];
+          final api = RobotNotesClient(
+            config: _config,
+            httpClient: editableMock(puts),
+          );
+          final ctrl = NoteController(
+            api: api,
+            noteId: '01H',
+            actor: 'cedric',
+            scheduler: (_) => Completer<void>().future,
+            autosaveScheduler: (_) async {
+              final gate = Completer<void>();
+              gates.add(gate);
+              await gate.future;
+            },
+          );
+          addTearDown(ctrl.dispose);
+
+          await ctrl.open();
+          await ctrl.enterEditMode();
+          ctrl.setEditContent('one');
+          await Future<void>.delayed(Duration.zero);
+          ctrl.setEditContent('two');
+          await Future<void>.delayed(Duration.zero);
+
+          // Firing the first (stale) gate must not save — its generation was
+          // superseded by the second edit's reschedule.
+          gates.first.complete();
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+          expect(puts, isEmpty);
+
+          gates.last.complete();
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+          expect(puts, ['two']);
+        },
+      );
+
+      test('does not fire while the conflict view is shown', () async {
+        var puts = 0;
+        Completer<void>? gate;
+        final mock = MockClient((request) async {
+          final path = request.url.path;
+          if (request.method == 'GET' && path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson(version: 5)), 200);
+          }
+          if (request.method == 'POST' && path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.method == 'PUT' && path == '/notes/01H') {
+            puts += 1;
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'error': 'version_conflict',
+                'current': _noteJson(version: 7, content: 'server'),
+              }),
+              409,
+            );
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+          autosaveScheduler: (_) async {
+            gate = Completer<void>();
+            await gate!.future;
+          },
+        );
+        addTearDown(ctrl.dispose);
+
+        await ctrl.open();
+        await ctrl.enterEditMode();
+        ctrl.setEditContent('mine');
+        gate!.complete();
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(ctrl.value.mode, NoteMode.conflict);
+        expect(puts, 1);
+        final gateAfterConflict = gate;
+
+        // Further edits (e.g. in the "Yours" pane) must not re-schedule an
+        // autosave while still in conflict mode.
+        ctrl.setEditContent('mine again');
+        await Future<void>.delayed(Duration.zero);
+        expect(gate, same(gateAfterConflict));
+      });
+
+      test(
+        'does not save if no longer dirty when the debounce elapses',
+        () async {
+          final puts = <String>[];
+          Completer<void>? gate;
+          final api = RobotNotesClient(
+            config: _config,
+            httpClient: editableMock(puts),
+          );
+          final ctrl = NoteController(
+            api: api,
+            noteId: '01H',
+            actor: 'cedric',
+            scheduler: (_) => Completer<void>().future,
+            autosaveScheduler: (_) async {
+              gate = Completer<void>();
+              await gate!.future;
+            },
+          );
+          addTearDown(ctrl.dispose);
+
+          await ctrl.open();
+          await ctrl.enterEditMode();
+          ctrl.setEditContent('changed');
+          ctrl.setEditContent('world'); // back to the original content
+          gate!.complete();
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+
+          expect(puts, isEmpty);
+        },
+      );
+
+      test(
+        'cancelPendingAutosave stops a scheduled save from firing',
+        () async {
+          final puts = <String>[];
+          Completer<void>? gate;
+          final api = RobotNotesClient(
+            config: _config,
+            httpClient: editableMock(puts),
+          );
+          final ctrl = NoteController(
+            api: api,
+            noteId: '01H',
+            actor: 'cedric',
+            scheduler: (_) => Completer<void>().future,
+            autosaveScheduler: (_) async {
+              gate = Completer<void>();
+              await gate!.future;
+            },
+          );
+          addTearDown(ctrl.dispose);
+
+          await ctrl.open();
+          await ctrl.enterEditMode();
+          ctrl.setEditContent('changed');
+          ctrl.cancelPendingAutosave();
+          gate!.complete();
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+
+          expect(puts, isEmpty);
+        },
+      );
+    });
+
     group('delete', () {
       /// Answers the load, the lock choreography, and `DELETE /notes/01H`
       /// with [deleteStatus]; records every request in [calls].
