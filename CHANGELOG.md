@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.1.3](https://github.com/cedricziel/robot-notes/compare/v0.1.2...v0.1.3) (2026-09-12)
+
+
+### Features
+
+* **app:** add a refresh action to the list ([#90](https://github.com/cedricziel/robot-notes/issues/90)) ([d4a52f1](https://github.com/cedricziel/robot-notes/commit/d4a52f1de92cf0c9714392ca721671e528f64be0))
+* **app:** confirm before discarding unsaved edits ([#89](https://github.com/cedricziel/robot-notes/issues/89)) ([b159213](https://github.com/cedricziel/robot-notes/commit/b159213282c9effa0f204cbb886f0ade9d95361a))
+* **app:** delete a note from the note screen ([#93](https://github.com/cedricziel/robot-notes/issues/93)) ([45d0323](https://github.com/cedricziel/robot-notes/commit/45d032399ada48b5b287a6f8aa518723b00cc967))
+* **app:** delete a note from the notes list ([#102](https://github.com/cedricziel/robot-notes/issues/102)) ([def7bf5](https://github.com/cedricziel/robot-notes/commit/def7bf50eb1d75ccbd3d34be69240ff0903bc880))
+* **app:** keyboard shortcuts in the note editor ([#100](https://github.com/cedricziel/robot-notes/issues/100)) ([5270083](https://github.com/cedricziel/robot-notes/commit/52700831a3f32dbec8b03c8237d502b916c6a570))
+* **app:** let the user merge by hand in the conflict view ([#94](https://github.com/cedricziel/robot-notes/issues/94)) ([0d63c75](https://github.com/cedricziel/robot-notes/commit/0d63c75fdf2e23a4f9b30919567babd0e1e48625))
+* **app:** open freshly created notes in edit mode ([#99](https://github.com/cedricziel/robot-notes/issues/99)) ([492259c](https://github.com/cedricziel/robot-notes/commit/492259c3e2f1a70105bf2b56e137c4995502b1f0))
+* **app:** render note content as Markdown in view mode ([#92](https://github.com/cedricziel/robot-notes/issues/92)) ([07641e8](https://github.com/cedricziel/robot-notes/commit/07641e819def6cc628c9c15853657ead7b07dd3f))
+* **app:** ship the iOS and macOS apps via TestFlight and the App Store ([f765db5](https://github.com/cedricziel/robot-notes/commit/f765db557271a9763312e82caf49d8af94c7b52a))
+* **app:** show the realtime connection state in the notes list ([#97](https://github.com/cedricziel/robot-notes/issues/97)) ([4107dda](https://github.com/cedricziel/robot-notes/commit/4107dda4181ce8947fe38d9e73c1efa0a20b0f04))
+* **ci:** publish rolling :main docker tag on push to main ([#77](https://github.com/cedricziel/robot-notes/issues/77)) ([f8272f3](https://github.com/cedricziel/robot-notes/commit/f8272f38ca79c45b6dd49508253c496b7e0ba83a))
+* **server:** add MCP JSON-RPC core and note tools ([#71](https://github.com/cedricziel/robot-notes/issues/71)) ([e336952](https://github.com/cedricziel/robot-notes/commit/e336952b66e1f9c9615106bdad9e48b47fa7df64))
+* **server:** add OAuth code and token stores ([#69](https://github.com/cedricziel/robot-notes/issues/69)) ([c7b252e](https://github.com/cedricziel/robot-notes/commit/c7b252e8a4b12bea9a37a4f4644b75641a277f80))
+* **server:** add OAuth registration, consent, token, and revocation routes ([#70](https://github.com/cedricziel/robot-notes/issues/70)) ([5f9419e](https://github.com/cedricziel/robot-notes/commit/5f9419ed965e5eb1f49b17abffe90e3e35266117))
+* **server:** add PKCE helper and OAuth client store ([#68](https://github.com/cedricziel/robot-notes/issues/68)) ([618b06d](https://github.com/cedricziel/robot-notes/commit/618b06d37e4411535c40a5a55de06318a12d4968))
+* **server:** add public base URL and OAuth discovery documents ([#67](https://github.com/cedricziel/robot-notes/issues/67)) ([21fc679](https://github.com/cedricziel/robot-notes/commit/21fc67933161cb7bc3dbc2825ea62f004ea16351))
+* **server:** declare MCP tool behavior annotations ([#82](https://github.com/cedricziel/robot-notes/issues/82)) ([f0dfca0](https://github.com/cedricziel/robot-notes/commit/f0dfca08daaaad6bb1a201d921bf784e2837f49e))
+* **server:** serve MCP at /mcp with OAuth and static-key auth ([#72](https://github.com/cedricziel/robot-notes/issues/72)) ([8a7089d](https://github.com/cedricziel/robot-notes/commit/8a7089d8f512988ddcde0f0606196eb352b4af44))
+
+
+### Bug Fixes
+
+* **app:** drop the dart:io import from the setup flow ([#98](https://github.com/cedricziel/robot-notes/issues/98)) ([9663d5b](https://github.com/cedricziel/robot-notes/commit/9663d5be88c161371d5265d6653e45f02c0b840f))
+* **app:** enable accessibility semantics on web ([#96](https://github.com/cedricziel/robot-notes/issues/96)) ([d2246b5](https://github.com/cedricziel/robot-notes/commit/d2246b5e275f22aee169bbea7f2f7dda93507d9d))
+* **app:** keep the caret when syncing editor buffers ([#83](https://github.com/cedricziel/robot-notes/issues/83)) ([882673f](https://github.com/cedricziel/robot-notes/commit/882673fe4010e14374dbe9e11c5356ad2b46bbbd))
+* **app:** open the realtime websocket with the platform-agnostic channel ([#85](https://github.com/cedricziel/robot-notes/issues/85)) ([6c7eb84](https://github.com/cedricziel/robot-notes/commit/6c7eb84cead465aaa89b93df40273712c3f628fd))
+* **app:** re-fetch the note after acquiring the edit lock ([#87](https://github.com/cedricziel/robot-notes/issues/87)) ([e80b900](https://github.com/cedricziel/robot-notes/commit/e80b900f80fbddbcd048adc2a31666087e45cf4f))
+* **app:** show list and search errors ([#84](https://github.com/cedricziel/robot-notes/issues/84)) ([68d7b7f](https://github.com/cedricziel/robot-notes/commit/68d7b7f15abf10babb448592dbfba262eda5dde7))
+* **app:** show note timestamps in local time ([#88](https://github.com/cedricziel/robot-notes/issues/88)) ([ed54800](https://github.com/cedricziel/robot-notes/commit/ed5480032465ed5ad6e8a404fe47a7e52ee4aeee))
+* **app:** surface save errors and confirm saves ([#91](https://github.com/cedricziel/robot-notes/issues/91)) ([46ce599](https://github.com/cedricziel/robot-notes/commit/46ce599852c27e6712ef07150141e49e6c12df0b))
+* **app:** wire the note close button ([#86](https://github.com/cedricziel/robot-notes/issues/86)) ([98b8c90](https://github.com/cedricziel/robot-notes/commit/98b8c90552e9c17dda235fe084dda9509dc7aea6))
+* **server:** drop form-action from the consent page CSP ([#81](https://github.com/cedricziel/robot-notes/issues/81)) ([8bb1a98](https://github.com/cedricziel/robot-notes/commit/8bb1a98e607f65a58e8a1c9f5b78abb7f5af9a36))
+* **server:** harden OAuth registration, token, and revocation endpoints ([#73](https://github.com/cedricziel/robot-notes/issues/73)) ([a27553f](https://github.com/cedricziel/robot-notes/commit/a27553f0a5e4376e41a4540f730e64168c775d54))
+* **server:** harden OAuth routes, client auth, and public URL handling ([#78](https://github.com/cedricziel/robot-notes/issues/78)) ([21e91ac](https://github.com/cedricziel/robot-notes/commit/21e91ac7d706f177c91d01239f02ce19acd1c823))
+* **server:** validate MCP note ids, tighten origin checks, and share the /mcp chain ([#76](https://github.com/cedricziel/robot-notes/issues/76)) ([4375d51](https://github.com/cedricziel/robot-notes/commit/4375d51df09c978d950028d26337be1ecd5c454e))
+
+
+### Documentation
+
+* document the main image tag and TrueNAS SCALE deployment ([#80](https://github.com/cedricziel/robot-notes/issues/80)) ([d44d637](https://github.com/cedricziel/robot-notes/commit/d44d63731a68a907d9f71973efd31a69b69d6d9d))
+* **openspec:** propose add-mcp-server change ([#66](https://github.com/cedricziel/robot-notes/issues/66)) ([138f48a](https://github.com/cedricziel/robot-notes/commit/138f48a2dce6aae60abf08ef013b70a0be635b4b))
+
 ## [0.1.2](https://github.com/cedricziel/robot-notes/compare/v0.1.1...v0.1.2) (2026-05-06)
 
 
