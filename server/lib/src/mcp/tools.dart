@@ -33,6 +33,12 @@ String? _requiredNoteId(Map<String, Object?> args) {
   return _ulidPattern.hasMatch(id) ? id : null;
 }
 
+/// Reads a required string argument. Safe to assume present and correctly
+/// typed: [McpToolRegistry._validateArgs] already checked both before any
+/// handler runs.
+String _requiredString(Map<String, Object?> args, String key) =>
+    args[key]! as String;
+
 /// Signature every tool handler implements. [args] have already passed
 /// schema validation; [principal] is the authenticated caller.
 typedef McpToolHandler = Future<Map<String, Object?>> Function(
@@ -113,7 +119,9 @@ class McpInvalidParamsException implements Exception {
 /// [McpTool]s.
 class McpToolRegistry {
   /// Wraps [tools] as the registry's fixed catalog, in declaration order.
-  McpToolRegistry(List<McpTool> tools) : _tools = List.unmodifiable(tools);
+  McpToolRegistry(List<McpTool> tools)
+      : _tools = List.unmodifiable(tools),
+        _byName = {for (final tool in tools) tool.name: tool};
 
   /// Builds the seven note tools wired to [deps]'s services.
   factory McpToolRegistry.forDeps(AppDeps deps) => McpToolRegistry([
@@ -131,6 +139,7 @@ class McpToolRegistry {
       ]);
 
   final List<McpTool> _tools;
+  final Map<String, McpTool> _byName;
 
   /// The fixed tool catalog, in declaration order.
   List<McpTool> get tools => _tools;
@@ -162,13 +171,7 @@ class McpToolRegistry {
     Map<String, Object?> args,
     McpPrincipal principal,
   ) async {
-    McpTool? tool;
-    for (final candidate in _tools) {
-      if (candidate.name == name) {
-        tool = candidate;
-        break;
-      }
-    }
+    final tool = _byName[name];
     if (tool == null) throw McpUnknownToolException(name);
 
     final requiredScope =
@@ -250,13 +253,13 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
         return toolOk({
           'items': [
             for (final s in page.items)
-              {
-                'id': s.id,
-                'title': s.title,
-                'version': s.version,
-                'created_at': s.createdAt.toUtc().toIso8601String(),
-                'updated_at': s.updatedAt.toUtc().toIso8601String(),
-              },
+              _summaryJson(
+                id: s.id,
+                title: s.title,
+                version: s.version,
+                createdAt: s.createdAt,
+                updatedAt: s.updatedAt,
+              ),
           ],
           'next_cursor': page.nextCursor,
         });
@@ -283,12 +286,7 @@ McpTool _getNoteTool(Storage storage, LockManager lockManager) => McpTool(
           final note = await storage.read(id);
           final lock = lockManager.lockOf(id);
           return toolOk({
-            'id': note.id,
-            'title': note.title,
-            'content': note.content,
-            'version': note.version,
-            'created_at': note.createdAt.toUtc().toIso8601String(),
-            'updated_at': note.updatedAt.toUtc().toIso8601String(),
+            ..._noteJson(note),
             if (lock != null)
               'lock': {
                 'holder': lock.holder,
@@ -320,7 +318,7 @@ McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
       },
       requiresWrite: false,
       handler: (args, principal) async {
-        final query = (args['query']! as String).trim();
+        final query = _requiredString(args, 'query').trim();
         if (query.isEmpty) {
           return toolFail(
             kErrorValidationFailed,
@@ -365,7 +363,7 @@ McpTool _createNoteTool(NoteWriteService writes) => McpTool(
       },
       requiresWrite: true,
       handler: (args, principal) async {
-        final title = args['title']! as String;
+        final title = _requiredString(args, 'title');
         if (title.trim().isEmpty) {
           return toolFail(
             kErrorValidationFailed,
@@ -470,7 +468,7 @@ McpTool _appendToNoteTool(
       handler: (args, principal) async {
         final id = _requiredNoteId(args);
         if (id == null) return toolFail(ErrorCode.notFound.wire);
-        final text = args['text']! as String;
+        final text = _requiredString(args, 'text');
         if (text.trim().isEmpty) {
           return toolFail(
             kErrorValidationFailed,
@@ -575,11 +573,30 @@ Map<String, Object?> _versionConflictFail(
       },
     );
 
+/// Builds the metadata-only fields shared by `list_notes` items and the
+/// full note JSON `get_note`/`create_note`/`update_note` return.
+Map<String, Object?> _summaryJson({
+  required String id,
+  required String title,
+  required int version,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+}) =>
+    {
+      'id': id,
+      'title': title,
+      'version': version,
+      'created_at': createdAt.toUtc().toIso8601String(),
+      'updated_at': updatedAt.toUtc().toIso8601String(),
+    };
+
 Map<String, Object?> _noteJson(StoredNote note) => {
-      'id': note.id,
-      'title': note.title,
+      ..._summaryJson(
+        id: note.id,
+        title: note.title,
+        version: note.version,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+      ),
       'content': note.content,
-      'version': note.version,
-      'created_at': note.createdAt.toUtc().toIso8601String(),
-      'updated_at': note.updatedAt.toUtc().toIso8601String(),
     };
