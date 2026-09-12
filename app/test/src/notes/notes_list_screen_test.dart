@@ -63,6 +63,38 @@ void main() {
     expect(find.text('world'), findsOneWidget);
   });
 
+  testWidgets('an active tag filter shows a clearable chip', (tester) async {
+    // Regression test: selecting a tag via a tag chip used to have no way
+    // back — nothing displayed the active filter and nothing cleared it.
+    final requestedTags = <String?>[];
+    final mock = MockClient((request) async {
+      requestedTags.add(request.url.queryParameters['tag']);
+      return _page(<Object?>[_metaJson(id: '01H', title: 'hello')]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: NotesListScreen(controller: ctrl)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('notes.filter.tag')), findsNothing);
+
+    await ctrl.selectTag('urgent');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tag: urgent'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('notes.filter.tag.clear')));
+    await tester.pumpAndSettle();
+
+    expect(ctrl.value.selectedTag, isNull);
+    expect(find.byKey(const Key('notes.filter.tag')), findsNothing);
+    expect(requestedTags.last, isNull);
+  });
+
   testWidgets('a supplied sidebar renders beside the list on a wide screen', (
     tester,
   ) async {
