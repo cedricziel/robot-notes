@@ -10,7 +10,7 @@ import '../config/config_store.dart';
 /// Why a setup attempt failed. Drives the UI message and is also useful in
 /// tests so we can assert the *category* of failure rather than coupling to
 /// the exact wording.
-enum SetupFailureReason { unauthorized, network, server }
+enum SetupFailureReason { unauthorized, network, server, insecureUrl }
 
 /// Sealed state machine for the setup screen.
 ///
@@ -41,7 +41,12 @@ class SetupSuccess extends SetupState {
 
 /// Drives the first-run validation flow.
 ///
-/// Validation hits two endpoints in sequence:
+/// Before any request is sent, [baseUrl] must be `https://`: a plain
+/// `http://` URL that redirects to `https` causes `package:http` to drop the
+/// `Authorization` header on the follow-up request, which then reports a
+/// spurious "API key was rejected" instead of the real problem.
+///
+/// Validation then hits two endpoints in sequence:
 ///   1. `GET /healthz` (no auth) — proves the URL is reachable and points at
 ///      a robot-notes server.
 ///   2. `GET /notes?limit=1` (with `Authorization` + `X-Actor`) — proves the
@@ -82,6 +87,16 @@ class SetupController extends ValueNotifier<SetupState> {
       apiKey: apiKey,
       actor: actor,
     ).normalized();
+
+    if (!draft.baseUrl.toLowerCase().startsWith('https://')) {
+      _log.warning('setup.submit rejected non-https baseUrl');
+      value = const SetupFailed(
+        SetupFailureReason.insecureUrl,
+        'Server URL must start with https://. A plain http:// URL can '
+        'redirect to https and silently drop the API key.',
+      );
+      return;
+    }
 
     value = const SetupSubmitting();
     _log.info('setup.submit start baseUrl=${draft.baseUrl}');

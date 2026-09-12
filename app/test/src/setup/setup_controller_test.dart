@@ -60,6 +60,26 @@ void main() {
       expect(await store.read(), isNull);
     });
 
+    test('http:// base url is rejected before any request is sent', () async {
+      final mock = MockClient((request) async {
+        fail('no request should be sent for a plain-http base url');
+      });
+
+      final controller = controllerWith(mock);
+
+      await controller.submit(
+        baseUrl: 'http://notes.example',
+        apiKey: 'k',
+        actor: 'cedric',
+      );
+
+      final state = controller.value;
+      expect(state, isA<SetupFailed>());
+      expect((state as SetupFailed).reason, SetupFailureReason.insecureUrl);
+      expect(state.message, contains('https://'));
+      expect(await store.read(), isNull);
+    });
+
     test(
       'unreachable server surfaces network failure and does not persist',
       () async {
