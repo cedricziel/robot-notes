@@ -804,6 +804,7 @@ void main() {
       for (final name in ['list_notes', 'get_note', 'search_notes']) {
         final tool = registry.tools.firstWhere((t) => t.name == name);
         expect(tool.annotations['readOnlyHint'], isTrue, reason: name);
+        expect(tool.annotations['destructiveHint'], isFalse, reason: name);
         expect(tool.annotations['openWorldHint'], isFalse, reason: name);
       }
     });

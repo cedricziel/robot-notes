@@ -244,6 +244,7 @@ class McpToolRegistry {
 Map<String, Object?> _readOnlyAnnotations(String title) => {
       'title': title,
       'readOnlyHint': true,
+      'destructiveHint': false,
       'idempotentHint': true,
       'openWorldHint': false,
     };
