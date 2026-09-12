@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../api/api_exceptions.dart';
@@ -217,7 +218,17 @@ class _NoteScreenState extends State<NoteScreen> {
               ),
           ],
         ),
-        body: _buildBody(context, state),
+        body: CallbackShortcuts(
+          bindings: <ShortcutActivator, VoidCallback>{
+            if (state.mode == NoteMode.editing) ...{
+              const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
+              const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+                  _save,
+            },
+            const SingleActivator(LogicalKeyboardKey.escape): _close,
+          },
+          child: _buildBody(context, state),
+        ),
       ),
     );
   }

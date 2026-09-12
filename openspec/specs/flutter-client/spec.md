@@ -197,6 +197,14 @@ When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS
 - **WHEN** the user navigates away from a note they had locked
 - **THEN** the app SHALL `DELETE /notes/{id}/lock`
 
+#### Scenario: Keyboard shortcuts save and close
+
+- **GIVEN** the user is editing a note, including while a text field has focus
+- **WHEN** they press Cmd+S (macOS) or Ctrl+S (other platforms)
+- **THEN** the app SHALL save the note the same way as tapping "Save"
+- **WHEN** they press Escape
+- **THEN** the app SHALL trigger the same close flow as tapping the close button, prompting to discard if there are unsaved edits
+
 ### Requirement: Unsaved edits are not discarded without confirmation
 
 When the user leaves the note view — via the close button, the browser back button, or the OS back gesture — while the edit buffers differ from the loaded note, the app SHALL ask for confirmation before releasing the lock and discarding the edits. Leaving with unchanged buffers SHALL NOT prompt.
