@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/mcp/mcp_handler.dart';
+import 'package:server/src/mcp/mcp_http.dart';
 import 'package:server/src/mcp/principal.dart';
 import 'package:server/src/mcp/tools.dart';
 import 'package:shared/shared.dart';
@@ -38,6 +41,7 @@ RequestContext _ctx({
   Map<String, String> headers = const {},
   Object? body,
   bool malformedJson = false,
+  int? rawBodyByteCount,
   McpPrincipal principal = _principal,
   String? configPublicUrl = _publicUrl,
 }) {
@@ -50,11 +54,17 @@ RequestContext _ctx({
   };
   when(() => req.headers).thenReturn(lower);
   if (malformedJson) {
-    when(req.json).thenAnswer(
-      (_) async => throw const FormatException('bad json'),
+    when(req.bytes).thenAnswer(
+      (_) => Stream.value(utf8.encode('{not valid json')),
+    );
+  } else if (rawBodyByteCount != null) {
+    when(req.bytes).thenAnswer(
+      (_) => Stream.value(Uint8List(rawBodyByteCount)),
     );
   } else if (body != null) {
-    when(req.json).thenAnswer((_) async => body);
+    when(req.bytes).thenAnswer(
+      (_) => Stream.value(utf8.encode(jsonEncode(body))),
+    );
   }
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<Config>()).thenReturn(
@@ -227,6 +237,34 @@ void main() {
     final json = await res.json() as Map<String, dynamic>;
     expect(json['id'], isNull);
     expect((json['error'] as Map<String, dynamic>)['code'], -32700);
+  });
+
+  test(
+    'a body over 1 MiB is 413 before JSON decoding is attempted',
+    () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          handler: handler,
+          rawBodyByteCount: kMaxMcpBodyBytes + 1,
+        ),
+      );
+      expect(res.statusCode, HttpStatus.requestEntityTooLarge);
+      expect(await res.json(), {'error': 'payload_too_large'});
+    },
+  );
+
+  test('a body at exactly the 1 MiB cap is not rejected for size', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        handler: handler,
+        rawBodyByteCount: kMaxMcpBodyBytes,
+      ),
+    );
+    // A buffer of zero bytes is not valid JSON, so this still 400s — the
+    // point is that it is a parse failure, not a 413.
+    expect(res.statusCode, HttpStatus.badRequest);
   });
 
   test('batch request is 400 with JSON-RPC -32600', () async {

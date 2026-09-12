@@ -9,6 +9,13 @@ import 'package:dart_frog/dart_frog.dart';
 /// bracketed form.
 const Set<String> kLoopbackOriginHosts = {'localhost', '127.0.0.1', '::1'};
 
+/// Hard ceiling on a `/mcp` request body, in bytes. A JSON-RPC message —
+/// even a large `tools/call` for `update_note` — has no legitimate reason
+/// to approach this; it exists to bound how much of a request the server
+/// will buffer in memory before JSON-decoding it, regardless of how large
+/// a caller (authenticated or not) claims the body is.
+const int kMaxMcpBodyBytes = 1024 * 1024;
+
 /// Whether [origin] (an `Origin` header value) is acceptable for a `/mcp`
 /// request: an `http` loopback origin at any port is always accepted, and
 /// when [publicUrl] (`Config.publicUrl`) is configured its exact origin
@@ -57,4 +64,11 @@ Response mcpForbidden() => Response.json(
 Response mcpUnsupportedProtocolVersion() => Response.json(
       statusCode: HttpStatus.badRequest,
       body: const {'error': 'unsupported_protocol_version'},
+    );
+
+/// The `413 Payload Too Large` response for a request body exceeding
+/// [kMaxMcpBodyBytes].
+Response mcpPayloadTooLarge() => Response.json(
+      statusCode: HttpStatus.requestEntityTooLarge,
+      body: const {'error': 'payload_too_large'},
     );
