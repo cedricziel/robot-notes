@@ -1,5 +1,7 @@
 import 'package:meta/meta.dart';
 import 'package:server/src/app_deps.dart';
+import 'package:server/src/backlinks.dart';
+import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/mcp/principal.dart';
 import 'package:server/src/mcp/tool_results.dart';
@@ -120,7 +122,7 @@ class McpInvalidParamsException implements Exception {
   String toString() => 'McpInvalidParamsException: $message';
 }
 
-/// Registry of the seven fixed note tools exposed over `/mcp`.
+/// Registry of the nine fixed note tools exposed over `/mcp`.
 ///
 /// Built once per server from [AppDeps] via [McpToolRegistry.forDeps];
 /// tests may also build one directly from a hand-picked [List] of
@@ -131,7 +133,7 @@ class McpToolRegistry {
       : _tools = List.unmodifiable(tools),
         _byName = {for (final tool in tools) tool.name: tool};
 
-  /// Builds the seven note tools wired to [deps]'s services.
+  /// Builds the nine note tools wired to [deps]'s services.
   factory McpToolRegistry.forDeps(AppDeps deps) => McpToolRegistry([
         _listNotesTool(deps.metaIndex),
         _getNoteTool(deps.storage, deps.lockManager),
@@ -144,6 +146,8 @@ class McpToolRegistry {
           deps.lockManager,
         ),
         _deleteNoteTool(deps.noteWriteService, deps.lockManager),
+        _moveNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
+        _getBacklinksTool(deps.metaIndex, deps.linkIndex, deps.storage),
       ]);
 
   final List<McpTool> _tools;
@@ -282,6 +286,8 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
             'type': 'string',
             'enum': [kSortId, kSortUpdatedDesc],
           },
+          'path': {'type': 'string'},
+          'tag': {'type': 'string'},
         },
         'required': <String>[],
       },
@@ -291,12 +297,20 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
         final limit = (args['limit'] as int?) ?? kDefaultPageSize;
         final after = args['after'] as String?;
         final sort = (args['sort'] as String?) ?? kSortId;
+        final pathFilter = args['path'] as String?;
+        final tagFilter = args['tag'] as String?;
         if (!kSupportedSorts.contains(sort)) {
           return toolFail(kErrorValidationFailed, message: kSortErrorMessage);
         }
         final MetaIndexPage page;
         try {
-          page = metaIndex.page(after: after, limit: limit, sort: sort);
+          page = metaIndex.page(
+            after: after,
+            limit: limit,
+            sort: sort,
+            pathPrefix: pathFilter,
+            tag: tagFilter,
+          );
         } on InvalidCursorException {
           return toolFail(
             kErrorValidationFailed,
@@ -309,6 +323,7 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
               _summaryJson(
                 id: s.id,
                 title: s.title,
+                path: s.path,
                 version: s.version,
                 createdAt: s.createdAt,
                 updatedAt: s.updatedAt,
@@ -367,6 +382,8 @@ McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
             'minimum': 1,
             'maximum': kMaxSearchLimit,
           },
+          'path': {'type': 'string'},
+          'tag': {'type': 'string'},
         },
         'required': ['query'],
       },
@@ -381,14 +398,22 @@ McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
           );
         }
         final limit = (args['limit'] as int?) ?? kMcpSearchDefaultLimit;
+        final pathFilter = args['path'] as String?;
+        final tagFilter = args['tag'] as String?;
         try {
-          final hits = searchIndex.search(query, limit: limit);
+          final hits = searchIndex.search(
+            query,
+            limit: limit,
+            path: pathFilter,
+            tag: tagFilter,
+          );
           return toolOk({
             'items': [
               for (final hit in hits)
                 {
                   'id': hit.id,
                   'title': hit.title,
+                  'path': hit.path,
                   'snippet': hit.snippet,
                   'rank': hit.rank,
                 },
@@ -413,6 +438,7 @@ McpTool _createNoteTool(NoteWriteService writes) => McpTool(
         'properties': {
           'title': {'type': 'string'},
           'content': {'type': 'string'},
+          'path': {'type': 'string'},
         },
         'required': ['title'],
       },
@@ -431,12 +457,18 @@ McpTool _createNoteTool(NoteWriteService writes) => McpTool(
           );
         }
         final content = (args['content'] as String?) ?? '';
-        final note = await writes.create(
-          title: title,
-          content: content,
-          actor: principal.actor,
-        );
-        return toolOk(_noteJson(note));
+        final path = (args['path'] as String?) ?? '';
+        try {
+          final note = await writes.create(
+            title: title,
+            content: content,
+            actor: principal.actor,
+            path: path,
+          );
+          return toolOk(_noteJson(note));
+        } on PathConflictException {
+          return toolFail(kErrorPathConflict);
+        }
       },
     );
 
@@ -447,11 +479,12 @@ McpTool _updateNoteTool(
 ) =>
     McpTool(
       name: 'update_note',
-      description:
-          "Replace a note's title and/or content, enforcing optimistic "
-          'concurrency via version — the call fails with version_conflict if '
-          'the note changed since you last read it. Prefer append_to_note when '
-          'you only need to add material to the end of an existing note.',
+      description: "Replace a note's title, content, and/or path, enforcing "
+          'optimistic concurrency via version — the call fails with '
+          'version_conflict if the note changed since you last read it. '
+          'Prefer append_to_note when you only need to add material to the '
+          'end of an existing note, or move_note when you only need to '
+          'change its folder.',
       inputSchema: const {
         'type': 'object',
         'properties': {
@@ -459,6 +492,7 @@ McpTool _updateNoteTool(
           'version': {'type': 'integer'},
           'title': {'type': 'string'},
           'content': {'type': 'string'},
+          'path': {'type': 'string'},
         },
         'required': ['id', 'version'],
       },
@@ -474,10 +508,11 @@ McpTool _updateNoteTool(
         final version = args['version']! as int;
         final titleArg = args['title'] as String?;
         final contentArg = args['content'] as String?;
-        if (titleArg == null && contentArg == null) {
+        final pathArg = args['path'] as String?;
+        if (titleArg == null && contentArg == null && pathArg == null) {
           return toolFail(
             kErrorValidationFailed,
-            message: 'title or content is required',
+            message: 'title, content, or path is required',
           );
         }
         if (titleArg != null && titleArg.trim().isEmpty) {
@@ -498,10 +533,13 @@ McpTool _updateNoteTool(
             content: contentArg ?? current.content,
             ifMatch: version,
             actor: principal.actor,
+            path: pathArg,
           );
           return toolOk(_noteJson(updated));
         } on NoteNotFoundException {
           return toolFail(ErrorCode.notFound.wire);
+        } on PathConflictException {
+          return toolFail(kErrorPathConflict);
         } on VersionConflictException catch (e) {
           return _versionConflictFail(e.current, principal);
         }
@@ -622,6 +660,108 @@ McpTool _deleteNoteTool(NoteWriteService writes, LockManager lockManager) =>
       },
     );
 
+McpTool _moveNoteTool(
+  Storage storage,
+  NoteWriteService writes,
+  LockManager lockManager,
+) =>
+    McpTool(
+      name: 'move_note',
+      description:
+          'Move a note to a different folder without changing its title or '
+          'content, enforcing the same optimistic-concurrency version check '
+          'and lock check as update_note.',
+      inputSchema: const {
+        'type': 'object',
+        'properties': {
+          'id': {'type': 'string'},
+          'version': {'type': 'integer'},
+          'path': {'type': 'string'},
+        },
+        'required': ['id', 'version', 'path'],
+      },
+      annotations: _writeAnnotations(
+        'Move note',
+        destructive: false,
+        idempotent: true,
+      ),
+      requiresWrite: true,
+      handler: (args, principal) async {
+        final id = _requiredNoteId(args);
+        if (id == null) return toolFail(ErrorCode.notFound.wire);
+        final version = args['version']! as int;
+        final path = _requiredString(args, 'path');
+
+        final conflict = _lockConflict(lockManager, id, principal.actor);
+        if (conflict != null) return conflict;
+
+        try {
+          final current = await storage.read(id);
+          final updated = await writes.update(
+            id: id,
+            title: current.title,
+            content: current.content,
+            ifMatch: version,
+            actor: principal.actor,
+            path: path,
+          );
+          return toolOk(_noteJson(updated));
+        } on NoteNotFoundException {
+          return toolFail(ErrorCode.notFound.wire);
+        } on PathConflictException {
+          return toolFail(kErrorPathConflict);
+        } on VersionConflictException catch (e) {
+          return _versionConflictFail(e.current, principal);
+        }
+      },
+    );
+
+McpTool _getBacklinksTool(
+  MetaIndex metaIndex,
+  LinkIndex linkIndex,
+  Storage storage,
+) =>
+    McpTool(
+      name: 'get_backlinks',
+      description:
+          'List every note that links to the given note, each with a short '
+          'snippet of surrounding context — mirrors '
+          'GET /notes/{id}/backlinks.',
+      inputSchema: const {
+        'type': 'object',
+        'properties': {
+          'id': {'type': 'string'},
+        },
+        'required': ['id'],
+      },
+      annotations: _readOnlyAnnotations('Get backlinks'),
+      requiresWrite: false,
+      handler: (args, principal) async {
+        final id = _requiredNoteId(args);
+        if (id == null) return toolFail(ErrorCode.notFound.wire);
+        try {
+          final entries = await computeBacklinks(
+            targetId: id,
+            metaIndex: metaIndex,
+            linkIndex: linkIndex,
+            storage: storage,
+          );
+          return toolOk({
+            'items': [
+              for (final entry in entries)
+                {
+                  'id': entry.id,
+                  'title': entry.title,
+                  'snippet': entry.snippet,
+                },
+            ],
+          });
+        } on NoteNotFoundException {
+          return toolFail(ErrorCode.notFound.wire);
+        }
+      },
+    );
+
 Map<String, Object?>? _lockConflict(
   LockManager lockManager,
   String noteId,
@@ -653,6 +793,7 @@ Map<String, Object?> _versionConflictFail(
 Map<String, Object?> _summaryJson({
   required String id,
   required String title,
+  required String path,
   required int version,
   required DateTime createdAt,
   required DateTime updatedAt,
@@ -660,6 +801,7 @@ Map<String, Object?> _summaryJson({
     {
       'id': id,
       'title': title,
+      'path': path,
       'version': version,
       'created_at': createdAt.toUtc().toIso8601String(),
       'updated_at': updatedAt.toUtc().toIso8601String(),
@@ -669,6 +811,7 @@ Map<String, Object?> _noteJson(StoredNote note) => {
       ..._summaryJson(
         id: note.id,
         title: note.title,
+        path: note.path,
         version: note.version,
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,

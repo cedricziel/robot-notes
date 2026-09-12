@@ -12,6 +12,11 @@ const String kErrorInsufficientScope = 'insufficient_scope';
 /// [kErrorInsufficientScope].
 const String kErrorValidationFailed = 'validation_failed';
 
+/// Wire error code for a write whose resolved target path collides with a
+/// different note, mirroring the HTTP API's `path_conflict` (also not an
+/// `ErrorCode` enum member — see [kErrorInsufficientScope]).
+const String kErrorPathConflict = 'path_conflict';
+
 /// Builds a successful `tools/call` result: [payload] serialized as the
 /// sole `text` content item, and again verbatim as `structuredContent`, per
 /// the `mcp-server` spec's "Tool results carry text and structured content"

@@ -109,13 +109,13 @@
 
 ### 13. MCP tool catalog
 
-- [ ] 13.1 Write failing tests: `tools/list` includes `path`/`tag` params on `list_notes`/`create_note`/`search_notes`, plus new `move_note` and `get_backlinks` tools with correct required fields
-- [ ] 13.2 Update `server/lib/src/mcp/tools.dart` schema definitions; run tests green
-- [ ] 13.3 Write failing tests: `move_note` performs the same version/lock/path-conflict checks as `update_note` and broadcasts `moved`; `get_backlinks` mirrors the HTTP endpoint including `not_found`
-- [ ] 13.4 Implement both tool handlers in `mcp/mcp_handler.dart`; run tests green
-- [ ] 13.5 Write failing test: existing `list_notes`/`create_note`/`search_notes` handlers accept and apply `path`/`tag`
-- [ ] 13.6 Wire the new params through; run tests green
-- [ ] 13.7 Commit: `feat(server): add path/tag params and move/backlinks tools to MCP`
+- [x] 13.1 Write failing tests: `tools/list` includes `path`/`tag` params on `list_notes`/`create_note`/`search_notes`, plus new `move_note` and `get_backlinks` tools with correct required fields — `server/test/src/mcp/tools_test.dart`, plus updating the pre-existing hard-coded catalog-size assertions (7 → 9) in `server/test/src/mcp/mcp_handler_test.dart` and `server/test/integration/mcp_flow_test.dart` — the delta spec's "tools/list" requirement also adds `path` to `update_note`'s optional properties (not called out in the task text, but explicit in `specs/mcp-server/spec.md`'s MODIFIED catalog line and its "Write tools" requirement: "a `path` change SHALL move the note as in `PUT /notes/{id}`"), so that schema/test coverage is included here too
+- [x] 13.2 Update `server/lib/src/mcp/tools.dart` schema definitions; run tests green
+- [x] 13.3 Write failing tests: `move_note` performs the same version/lock/path-conflict checks as `update_note` and broadcasts `moved`; `get_backlinks` mirrors the HTTP endpoint including `not_found` — same file; also covers `create_note`/`update_note` gaining `path_conflict` handling (the delta spec requires it for all three path-changing tools, and neither existing tool caught `PathConflictException` before this change)
+- [x] 13.4 ~~Implement both tool handlers in `mcp/mcp_handler.dart`~~ — implemented in `mcp/tools.dart` alongside the other seven tool definitions/handlers, matching where every existing tool (including its handler closure) already lives; `mcp_handler.dart` only dispatches `tools/call` to the registry and needed no change. `move_note` delegates to `NoteWriteService.update` (the same underlying call `update_note`/`PUT /notes/{id}` use) rather than reimplementing version/lock/path-conflict handling. `get_backlinks` calls a new shared `computeBacklinks()` (`server/lib/src/backlinks.dart`), extracted from `routes/notes/[id]/backlinks.dart`'s previously-inline logic so the HTTP route and the MCP tool share one implementation instead of two hand-kept-in-sync copies; the route's own tests (`server/test/routes/notes/[id]/backlinks_test.dart`) were re-run unmodified to confirm the refactor preserves behavior; run tests green
+- [x] 13.5 Write failing test: existing `list_notes`/`create_note`/`search_notes` handlers accept and apply `path`/`tag` — same file; `list_notes`/`search_notes` items also gain a `path` field per the delta spec's "Read tools mirror the HTTP API" requirement, via a shared `_summaryJson`/`_noteJson` change that also adds `path` to `get_note`/`create_note`/`update_note`/`move_note`'s full-note responses
+- [x] 13.6 Wire the new params through; run tests green
+- [x] 13.7 Commit: `feat(server): add path/tag params and move/backlinks tools to MCP`
 
 ### 14. Flutter: folder tree sidebar
 
