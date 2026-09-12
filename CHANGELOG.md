@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.8](https://github.com/cedricziel/robot-notes/compare/v0.1.7...v0.1.8) (2026-09-12)
+
+
+### Features
+
+* **app:** add OIDC sign-in as an alternative to pasting the API key ([#133](https://github.com/cedricziel/robot-notes/issues/133)) ([7736bea](https://github.com/cedricziel/robot-notes/commit/7736bead0a52094da57ecdcfea156f34529f4e63))
+* **server:** accept scoped OAuth tokens on the REST API and WebSocket ([#130](https://github.com/cedricziel/robot-notes/issues/130)) ([d0bbedc](https://github.com/cedricziel/robot-notes/commit/d0bbedc6658c8aeb0ea536d67f05a169b8bf851f))
+* **server:** add OIDC discovery, JWKS verification, and pending-login store ([#131](https://github.com/cedricziel/robot-notes/issues/131)) ([d72b7df](https://github.com/cedricziel/robot-notes/commit/d72b7dff33f73c2b87a1dd48a8451b05c7b7aa0b))
+* **server:** add OIDC login and callback routes, wire into consent ([#132](https://github.com/cedricziel/robot-notes/issues/132)) ([5c52c21](https://github.com/cedricziel/robot-notes/commit/5c52c2128632aa4ef59d4dfa08c61a4086973b8e))
+
+
+### Documentation
+
+* document OIDC login coexistence model and consent flow ([#134](https://github.com/cedricziel/robot-notes/issues/134)) ([4584f51](https://github.com/cedricziel/robot-notes/commit/4584f51a8af777a0e2a47382c9e572f149068289))
+
 ## [0.1.7](https://github.com/cedricziel/robot-notes/compare/v0.1.6...v0.1.7) (2026-09-12)
 
 
