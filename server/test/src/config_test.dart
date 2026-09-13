@@ -606,6 +606,112 @@ void main() {
         );
       });
     });
+
+    group('embedding provider', () {
+      test('embeddingProvider is null when unset', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x'],
+          env: const {},
+        );
+        expect(config.embeddingProvider, isNull);
+      });
+
+      test('reads --embedding-provider from CLI', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x', '--embedding-provider', 'ollama'],
+          env: const {},
+        );
+        expect(config.embeddingProvider, 'ollama');
+      });
+
+      test('falls back to ROBOT_NOTES_EMBEDDING_PROVIDER env var', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x'],
+          env: const {'ROBOT_NOTES_EMBEDDING_PROVIDER': 'ollama'},
+        );
+        expect(config.embeddingProvider, 'ollama');
+      });
+
+      test('throws ConfigError for an unsupported provider name', () {
+        expect(
+          () => Config.fromArgs(
+            const ['--api-key', 'rn_x', '--embedding-provider', 'bogus'],
+            env: const {},
+          ),
+          throwsA(
+            isA<ConfigError>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('bogus'), contains('ollama')),
+            ),
+          ),
+        );
+      });
+
+      test('ollamaBaseUrl defaults to http://localhost:11434', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x', '--embedding-provider', 'ollama'],
+          env: const {},
+        );
+        expect(config.ollamaBaseUrl, 'http://localhost:11434');
+      });
+
+      test('ollamaEmbeddingModel defaults to nomic-embed-text', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x', '--embedding-provider', 'ollama'],
+          env: const {},
+        );
+        expect(config.ollamaEmbeddingModel, 'nomic-embed-text');
+      });
+
+      test('--ollama-base-url overrides the default', () {
+        final config = Config.fromArgs(
+          const [
+            '--api-key',
+            'rn_x',
+            '--embedding-provider',
+            'ollama',
+            '--ollama-base-url',
+            'http://ollama.local:11434',
+          ],
+          env: const {},
+        );
+        expect(config.ollamaBaseUrl, 'http://ollama.local:11434');
+      });
+
+      test('ROBOT_NOTES_OLLAMA_BASE_URL overrides the default', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x', '--embedding-provider', 'ollama'],
+          env: const {
+            'ROBOT_NOTES_OLLAMA_BASE_URL': 'http://ollama.local:11434',
+          },
+        );
+        expect(config.ollamaBaseUrl, 'http://ollama.local:11434');
+      });
+
+      test('--ollama-embedding-model overrides the default', () {
+        final config = Config.fromArgs(
+          const [
+            '--api-key',
+            'rn_x',
+            '--embedding-provider',
+            'ollama',
+            '--ollama-embedding-model',
+            'other-model',
+          ],
+          env: const {},
+        );
+        expect(config.ollamaEmbeddingModel, 'other-model');
+      });
+
+      test('ROBOT_NOTES_OLLAMA_MODEL overrides the default', () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x', '--embedding-provider', 'ollama'],
+          env: const {'ROBOT_NOTES_OLLAMA_MODEL': 'other-model'},
+        );
+        expect(config.ollamaEmbeddingModel, 'other-model');
+      });
+    });
   });
 
   group('Config.loadOrExit', () {

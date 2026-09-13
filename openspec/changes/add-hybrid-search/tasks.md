@@ -11,9 +11,9 @@
 
 ## 3. Config surface
 
-- [ ] 3.1 Write a failing test asserting `Config.fromArgs` resolves `embeddingProvider` from `--embedding-provider` / `ROBOT_NOTES_EMBEDDING_PROVIDER` (only `ollama` accepted, anything else throws `ConfigError`), `null` when unset; implement in `server/lib/src/config.dart` to pass
-- [ ] 3.2 Write a failing test asserting `ollamaBaseUrl` defaults to `http://localhost:11434` and `ollamaEmbeddingModel` defaults to `nomic-embed-text`, both overridable via `--ollama-base-url`/`ROBOT_NOTES_OLLAMA_BASE_URL` and `--ollama-embedding-model`/`ROBOT_NOTES_OLLAMA_MODEL`; implement to pass
-- [ ] 3.3 Wire `Config` → an `EmbeddingProvider?` factory (returns `null` when `embeddingProvider` is unset) used at server startup, and verify via a startup-level test that no `EmbeddingProvider` is constructed when unconfigured
+- [x] 3.1 Write a failing test asserting `Config.fromArgs` resolves `embeddingProvider` from `--embedding-provider` / `ROBOT_NOTES_EMBEDDING_PROVIDER` (only `ollama` accepted, anything else throws `ConfigError`), `null` when unset; implement in `server/lib/src/config.dart` to pass
+- [x] 3.2 Write a failing test asserting `ollamaBaseUrl` defaults to `http://localhost:11434` and `ollamaEmbeddingModel` defaults to `nomic-embed-text`, both overridable via `--ollama-base-url`/`ROBOT_NOTES_OLLAMA_BASE_URL` and `--ollama-embedding-model`/`ROBOT_NOTES_OLLAMA_MODEL`; implement to pass
+- [x] 3.3 Wire `Config` → an `EmbeddingProvider?` factory (returns `null` when `embeddingProvider` is unset) used at server startup, and verify via a startup-level test that no `EmbeddingProvider` is constructed when unconfigured — `embeddingProviderFromConfig()` added at `server/lib/src/embeddings/embedding_provider_factory.dart`; actual call-site wiring into `AppDeps.bootstrap`/`SearchIndex.open` deferred to task 8.1 since `SearchIndex` doesn't accept a provider until task 4.2
 
 ## 4. Vector storage in the search index
 
