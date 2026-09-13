@@ -39,10 +39,10 @@
 
 ## 7. Startup backfill
 
-- [ ] 7.1 Write a failing test asserting a backfill pass identifies note ids present in `notes_fts` but absent from the vector table; implement the query to pass
-- [ ] 7.2 Write a failing test asserting backfill processes ids in batches (e.g. 10) with a delay between batches rather than all at once, using a fake provider and a batch-call counter; implement to pass
-- [ ] 7.3 Write a failing test asserting server startup returns/becomes ready before backfill completes (backfill runs detached, not awaited in the startup path); implement to pass
-- [ ] 7.4 Write a failing test asserting a note with a pending (not-yet-backfilled) embedding is still returned via BM25 matching; implement/verify to pass
+- [x] 7.1 Write a failing test asserting a backfill pass identifies note ids present in `notes_fts` but absent from the vector table; implement the query to pass — `SearchIndex._idsMissingEmbeddings()`, exercised end-to-end via `backfillEmbeddings()` rather than tested in isolation (it's a private helper; the observable behavior is what matters)
+- [x] 7.2 Write a failing test asserting backfill processes ids in batches (e.g. 10) with a delay between batches rather than all at once, using a fake provider and a batch-call counter; implement to pass — used an injectable `sleep` callback instead of real/fake-clock delays to keep the test fast and non-flaky; asserts the expected number of inter-batch gaps (25 ids / batch 10 = 2 gaps) rather than timing
+- [x] 7.3 Write a failing test asserting server startup returns/becomes ready before backfill completes (backfill runs detached, not awaited in the startup path); implement to pass — `SearchIndex.open()` kicks off `backfillEmbeddings()` via `unawaited()` when a provider is configured, exposing the Future as `pendingBackfill` so tests/callers can await it explicitly instead of relying on incidental timing. Added an `autoBackfill` flag to `open()` (default `true`) so tests exercising `backfillEmbeddings()` directly can suppress the automatic pass and avoid racing it — discovered mid-implementation when the automatic and manual passes double-processed the same batch
+- [x] 7.4 Write a failing test asserting a note with a pending (not-yet-backfilled) embedding is still returned via BM25 matching; implement/verify to pass
 
 ## 8. Wiring and docs
 

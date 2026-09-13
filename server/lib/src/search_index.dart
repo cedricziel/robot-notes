@@ -191,6 +191,13 @@ class SearchIndex {
     'DELETE FROM note_vectors WHERE id = ?;',
   );
 
+  /// The backfill [open] kicks off automatically when a provider is
+  /// configured, kept around so callers (namely tests) can await its
+  /// completion explicitly instead of relying on incidental timing. `null`
+  /// when no provider is configured — backfill never runs in that case.
+  @visibleForTesting
+  Future<void>? pendingBackfill;
+
   /// Opens the index at [dbFile] (creating its parent directory if
   /// necessary). If the file is missing, corrupt, or schema-mismatched the
   /// index is rebuilt by scanning [storage].
@@ -205,6 +212,12 @@ class SearchIndex {
   /// index, so it must run on every `open()`, not just once at table
   /// creation. `null` (the default) leaves search exactly as it behaved
   /// before hybrid search existed, including not creating the table at all.
+  ///
+  /// When [embeddingProvider] is supplied, a backfill pass (see
+  /// [backfillEmbeddings]) is kicked off automatically and detached unless
+  /// [autoBackfill] is `false` — tests that want to drive
+  /// [backfillEmbeddings] explicitly (to control batching/timing) set this
+  /// to `false` to avoid a second, racing pass.
   static Future<SearchIndex> open({
     required File dbFile,
     required Storage storage,
@@ -212,6 +225,7 @@ class SearchIndex {
     Tracer? tracer,
     bool forceRebuild = false,
     EmbeddingProvider? embeddingProvider,
+    bool autoBackfill = true,
   }) async {
     final log = logger ?? Logger('search_index');
     await dbFile.parent.create(recursive: true);
@@ -242,6 +256,14 @@ class SearchIndex {
     if (rebuild) {
       final loaded = await index._rebuild(storage);
       log.info('search.db rebuilt with $loaded note(s)');
+    }
+    if (embeddingProvider != null && autoBackfill) {
+      // Detached on purpose: startup must not block on backfill, per the
+      // "server backfills embeddings ... without blocking startup"
+      // requirement. `pendingBackfill` lets tests (and anything else that
+      // cares) await it explicitly instead of relying on timing.
+      index.pendingBackfill = index.backfillEmbeddings();
+      unawaited(index.pendingBackfill);
     }
     return index;
   }
@@ -625,6 +647,63 @@ class SearchIndex {
           distance: (row['distance'] as num).toDouble(),
         ),
     ];
+  }
+
+  /// Default number of notes embedded per batch during [backfillEmbeddings].
+  static const int _defaultBackfillBatchSize = 10;
+
+  /// Default pause between [backfillEmbeddings] batches, giving a local
+  /// embedding server (e.g. Ollama) room to breathe rather than firing
+  /// every request at once.
+  static const Duration _defaultBackfillDelay = Duration(milliseconds: 200);
+
+  /// Computes and stores embeddings for every note present in `notes_fts`
+  /// but missing from `note_vectors` — notes written before an embedding
+  /// provider was configured, or left behind by a prior failed/partial
+  /// backfill. Does nothing when no provider is configured.
+  ///
+  /// Processes ids in batches of [batchSize], pausing [delayBetweenBatches]
+  /// between (not within) batches via [sleep] — overridable in tests to
+  /// avoid real delays; defaults to [Future.delayed]. A note whose
+  /// `embed()` call fails is simply left for the next backfill pass (same
+  /// best-effort semantics as the write path).
+  Future<void> backfillEmbeddings({
+    int batchSize = _defaultBackfillBatchSize,
+    Duration delayBetweenBatches = _defaultBackfillDelay,
+    Future<void> Function(Duration)? sleep,
+  }) async {
+    final provider = _embeddingProvider;
+    if (provider == null) return;
+    final sleepFn = sleep ?? Future<void>.delayed;
+
+    final ids = _idsMissingEmbeddings();
+    for (var offset = 0; offset < ids.length; offset += batchSize) {
+      final batch = ids.skip(offset).take(batchSize);
+      for (final id in batch) {
+        final meta = _lookupNoteMeta(id);
+        if (meta == null) continue;
+        final embedding = await embedOrNull(
+          provider,
+          meta.content,
+          logger: _log,
+        );
+        if (embedding != null) {
+          _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
+        }
+      }
+      if (offset + batchSize < ids.length) {
+        await sleepFn(delayBetweenBatches);
+      }
+    }
+  }
+
+  /// Note ids present in `notes_fts` but absent from `note_vectors`.
+  List<String> _idsMissingEmbeddings() {
+    final rows = _db.select(
+      'SELECT id FROM notes_fts '
+      'WHERE id NOT IN (SELECT id FROM note_vectors);',
+    );
+    return [for (final row in rows) row['id'] as String];
   }
 
   /// Closes the database file. After calling this method the index must

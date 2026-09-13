@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
@@ -59,6 +60,7 @@ Future<SearchIndex> _open(
   Tracer? tracer,
   bool forceRebuild = false,
   EmbeddingProvider? embeddingProvider,
+  bool autoBackfill = true,
 }) {
   return SearchIndex.open(
     dbFile: _dbFile(tmp),
@@ -67,6 +69,7 @@ Future<SearchIndex> _open(
     tracer: tracer,
     forceRebuild: forceRebuild,
     embeddingProvider: embeddingProvider,
+    autoBackfill: autoBackfill,
   );
 }
 
@@ -944,4 +947,129 @@ void main() {
       expect(hits.map((h) => h.id).toList(), ['in-scope']);
     });
   });
+
+  group('SearchIndex.backfillEmbeddings', () {
+    test('computes and stores embeddings for notes that lack one', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: 'aardvark');
+      await storage.create(title: 'B', content: 'bumblebee');
+      final provider = FakeEmbeddingProvider();
+      // Opening with a provider on a fresh vault rebuilds notes_fts (via
+      // scanning storage) but backfill is a separate call — this proves
+      // 7.1's "identify ids missing an embedding" against real rebuilt
+      // rows, not hand-seeded ones. autoBackfill: false so open()'s own
+      // automatic pass doesn't race the explicit call below.
+      final index = await _open(
+        tmp,
+        storage: storage,
+        embeddingProvider: provider,
+        autoBackfill: false,
+      );
+      addTearDown(index.close);
+
+      await index.backfillEmbeddings(sleep: (_) async {});
+
+      final db = sqlite3.open(_dbFile(tmp).path);
+      final count = db.select('SELECT COUNT(*) AS c FROM note_vectors;');
+      db.close();
+      expect(count.single['c'], 2);
+    });
+
+    test('processes ids in batches, sleeping between (not within) batches',
+        () async {
+      final storage = _storage(tmp);
+      for (var i = 0; i < 25; i++) {
+        await storage.create(title: 'n$i', content: 'content $i');
+      }
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(
+        tmp,
+        storage: storage,
+        embeddingProvider: provider,
+        autoBackfill: false,
+      );
+      addTearDown(index.close);
+      final sleepCalls = <Duration>[];
+
+      await index.backfillEmbeddings(
+        sleep: (d) async {
+          sleepCalls.add(d);
+        },
+      );
+
+      // 25 ids / batch size 10 -> 3 batches -> 2 gaps between them.
+      expect(sleepCalls, hasLength(2));
+      expect(provider.callCount, 25);
+    });
+
+    test('does nothing when no provider is configured', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: 'aardvark');
+      final index = await _open(tmp, storage: storage);
+      addTearDown(index.close);
+
+      await index.backfillEmbeddings();
+
+      expect(_hasVectorTable(tmp), isFalse);
+    });
+  });
+
+  group('SearchIndex startup backfill', () {
+    test('open() does not block on backfill completing', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: 'aardvark');
+      final gate = Completer<void>();
+      final provider = _GatedEmbeddingProvider(gate.future);
+
+      // If open() awaited backfill to completion, this would hang forever
+      // since `gate` is never completed.
+      final index =
+          await _open(tmp, storage: storage, embeddingProvider: provider)
+              .timeout(const Duration(seconds: 5));
+      addTearDown(index.close);
+
+      expect(index.pendingBackfill, isNotNull);
+      gate.complete();
+      await index.pendingBackfill;
+    });
+
+    test(
+        'a note with a pending (not-yet-backfilled) embedding is still '
+        'findable via BM25', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: 'aardvark');
+      // autoBackfill: false simulates a backfill pass that hasn't run
+      // yet (or hasn't reached this note yet) — no note_vectors row
+      // exists, but a provider is configured, so search() takes the
+      // hybrid path and must not choke on the note's absent embedding.
+      final index = await _open(
+        tmp,
+        storage: storage,
+        embeddingProvider: FakeEmbeddingProvider(),
+        autoBackfill: false,
+      );
+      addTearDown(index.close);
+
+      final hits = await index.search('aardvark');
+
+      expect(hits, hasLength(1));
+    });
+  });
+}
+
+/// [EmbeddingProvider] whose `embed()` never resolves until [gate]
+/// completes — used to prove startup doesn't wait for backfill.
+class _GatedEmbeddingProvider implements EmbeddingProvider {
+  _GatedEmbeddingProvider(this.gate);
+
+  final Future<void> gate;
+
+  @override
+  int get dimensions => 4;
+
+  @override
+  Future<List<double>> embed(String text) async {
+    await gate;
+    return const [1.0, 2.0, 3.0, 4.0];
+  }
 }
