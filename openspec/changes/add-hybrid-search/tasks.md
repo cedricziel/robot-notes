@@ -52,9 +52,9 @@
 
 ## Definition of Done
 
-- [ ] Full `server` test suite passes, covering every scenario in `openspec/changes/add-hybrid-search/specs/search/spec.md`.
-- [ ] Search behavior is byte-for-byte unchanged (same ranking, same response shape) when no embedding provider is configured — verified by the regression test in 6.1.
-- [ ] `GET /search` and the `search_notes` MCP tool never return an error or 5xx solely because the embedding provider is absent or unreachable.
-- [ ] Every commit is atomic and conventional (`feat(search): ...`, `test(search): ...`), each preceded by a failing test.
-- [ ] `dart analyze` is clean and `/simplify` has been run over the diff before the final commit.
-- [ ] `openspec validate add-hybrid-search --strict` passes before archiving.
+- [x] Full `server` test suite passes, covering every scenario in `openspec/changes/add-hybrid-search/specs/search/spec.md`. — 1214/1214 passing.
+- [x] Search behavior is byte-for-byte unchanged (same ranking, same response shape) when no embedding provider is configured — verified by the regression test in 6.1.
+- [x] `GET /search` and the `search_notes` MCP tool never return an error or 5xx solely because the embedding provider is absent or unreachable.
+- [x] Every commit is atomic and conventional (`feat(search): ...`, `test(search): ...`), each preceded by a failing test.
+- [x] `dart analyze` is clean and `/simplify` has been run over the diff before the final commit. — `dart analyze` shows only one pre-existing, unrelated info-level lint; `/simplify` ran 4 parallel review passes (reuse/simplification/efficiency/altitude) and applied 9 fixes (see the `refactor(search): apply /simplify review findings` commit), skipping 2 findings (documented as out of scope in that commit's message).
+- [x] `openspec validate add-hybrid-search --strict` passes before archiving. — confirmed.
