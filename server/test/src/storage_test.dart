@@ -142,6 +142,76 @@ void main() {
     });
   });
 
+  group('Storage file index', () {
+    test('discovers a plain file placed directly on disk', () async {
+      final storage = _storage(tmp);
+      final dir = Directory('${tmp.path}/content/Ideas')
+        ..createSync(recursive: true);
+      File('${dir.path}/diagram.png').writeAsBytesSync([1, 2, 3]);
+
+      await storage.list();
+
+      expect(storage.files.map((f) => f.relativePath), ['Ideas/diagram.png']);
+      expect(storage.files.single.size, 3);
+    });
+
+    test('excludes .tmp files from the file index', () async {
+      final storage = _storage(tmp);
+      final dir = Directory('${tmp.path}/content')..createSync(recursive: true);
+      File('${dir.path}/partial.bin.tmp').writeAsBytesSync([1, 2, 3]);
+
+      await storage.list();
+
+      expect(storage.files, isEmpty);
+    });
+
+    test('filesIn returns only direct children of a folder', () async {
+      final storage = _storage(tmp);
+      final ideas = Directory('${tmp.path}/content/Ideas')
+        ..createSync(recursive: true);
+      final sub = Directory('${tmp.path}/content/Ideas/Sub')
+        ..createSync(recursive: true);
+      File('${ideas.path}/diagram.png').writeAsBytesSync([1]);
+      File('${sub.path}/other.png').writeAsBytesSync([1]);
+
+      await storage.list();
+
+      expect(
+        storage.filesIn('Ideas').map((f) => f.relativePath),
+        ['Ideas/diagram.png'],
+      );
+    });
+
+    test(
+      'a note, an empty-folder marker, and a file coexist and are '
+      'counted independently',
+      () async {
+        final storage = _storage(
+          tmp,
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        );
+        final dir = Directory('${tmp.path}/content/Ideas')
+          ..createSync(recursive: true);
+        File('${dir.path}/$kFolderMarkerFilename').createSync();
+        File('${dir.path}/diagram.png').writeAsBytesSync([1, 2]);
+        final note = await storage.create(
+          title: 'First idea',
+          content: '',
+          path: 'Ideas',
+        );
+
+        final summaries = await storage.list();
+
+        expect(summaries.map((s) => s.id), [note.id]);
+        expect(storage.emptyFolderPaths, {'Ideas'});
+        expect(
+          storage.filesIn('Ideas').map((f) => f.relativePath),
+          ['Ideas/diagram.png'],
+        );
+      },
+    );
+  });
+
   group('Storage.createFolder', () {
     test('creates a new empty folder with a marker file', () async {
       final storage = _storage(tmp);

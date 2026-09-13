@@ -59,15 +59,16 @@ void main() {
     final index = MetaIndex();
     await index.scan(storage);
 
-    final res =
-        await route.onRequest(_ctx(method: HttpMethod.get, metaIndex: index));
+    final res = await route.onRequest(
+      _ctx(method: HttpMethod.get, metaIndex: index, storage: storage),
+    );
 
     expect(res.statusCode, HttpStatus.ok);
     final body = await res.json() as Map<String, dynamic>;
     final folders = (body['folders'] as List).cast<Map<String, dynamic>>();
     expect(folders, [
-      {'path': '', 'note_count': 2},
-      {'path': 'Projects/Alpha', 'note_count': 1},
+      {'path': '', 'note_count': 2, 'file_count': 0},
+      {'path': 'Projects/Alpha', 'note_count': 1, 'file_count': 0},
     ]);
   });
 
@@ -82,8 +83,9 @@ void main() {
     final index = MetaIndex();
     await index.scan(storage);
 
-    final res =
-        await route.onRequest(_ctx(method: HttpMethod.get, metaIndex: index));
+    final res = await route.onRequest(
+      _ctx(method: HttpMethod.get, metaIndex: index, storage: storage),
+    );
     final body = await res.json() as Map<String, dynamic>;
     final paths =
         (body['folders'] as List).map((f) => (f as Map)['path']).toList();
@@ -91,8 +93,9 @@ void main() {
   });
 
   test('empty vault returns an empty folder list', () async {
+    final storage = Storage(contentDir: Directory('${tmp.path}/content'));
     final res = await route.onRequest(
-      _ctx(method: HttpMethod.get, metaIndex: MetaIndex()),
+      _ctx(method: HttpMethod.get, metaIndex: MetaIndex(), storage: storage),
     );
     final body = await res.json() as Map<String, dynamic>;
     expect(body['folders'], isEmpty);
@@ -104,13 +107,57 @@ void main() {
     final index = MetaIndex();
     await index.scan(storage);
 
-    final res =
-        await route.onRequest(_ctx(method: HttpMethod.get, metaIndex: index));
+    final res = await route.onRequest(
+      _ctx(method: HttpMethod.get, metaIndex: index, storage: storage),
+    );
     final body = await res.json() as Map<String, dynamic>;
     expect(body['folders'], [
-      {'path': 'Ideas', 'note_count': 0},
+      {'path': 'Ideas', 'note_count': 0, 'file_count': 0},
     ]);
   });
+
+  test('a folder holding only a file appears with a file_count', () async {
+    final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+    Directory('${tmp.path}/content/Attachments').createSync(recursive: true);
+    File(
+      '${tmp.path}/content/Attachments/diagram.png',
+    ).writeAsBytesSync([1, 2, 3]);
+    final index = MetaIndex();
+    await index.scan(storage);
+
+    final res = await route.onRequest(
+      _ctx(method: HttpMethod.get, metaIndex: index, storage: storage),
+    );
+    final body = await res.json() as Map<String, dynamic>;
+    expect(body['folders'], [
+      {'path': 'Attachments', 'note_count': 0, 'file_count': 1},
+    ]);
+  });
+
+  test(
+    'a folder with a note, a marker, and a file reports both counts',
+    () async {
+      final storage = Storage(
+        contentDir: Directory('${tmp.path}/content'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      await storage.createFolder('Ideas');
+      File(
+        '${tmp.path}/content/Ideas/diagram.png',
+      ).writeAsBytesSync([1, 2, 3]);
+      await storage.create(title: 'A', content: '', path: 'Ideas');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(method: HttpMethod.get, metaIndex: index, storage: storage),
+      );
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['folders'], [
+        {'path': 'Ideas', 'note_count': 1, 'file_count': 1},
+      ]);
+    },
+  );
 
   test('disallowed method returns 405', () async {
     final res = await route.onRequest(
@@ -156,11 +203,12 @@ void main() {
         ),
       );
 
-      final res =
-          await route.onRequest(_ctx(method: HttpMethod.get, metaIndex: index));
+      final res = await route.onRequest(
+        _ctx(method: HttpMethod.get, metaIndex: index, storage: storage),
+      );
       final body = await res.json() as Map<String, dynamic>;
       expect(body['folders'], [
-        {'path': 'Ideas', 'note_count': 0},
+        {'path': 'Ideas', 'note_count': 0, 'file_count': 0},
       ]);
     });
 
@@ -246,8 +294,9 @@ void main() {
       await storage.delete(note.id);
       index.remove(note.id);
 
-      final res =
-          await route.onRequest(_ctx(method: HttpMethod.get, metaIndex: index));
+      final res = await route.onRequest(
+        _ctx(method: HttpMethod.get, metaIndex: index, storage: storage),
+      );
       final body = await res.json() as Map<String, dynamic>;
       expect(body['folders'], isEmpty);
     });

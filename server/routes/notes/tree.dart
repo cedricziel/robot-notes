@@ -32,21 +32,34 @@ Future<Response> onRequest(RequestContext context) async {
 
 Response _tree(RequestContext context) {
   final index = context.read<MetaIndex>();
-  final counts = <String, int>{};
+  final storage = context.read<Storage>();
+  final noteCounts = <String, int>{};
   for (final summary in index.all) {
-    counts.update(summary.path, (n) => n + 1, ifAbsent: () => 1);
+    noteCounts.update(summary.path, (n) => n + 1, ifAbsent: () => 1);
   }
-  for (final emptyPath in index.emptyFolders) {
-    counts.putIfAbsent(emptyPath, () => 0);
+  final fileCounts = <String, int>{};
+  for (final file in storage.files) {
+    final folder = file.relativePath.contains('/')
+        ? file.relativePath.substring(0, file.relativePath.lastIndexOf('/'))
+        : '';
+    fileCounts.update(folder, (n) => n + 1, ifAbsent: () => 1);
   }
-  final folders = counts.entries.toList()
-    ..sort((a, b) => a.key.compareTo(b.key));
+  final paths = <String>{
+    ...noteCounts.keys,
+    ...index.emptyFolders,
+    ...fileCounts.keys,
+  }.toList()
+    ..sort();
 
   return Response.json(
     body: {
       'folders': [
-        for (final entry in folders)
-          {'path': entry.key, 'note_count': entry.value},
+        for (final path in paths)
+          {
+            'path': path,
+            'note_count': noteCounts[path] ?? 0,
+            'file_count': fileCounts[path] ?? 0,
+          },
       ],
     },
   );
