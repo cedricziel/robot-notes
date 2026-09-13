@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.11](https://github.com/cedricziel/robot-notes/compare/v0.2.10...v0.2.11) (2026-09-13)
+
+
+### Features
+
+* **claude-plugin:** add hook to continuously log conversations to robot-notes ([#216](https://github.com/cedricziel/robot-notes/issues/216)) ([8233b30](https://github.com/cedricziel/robot-notes/commit/8233b30a78b51675d2c1039b445ce7740b4bd41b))
+* **hermes-plugin:** add robotnotes_list to enumerate all notes ([#215](https://github.com/cedricziel/robot-notes/issues/215)) ([ef039b0](https://github.com/cedricziel/robot-notes/commit/ef039b0637b6f06dbb99c6506e81e9ad1411d0b6))
+* **search:** add hybrid (keyword + semantic) search ([#218](https://github.com/cedricziel/robot-notes/issues/218)) ([5ba41dc](https://github.com/cedricziel/robot-notes/commit/5ba41dc04c0afe82156016c14cb4d061889f7331))
+* **server/ws:** trace WebSocket messages as linked root spans ([#214](https://github.com/cedricziel/robot-notes/issues/214)) ([b4885cb](https://github.com/cedricziel/robot-notes/commit/b4885cbc477650d8285ddcaa52cdbd90442c4ed7))
+
+
+### Bug Fixes
+
+* **server:** tolerate natural-language punctuation in search queries ([#217](https://github.com/cedricziel/robot-notes/issues/217)) ([69b9421](https://github.com/cedricziel/robot-notes/commit/69b9421388e77c8b7ebc004bd479c5ecfe3658ce))
+
 ## [0.2.10](https://github.com/cedricziel/robot-notes/compare/v0.2.9...v0.2.10) (2026-09-13)
 
 
