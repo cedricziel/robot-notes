@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
@@ -484,6 +485,7 @@ class _NoteScreenState extends State<NoteScreen> {
                 )
               : Column(
                   children: [
+                    _MetadataLine(note: note),
                     Expanded(child: _ReadOnlyView(content: note.content)),
                     if (note.tags.isNotEmpty)
                       _TagChips(tags: note.tags, onTap: widget.onTagTap),
@@ -500,24 +502,87 @@ class _NoteScreenState extends State<NoteScreen> {
   }
 }
 
+/// A wide window turns a comfortable reading line into an uncomfortably
+/// long one; cap it like a document, not an app panel that fills whatever
+/// space it's given.
+const double _maxReadingWidth = 760;
+
 class _ReadOnlyView extends StatelessWidget {
   const _ReadOnlyView({required this.content});
   final String content;
 
   @override
   Widget build(BuildContext context) {
-    return SelectionArea(
-      child: Markdown(
-        key: const Key('note.body'),
-        data: content,
-        padding: const EdgeInsets.all(16),
-        // Never fetch images: a note can come from any actor, and loading a
-        // remote URL would leak the reader's IP to whoever wrote it.
-        imageBuilder: (uri, title, alt) => Text(alt ?? uri.toString()),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _maxReadingWidth),
+        child: SelectionArea(
+          child: Markdown(
+            key: const Key('note.body'),
+            data: content,
+            padding: const EdgeInsets.all(16),
+            // Never fetch images: a note can come from any actor, and
+            // loading a remote URL would leak the reader's IP to whoever
+            // wrote it.
+            imageBuilder: (uri, title, alt) => Text(alt ?? uri.toString()),
+          ),
+        ),
       ),
     );
   }
 }
+
+/// Folder path, relative update time, and version — visible at a glance
+/// instead of requiring a menu (path was previously only reachable via
+/// "Move to folder…"; time and version weren't shown anywhere).
+class _MetadataLine extends StatelessWidget {
+  const _MetadataLine({required this.note});
+
+  final Note note;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor);
+    final parts = [
+      if (note.path.isNotEmpty) note.path,
+      _formatRelativeTime(note.updatedAt),
+      'v${note.version}',
+    ];
+    return Padding(
+      key: const Key('note.metadata'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Text(parts.join(' · '), style: style),
+    );
+  }
+}
+
+/// Formats [dt] relative to now as "just now" / "N minute(s) ago" / "N
+/// hour(s) ago" / "N day(s) ago", falling back to an absolute date beyond
+/// a week. A near-duplicate of the notes-list row's relative-time helper
+/// (`notes_list_screen.dart`'s `formatRelativeNoteTime`, in an unmerged
+/// sibling change at time of writing) — worth consolidating into a
+/// shared util once both land, not worth blocking either on the other.
+String _formatRelativeTime(DateTime dt) {
+  final diff = DateTime.now().difference(dt);
+  if (diff.inDays >= 7) {
+    final t = dt.toLocal();
+    return '${t.year}-${_twoDigits(t.month)}-${_twoDigits(t.day)}';
+  }
+  if (diff.inDays >= 1) {
+    return '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
+  }
+  if (diff.inHours >= 1) {
+    return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
+  }
+  if (diff.inMinutes >= 1) {
+    return '${diff.inMinutes} minute${diff.inMinutes == 1 ? '' : 's'} ago';
+  }
+  return 'just now';
+}
+
+String _twoDigits(int n) => n.toString().padLeft(2, '0');
 
 class _Editor extends StatelessWidget {
   const _Editor({
@@ -664,7 +729,10 @@ class _TagChips extends StatelessWidget {
 /// Backlinks panel: notes that link to the one currently open, from
 /// `GET /notes/{id}/backlinks`. Shows an empty-state message (not an error)
 /// when there are none, since a fetch failure and "genuinely no backlinks"
-/// look the same to [NoteController].
+/// look the same to [NoteController]. When empty, this collapses to a
+/// small pill rather than the full bordered panel with its own heading —
+/// there's nothing to show, so it shouldn't claim footer space as if
+/// there were.
 class _BacklinksPanel extends StatelessWidget {
   const _BacklinksPanel({
     required this.backlinks,
@@ -678,6 +746,26 @@ class _BacklinksPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (backlinks.isEmpty) {
+      return Padding(
+        key: const Key('note.backlinks'),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: loading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Chip(
+                  key: Key('note.backlinks.empty'),
+                  visualDensity: VisualDensity.compact,
+                  label: Text('No notes link to this one yet.'),
+                ),
+        ),
+      );
+    }
     return Container(
       key: const Key('note.backlinks'),
       constraints: const BoxConstraints(maxHeight: 180),
@@ -695,37 +783,25 @@ class _BacklinksPanel extends StatelessWidget {
               style: Theme.of(context).textTheme.labelLarge,
             ),
           ),
-          if (loading && backlinks.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (backlinks.isEmpty)
-            const Padding(
-              key: Key('note.backlinks.empty'),
-              padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Text('No notes link to this one yet.'),
-            )
-          else
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  for (final hit in backlinks)
-                    ListTile(
-                      key: Key('note.backlinks.item.${hit.id}'),
-                      dense: true,
-                      title: Text(hit.title.isEmpty ? '(untitled)' : hit.title),
-                      subtitle: Text(
-                        hit.snippet,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      onTap: onOpen == null ? null : () => onOpen!(hit.id),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final hit in backlinks)
+                  ListTile(
+                    key: Key('note.backlinks.item.${hit.id}'),
+                    dense: true,
+                    title: Text(hit.title.isEmpty ? '(untitled)' : hit.title),
+                    subtitle: Text(
+                      hit.snippet,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                ],
-              ),
+                    onTap: onOpen == null ? null : () => onOpen!(hit.id),
+                  ),
+              ],
             ),
+          ),
         ],
       ),
     );
