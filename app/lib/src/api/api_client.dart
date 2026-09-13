@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:shared/shared.dart';
 
 import '../config/app_config.dart';
@@ -41,6 +42,38 @@ class NotesTree {
   const NotesTree({required this.folders});
 
   final List<TreeFolder> folders;
+}
+
+/// `POST /notes/attachments` response: where an uploaded file ended up
+/// and how the server sees it.
+@immutable
+class AttachmentUploadResult {
+  const AttachmentUploadResult({
+    required this.path,
+    required this.filename,
+    required this.size,
+    required this.contentType,
+  });
+
+  /// Folder the attachment was stored in.
+  final String path;
+
+  /// Sanitized filename the attachment was stored under.
+  final String filename;
+
+  /// Size of the stored file, in bytes.
+  final int size;
+
+  /// Content-type the server recorded for the upload.
+  final String contentType;
+
+  factory AttachmentUploadResult.fromJson(Map<String, dynamic> json) =>
+      AttachmentUploadResult(
+        path: json['path'] as String,
+        filename: json['filename'] as String,
+        size: json['size'] as int,
+        contentType: json['content_type'] as String,
+      );
 }
 
 /// One entry of `GET /notes/{id}/backlinks`: a note that links to the note
@@ -221,6 +254,34 @@ class RobotNotesClient {
     _ok(res);
   }
 
+  /// `POST /notes/attachments` — uploads a non-note file into [path]
+  /// (the vault root when empty). A filename collision surfaces as
+  /// [PathConflictException]; exceeding the server's configured max
+  /// upload size surfaces as [PayloadTooLargeException].
+  Future<AttachmentUploadResult> uploadFile({
+    required String path,
+    required String filename,
+    required List<int> bytes,
+    String? contentType,
+  }) async {
+    final request = http.MultipartRequest('POST', _uri('/notes/attachments'))
+      ..headers.addAll(_baseHeaders)
+      ..fields['path'] = path
+      ..files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: filename,
+          contentType: contentType != null
+              ? MediaType.parse(contentType)
+              : null,
+        ),
+      );
+    final streamed = await _http.send(request);
+    final res = await http.Response.fromStream(streamed);
+    return AttachmentUploadResult.fromJson(_ok(res));
+  }
+
   Future<Note> updateNote({
     required String id,
     required String title,
@@ -341,6 +402,8 @@ class RobotNotesClient {
           statusCode: 409,
           message: message ?? 'version_conflict body missing "current"',
         );
+      case 413:
+        return PayloadTooLargeException(message: message);
       case 423:
         final lock = body?['lock'];
         if (lock is Map<String, dynamic>) {

@@ -519,6 +519,87 @@ void main() {
       );
     });
 
+    test(
+      'uploadFile posts a multipart request and parses the response',
+      () async {
+        http.Request? captured;
+        final mock = MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'path': 'Ideas',
+              'filename': 'note.txt',
+              'size': 5,
+              'content_type': 'text/plain',
+            }),
+            201,
+          );
+        });
+
+        final client = RobotNotesClient(config: _config, httpClient: mock);
+        final result = await client.uploadFile(
+          path: 'Ideas',
+          filename: 'note.txt',
+          bytes: utf8.encode('hello'),
+        );
+
+        expect(result.path, 'Ideas');
+        expect(result.filename, 'note.txt');
+        expect(result.size, 5);
+        expect(result.contentType, 'text/plain');
+
+        expect(captured?.method, 'POST');
+        expect(captured?.url.path, '/notes/attachments');
+        expect(captured?.headers['authorization'], 'Bearer test-key');
+        final sent = utf8.decode(captured!.bodyBytes);
+        expect(sent, contains('name="path"'));
+        expect(sent, contains('Ideas'));
+        expect(sent, contains('filename="note.txt"'));
+        expect(sent, contains('hello'));
+      },
+    );
+
+    test('uploadFile 409 surfaces PathConflictException', () async {
+      final mock = MockClient((request) async {
+        return http.Response(
+          jsonEncode(<String, Object?>{'error': 'path_conflict'}),
+          409,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+
+      await expectLater(
+        client.uploadFile(path: '', filename: 'note.txt', bytes: const [1]),
+        throwsA(isA<PathConflictException>()),
+      );
+    });
+
+    test('uploadFile 413 surfaces PayloadTooLargeException', () async {
+      final mock = MockClient((request) async {
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'error': 'payload_too_large',
+            'message': 'exceeds the configured limit',
+          }),
+          413,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+
+      await expectLater(
+        client.uploadFile(path: '', filename: 'note.txt', bytes: const [1]),
+        throwsA(
+          isA<PayloadTooLargeException>().having(
+            (e) => e.message,
+            'message',
+            'exceeds the configured limit',
+          ),
+        ),
+      );
+    });
+
     test('getBacklinks parses referencing notes with snippets', () async {
       final mock = MockClient((request) async {
         expect(request.method, 'GET');
