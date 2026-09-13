@@ -47,7 +47,7 @@
 
 ### Requirement: Index is updated on every successful note write
 
-Every successful create, update, or delete of a note (per `notes-api`) SHALL update the FTS index, the tag set, and the link-edges table transactionally before the API response is returned. Creates and updates SHALL `INSERT OR REPLACE` the row keyed by note id, including its current `path` and computed tags, and SHALL recompute its outgoing link-edge rows; deletes SHALL `DELETE` the row and its outgoing link-edge rows. When an embedding provider is configured, creates and updates SHALL additionally (re)compute and store that note's embedding; deletes SHALL remove its stored embedding. Embedding computation SHALL NOT block or fail the write response: if the provider is unreachable at write time, the write SHALL still succeed and the note SHALL remain findable via BM25 until its embedding can be computed.
+Every successful create, update, or delete of a note (per `notes-api`) SHALL update the FTS index, the tag set, and the link-edges table transactionally before the API response is returned. Creates and updates SHALL `INSERT OR REPLACE` the row keyed by note id, including its current `path` and computed tags, and SHALL recompute its outgoing link-edge rows; deletes SHALL `DELETE` the row and its outgoing link-edge rows. When an embedding provider is configured, creates and updates SHALL additionally (re)compute and store that note's embedding; deletes SHALL remove its stored embedding. Embedding computation SHALL NOT fail the write response: the embedding is computed and awaited before the response, and a provider failure SHALL degrade to no embedding while the write still succeeds and the note remains findable via BM25.
 
 #### Scenario: Newly created note is searchable immediately
 
@@ -126,7 +126,7 @@ On startup the server SHALL check whether `<data-dir>/search.db` exists and pass
 - **GIVEN** an embedding provider is configured and reachable
 - **AND** `<data-dir>/search.db` is missing
 - **WHEN** the server starts with notes in `content/`
-- **THEN** the rebuilt index SHALL contain an embedding row for each note without blocking startup completion
+- **THEN** the rebuilt index SHALL contain an embedding row for each note once the background backfill completes; startup SHALL NOT block on it
 
 ## ADDED Requirements
 
@@ -180,7 +180,7 @@ When an embedding provider is configured and reachable, the server SHALL identif
 #### Scenario: Backfill runs after enabling a provider for the first time
 
 - **GIVEN** 100 existing notes with no embeddings and no embedding provider previously configured
-- **WHEN** the server starts with `EMBEDDING_PROVIDER=ollama` newly set
+- **WHEN** the server starts with `ROBOT_NOTES_EMBEDDING_PROVIDER=ollama` newly set
 - **THEN** the server SHALL begin computing embeddings for those 100 notes in the background
 - **AND** the server SHALL become ready to serve requests before backfill completes
 
