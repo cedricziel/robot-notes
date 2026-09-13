@@ -276,45 +276,28 @@ class SearchIndex {
   }) {
     final span = _tracer.startSpan('search.query');
     try {
-      final conditions = ['notes_fts MATCH ?'];
-      final params = <Object?>[query];
-      if (path != null) {
-        // Avoided LIKE here: a folder name containing `%` or `_` would
-        // otherwise be misinterpreted as a wildcard.
-        conditions.add(
-          "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')",
-        );
-        params.addAll([path, path, path]);
-      }
-      if (tag != null) {
-        conditions.add("instr(tags, ' ' || ? || ' ') > 0");
-        params.add(tag.toLowerCase());
-      }
-      params.add(limit);
-      final rows = _db.select(
-        'SELECT id, title, path, updated_at, '
-        "snippet(notes_fts, 3, '<mark>', '</mark>', '…', 16) AS snippet, "
-        'bm25(notes_fts) AS rank '
-        'FROM notes_fts '
-        'WHERE ${conditions.join(' AND ')} '
-        'ORDER BY rank '
-        'LIMIT ?;',
-        params,
-      );
-      final hits = [
-        for (final row in rows)
-          SearchHit(
-            id: row['id'] as String,
-            title: row['title'] as String,
-            path: row['path'] as String,
-            snippet: row['snippet'] as String,
-            rank: (row['rank'] as num).toDouble(),
-            updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
-          ),
-      ];
+      final hits = _runFtsQuery(query, limit: limit, path: path, tag: tag);
       span.setAttribute('search.hit_count', hits.length);
       return hits;
     } on SqliteException catch (e, st) {
+      final sanitized = _sanitizeFtsQuery(query);
+      if (sanitized != query) {
+        try {
+          final hits = _runFtsQuery(
+            sanitized,
+            limit: limit,
+            path: path,
+            tag: tag,
+          );
+          span
+            ..setAttribute('search.hit_count', hits.length)
+            ..setAttribute('search.query_sanitized', true);
+          return hits;
+        } on SqliteException {
+          // Sanitizing didn't help; fall through and report the
+          // original query's error below.
+        }
+      }
       _log.warning('Invalid search query "$query": ${e.message}');
       final exception = InvalidSearchQueryException(
         original: query,
@@ -333,6 +316,72 @@ class SearchIndex {
       span.end();
     }
   }
+
+  /// Runs [ftsQuery] as an FTS5 `MATCH` expression, applying the same
+  /// [path]/[tag]/[limit] narrowing as [search]. Throws [SqliteException]
+  /// unchanged on a syntax error, so callers can retry with a different
+  /// query string.
+  List<SearchHit> _runFtsQuery(
+    String ftsQuery, {
+    required int limit,
+    String? path,
+    String? tag,
+  }) {
+    final conditions = ['notes_fts MATCH ?'];
+    final params = <Object?>[ftsQuery];
+    if (path != null) {
+      // Avoided LIKE here: a folder name containing `%` or `_` would
+      // otherwise be misinterpreted as a wildcard.
+      conditions.add(
+        "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')",
+      );
+      params.addAll([path, path, path]);
+    }
+    if (tag != null) {
+      conditions.add("instr(tags, ' ' || ? || ' ') > 0");
+      params.add(tag.toLowerCase());
+    }
+    params.add(limit);
+    final rows = _db.select(
+      'SELECT id, title, path, updated_at, '
+      "snippet(notes_fts, 3, '<mark>', '</mark>', '…', 16) AS snippet, "
+      'bm25(notes_fts) AS rank '
+      'FROM notes_fts '
+      'WHERE ${conditions.join(' AND ')} '
+      'ORDER BY rank '
+      'LIMIT ?;',
+      params,
+    );
+    return [
+      for (final row in rows)
+        SearchHit(
+          id: row['id'] as String,
+          title: row['title'] as String,
+          path: row['path'] as String,
+          snippet: row['snippet'] as String,
+          rank: (row['rank'] as num).toDouble(),
+          updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
+        ),
+    ];
+  }
+
+  /// Neutralizes punctuation that trips FTS5's query-string parser but
+  /// carries no FTS5 meaning (e.g. a sentence-ending `?` or an apostrophe
+  /// in "isn't"), by replacing it with a space. FTS5 syntax characters
+  /// (`"`, `*`, `(`, `)`, `:`) are preserved so deliberate phrase/prefix/
+  /// column-filter queries are untouched. [search] only tries this as a
+  /// fallback after the raw query fails to parse, so genuine syntax
+  /// errors (e.g. an unterminated quote) still surface as
+  /// [InvalidSearchQueryException].
+  static final RegExp _ftsUnsafeChars = RegExp(
+    r'[^\p{L}\p{N}\s"*():]',
+    unicode: true,
+  );
+
+  static String _sanitizeFtsQuery(String query) =>
+      _ftsUnsafeChars.hasMatch(query)
+          ? query.replaceAll(_ftsUnsafeChars, ' ').trim()
+          : query;
 
   /// Closes the database file. After calling this method the index must
   /// not be used again.
