@@ -4,13 +4,17 @@ import 'dart:io';
 import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/embeddings/embedding_provider.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'embeddings/fake_embedding_provider.dart';
 
 class _RecordingSpanProcessor implements SpanProcessor {
   final List<SpanData> ended = [];
@@ -80,8 +84,9 @@ Directory _tempDir() =>
     Directory.systemTemp.createTempSync('robot-notes-write-svc-test-');
 
 Future<({Storage storage, MetaIndex meta, SearchIndex search})> _stack(
-  Directory tmp,
-) async {
+  Directory tmp, {
+  EmbeddingProvider? embeddingProvider,
+}) async {
   final storage = Storage(
     contentDir: Directory('${tmp.path}/content'),
     clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
@@ -90,8 +95,24 @@ Future<({Storage storage, MetaIndex meta, SearchIndex search})> _stack(
   final search = await SearchIndex.open(
     dbFile: File('${tmp.path}/search.db'),
     storage: storage,
+    embeddingProvider: embeddingProvider,
   );
   return (storage: storage, meta: meta, search: search);
+}
+
+/// Whether `note_vectors` has a row for [id] in the `search.db` under
+/// [tmp], checked via a second raw connection.
+bool _vectorRowExists(Directory tmp, String id) {
+  final db = sqlite3.open('${tmp.path}/search.db');
+  try {
+    final rows = db.select(
+      'SELECT 1 FROM note_vectors WHERE id = ?;',
+      [id],
+    );
+    return rows.isNotEmpty;
+  } finally {
+    db.close();
+  }
 }
 
 void main() {
@@ -507,6 +528,95 @@ void main() {
       expect(span.name, 'note.write.delete');
       expect(span.attributes['note.id'], f.seed!.id);
       expect(span.statusCode, StatusCode.unset);
+    });
+  });
+
+  group('NoteWriteService embedding integration', () {
+    test(
+        'create computes and stores an embedding when a provider is '
+        'configured', () async {
+      final provider = FakeEmbeddingProvider();
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+
+      final note = await svc.create(
+        title: 'Auth notes',
+        content: 'switching to OAuth for third-party login',
+        actor: 'a',
+      );
+
+      expect(provider.callCount, 1);
+      expect(_vectorRowExists(tmp, note.id), isTrue);
+    });
+
+    test('update recomputes the embedding', () async {
+      final provider = FakeEmbeddingProvider();
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+      final note = await svc.create(title: 'A', content: 'v1', actor: 'a');
+      provider.callCount = 0;
+
+      await svc.update(
+        id: note.id,
+        title: 'A',
+        content: 'v2',
+        ifMatch: note.version,
+        actor: 'a',
+      );
+
+      expect(provider.callCount, 1);
+      expect(_vectorRowExists(tmp, note.id), isTrue);
+    });
+
+    test('write still succeeds when the embedding provider fails', () async {
+      final provider = FakeEmbeddingProvider()..shouldThrow = true;
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+
+      final note = await svc.create(
+        title: 'A',
+        content: 'still findable by keyword',
+        actor: 'a',
+      );
+
+      expect(s.search.search('findable'), hasLength(1));
+      expect(_vectorRowExists(tmp, note.id), isFalse);
+    });
+
+    test('does not call embed at all when no provider is configured', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+      );
+
+      await svc.create(title: 'A', content: 'no provider here', actor: 'a');
+
+      expect(s.search.search('provider'), hasLength(1));
     });
   });
 }

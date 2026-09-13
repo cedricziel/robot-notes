@@ -159,6 +159,16 @@ class SearchIndex {
     'VALUES (?1, ?2, ?3, ?4);',
   );
 
+  /// Only ever prepared/executed when [_embeddingProvider] is non-null,
+  /// since `note_vectors` only exists in that case (see [_initSchema]).
+  late final PreparedStatement _upsertVectorStmt = _db.prepare(
+    'INSERT OR REPLACE INTO note_vectors (id, embedding) '
+    'VALUES (?, vector_as_f32(?));',
+  );
+  late final PreparedStatement _deleteVectorStmt = _db.prepare(
+    'DELETE FROM note_vectors WHERE id = ?;',
+  );
+
   /// Opens the index at [dbFile] (creating its parent directory if
   /// necessary). If the file is missing, corrupt, or schema-mismatched the
   /// index is rebuilt by scanning [storage].
@@ -233,6 +243,15 @@ class SearchIndex {
   /// [path] and [tags] default to root/empty for callers (mostly tests)
   /// that only care about title/content search and don't populate a full
   /// note's derived metadata.
+  ///
+  /// [embedding], when supplied alongside a configured embedding provider,
+  /// is written to `note_vectors` in the same transaction. Callers (namely
+  /// `NoteWriteService`, already `async`) are expected to have awaited
+  /// `EmbeddingProvider.embed(content)` *before* calling this synchronous
+  /// method — `upsert` itself stays synchronous so callers that don't care
+  /// about embeddings (most existing call sites) are unaffected. Omitting
+  /// [embedding] (no provider, or the caller's embed attempt failed) leaves
+  /// `note_vectors` untouched; the write still commits.
   void upsert({
     required String id,
     required String title,
@@ -241,6 +260,7 @@ class SearchIndex {
     String path = '',
     Set<String> tags = const {},
     List<SearchLinkEdge> links = const [],
+    List<double>? embedding,
   }) {
     _db.execute('BEGIN');
     try {
@@ -252,6 +272,7 @@ class SearchIndex {
         updatedAt: updatedAt,
         tags: tags,
         links: links,
+        embedding: embedding,
       );
       _db.execute('COMMIT');
     } catch (e) {
@@ -272,6 +293,7 @@ class SearchIndex {
     required DateTime updatedAt,
     required Set<String> tags,
     required List<SearchLinkEdge> links,
+    List<double>? embedding,
   }) {
     _upsertStmt.execute([
       id,
@@ -291,15 +313,22 @@ class SearchIndex {
         resolvedFlag,
       ]);
     }
+    if (_embeddingProvider != null && embedding != null) {
+      _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
+    }
   }
 
-  /// Removes the row for [id] and its outgoing `link_edges` rows.
-  /// Idempotent: removing a missing row succeeds silently.
+  /// Removes the row for [id], its outgoing `link_edges` rows, and (when an
+  /// embedding provider is configured) its `note_vectors` row. Idempotent:
+  /// removing a missing row succeeds silently.
   void delete(String id) {
     _db.execute('BEGIN');
     try {
       _deleteStmt.execute([id]);
       _deleteLinkEdgesStmt.execute([id]);
+      if (_embeddingProvider != null) {
+        _deleteVectorStmt.execute([id]);
+      }
       _db.execute('COMMIT');
     } catch (e) {
       _db.execute('ROLLBACK');
@@ -418,6 +447,13 @@ class SearchIndex {
     _deleteStmt.close();
     _deleteLinkEdgesStmt.close();
     _insertLinkEdgeStmt.close();
+    // Only touched when a provider is configured — accessing these getters
+    // when `note_vectors` doesn't exist would prepare a statement against a
+    // missing table and throw.
+    if (_embeddingProvider != null) {
+      _upsertVectorStmt.close();
+      _deleteVectorStmt.close();
+    }
     _db.close();
   }
 

@@ -24,10 +24,10 @@
 
 ## 5. Write-path: compute and store embeddings
 
-- [ ] 5.1 Write a failing test asserting `SearchIndex.upsert()` awaits `EmbeddingProvider.embed(content)` before opening its write transaction and stores the result in the vector table keyed by note id, when a provider is configured; implement to pass
-- [ ] 5.2 Write a failing test asserting `upsert()` still commits the FTS/link-edge update (write succeeds) when `embed()` throws `EmbeddingProviderException`, leaving no vector-table row for that note; implement to pass
-- [ ] 5.3 Write a failing test asserting deleting a note removes its vector-table row alongside its `notes_fts` and `link_edges` rows; implement to pass
-- [ ] 5.4 Write a failing test asserting `upsert()` does not call `embed()` at all when no provider is configured (no behavior change from today); implement/verify to pass
+- [x] 5.1 Write a failing test asserting `SearchIndex.upsert()` awaits `EmbeddingProvider.embed(content)` before opening its write transaction and stores the result in the vector table keyed by note id, when a provider is configured; implement to pass — per the design.md revision, the `embedOrNull()` await happens in `NoteWriteService.create()`/`update()` (already `async`) _before_ calling `upsert()`, which stays synchronous and gained an `embedding` parameter; this avoided forcing `await` onto ~13 pre-existing synchronous `upsert()` call sites in tests that don't care about embeddings. Covered by both a `SearchIndex`-level test (embedding stored when supplied) and a `NoteWriteService`-level test (embedding computed and passed through end-to-end)
+- [x] 5.2 Write a failing test asserting `upsert()` still commits the FTS/link-edge update (write succeeds) when `embed()` throws `EmbeddingProviderException`, leaving no vector-table row for that note; implement to pass
+- [x] 5.3 Write a failing test asserting deleting a note removes its vector-table row alongside its `notes_fts` and `link_edges` rows; implement to pass
+- [x] 5.4 Write a failing test asserting `upsert()` does not call `embed()` at all when no provider is configured (no behavior change from today); implement/verify to pass
 
 ## 6. Query-path: RRF fusion
 

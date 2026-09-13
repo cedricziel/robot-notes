@@ -86,6 +86,21 @@ bool _hasVectorTable(Directory tmp) {
   }
 }
 
+/// Whether `note_vectors` has a row for [id], checked via a second raw
+/// connection (same rationale as [_hasVectorTable]/[_linkEdges]).
+bool _vectorRowExists(Directory tmp, String id) {
+  final db = sqlite3.open(_dbFile(tmp).path);
+  try {
+    final rows = db.select(
+      'SELECT 1 FROM note_vectors WHERE id = ?;',
+      [id],
+    );
+    return rows.isNotEmpty;
+  } finally {
+    db.close();
+  }
+}
+
 void main() {
   late Directory tmp;
 
@@ -514,6 +529,67 @@ void main() {
         ..delete('a');
 
       expect(_linkEdges(tmp, 'a'), isEmpty);
+    });
+
+    test(
+        'stores the embedding when one is supplied and a provider is '
+        'configured', () async {
+      final index = await _open(
+        tmp,
+        embeddingProvider: FakeEmbeddingProvider(),
+      );
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'a',
+        title: 'A',
+        content: 'hello',
+        updatedAt: _testStamp,
+        embedding: [1.0, 2.0, 3.0, 4.0],
+      );
+
+      expect(_vectorRowExists(tmp, 'a'), isTrue);
+    });
+
+    test(
+        'commits the FTS write even when embedding is omitted (no '
+        'provider, or the caller could not produce one)', () async {
+      final index = await _open(
+        tmp,
+        embeddingProvider: FakeEmbeddingProvider(),
+      );
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'a',
+        title: 'A',
+        content: 'hello',
+        updatedAt: _testStamp,
+      );
+
+      expect(index.search('hello'), hasLength(1));
+      expect(_vectorRowExists(tmp, 'a'), isFalse);
+    });
+
+    test('delete removes the embedding row alongside FTS and link edges',
+        () async {
+      final index = await _open(
+        tmp,
+        embeddingProvider: FakeEmbeddingProvider(),
+      );
+      addTearDown(index.close);
+
+      index
+        ..upsert(
+          id: 'a',
+          title: 'A',
+          content: 'hello',
+          updatedAt: _testStamp,
+          embedding: [1.0, 2.0, 3.0, 4.0],
+        )
+        ..delete('a');
+
+      expect(_vectorRowExists(tmp, 'a'), isFalse);
     });
   });
 

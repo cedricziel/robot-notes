@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
+import 'package:server/src/embeddings/embedding_provider.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/links.dart';
 import 'package:server/src/lock_manager.dart';
@@ -51,6 +52,7 @@ class NoteWriteService {
     LockManager? lockManager,
     Logger? logger,
     Tracer? tracer,
+    this.embeddingProvider,
   })  : linkIndex = linkIndex ?? LinkIndex(),
         lockManager = lockManager ?? LockManager(),
         _log = logger ?? Logger('note_write'),
@@ -67,6 +69,11 @@ class NoteWriteService {
 
   /// WebSocket fan-out layer.
   final Broadcaster broadcaster;
+
+  /// When configured, `create`/`update` compute an embedding for the
+  /// note's content and pass it to [SearchIndex.upsert]. `null` (the
+  /// default) means writes behave exactly as before hybrid search existed.
+  final EmbeddingProvider? embeddingProvider;
 
   /// Outgoing-link index, kept in sync with [storage]; also the source of
   /// rename-propagation candidates (see [_propagateRename]).
@@ -99,6 +106,11 @@ class NoteWriteService {
       );
       span.setAttribute('note.id', note.id);
       final summary = note.toSummary();
+      final embedding = await embedOrNull(
+        embeddingProvider,
+        note.content,
+        logger: _log,
+      );
       // metaIndex is upserted before the search index reads from it below,
       // so link resolution (including a self-referential link) sees this
       // note.
@@ -112,6 +124,7 @@ class NoteWriteService {
         updatedAt: note.updatedAt,
         tags: summary.tags,
         links: _searchLinkEdges(note.id),
+        embedding: embedding,
       );
       _safeBroadcast(
         ChangedEvent(
@@ -152,6 +165,11 @@ class NoteWriteService {
           path: path,
         );
         final summary = updated.toSummary();
+        final embedding = await embedOrNull(
+          embeddingProvider,
+          updated.content,
+          logger: _log,
+        );
         metaIndex.upsert(summary);
         linkIndex.upsert(updated.id, updated.content);
         searchIndex.upsert(
@@ -162,6 +180,7 @@ class NoteWriteService {
           updatedAt: updated.updatedAt,
           tags: summary.tags,
           links: _searchLinkEdges(updated.id),
+          embedding: embedding,
         );
         // A path change broadcasts as `moved` rather than `updated` (per
         // notes-api), even if title/content changed in the same request —
