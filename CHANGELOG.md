@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.8](https://github.com/cedricziel/robot-notes/compare/v0.2.7...v0.2.8) (2026-09-13)
+
+
+### Bug Fixes
+
+* **app:** bump flutter-otel pin to the SwiftPM plugin fix ([#176](https://github.com/cedricziel/robot-notes/issues/176)) ([76886ab](https://github.com/cedricziel/robot-notes/commit/76886ab041048ec0624e31fcb8a60280e725dd73))
+* **server:** stop recording WebSocket upgrades as span errors ([#177](https://github.com/cedricziel/robot-notes/issues/177)) ([576ebc8](https://github.com/cedricziel/robot-notes/commit/576ebc821358f2b1946d7586889e383e5e187f17))
+
 ## [0.2.7](https://github.com/cedricziel/robot-notes/compare/v0.2.6...v0.2.7) (2026-09-13)
 
 
