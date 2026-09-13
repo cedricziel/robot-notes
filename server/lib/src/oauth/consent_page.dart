@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:meta/meta.dart';
+import 'package:server/src/oauth/authorize_request.dart';
 import 'package:shared/shared.dart';
 
 /// One-line human descriptions shown next to each requested scope on the
@@ -24,6 +25,7 @@ class ConsentPageParams {
     required this.codeChallenge,
     required this.codeChallengeMethod,
     required this.scopes,
+    required this.serverHost,
     this.state,
     this.resource,
   });
@@ -55,6 +57,10 @@ class ConsentPageParams {
 
   /// The `resource` indicator, when the client supplied one.
   final String? resource;
+
+  /// This server's own host (e.g. `notes.example.org`), shown as a branding
+  /// / trust signal next to the mark.
+  final String serverHost;
 }
 
 // `attribute` mode escapes `&`, `<`, `>`, and `"` but leaves `/` alone,
@@ -85,9 +91,13 @@ String renderConsentPage(
       : '<p class="error">${_esc.convert(errorMessage)}</p>';
 
   final clientName = _esc.convert(params.clientName);
+  final serverHost = _esc.convert(params.serverHost);
+  final cancelHref = _cancelHref(params);
+  final redirectUri = _esc.convert(params.redirectUri);
 
-  final identityStep =
-      oidcConfigured ? _signInLink(params) : _apiKeyForm(params, clientName);
+  final identityStep = oidcConfigured
+      ? _signInLink(params, cancelHref: cancelHref)
+      : _apiKeyForm(params, clientName, cancelHref: cancelHref);
 
   return '''
 <!doctype html>
@@ -96,25 +106,68 @@ String renderConsentPage(
 <meta charset="utf-8">
 <title>Authorize $clientName</title>
 <style>
-  body { font: 14px/1.5 system-ui, sans-serif; max-width: 32rem; margin: 3rem auto; padding: 0 1rem; }
+  :root { color-scheme: light; }
+  body { font: 14px/1.5 system-ui, sans-serif; max-width: 28rem; margin: 3rem auto; padding: 0 1rem; color: #1b1b1f; }
+  .brand { display: flex; align-items: center; gap: .6rem; margin-bottom: 1.5rem; }
+  .brand .mark {
+    width: 2rem; height: 2rem; border-radius: .5rem; flex: none;
+    background: #515b92; color: #fff; font-weight: 700; font-size: .85rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .brand .host { color: #46464f; font-size: .85rem; }
+  h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 .75rem; }
+  .redirect { color: #46464f; font-size: .85rem; }
+  .redirect code { word-break: break-all; }
   .error { color: #b00020; }
   label { display: block; margin-top: 1rem; }
-  input[type=password], input[type=text] { width: 100%; padding: .4rem; box-sizing: border-box; }
-  button, .sign-in { margin-top: 1.5rem; padding: .5rem 1rem; }
+  input[type=password], input[type=text] {
+    width: 100%; padding: .5rem .6rem; box-sizing: border-box;
+    border: 1px solid #c7c5d0; border-radius: .4rem; font: inherit;
+  }
+  .actions { display: flex; align-items: center; gap: 1.25rem; margin-top: 1.5rem; }
+  .actions .cancel { color: #46464f; text-decoration: none; }
+  .actions .cancel:hover { text-decoration: underline; }
+  button, .actions .sign-in {
+    padding: .55rem 1.25rem; border-radius: .4rem; font: inherit;
+    background: #515b92; color: #fff; border: none; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
 </style>
 </head>
 <body>
+<div class="brand">
+  <span class="mark">RN</span>
+  <span class="host">$serverHost</span>
+</div>
 <h1>$clientName wants to access robot-notes</h1>
 $errorBanner
 <p>This will grant:</p>
 <ul>$scopeItems</ul>
+<p class="redirect">After you decide, you'll return to <code>$redirectUri</code>.</p>
 $identityStep
 </body>
 </html>
 ''';
 }
 
-String _apiKeyForm(ConsentPageParams params, String clientName) {
+/// Where "Cancel" sends the browser: straight back to the client's own
+/// `redirect_uri` with `error=access_denied` appended, exactly like a
+/// server-side denial (see `_redirectWithError` in the authorize route) —
+/// no server round-trip needed, since every value it needs is already on
+/// this page.
+String _cancelHref(ConsentPageParams params) {
+  final uri = appendQuery(params.redirectUri, {
+    'error': 'access_denied',
+    if (params.state != null) 'state': params.state!,
+  });
+  return _esc.convert(uri.toString());
+}
+
+String _apiKeyForm(
+  ConsentPageParams params,
+  String clientName, {
+  required String cancelHref,
+}) {
   final hiddenFields = [
     _hidden('client_id', params.clientId),
     _hidden('redirect_uri', params.redirectUri),
@@ -133,12 +186,15 @@ $hiddenFields
 <input id="api_key" type="password" name="api_key" autocomplete="off" required>
 <label for="actor">Acting as</label>
 <input id="actor" type="text" name="actor" value="$clientName">
-<button type="submit">Authorize</button>
+<div class="actions">
+<a class="cancel" href="$cancelHref">Cancel</a>
+<button type="submit">Allow</button>
+</div>
 </form>
 ''';
 }
 
-String _signInLink(ConsentPageParams params) {
+String _signInLink(ConsentPageParams params, {required String cancelHref}) {
   final queryParams = <String, String>{
     'client_id': params.clientId,
     'redirect_uri': params.redirectUri,
@@ -156,8 +212,12 @@ String _signInLink(ConsentPageParams params) {
       )
       .join('&');
   final href = _esc.convert('${Routes.oauthOidcLogin}?$query');
-  return '<p><a class="sign-in" href="$href">Sign in with your identity '
-      'provider</a></p>';
+  return '''
+<div class="actions">
+<a class="cancel" href="$cancelHref">Cancel</a>
+<a class="sign-in" href="$href">Sign in with your identity provider</a>
+</div>
+''';
 }
 
 String _hidden(String name, String? value) => value == null

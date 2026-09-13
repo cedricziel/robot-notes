@@ -7,17 +7,20 @@ ConsentPageParams _params({
   String? state,
   String? resource,
   Set<String> scopes = const {'notes:read', 'notes:write'},
+  String redirectUri = 'https://agent.example/callback',
+  String serverHost = 'notes.example',
 }) =>
     ConsentPageParams(
       clientId: 'client-123',
       clientName: clientName,
-      redirectUri: 'https://agent.example/callback',
+      redirectUri: redirectUri,
       responseType: 'code',
       codeChallenge: 'challenge-abc',
       codeChallengeMethod: 'S256',
       scopes: scopes,
       state: state,
       resource: resource,
+      serverHost: serverHost,
     );
 
 void main() {
@@ -161,6 +164,69 @@ void main() {
       final html = renderConsentPage(_params());
       expect(html, contains('name="api_key"'));
       expect(html, isNot(contains(Routes.oauthOidcLogin)));
+    });
+
+    group('branding', () {
+      test('shows the server host', () {
+        final html = renderConsentPage(_params(serverHost: 'notes.58lab.org'));
+        expect(html, contains('notes.58lab.org'));
+      });
+    });
+
+    group('redirect destination', () {
+      test('shows the full redirect_uri before deciding', () {
+        final html = renderConsentPage(
+          _params(redirectUri: 'https://agent.example/callback?x=1'),
+        );
+        expect(html, contains('https://agent.example/callback?x=1'));
+      });
+
+      test('escapes the redirect_uri', () {
+        final html = renderConsentPage(
+          _params(redirectUri: 'https://agent.example/<script>x</script>'),
+        );
+        expect(html, isNot(contains('<script>x</script>')));
+      });
+    });
+
+    group('cancel', () {
+      test('a cancel link points back to redirect_uri with access_denied', () {
+        final html = renderConsentPage(_params());
+        expect(
+          html,
+          contains(
+            'href="https://agent.example/callback?error=access_denied"',
+          ),
+        );
+      });
+
+      test('the cancel link preserves state', () {
+        final html = renderConsentPage(_params(state: 'xyz'));
+        expect(
+          html,
+          contains(
+            'href="https://agent.example/callback?error=access_denied&amp;state=xyz"',
+          ),
+        );
+      });
+
+      test('appends to an existing query string rather than replacing it', () {
+        final html = renderConsentPage(
+          _params(redirectUri: 'https://agent.example/callback?x=1'),
+        );
+        expect(
+          html,
+          contains(
+            'href="https://agent.example/callback?x=1&amp;error=access_denied"',
+          ),
+        );
+      });
+
+      test('is present next to the sign-in link when OIDC is configured', () {
+        final html = renderConsentPage(_params(), oidcConfigured: true);
+        expect(html, contains('class="cancel"'));
+        expect(html, contains('error=access_denied'));
+      });
     });
   });
 }
