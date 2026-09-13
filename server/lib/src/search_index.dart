@@ -345,16 +345,16 @@ class SearchIndex {
   ///
   /// Snippets contain `<mark>...</mark>` markers around matched terms.
   ///
-  /// Wrapped in a `search.query` span (not made [Span.current], since this
-  /// method is synchronous and [Tracer.startActiveSpan] requires an async
-  /// body — a nested log call still correlates to whichever span was
-  /// already ambient, typically the request's own).
-  List<SearchHit> search(
+  /// `async` so that, when an embedding provider is configured, the query
+  /// embedding can be requested before running the (synchronous) FTS5
+  /// query rather than after it — the network round trip and the local
+  /// query then overlap instead of adding up serially.
+  Future<List<SearchHit>> search(
     String query, {
     int limit = 50,
     String? path,
     String? tag,
-  }) {
+  }) async {
     final span = _tracer.startSpan('search.query');
     try {
       final conditions = ['notes_fts MATCH ?'];

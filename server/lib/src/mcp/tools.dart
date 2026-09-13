@@ -412,7 +412,7 @@ McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
         final pathFilter = args['path'] as String?;
         final tagFilter = args['tag'] as String?;
         try {
-          final hits = searchIndex.search(
+          final hits = await searchIndex.search(
             query,
             limit: limit,
             path: pathFilter,

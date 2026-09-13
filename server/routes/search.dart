@@ -17,7 +17,7 @@ const int kDefaultSearchLimit = 20;
 ///   - `empty_query`   (400): `q` is whitespace-only
 ///   - `invalid_query` (400): `q` is not a valid FTS5 expression
 ///   - `bad_request`   (400): `limit` is not a positive integer
-FutureOr<Response> onRequest(RequestContext context) {
+Future<Response> onRequest(RequestContext context) async {
   final method = context.request.method;
   if (method != HttpMethod.get) {
     return Response.json(
@@ -67,7 +67,7 @@ FutureOr<Response> onRequest(RequestContext context) {
   final index = context.read<SearchIndex>();
   final List<SearchHit> hits;
   try {
-    hits = index.search(
+    hits = await index.search(
       q,
       limit: effectiveLimit,
       path: pathFilter,

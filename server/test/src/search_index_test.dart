@@ -125,7 +125,7 @@ void main() {
       addTearDown(index.close);
 
       expect(_dbFile(tmp).existsSync(), isTrue);
-      final hits = index.search('architecture');
+      final hits = await index.search('architecture');
       expect(hits, hasLength(1));
       expect(hits.single.id, note.id);
     });
@@ -152,7 +152,7 @@ void main() {
         isTrue,
         reason: 'expected a warning about the corrupt db',
       );
-      expect(index.search('hello'), hasLength(1));
+      expect(await index.search('hello'), hasLength(1));
     });
 
     test('reuses a healthy search.db without rebuilding', () async {
@@ -169,7 +169,7 @@ void main() {
       index = await _open(tmp, storage: storage);
       addTearDown(index.close);
 
-      final hits = index.search('durable');
+      final hits = await index.search('durable');
       expect(hits, hasLength(1));
       expect(hits.single.id, note.id);
     });
@@ -195,7 +195,7 @@ void main() {
 
       expect(logged.any((l) => l.contains('schema_version mismatch')), isTrue);
       // Surviving content remains searchable after rebuild.
-      expect(index.search('tokenized'), hasLength(1));
+      expect(await index.search('tokenized'), hasLength(1));
     });
 
     test('rebuilds a pre-hybrid-search v3 search.db (no note_vectors table)',
@@ -221,7 +221,7 @@ void main() {
       addTearDown(index.close);
 
       expect(logged.any((l) => l.contains('schema_version mismatch')), isTrue);
-      expect(index.search('tokenized'), hasLength(1));
+      expect(await index.search('tokenized'), hasLength(1));
     });
 
     test('rebuild logs the count of indexed notes', () async {
@@ -255,10 +255,10 @@ void main() {
       final index = await _open(tmp, storage: storage);
       addTearDown(index.close);
 
-      expect(index.search('Tagged', path: 'Projects'), hasLength(1));
-      expect(index.search('Tagged', path: 'Elsewhere'), isEmpty);
-      expect(index.search('Tagged', tag: 'urgent'), hasLength(1));
-      expect(index.search('Tagged', tag: 'later'), isEmpty);
+      expect(await index.search('Tagged', path: 'Projects'), hasLength(1));
+      expect(await index.search('Tagged', path: 'Elsewhere'), isEmpty);
+      expect(await index.search('Tagged', tag: 'urgent'), hasLength(1));
+      expect(await index.search('Tagged', tag: 'later'), isEmpty);
 
       final betaId =
           (await storage.list()).firstWhere((s) => s.title == 'Beta').id;
@@ -307,7 +307,7 @@ void main() {
           logged.any((l) => l.contains('mismatch') || l.contains('unhealthy')),
           isTrue,
         );
-        expect(index.search('kept'), hasLength(1));
+        expect(await index.search('kept'), hasLength(1));
       },
     );
   });
@@ -408,7 +408,7 @@ void main() {
         content: 'kangaroo jumps',
         updatedAt: _testStamp,
       );
-      expect(index.search('kangaroo'), hasLength(1));
+      expect(await index.search('kangaroo'), hasLength(1));
 
       index.upsert(
         id: 'n1',
@@ -416,8 +416,8 @@ void main() {
         content: 'wallaby hops',
         updatedAt: _testStamp,
       );
-      expect(index.search('kangaroo'), isEmpty);
-      final hits = index.search('wallaby');
+      expect(await index.search('kangaroo'), isEmpty);
+      final hits = await index.search('wallaby');
       expect(hits, hasLength(1));
       expect(hits.single.title, 'Updated');
     });
@@ -432,12 +432,12 @@ void main() {
         content: 'transient',
         updatedAt: _testStamp,
       );
-      expect(index.search('transient'), hasLength(1));
+      expect(await index.search('transient'), hasLength(1));
 
       index
         ..delete('n1')
         ..delete('n1');
-      expect(index.search('transient'), isEmpty);
+      expect(await index.search('transient'), isEmpty);
     });
 
     test('upsert records path and a queryable tag set', () async {
@@ -453,14 +453,14 @@ void main() {
         tags: {'Urgent'},
       );
 
-      expect(index.search('budget', path: 'Projects/Alpha'), hasLength(1));
+      expect(await index.search('budget', path: 'Projects/Alpha'), hasLength(1));
       // 'Projects' is an ancestor folder, so it matches too (nested).
-      expect(index.search('budget', path: 'Projects'), hasLength(1));
-      expect(index.search('budget', path: 'Other'), isEmpty);
+      expect(await index.search('budget', path: 'Projects'), hasLength(1));
+      expect(await index.search('budget', path: 'Other'), isEmpty);
       // Case-insensitive, matching tags.dart's own matching rule.
-      expect(index.search('budget', tag: 'urgent'), hasLength(1));
-      expect(index.search('budget', tag: 'URGENT'), hasLength(1));
-      expect(index.search('budget', tag: 'later'), isEmpty);
+      expect(await index.search('budget', tag: 'urgent'), hasLength(1));
+      expect(await index.search('budget', tag: 'URGENT'), hasLength(1));
+      expect(await index.search('budget', tag: 'later'), isEmpty);
     });
 
     test(
@@ -567,7 +567,7 @@ void main() {
         updatedAt: _testStamp,
       );
 
-      expect(index.search('hello'), hasLength(1));
+      expect(await index.search('hello'), hasLength(1));
       expect(_vectorRowExists(tmp, 'a'), isFalse);
     });
 
@@ -612,16 +612,16 @@ void main() {
       final index = await seed({
         'n1': ('Race day', 'I went running yesterday.'),
       });
-      expect(index.search('run'), hasLength(1));
-      expect(index.search('runs'), hasLength(1));
-      expect(index.search('running'), hasLength(1));
+      expect(await index.search('run'), hasLength(1));
+      expect(await index.search('runs'), hasLength(1));
+      expect(await index.search('running'), hasLength(1));
     });
 
     test('matches case-insensitively', () async {
       final index = await seed({'n1': ('Hello', 'The quick brown FOX jumps.')});
-      expect(index.search('fox'), hasLength(1));
-      expect(index.search('FOX'), hasLength(1));
-      expect(index.search('Fox'), hasLength(1));
+      expect(await index.search('fox'), hasLength(1));
+      expect(await index.search('FOX'), hasLength(1));
+      expect(await index.search('Fox'), hasLength(1));
     });
 
     test('honors phrase queries', () async {
@@ -629,7 +629,7 @@ void main() {
         'n1': ('Patch', 'These are the release notes for v2.'),
         'n2': ('Other', 'Notes about a release party.'),
       });
-      final hits = index.search('"release notes"');
+      final hits = await index.search('"release notes"');
       expect(hits, hasLength(1));
       expect(hits.single.id, 'n1');
     });
@@ -640,7 +640,7 @@ void main() {
         'n2': ('Doc', 'archive of papers'),
         'n3': ('Doc', 'unrelated text'),
       });
-      final hits = index.search('archi*');
+      final hits = await index.search('archi*');
       expect(hits.map((h) => h.id), containsAll(['n1', 'n2']));
       expect(hits.map((h) => h.id), isNot(contains('n3')));
     });
@@ -655,8 +655,8 @@ void main() {
         updatedAt: _testStamp,
       );
 
-      expect(
-        () => index.search('"unterminated'),
+      await expectLater(
+        index.search('"unterminated'),
         throwsA(isA<InvalidSearchQueryException>()),
       );
     });
@@ -674,8 +674,8 @@ void main() {
         final sub = logger.onRecord.listen(records.add);
         addTearDown(sub.cancel);
 
-        expect(
-          () => index.search('"unterminated'),
+        await expectLater(
+          index.search('"unterminated'),
           throwsA(isA<InvalidSearchQueryException>()),
         );
 
@@ -701,7 +701,7 @@ void main() {
         );
       addTearDown(index.close);
 
-      index.search('hello');
+      await index.search('hello');
 
       final span = processor.ended.single;
       expect(span.name, 'search.query');
@@ -719,8 +719,8 @@ void main() {
       final index = await _open(tmp, tracer: tracer);
       addTearDown(index.close);
 
-      expect(
-        () => index.search('"unterminated'),
+      await expectLater(
+        index.search('"unterminated'),
         throwsA(isA<InvalidSearchQueryException>()),
       );
 
@@ -738,7 +738,7 @@ void main() {
           ),
         });
 
-        final hits = index.search('kangaroo');
+        final hits = await index.search('kangaroo');
         expect(hits, hasLength(2));
         // bm25 returns ascending rank where the first row is most relevant.
         expect(hits.first.id, 'n2');
@@ -765,7 +765,7 @@ void main() {
         updatedAt: stamp,
       );
 
-      final hits = index.search('kangaroo');
+      final hits = await index.search('kangaroo');
       expect(hits.single.updatedAt, stamp);
     });
 
@@ -773,7 +773,7 @@ void main() {
       final index = await seed({
         'n1': ('Doc', 'The quick brown fox jumps over the lazy dog.'),
       });
-      final hits = index.search('fox');
+      final hits = await index.search('fox');
       expect(hits, hasLength(1));
       expect(hits.single.snippet, contains('<mark>'));
       expect(hits.single.snippet, contains('</mark>'));
@@ -790,7 +790,7 @@ void main() {
           updatedAt: _testStamp,
         );
       }
-      expect(index.search('orbit', limit: 3), hasLength(3));
+      expect(await index.search('orbit', limit: 3), hasLength(3));
     });
   });
 }

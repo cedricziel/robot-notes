@@ -153,7 +153,7 @@ void main() {
       expect(s.meta.length, 1);
 
       // SearchIndex finds it
-      final hits = s.search.search('dust');
+      final hits = await s.search.search('dust');
       expect(hits, hasLength(1));
       expect(hits.first.id, note.id);
 
@@ -195,9 +195,9 @@ void main() {
       expect(updated.version, 2);
 
       // SearchIndex finds the new term, not the old.
-      final fresh = s.search.search('telescopes');
+      final fresh = await s.search.search('telescopes');
       expect(fresh, hasLength(1));
-      final old = s.search.search('"old body"');
+      final old = await s.search.search('"old body"');
       expect(old, isEmpty);
 
       // MetaIndex reflects the new version.
@@ -324,7 +324,7 @@ void main() {
       expect(s.meta.length, 0);
 
       // SearchIndex empty for the term.
-      expect(s.search.search('erased'), isEmpty);
+      expect(await s.search.search('erased'), isEmpty);
 
       // Broadcast: created + deleted.
       expect(bc.changed.last.action, ChangeAction.deleted);
@@ -356,7 +356,7 @@ void main() {
       // Search and storage now agree.
       final reread = await s.storage.read(note.id);
       expect(reread.title, 'Sync check');
-      expect(s.search.search('crater').single.id, note.id);
+      expect((await s.search.search('crater')).single.id, note.id);
     });
 
     test('broadcast failure does not roll back the file write', () async {
@@ -384,7 +384,7 @@ void main() {
 
       final reread = await s.storage.read(note.id);
       expect(reread.title, 'Survives');
-      expect(s.search.search('death').single.id, note.id);
+      expect((await s.search.search('death')).single.id, note.id);
       expect(s.meta.length, 1);
       expect(captured, contains(Level.WARNING));
     });
@@ -600,7 +600,7 @@ void main() {
         actor: 'a',
       );
 
-      expect(s.search.search('findable'), hasLength(1));
+      expect(await s.search.search('findable'), hasLength(1));
       expect(_vectorRowExists(tmp, note.id), isFalse);
     });
 
@@ -616,7 +616,7 @@ void main() {
 
       await svc.create(title: 'A', content: 'no provider here', actor: 'a');
 
-      expect(s.search.search('provider'), hasLength(1));
+      expect(await s.search.search('provider'), hasLength(1));
     });
   });
 }
