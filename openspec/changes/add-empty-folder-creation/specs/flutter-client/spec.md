@@ -55,11 +55,17 @@ The notes list screen's floating action button SHALL present a menu of at least 
 - **WHEN** the user chooses "New note" from the FAB menu
 - **THEN** the app SHALL create the note with `path: "Projects/Alpha"` and navigate to it in edit mode, exactly as today's direct-create flow does otherwise
 
-#### Scenario: New folder from the FAB targets the current folder
+#### Scenario: New folder from the FAB pre-fills the current folder as a starting point
 
 - **GIVEN** the sidebar has folder `Projects` selected
-- **WHEN** the user chooses "New folder" from the FAB menu, and confirms the pre-filled prompt
-- **THEN** the app SHALL call `POST /notes/tree` with a path nested under `Projects` and, on success, re-fetch the tree so the new folder appears
+- **WHEN** the user chooses "New folder" from the FAB menu
+- **THEN** the app SHALL open the prompt with its input pre-filled with `Projects`, editable — confirming without editing it resubmits `Projects` itself (idempotent per `notes-api`'s `POST /notes/tree`, not a new child)
+
+#### Scenario: New folder from the FAB creates a child folder once the prompt is edited
+
+- **GIVEN** the sidebar has folder `Projects` selected and the "New folder" prompt is open, pre-filled with `Projects`
+- **WHEN** the user edits the input to `Projects/NewFolder` and confirms
+- **THEN** the app SHALL call `POST /notes/tree` with `{ "path": "Projects/NewFolder" }` and, on success, re-fetch the tree so the new folder appears
 
 #### Scenario: New note from the FAB at the vault root
 
