@@ -92,8 +92,7 @@ void main() {
 
   group('MetaIndex.registerEmptyFolder', () {
     test('adds a folder path without a full rescan', () {
-      final index = MetaIndex();
-      index.registerEmptyFolder('Ideas');
+      final index = MetaIndex()..registerEmptyFolder('Ideas');
       expect(index.emptyFolders, {'Ideas'});
     });
   });
