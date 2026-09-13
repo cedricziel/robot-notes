@@ -60,6 +60,11 @@ class PathConflictException extends ApiException {
   const PathConflictException({super.message}) : super(statusCode: 409);
 }
 
+/// 413 — an upload exceeded the server's configured max size.
+class PayloadTooLargeException extends ApiException {
+  const PayloadTooLargeException({super.message}) : super(statusCode: 413);
+}
+
 /// Anything else non-2xx that we don't model specifically. Keeps a single
 /// well-known type so callers don't have to handle raw `http.Response`s.
 class ApiServerException extends ApiException {
