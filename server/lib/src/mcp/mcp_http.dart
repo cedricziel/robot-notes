@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:flutter_otel_api/flutter_otel_api.dart';
 
 /// Hostnames accepted as loopback origins regardless of scheme port, per
 /// the `mcp-server` spec's "Origin header is validated against the public
@@ -44,31 +45,53 @@ bool isAllowedMcpOrigin(String origin, String? publicUrl) {
       parsedOrigin.port == parsedPublicUrl.port;
 }
 
+/// Tags the current span (see `otelHttpTraceMiddleware`) with why `/mcp`
+/// rejected this request, so the reason is visible in tracing without
+/// having to capture the response body — the middleware's generic
+/// `http.status_code` attribute alone doesn't say which of several
+/// possible checks failed. The sole owner of the `mcp.error` attribute
+/// key; every rejection path in this file and in `routes/mcp/index.dart`
+/// calls this rather than setting the attribute directly.
+void annotateMcpError(String code) =>
+    Span.current?.setAttribute('mcp.error', code);
+
 /// The `405 Method Not Allowed` response for any non-`POST` request to
 /// `/mcp`, carrying the `Allow: POST` header the spec requires.
-Response mcpMethodNotAllowed() => Response.json(
-      statusCode: HttpStatus.methodNotAllowed,
-      headers: {'Allow': 'POST'},
-      body: const {'error': 'method_not_allowed'},
-    );
+Response mcpMethodNotAllowed() {
+  annotateMcpError('method_not_allowed');
+  return Response.json(
+    statusCode: HttpStatus.methodNotAllowed,
+    headers: {'Allow': 'POST'},
+    body: const {'error': 'method_not_allowed'},
+  );
+}
 
 /// The `403 Forbidden` response for a request whose `Origin` header did
 /// not pass [isAllowedMcpOrigin].
-Response mcpForbidden() => Response.json(
-      statusCode: HttpStatus.forbidden,
-      body: const {'error': 'forbidden'},
-    );
+Response mcpForbidden() {
+  annotateMcpError('forbidden');
+  return Response.json(
+    statusCode: HttpStatus.forbidden,
+    body: const {'error': 'forbidden'},
+  );
+}
 
 /// The `400 Bad Request` response for a request naming an unsupported
 /// `MCP-Protocol-Version`.
-Response mcpUnsupportedProtocolVersion() => Response.json(
-      statusCode: HttpStatus.badRequest,
-      body: const {'error': 'unsupported_protocol_version'},
-    );
+Response mcpUnsupportedProtocolVersion() {
+  annotateMcpError('unsupported_protocol_version');
+  return Response.json(
+    statusCode: HttpStatus.badRequest,
+    body: const {'error': 'unsupported_protocol_version'},
+  );
+}
 
 /// The `413 Payload Too Large` response for a request body exceeding
 /// [kMaxMcpBodyBytes].
-Response mcpPayloadTooLarge() => Response.json(
-      statusCode: HttpStatus.requestEntityTooLarge,
-      body: const {'error': 'payload_too_large'},
-    );
+Response mcpPayloadTooLarge() {
+  annotateMcpError('payload_too_large');
+  return Response.json(
+    statusCode: HttpStatus.requestEntityTooLarge,
+    body: const {'error': 'payload_too_large'},
+  );
+}

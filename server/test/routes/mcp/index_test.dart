@@ -14,6 +14,7 @@ import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/mcp/index.dart' as route;
+import '../../src/otel/_span_test_helpers.dart';
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -204,18 +205,24 @@ void main() {
     expect(res.statusCode, HttpStatus.accepted);
   });
 
-  test('unsupported MCP-Protocol-Version is 400', () async {
-    final res = await route.onRequest(
-      _ctx(
-        method: HttpMethod.post,
-        handler: handler,
-        headers: const {'MCP-Protocol-Version': '2024-11-05'},
-        body: {'jsonrpc': '2.0', 'id': 1, 'method': 'ping'},
-      ),
-    );
-    expect(res.statusCode, HttpStatus.badRequest);
-    expect(await res.json(), {'error': 'unsupported_protocol_version'});
-  });
+  test(
+    'unsupported MCP-Protocol-Version is 400, span tagged mcp.error',
+    () async {
+      final (res, data) = await spanFor(
+        () => route.onRequest(
+          _ctx(
+            method: HttpMethod.post,
+            handler: handler,
+            headers: const {'MCP-Protocol-Version': '2024-11-05'},
+            body: {'jsonrpc': '2.0', 'id': 1, 'method': 'ping'},
+          ),
+        ),
+      );
+      expect(res.statusCode, HttpStatus.badRequest);
+      expect(await res.json(), {'error': 'unsupported_protocol_version'});
+      expect(data.attributes['mcp.error'], 'unsupported_protocol_version');
+    },
+  );
 
   test('supported MCP-Protocol-Version header is accepted', () async {
     final res = await route.onRequest(
@@ -229,15 +236,21 @@ void main() {
     expect(res.statusCode, HttpStatus.ok);
   });
 
-  test('malformed JSON is 400 with JSON-RPC -32700', () async {
-    final res = await route.onRequest(
-      _ctx(method: HttpMethod.post, handler: handler, malformedJson: true),
-    );
-    expect(res.statusCode, HttpStatus.badRequest);
-    final json = await res.json() as Map<String, dynamic>;
-    expect(json['id'], isNull);
-    expect((json['error'] as Map<String, dynamic>)['code'], -32700);
-  });
+  test(
+    'malformed JSON is 400 with JSON-RPC -32700, span tagged mcp.error',
+    () async {
+      final (res, data) = await spanFor(
+        () => route.onRequest(
+          _ctx(method: HttpMethod.post, handler: handler, malformedJson: true),
+        ),
+      );
+      expect(res.statusCode, HttpStatus.badRequest);
+      final json = await res.json() as Map<String, dynamic>;
+      expect(json['id'], isNull);
+      expect((json['error'] as Map<String, dynamic>)['code'], -32700);
+      expect(data.attributes['mcp.error'], 'parse_error');
+    },
+  );
 
   test(
     'a body over 1 MiB is 413 before JSON decoding is attempted',
@@ -267,41 +280,50 @@ void main() {
     expect(res.statusCode, HttpStatus.badRequest);
   });
 
-  test('batch request is 400 with JSON-RPC -32600', () async {
-    final res = await route.onRequest(
-      _ctx(
-        method: HttpMethod.post,
-        handler: handler,
-        body: [
-          {'jsonrpc': '2.0', 'id': 1, 'method': 'ping'},
-        ],
-      ),
-    );
-    expect(res.statusCode, HttpStatus.badRequest);
-    final json = await res.json() as Map<String, dynamic>;
-    expect((json['error'] as Map<String, dynamic>)['code'], -32600);
-  });
+  test(
+    'batch request is 400 with JSON-RPC -32600, span tagged mcp.error',
+    () async {
+      final (res, data) = await spanFor(
+        () => route.onRequest(
+          _ctx(
+            method: HttpMethod.post,
+            handler: handler,
+            body: [
+              {'jsonrpc': '2.0', 'id': 1, 'method': 'ping'},
+            ],
+          ),
+        ),
+      );
+      expect(res.statusCode, HttpStatus.badRequest);
+      final json = await res.json() as Map<String, dynamic>;
+      expect((json['error'] as Map<String, dynamic>)['code'], -32600);
+      expect(data.attributes['mcp.error'], 'invalid_request');
+    },
+  );
 
   test(
     'a request with array params is 200 with JSON-RPC -32602 echoing the '
-    'id, not a 400',
+    'id, not a 400, span tagged mcp.error',
     () async {
-      final res = await route.onRequest(
-        _ctx(
-          method: HttpMethod.post,
-          handler: handler,
-          body: {
-            'jsonrpc': '2.0',
-            'id': 9,
-            'method': 'ping',
-            'params': [1, 2, 3],
-          },
+      final (res, data) = await spanFor(
+        () => route.onRequest(
+          _ctx(
+            method: HttpMethod.post,
+            handler: handler,
+            body: {
+              'jsonrpc': '2.0',
+              'id': 9,
+              'method': 'ping',
+              'params': [1, 2, 3],
+            },
+          ),
         ),
       );
       expect(res.statusCode, HttpStatus.ok);
       final json = await res.json() as Map<String, dynamic>;
       expect(json['id'], 9);
       expect((json['error'] as Map<String, dynamic>)['code'], -32602);
+      expect(data.attributes['mcp.error'], 'invalid_params');
     },
   );
 
