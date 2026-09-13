@@ -4,20 +4,28 @@ import 'dart:io';
 import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
+import 'package:server/src/embeddings/embedding_provider.dart';
+import 'package:server/src/excerpt.dart';
 import 'package:server/src/links.dart';
 import 'package:server/src/storage.dart';
 import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite_vector/sqlite_vector.dart';
 
 /// Schema version for the FTS5 search index. Bumping this constant forces a
 /// rebuild on the next startup — useful when the index columns or tokenizer
 /// configuration change in incompatible ways.
 ///
-/// Bumped to 3 for the `path`/`tags` columns on `notes_fts` and the new
-/// `link_edges` table (vault-structure change): any pre-existing
-/// `search.db` reports schema_version 2 and is therefore treated as
-/// mismatched and rebuilt, per the "old schema triggers a rebuild"
-/// requirement.
-const int kSearchSchemaVersion = 3;
+/// Bumped to 4 for the `note_vectors` table (hybrid search): any
+/// pre-existing `search.db` reports schema_version 3 and is therefore
+/// treated as mismatched and rebuilt, per the "old schema triggers a
+/// rebuild" requirement.
+const int kSearchSchemaVersion = 4;
+
+/// Guards [SearchIndex._ensureVectorExtensionLoaded] so
+/// `sqlite3.loadSqliteVectorExtension()` — a process-global registration,
+/// not a per-database one — runs at most once per process, even though
+/// tests open many [SearchIndex]s in the same process.
+bool _vectorExtensionLoaded = false;
 
 /// Hard ceiling on a search `limit`, shared by `GET /search` and the
 /// `search_notes` MCP tool so both surfaces clamp/reject the same way.
@@ -45,15 +53,68 @@ class SearchHit {
   /// Folder the note lives in at index time, matching [StoredNote.path].
   final String path;
 
-  /// Highlighted excerpt of the matched content with `<mark>` markers.
+  /// Highlighted excerpt of the matched content with `<mark>` markers, or
+  /// a plain-text excerpt for a hit that matched only via vector
+  /// similarity (no FTS5 match to highlight).
   final String snippet;
 
-  /// FTS5 rank — lower is more relevant. Negative values come from
-  /// `bm25()` and are passed through unchanged.
+  /// Lower is more relevant. A raw `bm25()` value when hybrid ranking
+  /// isn't active for this result set; `-`(RRF fused score) when it is —
+  /// see [SearchIndex.search]. Comparable only within one response, never
+  /// across requests or ranking modes.
   final double rank;
 
   /// The note's `updated_at` as of the last [SearchIndex.upsert].
   final DateTime updatedAt;
+
+  /// Returns a copy with [rank] replaced — used by fusion to re-rank a
+  /// hit that already carries full BM25-derived data (title/snippet/etc.)
+  /// without hand-copying every field.
+  SearchHit copyWith({double? rank}) => SearchHit(
+        id: id,
+        title: title,
+        path: path,
+        snippet: snippet,
+        rank: rank ?? this.rank,
+        updatedAt: updatedAt,
+      );
+}
+
+/// One result row from [SearchIndex.vectorSearch]: a note id and its
+/// distance to the query embedding (lower is more similar).
+@immutable
+class VectorHit {
+  /// Creates a KNN result pairing a note [id] with its [distance].
+  const VectorHit({required this.id, required this.distance});
+
+  /// Note id (ULID), matching [SearchHit.id].
+  final String id;
+
+  /// Distance from the query embedding, as reported by
+  /// `sqlite_vector`'s `vector_full_scan`. Lower is more similar.
+  final double distance;
+}
+
+/// Raw note metadata read directly from `notes_fts`, used by fusion to
+/// build a [SearchHit] for a note that matched only via vector similarity
+/// (so has no FTS5 match to build a highlighted snippet from).
+@immutable
+class _NoteMeta {
+  const _NoteMeta({
+    required this.title,
+    required this.path,
+    required this.content,
+    required this.updatedAt,
+    required this.tags,
+  });
+
+  final String title;
+  final String path;
+  final String content;
+  final DateTime updatedAt;
+
+  /// Space-delimited, lowercased, space-padded — see [SearchIndex._encodeTags].
+  final String tags;
 }
 
 /// One of a note's outgoing `[[wikilinks]]`, as recorded in the
@@ -109,11 +170,17 @@ class InvalidSearchQueryException implements Exception {
 /// note save/delete must call [upsert] / [delete] to keep the index in
 /// sync.
 class SearchIndex {
-  SearchIndex._(this._db, this._log, this._tracer);
+  SearchIndex._(this._db, this._log, this._tracer, this._embeddingProvider);
 
   final Database _db;
   final Logger _log;
   final Tracer _tracer;
+
+  /// When non-null, hybrid ranking is active: [search] fuses BM25 with
+  /// vector similarity, and [upsert] computes and stores an embedding per
+  /// note. `null` (the default) means search behaves exactly as it did
+  /// before hybrid search existed.
+  final EmbeddingProvider? _embeddingProvider;
   late final PreparedStatement _upsertStmt = _db.prepare(
     'INSERT OR REPLACE INTO notes_fts '
     '(rowid, id, title, path, content, updated_at, tags) '
@@ -131,18 +198,51 @@ class SearchIndex {
     'VALUES (?1, ?2, ?3, ?4);',
   );
 
+  /// Only ever prepared/executed when [_embeddingProvider] is non-null,
+  /// since `note_vectors` only exists in that case (see [_initSchema]).
+  late final PreparedStatement _upsertVectorStmt = _db.prepare(
+    'INSERT OR REPLACE INTO note_vectors (id, embedding) '
+    'VALUES (?, vector_as_f32(?));',
+  );
+  late final PreparedStatement _deleteVectorStmt = _db.prepare(
+    'DELETE FROM note_vectors WHERE id = ?;',
+  );
+
+  /// The backfill [open] kicks off automatically when a provider is
+  /// configured, kept around so callers (namely tests) can await its
+  /// completion explicitly instead of relying on incidental timing. `null`
+  /// when no provider is configured — backfill never runs in that case.
+  @visibleForTesting
+  Future<void>? pendingBackfill;
+
   /// Opens the index at [dbFile] (creating its parent directory if
   /// necessary). If the file is missing, corrupt, or schema-mismatched the
   /// index is rebuilt by scanning [storage].
   ///
   /// Operators can flip [forceRebuild] to drop the existing file regardless
   /// of state — useful for ops runbooks that want to reseed from disk.
+  ///
+  /// When [embeddingProvider] is supplied, hybrid ranking is enabled: a
+  /// `note_vectors` table sized to its `dimensions` is created (if absent)
+  /// and (re)initialized for this connection — `sqlite_vector`'s
+  /// `vector_init` registers per-connection metadata, not a persistent
+  /// index, so it must run on every `open()`, not just once at table
+  /// creation. `null` (the default) leaves search exactly as it behaved
+  /// before hybrid search existed, including not creating the table at all.
+  ///
+  /// When [embeddingProvider] is supplied, a backfill pass (see
+  /// [backfillEmbeddings]) is kicked off automatically and detached unless
+  /// [autoBackfill] is `false` — tests that want to drive
+  /// [backfillEmbeddings] explicitly (to control batching/timing) set this
+  /// to `false` to avoid a second, racing pass.
   static Future<SearchIndex> open({
     required File dbFile,
     required Storage storage,
     Logger? logger,
     Tracer? tracer,
     bool forceRebuild = false,
+    EmbeddingProvider? embeddingProvider,
+    bool autoBackfill = true,
   }) async {
     final log = logger ?? Logger('search_index');
     await dbFile.parent.create(recursive: true);
@@ -160,16 +260,43 @@ class SearchIndex {
       rebuild = true;
     }
 
+    if (embeddingProvider != null) _ensureVectorExtensionLoaded();
     final db = sqlite3.open(dbFile.path);
-    _initSchema(db);
+    _initSchema(db, dimensions: embeddingProvider?.dimensions);
 
-    final index =
-        SearchIndex._(db, log, tracer ?? const NoopTracer('search_index'));
+    final index = SearchIndex._(
+      db,
+      log,
+      tracer ?? const NoopTracer('search_index'),
+      embeddingProvider,
+    );
     if (rebuild) {
       final loaded = await index._rebuild(storage);
       log.info('search.db rebuilt with $loaded note(s)');
     }
+    if (embeddingProvider != null && autoBackfill) {
+      // Detached on purpose: startup must not block on backfill, per the
+      // "server backfills embeddings ... without blocking startup"
+      // requirement. `pendingBackfill` lets tests (and anything else that
+      // cares) await it explicitly instead of relying on timing.
+      index.pendingBackfill = index.backfillEmbeddings().catchError(
+        (Object e, StackTrace st) {
+          log.warning('Embedding backfill failed', e, st);
+        },
+      );
+      unawaited(index.pendingBackfill);
+    }
     return index;
+  }
+
+  /// Loads `sqlite_vector`'s native functions, process-wide, exactly once —
+  /// `Sqlite3.loadSqliteVectorExtension` registers them for every
+  /// subsequently opened database, so a second call would be redundant (and
+  /// isn't guaranteed idempotent the way `vector_init` is).
+  static void _ensureVectorExtensionLoaded() {
+    if (_vectorExtensionLoaded) return;
+    sqlite3.loadSqliteVectorExtension();
+    _vectorExtensionLoaded = true;
   }
 
   /// Inserts or replaces a row for [id] with [title], [path], [content],
@@ -181,6 +308,15 @@ class SearchIndex {
   /// [path] and [tags] default to root/empty for callers (mostly tests)
   /// that only care about title/content search and don't populate a full
   /// note's derived metadata.
+  ///
+  /// [embedding], when supplied alongside a configured embedding provider,
+  /// is written to `note_vectors` in the same transaction. Callers (namely
+  /// `NoteWriteService`, already `async`) are expected to have awaited
+  /// `EmbeddingProvider.embed(content)` *before* calling this synchronous
+  /// method — `upsert` itself stays synchronous so callers that don't care
+  /// about embeddings (most existing call sites) are unaffected. Omitting
+  /// [embedding] (no provider, or the caller's embed attempt failed) leaves
+  /// `note_vectors` untouched; the write still commits.
   void upsert({
     required String id,
     required String title,
@@ -189,6 +325,7 @@ class SearchIndex {
     String path = '',
     Set<String> tags = const {},
     List<SearchLinkEdge> links = const [],
+    List<double>? embedding,
   }) {
     _db.execute('BEGIN');
     try {
@@ -200,7 +337,17 @@ class SearchIndex {
         updatedAt: updatedAt,
         tags: tags,
         links: links,
+        embedding: embedding,
       );
+      // A provider is configured but this write's embed attempt failed
+      // (or the caller never had content to embed): drop any vector left
+      // over from a previous, successful write rather than serving stale
+      // vector-search results for the note's now-changed content. Backfill
+      // (see [backfillEmbeddings]) picks the id back up on its next pass
+      // since it's now absent from `note_vectors`.
+      if (_embeddingProvider != null && embedding == null) {
+        _deleteVectorStmt.execute([id]);
+      }
       _db.execute('COMMIT');
     } catch (e) {
       _db.execute('ROLLBACK');
@@ -220,6 +367,7 @@ class SearchIndex {
     required DateTime updatedAt,
     required Set<String> tags,
     required List<SearchLinkEdge> links,
+    List<double>? embedding,
   }) {
     _upsertStmt.execute([
       id,
@@ -239,15 +387,22 @@ class SearchIndex {
         resolvedFlag,
       ]);
     }
+    if (_embeddingProvider != null && embedding != null) {
+      _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
+    }
   }
 
-  /// Removes the row for [id] and its outgoing `link_edges` rows.
-  /// Idempotent: removing a missing row succeeds silently.
+  /// Removes the row for [id], its outgoing `link_edges` rows, and (when an
+  /// embedding provider is configured) its `note_vectors` row. Idempotent:
+  /// removing a missing row succeeds silently.
   void delete(String id) {
     _db.execute('BEGIN');
     try {
       _deleteStmt.execute([id]);
       _deleteLinkEdgesStmt.execute([id]);
+      if (_embeddingProvider != null) {
+        _deleteVectorStmt.execute([id]);
+      }
       _db.execute('COMMIT');
     } catch (e) {
       _db.execute('ROLLBACK');
@@ -255,49 +410,83 @@ class SearchIndex {
     }
   }
 
-  /// Runs an FTS5 [query] and returns the matching rows ordered by rank
-  /// ascending (most relevant first), optionally narrowed to notes whose
-  /// `path` equals or is nested under [path] and/or whose tag set
-  /// contains [tag] (case-insensitive, matching `tags.dart`'s matching
-  /// rule). Throws [InvalidSearchQueryException] if the query is not a
-  /// valid FTS5 expression.
+  /// Reciprocal Rank Fusion constant, per the add-hybrid-search design's
+  /// documented default (unvalidated against real content yet — a
+  /// deliberate non-goal of that change, revisit empirically later).
+  static const double _fusionK = 60;
+
+  /// Candidate-set size pulled from each ranker before fusion, independent
+  /// of the caller's [search] `limit` — fusion needs a wide-enough pool
+  /// from both rankers to combine before truncating to what the caller
+  /// asked for.
+  static const int _fusionCandidateLimit = 50;
+
+  /// Runs an FTS5 [query] and, when an embedding provider is configured,
+  /// fuses the result with a vector KNN search via Reciprocal Rank Fusion
+  /// — optionally narrowed to notes whose `path` equals or is nested under
+  /// [path] and/or whose tag set contains [tag] (case-insensitive,
+  /// matching `tags.dart`'s matching rule), applied to both rankers.
+  /// Throws [InvalidSearchQueryException] if [query] is not a valid FTS5
+  /// expression.
   ///
-  /// Snippets contain `<mark>...</mark>` markers around matched terms.
-  ///
-  /// Wrapped in a `search.query` span (not made [Span.current], since this
-  /// method is synchronous and [Tracer.startActiveSpan] requires an async
-  /// body — a nested log call still correlates to whichever span was
-  /// already ambient, typically the request's own).
-  List<SearchHit> search(
+  /// Without a configured provider (or when it fails to produce a query
+  /// embedding), this is exactly the pre-hybrid-search BM25-only behavior.
+  /// `async` so the query embedding can be requested before running the
+  /// (synchronous) FTS5 query rather than after it — the network round
+  /// trip and the local query then overlap instead of adding up serially.
+  Future<List<SearchHit>> search(
     String query, {
     int limit = 50,
     String? path,
     String? tag,
-  }) {
+  }) async {
     final span = _tracer.startSpan('search.query');
     try {
-      final hits = _runFtsQuery(query, limit: limit, path: path, tag: tag);
-      span.setAttribute('search.hit_count', hits.length);
-      return hits;
-    } on SqliteException catch (e, st) {
-      final sanitized = _sanitizeFtsQuery(query);
-      if (sanitized != query) {
-        try {
-          final hits = _runFtsQuery(
-            sanitized,
+      final List<SearchHit> hits;
+      final provider = _embeddingProvider;
+      if (provider == null) {
+        hits = _runFtsQueryWithFallback(
+          query,
+          limit: limit,
+          path: path,
+          tag: tag,
+          span: span,
+        );
+      } else {
+        // Fusion needs at least _fusionCandidateLimit candidates from each
+        // ranker to combine before truncating to the caller's limit, but a
+        // caller-requested limit larger than that must still be honored —
+        // including on the provider-failure fallback path below, which
+        // returns BM25 candidates directly rather than a fused set.
+        final candidateLimit =
+            limit > _fusionCandidateLimit ? limit : _fusionCandidateLimit;
+        // Kick off the query embedding request without awaiting it yet,
+        // so it's in flight while the synchronous BM25 query below runs.
+        final embeddingFuture = embedOrNull(provider, query, logger: _log);
+        final bm25Hits = _runFtsQueryWithFallback(
+          query,
+          limit: candidateLimit,
+          path: path,
+          tag: tag,
+          span: span,
+        );
+        final queryEmbedding = await embeddingFuture;
+        if (queryEmbedding == null) {
+          hits = bm25Hits.take(limit).toList();
+        } else {
+          final vectorHits = vectorSearch(queryEmbedding, k: candidateLimit);
+          hits = _fuse(
+            bm25Hits: bm25Hits,
+            vectorHits: vectorHits,
             limit: limit,
             path: path,
             tag: tag,
           );
-          span
-            ..setAttribute('search.hit_count', hits.length)
-            ..setAttribute('search.query_sanitized', true);
-          return hits;
-        } on SqliteException {
-          // Sanitizing didn't help; fall through and report the
-          // original query's error below.
         }
       }
+      span.setAttribute('search.hit_count', hits.length);
+      return hits;
+    } on SqliteException catch (e, st) {
       _log.warning('Invalid search query "$query": ${e.message}');
       final exception = InvalidSearchQueryException(
         original: query,
@@ -317,10 +506,41 @@ class SearchIndex {
     }
   }
 
+  /// Runs [_runFtsQuery], retrying once with punctuation neutralized (see
+  /// [_sanitizeFtsQuery]) if the raw query fails to parse as FTS5 syntax —
+  /// shared by both [search]'s no-provider path and hybrid fusion's BM25
+  /// candidate gathering. Sets `search.query_sanitized` on [span] when the
+  /// fallback succeeds. Rethrows the *original* [SqliteException] if the
+  /// sanitized retry also fails to parse, so [search]'s error message
+  /// describes the query the caller actually typed, not the fallback.
+  List<SearchHit> _runFtsQueryWithFallback(
+    String query, {
+    required int limit,
+    required Span span,
+    String? path,
+    String? tag,
+  }) {
+    try {
+      return _runFtsQuery(query, limit: limit, path: path, tag: tag);
+    } on SqliteException catch (original) {
+      final sanitized = _sanitizeFtsQuery(query);
+      if (sanitized == query) rethrow;
+      try {
+        final hits =
+            _runFtsQuery(sanitized, limit: limit, path: path, tag: tag);
+        span.setAttribute('search.query_sanitized', true);
+        return hits;
+      } on SqliteException {
+        // Sanitizing didn't help; report the original query's error.
+        throw original;
+      }
+    }
+  }
+
   /// Runs [ftsQuery] as an FTS5 `MATCH` expression, applying the same
   /// [path]/[tag]/[limit] narrowing as [search]. Throws [SqliteException]
-  /// unchanged on a syntax error, so callers can retry with a different
-  /// query string.
+  /// unchanged on a syntax error, so [_runFtsQueryWithFallback] can retry
+  /// with a different query string.
   List<SearchHit> _runFtsQuery(
     String ftsQuery, {
     required int limit,
@@ -365,6 +585,213 @@ class SearchIndex {
     ];
   }
 
+  /// Combines [bm25Hits] and [vectorHits] via Reciprocal Rank Fusion:
+  /// `score(id) = Σ 1/(k + rankInList)` over whichever of the two ranked
+  /// lists contain `id`, 1-based rank position within each list. A note
+  /// present in only one list still gets a (weaker) score rather than
+  /// being dropped.
+  ///
+  /// [bm25Hits] already carry full [SearchHit] data (including an FTS5
+  /// snippet) since they came from a `MATCH` query. A note that
+  /// [vectorHits] names but [bm25Hits] doesn't has no FTS snippet context,
+  /// so its [SearchHit] is built from a raw lookup with a plain-text
+  /// excerpt — and, since [vectorSearch] doesn't apply [path]/[tag]
+  /// filtering the way the BM25 query does, that filter is re-applied
+  /// here for vector-only notes.
+  List<SearchHit> _fuse({
+    required List<SearchHit> bm25Hits,
+    required List<VectorHit> vectorHits,
+    required int limit,
+    String? path,
+    String? tag,
+  }) {
+    final bm25RankById = <String, int>{
+      for (var i = 0; i < bm25Hits.length; i++) bm25Hits[i].id: i + 1,
+    };
+    final vectorRankById = <String, int>{
+      for (var i = 0; i < vectorHits.length; i++) vectorHits[i].id: i + 1,
+    };
+    final bm25HitById = {for (final h in bm25Hits) h.id: h};
+
+    // One batched lookup for every vector-only id, instead of one query
+    // per id inside the loop below.
+    final vectorOnlyIds =
+        vectorRankById.keys.where((id) => !bm25HitById.containsKey(id));
+    final metaById = _lookupNoteMetaBatch(vectorOnlyIds);
+
+    final hits = <SearchHit>[];
+    for (final id in {...bm25RankById.keys, ...vectorRankById.keys}) {
+      final bm25Rank = bm25RankById[id];
+      final vectorRank = vectorRankById[id];
+      final score = (bm25Rank != null ? 1 / (_fusionK + bm25Rank) : 0.0) +
+          (vectorRank != null ? 1 / (_fusionK + vectorRank) : 0.0);
+
+      final existing = bm25HitById[id];
+      if (existing != null) {
+        hits.add(existing.copyWith(rank: -score));
+        continue;
+      }
+
+      final meta = metaById[id];
+      if (meta == null) continue;
+      if (path != null && !_pathMatches(meta.path, path)) continue;
+      if (tag != null && !_tagsContain(meta.tags, tag)) continue;
+      hits.add(
+        SearchHit(
+          id: id,
+          title: meta.title,
+          path: meta.path,
+          snippet: computeExcerpt(meta.content),
+          updatedAt: meta.updatedAt,
+          rank: -score,
+        ),
+      );
+    }
+
+    hits.sort((a, b) => a.rank.compareTo(b.rank));
+    return hits.take(limit).toList();
+  }
+
+  /// Raw note metadata for every id in [ids], read directly from
+  /// `notes_fts` (its `id`/`path`/`tags` columns are `UNINDEXED` — a plain
+  /// `IN (...)` lookup, not `MATCH`) in one query rather than one per id.
+  /// An id with no matching row (e.g. deleted between when its embedding
+  /// was written and now) is simply absent from the result.
+  Map<String, _NoteMeta> _lookupNoteMetaBatch(Iterable<String> ids) {
+    final idList = ids.toList();
+    if (idList.isEmpty) return const {};
+    final placeholders = List.filled(idList.length, '?').join(',');
+    final rows = _db.select(
+      'SELECT id, title, path, content, updated_at, tags '
+      'FROM notes_fts WHERE id IN ($placeholders);',
+      idList,
+    );
+    return {
+      for (final row in rows)
+        row['id'] as String: _NoteMeta(
+          title: row['title'] as String,
+          path: row['path'] as String,
+          content: row['content'] as String,
+          updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
+          tags: row['tags'] as String,
+        ),
+    };
+  }
+
+  /// Whether [notePath] equals or is nested under [filterPath] — mirrors
+  /// [_runFtsQuery]'s SQL path condition for use against a single
+  /// in-memory row instead of a WHERE clause.
+  static bool _pathMatches(String notePath, String filterPath) =>
+      notePath == filterPath || notePath.startsWith('$filterPath/');
+
+  /// Whether [encodedTags] (as produced by [_encodeTags]) contains [tag]
+  /// — mirrors [_runFtsQuery]'s SQL tag condition.
+  static bool _tagsContain(String encodedTags, String tag) =>
+      encodedTags.contains(' ${tag.toLowerCase()} ');
+
+  /// Runs a K-nearest-neighbors query against `note_vectors`, returning up
+  /// to [k] hits ordered by ascending distance (most similar first).
+  /// Returns an empty list when no embedding provider is configured (the
+  /// table doesn't exist) or when `note_vectors` has no rows — neither is
+  /// an error condition, per the "search remains available" requirement.
+  @visibleForTesting
+  List<VectorHit> vectorSearch(
+    List<double> queryEmbedding, {
+    int k = _fusionCandidateLimit,
+  }) {
+    if (_embeddingProvider == null) return const [];
+    final rows = _db.select(
+      'SELECT e.id, v.distance FROM note_vectors AS e '
+      "JOIN vector_full_scan('note_vectors', 'embedding', "
+      'vector_as_f32(?), ?) AS v '
+      'ON e.rowid = v.rowid '
+      'ORDER BY v.distance;',
+      [_encodeVector(queryEmbedding), k],
+    );
+    return [
+      for (final row in rows)
+        VectorHit(
+          id: row['id'] as String,
+          distance: (row['distance'] as num).toDouble(),
+        ),
+    ];
+  }
+
+  /// Default number of notes embedded per batch during [backfillEmbeddings].
+  static const int _defaultBackfillBatchSize = 10;
+
+  /// Default pause between [backfillEmbeddings] batches, giving a local
+  /// embedding server (e.g. Ollama) room to breathe rather than firing
+  /// every request at once.
+  static const Duration _defaultBackfillDelay = Duration(milliseconds: 200);
+
+  /// Computes and stores embeddings for every note present in `notes_fts`
+  /// but missing from `note_vectors` — notes written before an embedding
+  /// provider was configured, or left behind by a prior failed/partial
+  /// backfill. Does nothing when no provider is configured.
+  ///
+  /// Processes ids in batches of [batchSize], pausing [delayBetweenBatches]
+  /// between (not within) batches via [sleep] — overridable in tests to
+  /// avoid real delays; defaults to [Future.delayed]. Within a batch,
+  /// `embed()` calls run concurrently (independent requests to the same
+  /// provider); the delay between batches is what limits overall request
+  /// rate, not serializing within one. A note whose `embed()` call fails
+  /// is simply left for the next backfill pass (same best-effort
+  /// semantics as the write path); all of a batch's successful embeddings
+  /// are written in one transaction.
+  Future<void> backfillEmbeddings({
+    int batchSize = _defaultBackfillBatchSize,
+    Duration delayBetweenBatches = _defaultBackfillDelay,
+    Future<void> Function(Duration)? sleep,
+  }) async {
+    final provider = _embeddingProvider;
+    if (provider == null) return;
+    final sleepFn = sleep ?? Future<void>.delayed;
+
+    final pending = _idsMissingEmbeddings();
+    for (var offset = 0; offset < pending.length; offset += batchSize) {
+      final batch = pending.skip(offset).take(batchSize);
+      final embeddings = await Future.wait([
+        for (final note in batch)
+          embedOrNull(provider, note.content, logger: _log)
+              .then((embedding) => (id: note.id, embedding: embedding)),
+      ]);
+
+      _db.execute('BEGIN');
+      try {
+        for (final result in embeddings) {
+          if (result.embedding == null) continue;
+          _upsertVectorStmt.execute([
+            result.id,
+            _encodeVector(result.embedding!),
+          ]);
+        }
+        _db.execute('COMMIT');
+      } catch (e) {
+        _db.execute('ROLLBACK');
+        rethrow;
+      }
+
+      if (offset + batchSize < pending.length) {
+        await sleepFn(delayBetweenBatches);
+      }
+    }
+  }
+
+  /// `(id, content)` for every note present in `notes_fts` but absent from
+  /// `note_vectors`, in one query — [backfillEmbeddings] needs both to
+  /// compute each note's embedding.
+  List<({String id, String content})> _idsMissingEmbeddings() {
+    final rows = _db.select(
+      'SELECT id, content FROM notes_fts '
+      'WHERE id NOT IN (SELECT id FROM note_vectors);',
+    );
+    return [
+      for (final row in rows)
+        (id: row['id'] as String, content: row['content'] as String),
+    ];
+  }
+
   /// Neutralizes punctuation that trips FTS5's query-string parser but
   /// carries no FTS5 meaning (e.g. a sentence-ending `?` or an apostrophe
   /// in "isn't"), by replacing it with a space. FTS5 syntax characters
@@ -390,6 +817,13 @@ class SearchIndex {
     _deleteStmt.close();
     _deleteLinkEdgesStmt.close();
     _insertLinkEdgeStmt.close();
+    // Only touched when a provider is configured — accessing these getters
+    // when `note_vectors` doesn't exist would prepare a statement against a
+    // missing table and throw.
+    if (_embeddingProvider != null) {
+      _upsertVectorStmt.close();
+      _deleteVectorStmt.close();
+    }
     _db.close();
   }
 
@@ -399,6 +833,11 @@ class SearchIndex {
   /// join table — a personal vault's tag cardinality doesn't warrant one.
   static String _encodeTags(Set<String> tags) =>
       ' ${tags.map((t) => t.toLowerCase()).join(' ')} ';
+
+  /// Encodes [vector] as the JSON-array-string literal `sqlite_vector`'s
+  /// `vector_as_f32` scalar function expects (confirmed by the task 4.1
+  /// spike — it does not accept a bound `List<double>` directly).
+  static String _encodeVector(List<double> vector) => '[${vector.join(',')}]';
 
   Future<int> _rebuild(Storage storage) async {
     var count = 0;
@@ -482,7 +921,10 @@ class SearchIndex {
     }
   }
 
-  static void _initSchema(Database db) {
+  /// [dimensions] is the configured embedding provider's vector size, or
+  /// `null` when no provider is configured — in which case `note_vectors`
+  /// is not created at all, matching pre-hybrid-search behavior exactly.
+  static void _initSchema(Database db, {int? dimensions}) {
     db
       ..execute('''
         CREATE TABLE IF NOT EXISTS meta (
@@ -517,5 +959,18 @@ class SearchIndex {
         CREATE INDEX IF NOT EXISTS link_edges_source_idx
           ON link_edges(source_id);
       ''');
+    if (dimensions != null) {
+      db
+        ..execute('''
+          CREATE TABLE IF NOT EXISTS note_vectors (
+            id TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL
+          );
+        ''')
+        ..execute(
+          "SELECT vector_init('note_vectors', 'embedding', "
+          "'type=FLOAT32,dimension=$dimensions');",
+        );
+    }
   }
 }

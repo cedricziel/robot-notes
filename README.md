@@ -53,16 +53,19 @@ cd server && dart_frog dev -- --api-key rn_your_secret --data-dir ./data
 
 Other knobs (with their env equivalents):
 
-| Flag                   | Env var                          | Default      | What it controls                                                                                                                                                                                                                                             |
-| ---------------------- | -------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--api-key`            | `ROBOT_NOTES_API_KEY`            | _(required)_ | Bearer token for every request.                                                                                                                                                                                                                              |
-| `--data-dir`           | `ROBOT_NOTES_DATA_DIR`           | `./data`     | Root for `content/`, `invites/`, `oauth/`, `search.db`.                                                                                                                                                                                                      |
-| `--port`               | `ROBOT_NOTES_PORT`               | `8080`       | Listen port.                                                                                                                                                                                                                                                 |
-| `--web-dir`            | `ROBOT_NOTES_WEB_DIR`            | _(unset)_    | When set, serve a Flutter web bundle at `/`. The published Docker image sets this automatically.                                                                                                                                                             |
-| `--public-url`         | `ROBOT_NOTES_PUBLIC_URL`         | _(unset)_    | Absolute origin (scheme + host + optional port, no path) used in OAuth metadata, invite URLs, and MCP resource identifiers. Recommended whenever the server sits behind a reverse proxy; otherwise it's derived per request from `X-Forwarded-Proto`/`Host`. |
-| `--oidc-issuer`        | `ROBOT_NOTES_OIDC_ISSUER`        | _(unset)_    | Base URL of an external OIDC provider to log humans in with, instead of pasting the static API key. All three `--oidc-*` settings are all-or-nothing.                                                                                                        |
-| `--oidc-client-id`     | `ROBOT_NOTES_OIDC_CLIENT_ID`     | _(unset)_    | This server's client id as registered with `--oidc-issuer`.                                                                                                                                                                                                  |
-| `--oidc-client-secret` | `ROBOT_NOTES_OIDC_CLIENT_SECRET` | _(unset)_    | This server's client secret as registered with `--oidc-issuer`.                                                                                                                                                                                              |
+| Flag                       | Env var                          | Default                  | What it controls                                                                                                                                                                                                                                             |
+| -------------------------- | -------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--api-key`                | `ROBOT_NOTES_API_KEY`            | _(required)_             | Bearer token for every request.                                                                                                                                                                                                                              |
+| `--data-dir`               | `ROBOT_NOTES_DATA_DIR`           | `./data`                 | Root for `content/`, `invites/`, `oauth/`, `search.db`.                                                                                                                                                                                                      |
+| `--port`                   | `ROBOT_NOTES_PORT`               | `8080`                   | Listen port.                                                                                                                                                                                                                                                 |
+| `--web-dir`                | `ROBOT_NOTES_WEB_DIR`            | _(unset)_                | When set, serve a Flutter web bundle at `/`. The published Docker image sets this automatically.                                                                                                                                                             |
+| `--public-url`             | `ROBOT_NOTES_PUBLIC_URL`         | _(unset)_                | Absolute origin (scheme + host + optional port, no path) used in OAuth metadata, invite URLs, and MCP resource identifiers. Recommended whenever the server sits behind a reverse proxy; otherwise it's derived per request from `X-Forwarded-Proto`/`Host`. |
+| `--oidc-issuer`            | `ROBOT_NOTES_OIDC_ISSUER`        | _(unset)_                | Base URL of an external OIDC provider to log humans in with, instead of pasting the static API key. All three `--oidc-*` settings are all-or-nothing.                                                                                                        |
+| `--oidc-client-id`         | `ROBOT_NOTES_OIDC_CLIENT_ID`     | _(unset)_                | This server's client id as registered with `--oidc-issuer`.                                                                                                                                                                                                  |
+| `--oidc-client-secret`     | `ROBOT_NOTES_OIDC_CLIENT_SECRET` | _(unset)_                | This server's client secret as registered with `--oidc-issuer`.                                                                                                                                                                                              |
+| `--embedding-provider`     | `ROBOT_NOTES_EMBEDDING_PROVIDER` | _(unset)_                | Enables hybrid (keyword + semantic) search. Only value accepted today: `ollama`.                                                                                                                                                                             |
+| `--ollama-base-url`        | `ROBOT_NOTES_OLLAMA_BASE_URL`    | `http://localhost:11434` | Ollama server used for embeddings, when `--embedding-provider ollama`.                                                                                                                                                                                       |
+| `--ollama-embedding-model` | `ROBOT_NOTES_OLLAMA_MODEL`       | `nomic-embed-text`       | Ollama embedding model, when `--embedding-provider ollama`.                                                                                                                                                                                                  |
 
 Every HTTP request must carry `Authorization: Bearer <key>`. Clients
 self-declare their display name with the `X-Actor: <name>` header (defaulting
@@ -81,6 +84,21 @@ per-user permission tiers. Leaving the three settings unset disables OIDC
 entirely and the server behaves exactly as before. OIDC sign-in is available
 on desktop and web builds of the app only; mobile keeps the manual key-entry
 flow for now.
+
+#### Hybrid search (optional, additive)
+
+`GET /search` and the `search_notes` MCP tool are keyword-only (SQLite
+FTS5/BM25) by default. Setting `--embedding-provider ollama` (or
+`ROBOT_NOTES_EMBEDDING_PROVIDER=ollama`) turns on semantic recall alongside
+it: results are fused from BM25 and a vector similarity search over
+embeddings computed by a local [Ollama](https://ollama.com) instance running
+the `nomic-embed-text` model (`ollama pull nomic-embed-text`), so a query can
+match a note that shares no literal words with it. Point `--ollama-base-url`
+at a non-default Ollama host if it isn't on `localhost:11434`. Leaving
+`--embedding-provider` unset — or Ollama being unreachable when it is set —
+never breaks search: it just runs BM25-only, exactly as before this feature
+existed. Existing notes get their embeddings filled in by a background
+backfill pass after startup; new/edited notes get theirs computed on write.
 
 ### Pointing the Flutter app at a server
 

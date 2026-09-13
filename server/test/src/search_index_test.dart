@@ -1,11 +1,16 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
+import 'package:server/src/embeddings/embedding_provider.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'embeddings/fake_embedding_provider.dart';
+import 'search_test_helpers.dart';
 
 class _RecordingSpanProcessor implements SpanProcessor {
   final List<SpanData> ended = [];
@@ -55,6 +60,8 @@ Future<SearchIndex> _open(
   Logger? logger,
   Tracer? tracer,
   bool forceRebuild = false,
+  EmbeddingProvider? embeddingProvider,
+  bool autoBackfill = true,
 }) {
   return SearchIndex.open(
     dbFile: _dbFile(tmp),
@@ -62,7 +69,25 @@ Future<SearchIndex> _open(
     logger: logger,
     tracer: tracer,
     forceRebuild: forceRebuild,
+    embeddingProvider: embeddingProvider,
+    autoBackfill: autoBackfill,
   );
+}
+
+/// Whether `note_vectors` exists in the `search.db` at [tmp], checked via a
+/// second raw connection, mirroring how [_linkEdges] bypasses the public
+/// API to inspect derived-table state directly.
+bool _hasVectorTable(Directory tmp) {
+  final db = sqlite3.open(_dbFile(tmp).path);
+  try {
+    final rows = db.select(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name='note_vectors';",
+    );
+    return rows.isNotEmpty;
+  } finally {
+    db.close();
+  }
 }
 
 void main() {
@@ -89,7 +114,7 @@ void main() {
       addTearDown(index.close);
 
       expect(_dbFile(tmp).existsSync(), isTrue);
-      final hits = index.search('architecture');
+      final hits = await index.search('architecture');
       expect(hits, hasLength(1));
       expect(hits.single.id, note.id);
     });
@@ -116,7 +141,7 @@ void main() {
         isTrue,
         reason: 'expected a warning about the corrupt db',
       );
-      expect(index.search('hello'), hasLength(1));
+      expect(await index.search('hello'), hasLength(1));
     });
 
     test('reuses a healthy search.db without rebuilding', () async {
@@ -133,7 +158,7 @@ void main() {
       index = await _open(tmp, storage: storage);
       addTearDown(index.close);
 
-      final hits = index.search('durable');
+      final hits = await index.search('durable');
       expect(hits, hasLength(1));
       expect(hits.single.id, note.id);
     });
@@ -159,7 +184,33 @@ void main() {
 
       expect(logged.any((l) => l.contains('schema_version mismatch')), isTrue);
       // Surviving content remains searchable after rebuild.
-      expect(index.search('tokenized'), hasLength(1));
+      expect(await index.search('tokenized'), hasLength(1));
+    });
+
+    test('rebuilds a pre-hybrid-search v3 search.db (no note_vectors table)',
+        () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'Bumped', content: 'tokenized words');
+
+      final initial = await _open(tmp, storage: storage);
+      initial.close();
+
+      // Simulate the exact prior on-disk shape: schema_version 3, the
+      // version this constant held before hybrid search added
+      // note_vectors.
+      sqlite3.open(_dbFile(tmp).path)
+        ..execute("UPDATE meta SET value = '3' WHERE key = 'schema_version';")
+        ..close();
+
+      final logger = Logger.detached('search-test')..level = Level.ALL;
+      final logged = <String>[];
+      logger.onRecord.listen((rec) => logged.add(rec.message));
+
+      final index = await _open(tmp, storage: storage, logger: logger);
+      addTearDown(index.close);
+
+      expect(logged.any((l) => l.contains('schema_version mismatch')), isTrue);
+      expect(await index.search('tokenized'), hasLength(1));
     });
 
     test('rebuild logs the count of indexed notes', () async {
@@ -193,10 +244,10 @@ void main() {
       final index = await _open(tmp, storage: storage);
       addTearDown(index.close);
 
-      expect(index.search('Tagged', path: 'Projects'), hasLength(1));
-      expect(index.search('Tagged', path: 'Elsewhere'), isEmpty);
-      expect(index.search('Tagged', tag: 'urgent'), hasLength(1));
-      expect(index.search('Tagged', tag: 'later'), isEmpty);
+      expect(await index.search('Tagged', path: 'Projects'), hasLength(1));
+      expect(await index.search('Tagged', path: 'Elsewhere'), isEmpty);
+      expect(await index.search('Tagged', tag: 'urgent'), hasLength(1));
+      expect(await index.search('Tagged', tag: 'later'), isEmpty);
 
       final betaId =
           (await storage.list()).firstWhere((s) => s.title == 'Beta').id;
@@ -245,9 +296,94 @@ void main() {
           logged.any((l) => l.contains('mismatch') || l.contains('unhealthy')),
           isTrue,
         );
-        expect(index.search('kept'), hasLength(1));
+        expect(await index.search('kept'), hasLength(1));
       },
     );
+  });
+
+  group('SearchIndex vector storage', () {
+    test(
+        'creates note_vectors sized to the provider dimensions when '
+        'configured', () async {
+      final index = await _open(
+        tmp,
+        embeddingProvider: FakeEmbeddingProvider(),
+      );
+      addTearDown(index.close);
+
+      expect(_hasVectorTable(tmp), isTrue);
+    });
+
+    test('does not create note_vectors when no provider is configured',
+        () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      expect(_hasVectorTable(tmp), isFalse);
+    });
+
+    group('vectorSearch', () {
+      /// Inserts a raw `note_vectors` row via a second connection — bypasses
+      /// `upsert()` (which doesn't write embeddings until a later task) so
+      /// this KNN query can be tested against the vector table in
+      /// isolation.
+      void insertVector(String id, List<double> embedding) {
+        final db = sqlite3.open(_dbFile(tmp).path);
+        try {
+          db.execute(
+            'INSERT INTO note_vectors (id, embedding) '
+            'VALUES (?, vector_as_f32(?));',
+            [id, '[${embedding.join(',')}]'],
+          );
+        } finally {
+          db.close();
+        }
+      }
+
+      test('returns up to k note ids ordered by ascending distance', () async {
+        final index = await _open(
+          tmp,
+          embeddingProvider: FakeEmbeddingProvider(),
+        );
+        addTearDown(index.close);
+
+        insertVector('near', [1.0, 2.0, 3.0, 4.0]);
+        insertVector('far', [100.0, 200.0, 300.0, 400.0]);
+        insertVector('medium', [2.0, 3.0, 4.0, 5.0]);
+
+        final hits = index.vectorSearch([1.0, 2.0, 3.0, 4.0], k: 2);
+
+        expect(hits, hasLength(2));
+        expect(hits.map((h) => h.id).toList(), ['near', 'medium']);
+        expect(hits[0].distance, lessThan(hits[1].distance));
+      });
+
+      test('k larger than the row count returns all available rows', () async {
+        final index = await _open(
+          tmp,
+          embeddingProvider: FakeEmbeddingProvider(),
+        );
+        addTearDown(index.close);
+
+        insertVector('only', [1.0, 2.0, 3.0, 4.0]);
+
+        final hits = index.vectorSearch([1.0, 2.0, 3.0, 4.0]);
+
+        expect(hits, hasLength(1));
+      });
+
+      test('empty note_vectors returns no results, not an error', () async {
+        final index = await _open(
+          tmp,
+          embeddingProvider: FakeEmbeddingProvider(),
+        );
+        addTearDown(index.close);
+
+        final hits = index.vectorSearch([1.0, 2.0, 3.0, 4.0], k: 5);
+
+        expect(hits, isEmpty);
+      });
+    });
   });
 
   group('SearchIndex.upsert / delete', () {
@@ -261,7 +397,7 @@ void main() {
         content: 'kangaroo jumps',
         updatedAt: _testStamp,
       );
-      expect(index.search('kangaroo'), hasLength(1));
+      expect(await index.search('kangaroo'), hasLength(1));
 
       index.upsert(
         id: 'n1',
@@ -269,8 +405,8 @@ void main() {
         content: 'wallaby hops',
         updatedAt: _testStamp,
       );
-      expect(index.search('kangaroo'), isEmpty);
-      final hits = index.search('wallaby');
+      expect(await index.search('kangaroo'), isEmpty);
+      final hits = await index.search('wallaby');
       expect(hits, hasLength(1));
       expect(hits.single.title, 'Updated');
     });
@@ -285,12 +421,12 @@ void main() {
         content: 'transient',
         updatedAt: _testStamp,
       );
-      expect(index.search('transient'), hasLength(1));
+      expect(await index.search('transient'), hasLength(1));
 
       index
         ..delete('n1')
         ..delete('n1');
-      expect(index.search('transient'), isEmpty);
+      expect(await index.search('transient'), isEmpty);
     });
 
     test('upsert records path and a queryable tag set', () async {
@@ -306,14 +442,17 @@ void main() {
         tags: {'Urgent'},
       );
 
-      expect(index.search('budget', path: 'Projects/Alpha'), hasLength(1));
+      expect(
+        await index.search('budget', path: 'Projects/Alpha'),
+        hasLength(1),
+      );
       // 'Projects' is an ancestor folder, so it matches too (nested).
-      expect(index.search('budget', path: 'Projects'), hasLength(1));
-      expect(index.search('budget', path: 'Other'), isEmpty);
+      expect(await index.search('budget', path: 'Projects'), hasLength(1));
+      expect(await index.search('budget', path: 'Other'), isEmpty);
       // Case-insensitive, matching tags.dart's own matching rule.
-      expect(index.search('budget', tag: 'urgent'), hasLength(1));
-      expect(index.search('budget', tag: 'URGENT'), hasLength(1));
-      expect(index.search('budget', tag: 'later'), isEmpty);
+      expect(await index.search('budget', tag: 'urgent'), hasLength(1));
+      expect(await index.search('budget', tag: 'URGENT'), hasLength(1));
+      expect(await index.search('budget', tag: 'later'), isEmpty);
     });
 
     test(
@@ -383,6 +522,67 @@ void main() {
 
       expect(_linkEdges(tmp, 'a'), isEmpty);
     });
+
+    test(
+        'stores the embedding when one is supplied and a provider is '
+        'configured', () async {
+      final index = await _open(
+        tmp,
+        embeddingProvider: FakeEmbeddingProvider(),
+      );
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'a',
+        title: 'A',
+        content: 'hello',
+        updatedAt: _testStamp,
+        embedding: [1.0, 2.0, 3.0, 4.0],
+      );
+
+      expect(vectorRowExists(_dbFile(tmp).path, 'a'), isTrue);
+    });
+
+    test(
+        'commits the FTS write even when embedding is omitted (no '
+        'provider, or the caller could not produce one)', () async {
+      final index = await _open(
+        tmp,
+        embeddingProvider: FakeEmbeddingProvider(),
+      );
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'a',
+        title: 'A',
+        content: 'hello',
+        updatedAt: _testStamp,
+      );
+
+      expect(await index.search('hello'), hasLength(1));
+      expect(vectorRowExists(_dbFile(tmp).path, 'a'), isFalse);
+    });
+
+    test('delete removes the embedding row alongside FTS and link edges',
+        () async {
+      final index = await _open(
+        tmp,
+        embeddingProvider: FakeEmbeddingProvider(),
+      );
+      addTearDown(index.close);
+
+      index
+        ..upsert(
+          id: 'a',
+          title: 'A',
+          content: 'hello',
+          updatedAt: _testStamp,
+          embedding: [1.0, 2.0, 3.0, 4.0],
+        )
+        ..delete('a');
+
+      expect(vectorRowExists(_dbFile(tmp).path, 'a'), isFalse);
+    });
   });
 
   group('SearchIndex.search', () {
@@ -404,16 +604,16 @@ void main() {
       final index = await seed({
         'n1': ('Race day', 'I went running yesterday.'),
       });
-      expect(index.search('run'), hasLength(1));
-      expect(index.search('runs'), hasLength(1));
-      expect(index.search('running'), hasLength(1));
+      expect(await index.search('run'), hasLength(1));
+      expect(await index.search('runs'), hasLength(1));
+      expect(await index.search('running'), hasLength(1));
     });
 
     test('matches case-insensitively', () async {
       final index = await seed({'n1': ('Hello', 'The quick brown FOX jumps.')});
-      expect(index.search('fox'), hasLength(1));
-      expect(index.search('FOX'), hasLength(1));
-      expect(index.search('Fox'), hasLength(1));
+      expect(await index.search('fox'), hasLength(1));
+      expect(await index.search('FOX'), hasLength(1));
+      expect(await index.search('Fox'), hasLength(1));
     });
 
     test('honors phrase queries', () async {
@@ -421,7 +621,7 @@ void main() {
         'n1': ('Patch', 'These are the release notes for v2.'),
         'n2': ('Other', 'Notes about a release party.'),
       });
-      final hits = index.search('"release notes"');
+      final hits = await index.search('"release notes"');
       expect(hits, hasLength(1));
       expect(hits.single.id, 'n1');
     });
@@ -432,7 +632,7 @@ void main() {
         'n2': ('Doc', 'archive of papers'),
         'n3': ('Doc', 'unrelated text'),
       });
-      final hits = index.search('archi*');
+      final hits = await index.search('archi*');
       expect(hits.map((h) => h.id), containsAll(['n1', 'n2']));
       expect(hits.map((h) => h.id), isNot(contains('n3')));
     });
@@ -447,8 +647,8 @@ void main() {
         updatedAt: _testStamp,
       );
 
-      expect(
-        () => index.search('"unterminated'),
+      await expectLater(
+        index.search('"unterminated'),
         throwsA(isA<InvalidSearchQueryException>()),
       );
     });
@@ -459,13 +659,13 @@ void main() {
         final index = await seed({
           'n1': ('Note', 'Siehst du meine Notes heute?'),
         });
-        expect(index.search('Siehst du meine Notes?'), hasLength(1));
+        expect(await index.search('Siehst du meine Notes?'), hasLength(1));
       },
     );
 
     test('tolerates apostrophes that break raw FTS5 syntax', () async {
       final index = await seed({'n1': ('Note', "That's the test note.")});
-      expect(index.search("That's the test"), hasLength(1));
+      expect(await index.search("That's the test"), hasLength(1));
     });
 
     test(
@@ -481,8 +681,8 @@ void main() {
         final sub = logger.onRecord.listen(records.add);
         addTearDown(sub.cancel);
 
-        expect(
-          () => index.search('"unterminated'),
+        await expectLater(
+          index.search('"unterminated'),
           throwsA(isA<InvalidSearchQueryException>()),
         );
 
@@ -508,7 +708,7 @@ void main() {
         );
       addTearDown(index.close);
 
-      index.search('hello');
+      await index.search('hello');
 
       final span = processor.ended.single;
       expect(span.name, 'search.query');
@@ -526,8 +726,8 @@ void main() {
       final index = await _open(tmp, tracer: tracer);
       addTearDown(index.close);
 
-      expect(
-        () => index.search('"unterminated'),
+      await expectLater(
+        index.search('"unterminated'),
         throwsA(isA<InvalidSearchQueryException>()),
       );
 
@@ -545,7 +745,7 @@ void main() {
           ),
         });
 
-        final hits = index.search('kangaroo');
+        final hits = await index.search('kangaroo');
         expect(hits, hasLength(2));
         // bm25 returns ascending rank where the first row is most relevant.
         expect(hits.first.id, 'n2');
@@ -572,7 +772,7 @@ void main() {
         updatedAt: stamp,
       );
 
-      final hits = index.search('kangaroo');
+      final hits = await index.search('kangaroo');
       expect(hits.single.updatedAt, stamp);
     });
 
@@ -580,7 +780,7 @@ void main() {
       final index = await seed({
         'n1': ('Doc', 'The quick brown fox jumps over the lazy dog.'),
       });
-      final hits = index.search('fox');
+      final hits = await index.search('fox');
       expect(hits, hasLength(1));
       expect(hits.single.snippet, contains('<mark>'));
       expect(hits.single.snippet, contains('</mark>'));
@@ -597,7 +797,320 @@ void main() {
           updatedAt: _testStamp,
         );
       }
-      expect(index.search('orbit', limit: 3), hasLength(3));
+      expect(await index.search('orbit', limit: 3), hasLength(3));
     });
   });
+
+  group('SearchIndex.search hybrid ranking', () {
+    test('stays BM25-only ordered when no provider is configured', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+      index
+        ..upsert(
+          id: 'weak',
+          title: 'Weak match',
+          content: 'apple mentioned once',
+          updatedAt: _testStamp,
+        )
+        ..upsert(
+          id: 'strong',
+          title: 'Strong match',
+          content: 'apple apple apple everywhere apple',
+          updatedAt: _testStamp,
+        );
+
+      final hits = await index.search('apple');
+
+      expect(hits.map((h) => h.id).toList(), ['strong', 'weak']);
+    });
+
+    test('calls the embedding provider once with the query text', () async {
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+      index.upsert(
+        id: 'n1',
+        title: 'A',
+        content: 'hello world',
+        updatedAt: _testStamp,
+        embedding: [1.0, 2.0, 3.0, 4.0],
+      );
+
+      await index.search('hello');
+
+      expect(provider.callCount, 1);
+    });
+
+    test('a note found only via vector similarity is still returned', () async {
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+
+      // "auth" note: matches the query by keyword, far in vector space.
+      index
+        ..upsert(
+          id: 'keyword-match',
+          title: 'Auth',
+          content: 'the word auth appears here',
+          updatedAt: _testStamp,
+          embedding: [100.0, 100.0, 100.0, 100.0],
+        )
+        // "oauth" note: no keyword overlap with "auth", but close in
+        // vector space to the query embedding.
+        ..upsert(
+          id: 'semantic-match',
+          title: 'Login redesign',
+          content: 'switching to OAuth for third-party login',
+          updatedAt: _testStamp,
+          embedding: [1.0, 2.0, 3.0, 4.1],
+        );
+      provider.overrides['auth'] = [1.0, 2.0, 3.0, 4.0];
+
+      final hits = await index.search('auth');
+
+      expect(hits.map((h) => h.id), contains('semantic-match'));
+      expect(hits.map((h) => h.id), contains('keyword-match'));
+    });
+
+    test('a vector-only hit carries title, path, and a content snippet',
+        () async {
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'semantic-match',
+        title: 'Login redesign',
+        content: 'switching to OAuth for third-party login',
+        updatedAt: _testStamp,
+        path: 'Projects/Auth',
+        embedding: [1.0, 2.0, 3.0, 4.1],
+      );
+      provider.overrides['auth'] = [1.0, 2.0, 3.0, 4.0];
+
+      final hits = await index.search('auth');
+
+      final hit = hits.singleWhere((h) => h.id == 'semantic-match');
+      expect(hit.title, 'Login redesign');
+      expect(hit.path, 'Projects/Auth');
+      expect(hit.snippet, contains('OAuth'));
+    });
+
+    test(
+        'falls back to BM25-only results when the provider fails at '
+        'query time', () async {
+      final provider = FakeEmbeddingProvider()..shouldThrow = true;
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+      // Seed a vector row directly (bypassing embed(), which always
+      // throws for this provider) so there's something a working query
+      // could have matched, to prove the fallback is BM25-only.
+      index.upsert(
+        id: 'n1',
+        title: 'A',
+        content: 'findable by keyword',
+        updatedAt: _testStamp,
+        embedding: [1.0, 2.0, 3.0, 4.0],
+      );
+
+      final hits = await index.search('findable');
+
+      expect(hits, hasLength(1));
+      expect(hits.single.id, 'n1');
+    });
+
+    test('respects path/tag filters for vector-only hits too', () async {
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+
+      index
+        ..upsert(
+          id: 'in-scope',
+          title: 'In scope',
+          content: 'switching to OAuth for third-party login',
+          updatedAt: _testStamp,
+          path: 'Projects/Alpha',
+          embedding: [1.0, 2.0, 3.0, 4.1],
+        )
+        ..upsert(
+          id: 'out-of-scope',
+          title: 'Out of scope',
+          content: 'switching to OAuth for third-party login too',
+          updatedAt: _testStamp,
+          path: 'Elsewhere',
+          embedding: [1.0, 2.0, 3.0, 4.2],
+        );
+      provider.overrides['auth'] = [1.0, 2.0, 3.0, 4.0];
+
+      final hits = await index.search('auth', path: 'Projects/Alpha');
+
+      expect(hits.map((h) => h.id).toList(), ['in-scope']);
+    });
+
+    test(
+        'a limit above the fusion candidate size still returns that many '
+        'hits when the provider is unreachable', () async {
+      const noteCount = 120;
+      const limit = 100;
+
+      final noProvider = await _open(tmp);
+      for (var i = 0; i < noteCount; i++) {
+        noProvider.upsert(
+          id: 'note-$i',
+          title: 'Note $i',
+          content: 'findable content $i',
+          updatedAt: _testStamp,
+        );
+      }
+      final baselineHits = await noProvider.search('findable', limit: limit);
+      noProvider.close();
+
+      final failingProvider = FakeEmbeddingProvider()..shouldThrow = true;
+      final withProvider = await _open(
+        tmp,
+        embeddingProvider: failingProvider,
+        forceRebuild: true,
+      );
+      addTearDown(withProvider.close);
+      for (var i = 0; i < noteCount; i++) {
+        withProvider.upsert(
+          id: 'note-$i',
+          title: 'Note $i',
+          content: 'findable content $i',
+          updatedAt: _testStamp,
+        );
+      }
+
+      final hits = await withProvider.search('findable', limit: limit);
+
+      expect(hits, hasLength(baselineHits.length));
+      expect(hits, hasLength(limit));
+    });
+  });
+
+  group('SearchIndex.backfillEmbeddings', () {
+    test('computes and stores embeddings for notes that lack one', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: 'aardvark');
+      await storage.create(title: 'B', content: 'bumblebee');
+      final provider = FakeEmbeddingProvider();
+      // Opening with a provider on a fresh vault rebuilds notes_fts (via
+      // scanning storage) but backfill is a separate call — this proves
+      // 7.1's "identify ids missing an embedding" against real rebuilt
+      // rows, not hand-seeded ones. autoBackfill: false so open()'s own
+      // automatic pass doesn't race the explicit call below.
+      final index = await _open(
+        tmp,
+        storage: storage,
+        embeddingProvider: provider,
+        autoBackfill: false,
+      );
+      addTearDown(index.close);
+
+      await index.backfillEmbeddings(sleep: (_) async {});
+
+      final db = sqlite3.open(_dbFile(tmp).path);
+      final count = db.select('SELECT COUNT(*) AS c FROM note_vectors;');
+      db.close();
+      expect(count.single['c'], 2);
+    });
+
+    test('processes ids in batches, sleeping between (not within) batches',
+        () async {
+      final storage = _storage(tmp);
+      for (var i = 0; i < 25; i++) {
+        await storage.create(title: 'n$i', content: 'content $i');
+      }
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(
+        tmp,
+        storage: storage,
+        embeddingProvider: provider,
+        autoBackfill: false,
+      );
+      addTearDown(index.close);
+      final sleepCalls = <Duration>[];
+
+      await index.backfillEmbeddings(
+        sleep: (d) async {
+          sleepCalls.add(d);
+        },
+      );
+
+      // 25 ids / batch size 10 -> 3 batches -> 2 gaps between them.
+      expect(sleepCalls, hasLength(2));
+      expect(provider.callCount, 25);
+    });
+
+    test('does nothing when no provider is configured', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: 'aardvark');
+      final index = await _open(tmp, storage: storage);
+      addTearDown(index.close);
+
+      await index.backfillEmbeddings();
+
+      expect(_hasVectorTable(tmp), isFalse);
+    });
+  });
+
+  group('SearchIndex startup backfill', () {
+    test('open() does not block on backfill completing', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: 'aardvark');
+      final gate = Completer<void>();
+      final provider = _GatedEmbeddingProvider(gate.future);
+
+      // If open() awaited backfill to completion, this would hang forever
+      // since `gate` is never completed.
+      final index =
+          await _open(tmp, storage: storage, embeddingProvider: provider)
+              .timeout(const Duration(seconds: 5));
+      addTearDown(index.close);
+
+      expect(index.pendingBackfill, isNotNull);
+      gate.complete();
+      await index.pendingBackfill;
+    });
+
+    test(
+        'a note with a pending (not-yet-backfilled) embedding is still '
+        'findable via BM25', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'A', content: 'aardvark');
+      // autoBackfill: false simulates a backfill pass that hasn't run
+      // yet (or hasn't reached this note yet) — no note_vectors row
+      // exists, but a provider is configured, so search() takes the
+      // hybrid path and must not choke on the note's absent embedding.
+      final index = await _open(
+        tmp,
+        storage: storage,
+        embeddingProvider: FakeEmbeddingProvider(),
+        autoBackfill: false,
+      );
+      addTearDown(index.close);
+
+      final hits = await index.search('aardvark');
+
+      expect(hits, hasLength(1));
+    });
+  });
+}
+
+/// [EmbeddingProvider] whose `embed()` never resolves until [gate]
+/// completes — used to prove startup doesn't wait for backfill.
+class _GatedEmbeddingProvider implements EmbeddingProvider {
+  _GatedEmbeddingProvider(this.gate);
+
+  final Future<void> gate;
+
+  @override
+  int get dimensions => 4;
+
+  @override
+  Future<List<double>> embed(String text) async {
+    await gate;
+    return const [1.0, 2.0, 3.0, 4.0];
+  }
 }

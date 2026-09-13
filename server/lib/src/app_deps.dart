@@ -5,6 +5,7 @@ import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/embeddings/embedding_provider_factory.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/legacy_migration.dart';
 import 'package:server/src/link_index.dart';
@@ -184,11 +185,13 @@ class AppDeps {
       clock: clock,
       ttl: Duration(seconds: config.lockTtlSeconds),
     );
+    final embeddingProvider = embeddingProviderFromConfig(config);
     final searchIndex = await SearchIndex.open(
       dbFile: File('${config.dataDir}/search.db'),
       storage: storage,
       logger: Logger('search_index'),
       tracer: tracer,
+      embeddingProvider: embeddingProvider,
     );
     final inviteStore = InviteStore(
       inviteDir: Directory('${config.dataDir}/invites'),
@@ -239,6 +242,7 @@ class AppDeps {
       linkIndex: linkIndex,
       lockManager: lockManager,
       tracer: tracer,
+      embeddingProvider: embeddingProvider,
     );
 
     return AppDeps(

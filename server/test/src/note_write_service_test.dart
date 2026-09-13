@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/embeddings/embedding_provider.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
@@ -11,6 +12,9 @@ import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
+
+import 'embeddings/fake_embedding_provider.dart';
+import 'search_test_helpers.dart';
 
 class _RecordingSpanProcessor implements SpanProcessor {
   final List<SpanData> ended = [];
@@ -80,8 +84,9 @@ Directory _tempDir() =>
     Directory.systemTemp.createTempSync('robot-notes-write-svc-test-');
 
 Future<({Storage storage, MetaIndex meta, SearchIndex search})> _stack(
-  Directory tmp,
-) async {
+  Directory tmp, {
+  EmbeddingProvider? embeddingProvider,
+}) async {
   final storage = Storage(
     contentDir: Directory('${tmp.path}/content'),
     clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
@@ -90,6 +95,7 @@ Future<({Storage storage, MetaIndex meta, SearchIndex search})> _stack(
   final search = await SearchIndex.open(
     dbFile: File('${tmp.path}/search.db'),
     storage: storage,
+    embeddingProvider: embeddingProvider,
   );
   return (storage: storage, meta: meta, search: search);
 }
@@ -132,7 +138,7 @@ void main() {
       expect(s.meta.length, 1);
 
       // SearchIndex finds it
-      final hits = s.search.search('dust');
+      final hits = await s.search.search('dust');
       expect(hits, hasLength(1));
       expect(hits.first.id, note.id);
 
@@ -174,9 +180,9 @@ void main() {
       expect(updated.version, 2);
 
       // SearchIndex finds the new term, not the old.
-      final fresh = s.search.search('telescopes');
+      final fresh = await s.search.search('telescopes');
       expect(fresh, hasLength(1));
-      final old = s.search.search('"old body"');
+      final old = await s.search.search('"old body"');
       expect(old, isEmpty);
 
       // MetaIndex reflects the new version.
@@ -303,7 +309,7 @@ void main() {
       expect(s.meta.length, 0);
 
       // SearchIndex empty for the term.
-      expect(s.search.search('erased'), isEmpty);
+      expect(await s.search.search('erased'), isEmpty);
 
       // Broadcast: created + deleted.
       expect(bc.changed.last.action, ChangeAction.deleted);
@@ -335,7 +341,7 @@ void main() {
       // Search and storage now agree.
       final reread = await s.storage.read(note.id);
       expect(reread.title, 'Sync check');
-      expect(s.search.search('crater').single.id, note.id);
+      expect((await s.search.search('crater')).single.id, note.id);
     });
 
     test('broadcast failure does not roll back the file write', () async {
@@ -363,7 +369,7 @@ void main() {
 
       final reread = await s.storage.read(note.id);
       expect(reread.title, 'Survives');
-      expect(s.search.search('death').single.id, note.id);
+      expect((await s.search.search('death')).single.id, note.id);
       expect(s.meta.length, 1);
       expect(captured, contains(Level.WARNING));
     });
@@ -507,6 +513,133 @@ void main() {
       expect(span.name, 'note.write.delete');
       expect(span.attributes['note.id'], f.seed!.id);
       expect(span.statusCode, StatusCode.unset);
+    });
+  });
+
+  group('NoteWriteService embedding integration', () {
+    test(
+        'create computes and stores an embedding when a provider is '
+        'configured', () async {
+      final provider = FakeEmbeddingProvider();
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+
+      final note = await svc.create(
+        title: 'Auth notes',
+        content: 'switching to OAuth for third-party login',
+        actor: 'a',
+      );
+
+      expect(provider.callCount, 1);
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
+    });
+
+    test('update recomputes the embedding', () async {
+      final provider = FakeEmbeddingProvider();
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+      final note = await svc.create(title: 'A', content: 'v1', actor: 'a');
+      provider.callCount = 0;
+
+      await svc.update(
+        id: note.id,
+        title: 'A',
+        content: 'v2',
+        ifMatch: note.version,
+        actor: 'a',
+      );
+
+      expect(provider.callCount, 1);
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
+    });
+
+    test('write still succeeds when the embedding provider fails', () async {
+      final provider = FakeEmbeddingProvider()..shouldThrow = true;
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+
+      final note = await svc.create(
+        title: 'A',
+        content: 'still findable by keyword',
+        actor: 'a',
+      );
+
+      expect(await s.search.search('findable'), hasLength(1));
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isFalse);
+    });
+
+    test(
+        'update drops a stale vector when the embedding provider fails, '
+        'and backfill later regenerates it', () async {
+      final provider = FakeEmbeddingProvider();
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+      final note = await svc.create(title: 'A', content: 'v1', actor: 'a');
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
+
+      provider.shouldThrow = true;
+      await svc.update(
+        id: note.id,
+        title: 'A',
+        content: 'v2',
+        ifMatch: note.version,
+        actor: 'a',
+      );
+
+      expect(
+        vectorRowExists('${tmp.path}/search.db', note.id),
+        isFalse,
+        reason: 'a failed re-embed must drop the old vector rather than leave '
+            "the pre-update content's embedding behind",
+      );
+
+      provider.shouldThrow = false;
+      await s.search.backfillEmbeddings();
+
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
+    });
+
+    test('does not call embed at all when no provider is configured', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+      );
+
+      await svc.create(title: 'A', content: 'no provider here', actor: 'a');
+
+      expect(await s.search.search('provider'), hasLength(1));
     });
   });
 }

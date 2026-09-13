@@ -1,5 +1,6 @@
 import 'package:args/args.dart';
 import 'package:meta/meta.dart';
+import 'package:server/src/embeddings/ollama_embedding_provider.dart';
 
 /// Thrown by [Config.fromArgs] when the inputs cannot be resolved into a
 /// valid runtime configuration.
@@ -57,6 +58,9 @@ class Config {
     this.otelEnvironmentName = defaultOtelEnvironmentName,
     this.maxUploadSizeBytes = defaultMaxUploadSizeBytes,
     this.oidc,
+    this.embeddingProvider,
+    this.ollamaBaseUrl = defaultOllamaBaseUrl,
+    this.ollamaEmbeddingModel = defaultOllamaEmbeddingModel,
   });
 
   /// Resolves a [Config] from CLI [args] and the supplied environment.
@@ -159,6 +163,29 @@ class Config {
 
     final oidc = _resolveOidc(parsed, env);
 
+    final embeddingProvider = _resolveEmbeddingProvider(
+      _coalesce(
+        parsed['embedding-provider'] as String?,
+        env['ROBOT_NOTES_EMBEDDING_PROVIDER'],
+      ),
+    );
+
+    final ollamaBaseUrl = _coalesce(
+          parsed['ollama-base-url'] as String?,
+          env['ROBOT_NOTES_OLLAMA_BASE_URL'],
+        ) ??
+        defaultOllamaBaseUrl;
+
+    final ollamaEmbeddingModel = _coalesce(
+          parsed['ollama-embedding-model'] as String?,
+          env['ROBOT_NOTES_OLLAMA_MODEL'],
+        ) ??
+        defaultOllamaEmbeddingModel;
+
+    if (embeddingProvider == 'ollama') {
+      _validateOllamaEmbeddingModel(ollamaEmbeddingModel);
+    }
+
     return Config(
       apiKey: apiKey,
       dataDir: dataDir,
@@ -171,6 +198,9 @@ class Config {
       otelEnvironmentName: otelEnvironmentName,
       maxUploadSizeBytes: maxUploadSizeBytes,
       oidc: oidc,
+      embeddingProvider: embeddingProvider,
+      ollamaBaseUrl: ollamaBaseUrl,
+      ollamaEmbeddingModel: ollamaEmbeddingModel,
     );
   }
 
@@ -194,6 +224,18 @@ class Config {
   /// Default maximum accepted size, in bytes, for a single
   /// `POST /notes/attachments` (or `upload_file` MCP) upload: 25 MiB.
   static const int defaultMaxUploadSizeBytes = 26214400;
+
+  /// Embedding provider names accepted by `--embedding-provider` /
+  /// `ROBOT_NOTES_EMBEDDING_PROVIDER`.
+  static const List<String> supportedEmbeddingProviders = ['ollama'];
+
+  /// Default Ollama server URL when `--embedding-provider ollama` is set
+  /// without an explicit `--ollama-base-url`.
+  static const String defaultOllamaBaseUrl = 'http://localhost:11434';
+
+  /// Default Ollama embedding model when `--embedding-provider ollama` is
+  /// set without an explicit `--ollama-embedding-model`.
+  static const String defaultOllamaEmbeddingModel = 'nomic-embed-text';
 
   /// Bearer key required on every HTTP request and the WebSocket auth frame.
   final String apiKey;
@@ -239,6 +281,19 @@ class Config {
   /// OIDC login configuration, or `null` when OIDC login is disabled (the
   /// default — every request behaves exactly as without this capability).
   final OidcConfig? oidc;
+
+  /// Selected embedding provider name (currently only `'ollama'`), or
+  /// `null` when hybrid semantic search is disabled (the default — search
+  /// behaves exactly as without this capability).
+  final String? embeddingProvider;
+
+  /// Base URL of the Ollama server used when [embeddingProvider] is
+  /// `'ollama'`. Defaults to [defaultOllamaBaseUrl]; unused otherwise.
+  final String ollamaBaseUrl;
+
+  /// Ollama model name used when [embeddingProvider] is `'ollama'`.
+  /// Defaults to [defaultOllamaEmbeddingModel]; unused otherwise.
+  final String ollamaEmbeddingModel;
 
   /// Builds an [ArgParser] mirroring the documented CLI surface.
   static ArgParser buildParser() => ArgParser()
@@ -296,6 +351,24 @@ class Config {
       'oidc-client-secret',
       help: "This server's client secret as registered with "
           '--oidc-issuer.',
+    )
+    ..addOption(
+      'embedding-provider',
+      help: 'Enables hybrid (keyword + semantic) search using the named '
+          'embedding provider. Supported: '
+          '${supportedEmbeddingProviders.join(', ')}. Unset disables '
+          'semantic search; keyword search is unaffected.',
+    )
+    ..addOption(
+      'ollama-base-url',
+      help: 'Base URL of the Ollama server, used when --embedding-provider '
+          'is "ollama". Defaults to "$defaultOllamaBaseUrl".',
+    )
+    ..addOption(
+      'ollama-embedding-model',
+      help: 'Ollama model name to embed with, used when '
+          '--embedding-provider is "ollama". Defaults to '
+          '"$defaultOllamaEmbeddingModel".',
     )
     ..addFlag('help', abbr: 'h', negatable: false, help: 'Print usage.');
 
@@ -435,6 +508,40 @@ class Config {
       clientId: clientId!,
       clientSecret: clientSecret!,
     );
+  }
+
+  /// Validates a raw `--embedding-provider` /
+  /// `ROBOT_NOTES_EMBEDDING_PROVIDER` value against
+  /// [supportedEmbeddingProviders]. Returns `null` when [raw] is `null`
+  /// (semantic search disabled). Throws [ConfigError] for any other,
+  /// unsupported value.
+  static String? _resolveEmbeddingProvider(String? raw) {
+    if (raw == null) return null;
+    if (!supportedEmbeddingProviders.contains(raw)) {
+      throw ConfigError(
+        'Unsupported --embedding-provider / '
+        'ROBOT_NOTES_EMBEDDING_PROVIDER value "$raw". Supported: '
+        '${supportedEmbeddingProviders.join(', ')}.',
+      );
+    }
+    return raw;
+  }
+
+  /// Validates `--ollama-embedding-model` / `ROBOT_NOTES_OLLAMA_MODEL`
+  /// against [OllamaEmbeddingProvider.knownDimensions] (an optional
+  /// `:tag` suffix, e.g. `:v1.5`, is stripped before the check). Only
+  /// called when `--embedding-provider` resolves to `ollama`. Throws
+  /// [ConfigError] for an unknown model, so a dimension mismatch is caught
+  /// at startup rather than surfacing as a runtime vector-write failure.
+  static void _validateOllamaEmbeddingModel(String model) {
+    final base = OllamaEmbeddingProvider.baseModelName(model);
+    if (!OllamaEmbeddingProvider.knownDimensions.containsKey(base)) {
+      throw ConfigError(
+        'Unsupported --ollama-embedding-model / ROBOT_NOTES_OLLAMA_MODEL '
+        'value "$model". Supported: '
+        '${OllamaEmbeddingProvider.knownDimensions.keys.join(', ')}.',
+      );
+    }
   }
 
   static int _parseInt(
