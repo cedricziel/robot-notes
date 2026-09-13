@@ -3,9 +3,7 @@
 ## Purpose
 
 TBD - created by archiving change add-mvp-foundation. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Server exposes RESTful note CRUD endpoints
 
 The server SHALL expose the following endpoints rooted at `/notes`:
@@ -25,7 +23,7 @@ All endpoints SHALL accept and return `application/json`. All endpoints SHALL re
 
 ### Requirement: GET /notes returns paginated metadata
 
-`GET /notes` SHALL return a JSON object containing `items` (an array of note metadata) and `next_cursor` (a string or null). Each item SHALL contain `id`, `title`, `path`, `version`, `updated_at`, and `created_at`. The endpoint SHALL accept `limit` (default 50, max 200), `after`, `sort`, `path` (return only notes whose `path` equals or is nested under the given folder), and `tag` (return only notes carrying the given tag) query parameters. `after` is an opaque cursor derived from the last item of the previous page. `path` and `tag` MAY be combined with either `sort` value and with each other; they narrow the result set before pagination is applied. Item content SHALL NOT be included.
+`GET /notes` SHALL return a JSON object containing `items` (an array of note metadata) and `next_cursor` (a string or null). Each item SHALL contain `id`, `title`, `path`, `version`, `updated_at`, `created_at`, `excerpt`, and `tags`. `excerpt` SHALL be a bounded, plain-text preview of the note body — not the note's full content. `tags` SHALL be the note's computed tag set (array of strings), the same set used for the `tag` filter, sorted ascending case-insensitively. The endpoint SHALL accept `limit` (default 50, max 200), `after`, `sort`, `path` (return only notes whose `path` equals or is nested under the given folder), and `tag` (return only notes carrying the given tag) query parameters. `after` is an opaque cursor derived from the last item of the previous page. `path` and `tag` MAY be combined with either `sort` value and with each other; they narrow the result set before pagination is applied. Item full content SHALL NOT be included.
 
 `sort` SHALL be one of:
 
@@ -55,6 +53,24 @@ Any other `sort` value SHALL be rejected with HTTP 400. A cursor that cannot be 
 
 - **WHEN** a client requests `GET /notes`
 - **THEN** items SHALL NOT contain a `content` field
+
+#### Scenario: Items include a markdown-stripped excerpt
+
+- **GIVEN** a note whose body contains markdown syntax (headings, lists, emphasis, `[[links]]`, inline `#tags`) longer than the excerpt bound
+- **WHEN** a client requests `GET /notes`
+- **THEN** that item's `excerpt` SHALL be plain text (markdown syntax stripped), truncated to the excerpt bound at a word boundary
+
+#### Scenario: Items include the note's computed tags
+
+- **GIVEN** a note carries tags `urgent` and `travel`
+- **WHEN** a client requests `GET /notes`
+- **THEN** that item's `tags` SHALL contain `urgent` and `travel`
+
+#### Scenario: Tags are sorted ascending, case-insensitively
+
+- **GIVEN** a note carries tags `Zebra`, `apple`, and `banana`
+- **WHEN** a client requests `GET /notes`
+- **THEN** that item's `tags` SHALL be `["apple", "banana", "Zebra"]`
 
 #### Scenario: sort=updated_desc orders by most recently updated first
 
@@ -297,3 +313,4 @@ Every 4xx and 5xx response from the API SHALL have a JSON body containing at min
 - **GIVEN** three notes carry tag `urgent` and one carries `later`
 - **WHEN** a client requests `GET /tags`
 - **THEN** the response SHALL contain `{"tag":"urgent","count":3}` before `{"tag":"later","count":1}`
+
