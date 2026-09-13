@@ -55,6 +55,7 @@ class Config {
     this.otlpEndpoint,
     this.otlpHeaders = const {},
     this.otelEnvironmentName = defaultOtelEnvironmentName,
+    this.maxUploadSizeBytes = defaultMaxUploadSizeBytes,
     this.oidc,
   });
 
@@ -147,6 +148,15 @@ class Config {
         ) ??
         defaultOtelEnvironmentName;
 
+    final maxUploadSizeBytes = _parseInt(
+      _coalesce(
+        parsed['max-upload-size-bytes'] as String?,
+        env['ROBOT_NOTES_MAX_UPLOAD_SIZE_BYTES'],
+      ),
+      field: '--max-upload-size-bytes',
+      fallback: defaultMaxUploadSizeBytes,
+    );
+
     final oidc = _resolveOidc(parsed, env);
 
     return Config(
@@ -159,6 +169,7 @@ class Config {
       otlpEndpoint: otlpEndpoint,
       otlpHeaders: otlpHeaders,
       otelEnvironmentName: otelEnvironmentName,
+      maxUploadSizeBytes: maxUploadSizeBytes,
       oidc: oidc,
     );
   }
@@ -179,6 +190,10 @@ class Config {
   /// flag nor env supplies one — this server has no staging deployment
   /// today, so "production" is the only value that's ever actually true.
   static const String defaultOtelEnvironmentName = 'production';
+
+  /// Default maximum accepted size, in bytes, for a single
+  /// `POST /notes/attachments` (or `upload_file` MCP) upload: 25 MiB.
+  static const int defaultMaxUploadSizeBytes = 26214400;
 
   /// Bearer key required on every HTTP request and the WebSocket auth frame.
   final String apiKey;
@@ -216,6 +231,10 @@ class Config {
   /// The `deployment.environment.name` OTel resource attribute exported
   /// alongside every log and span. Defaults to [defaultOtelEnvironmentName].
   final String otelEnvironmentName;
+
+  /// Maximum accepted size, in bytes, for a single attachment upload.
+  /// Defaults to [defaultMaxUploadSizeBytes].
+  final int maxUploadSizeBytes;
 
   /// OIDC login configuration, or `null` when OIDC login is disabled (the
   /// default — every request behaves exactly as without this capability).
@@ -258,6 +277,11 @@ class Config {
       'otel-environment-name',
       help: 'deployment.environment.name resource attribute exported with '
           'every log and span. Defaults to "$defaultOtelEnvironmentName".',
+    )
+    ..addOption(
+      'max-upload-size-bytes',
+      help: 'Maximum accepted size, in bytes, for a single attachment '
+          'upload. Defaults to $defaultMaxUploadSizeBytes (25 MiB).',
     )
     ..addOption(
       'oidc-issuer',
