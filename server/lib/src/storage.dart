@@ -469,16 +469,18 @@ class Storage {
     final segments = sanitizedPathSegments(path);
     final normalized = segments.join('/');
     final key = collisionKey(normalized);
-    final existing = _resolveExistingFolderPath(key);
-    if (existing != null) {
-      return FolderCreateResult(path: existing, created: false);
-    }
-    final dir = Directory('${contentDir.path}/$normalized');
-    await dir.create(recursive: true);
-    final marker = File('${dir.path}/$kFolderMarkerFilename');
-    if (!marker.existsSync()) await marker.create();
-    _emptyFolderPaths.add(normalized);
-    return FolderCreateResult(path: normalized, created: true);
+    return _withPathLock(key, () async {
+      final existing = _resolveExistingFolderPath(key);
+      if (existing != null) {
+        return FolderCreateResult(path: existing, created: false);
+      }
+      final dir = Directory('${contentDir.path}/$normalized');
+      await dir.create(recursive: true);
+      final marker = File('${dir.path}/$kFolderMarkerFilename');
+      if (!marker.existsSync()) await marker.create();
+      _emptyFolderPaths.add(normalized);
+      return FolderCreateResult(path: normalized, created: true);
+    });
   }
 
   // Finds a folder already known to the index (via a note's containing

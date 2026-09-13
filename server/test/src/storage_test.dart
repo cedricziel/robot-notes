@@ -117,7 +117,8 @@ void main() {
       expect(summaries.map((s) => s.id), [note.id]);
     });
 
-    test('a folder with both a marker and a note keeps the marker and is not '
+    test(
+        'a folder with both a marker and a note keeps the marker and is not '
         'double-counted', () async {
       final storage = _storage(
         tmp,
@@ -231,6 +232,28 @@ void main() {
         throwsA(isA<InvalidPathException>()),
       );
     });
+
+    test(
+      'two concurrent creates of the same new path: exactly one reports '
+      'created, both resolve to the same folder',
+      () async {
+        final storage = _storage(tmp);
+
+        final results = await Future.wait([
+          storage.createFolder('Ideas'),
+          storage.createFolder('Ideas'),
+        ]);
+
+        final createdFlags = results.map((r) => r.created).toList();
+        expect(createdFlags, unorderedEquals([true, false]));
+        expect(results[0].path, 'Ideas');
+        expect(results[1].path, 'Ideas');
+        expect(
+          File('${tmp.path}/content/Ideas/$kFolderMarkerFilename').existsSync(),
+          isTrue,
+        );
+      },
+    );
   });
 
   group('Storage.create', () {
@@ -531,7 +554,8 @@ void main() {
         },
       );
 
-      test('renaming into an existing title is rejected and both files '
+      test(
+          'renaming into an existing title is rejected and both files '
           'are left unchanged', () async {
         final storage = _storage(
           tmp,
@@ -614,8 +638,8 @@ void main() {
           // file was never touched, since the write only ever happens
           // after the collision check).
           expect(File('${tmp.path}/content/Target.md').existsSync(), isTrue);
-          final survivingContent = File('${tmp.path}/content/Target.md')
-              .readAsStringSync();
+          final survivingContent =
+              File('${tmp.path}/content/Target.md').readAsStringSync();
           expect(
             survivingContent,
             anyOf(contains('b-content'), contains('c-content')),
