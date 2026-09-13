@@ -13,9 +13,9 @@ import re
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
-from robot_notes._memory_provider_base import MemoryProvider
-from robot_notes.client import ClientError, RobotNotesClient
-from robot_notes.config import RobotNotesConfig
+from ._memory_provider_base import MemoryProvider
+from .client import ClientError, RobotNotesClient
+from .config import RobotNotesConfig
 
 logger = logging.getLogger(__name__)
 
