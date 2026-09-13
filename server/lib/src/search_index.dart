@@ -432,16 +432,23 @@ class SearchIndex {
       final List<SearchHit> hits;
       final provider = _embeddingProvider;
       if (provider == null) {
-        hits = _bm25Search(query, limit: limit, path: path, tag: tag);
+        hits = _runFtsQueryWithFallback(
+          query,
+          limit: limit,
+          path: path,
+          tag: tag,
+          span: span,
+        );
       } else {
         // Kick off the query embedding request without awaiting it yet,
         // so it's in flight while the synchronous BM25 query below runs.
         final embeddingFuture = embedOrNull(provider, query, logger: _log);
-        final bm25Hits = _bm25Search(
+        final bm25Hits = _runFtsQueryWithFallback(
           query,
           limit: _fusionCandidateLimit,
           path: path,
           tag: tag,
+          span: span,
         );
         final queryEmbedding = await embeddingFuture;
         if (queryEmbedding == null) {
@@ -479,17 +486,49 @@ class SearchIndex {
     }
   }
 
-  /// The synchronous BM25-only half of [search]: runs the FTS5 query and
-  /// maps rows to [SearchHit]s, ordered by `bm25()` ascending. Shared by
-  /// both the no-provider path and hybrid fusion's candidate gathering.
-  List<SearchHit> _bm25Search(
+  /// Runs [_runFtsQuery], retrying once with punctuation neutralized (see
+  /// [_sanitizeFtsQuery]) if the raw query fails to parse as FTS5 syntax —
+  /// shared by both [search]'s no-provider path and hybrid fusion's BM25
+  /// candidate gathering. Sets `search.query_sanitized` on [span] when the
+  /// fallback succeeds. Rethrows the *original* [SqliteException] if the
+  /// sanitized retry also fails to parse, so [search]'s error message
+  /// describes the query the caller actually typed, not the fallback.
+  List<SearchHit> _runFtsQueryWithFallback(
     String query, {
+    required int limit,
+    required Span span,
+    String? path,
+    String? tag,
+  }) {
+    try {
+      return _runFtsQuery(query, limit: limit, path: path, tag: tag);
+    } on SqliteException catch (original) {
+      final sanitized = _sanitizeFtsQuery(query);
+      if (sanitized == query) rethrow;
+      try {
+        final hits =
+            _runFtsQuery(sanitized, limit: limit, path: path, tag: tag);
+        span.setAttribute('search.query_sanitized', true);
+        return hits;
+      } on SqliteException {
+        // Sanitizing didn't help; report the original query's error.
+        throw original;
+      }
+    }
+  }
+
+  /// Runs [ftsQuery] as an FTS5 `MATCH` expression, applying the same
+  /// [path]/[tag]/[limit] narrowing as [search]. Throws [SqliteException]
+  /// unchanged on a syntax error, so [_runFtsQueryWithFallback] can retry
+  /// with a different query string.
+  List<SearchHit> _runFtsQuery(
+    String ftsQuery, {
     required int limit,
     String? path,
     String? tag,
   }) {
     final conditions = ['notes_fts MATCH ?'];
-    final params = <Object?>[query];
+    final params = <Object?>[ftsQuery];
     if (path != null) {
       // Avoided LIKE here: a folder name containing `%` or `_` would
       // otherwise be misinterpreted as a wildcard.
@@ -620,13 +659,13 @@ class SearchIndex {
   }
 
   /// Whether [notePath] equals or is nested under [filterPath] — mirrors
-  /// [_bm25Search]'s SQL path condition for use against a single
+  /// [_runFtsQuery]'s SQL path condition for use against a single
   /// in-memory row instead of a WHERE clause.
   static bool _pathMatches(String notePath, String filterPath) =>
       notePath == filterPath || notePath.startsWith('$filterPath/');
 
   /// Whether [encodedTags] (as produced by [_encodeTags]) contains [tag]
-  /// — mirrors [_bm25Search]'s SQL tag condition.
+  /// — mirrors [_runFtsQuery]'s SQL tag condition.
   static bool _tagsContain(String encodedTags, String tag) =>
       encodedTags.contains(' ${tag.toLowerCase()} ');
 
@@ -732,6 +771,24 @@ class SearchIndex {
         (id: row['id'] as String, content: row['content'] as String),
     ];
   }
+
+  /// Neutralizes punctuation that trips FTS5's query-string parser but
+  /// carries no FTS5 meaning (e.g. a sentence-ending `?` or an apostrophe
+  /// in "isn't"), by replacing it with a space. FTS5 syntax characters
+  /// (`"`, `*`, `(`, `)`, `:`) are preserved so deliberate phrase/prefix/
+  /// column-filter queries are untouched. [search] only tries this as a
+  /// fallback after the raw query fails to parse, so genuine syntax
+  /// errors (e.g. an unterminated quote) still surface as
+  /// [InvalidSearchQueryException].
+  static final RegExp _ftsUnsafeChars = RegExp(
+    r'[^\p{L}\p{N}\s"*():]',
+    unicode: true,
+  );
+
+  static String _sanitizeFtsQuery(String query) =>
+      _ftsUnsafeChars.hasMatch(query)
+          ? query.replaceAll(_ftsUnsafeChars, ' ').trim()
+          : query;
 
   /// Closes the database file. After calling this method the index must
   /// not be used again.

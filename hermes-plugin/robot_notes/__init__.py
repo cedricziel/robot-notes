@@ -15,21 +15,32 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ._memory_provider_base import MemoryProvider
 from .client import ClientError, RobotNotesClient
-from .config import RobotNotesConfig
+from .config import DEFAULT_ACTOR, RobotNotesConfig
 
 logger = logging.getLogger(__name__)
 
-SESSIONS_PATH = "Hermes/Sessions"
+CONVERSATIONS_ROOT = "conversations"
 MEMORY_NOTE = {"title": "Memory", "path": "Hermes"}
 USER_NOTE = {"title": "User", "path": "Hermes"}
 
 SYSTEM_PROMPT_BLOCK = (
     "A shared robot-notes workspace is connected as external memory. Call "
     "robotnotes_search before creating a new note, and robotnotes_remember "
-    "to store a fact worth keeping across sessions."
+    "to store a fact worth keeping across sessions. robotnotes_search is "
+    "keyword search only — to browse or list every note in the workspace, "
+    "use robotnotes_list instead."
 )
 
 _MARK_RE = re.compile(r"</?mark>")
+
+
+def _sanitize_actor(actor: str) -> str:
+    """Collapses an actor value to exactly one safe path segment: flattens any
+    '/' (so a misconfigured actor can't nest extra folders under
+    conversations/) and falls back to DEFAULT_ACTOR for anything that would
+    resolve to a no-op or traversal segment ("", ".", "..")."""
+    cleaned = actor.replace("/", "_").strip()
+    return cleaned if cleaned and cleaned not in (".", "..") else DEFAULT_ACTOR
 
 
 def register(ctx) -> None:
@@ -48,13 +59,37 @@ class RobotNotesProvider(MemoryProvider):
         self._tools = [
             {
                 "name": "robotnotes_search",
-                "description": "Search the shared robot-notes workspace.",
+                "description": "Search the shared robot-notes workspace. This is keyword "
+                "full-text search, not a wildcard — there is no query that means "
+                "\"every note\" (a query like '*' is rejected, and a generic term "
+                "like 'notes' only matches notes that literally contain that word). "
+                "To enumerate everything in the workspace, use robotnotes_list "
+                "instead.",
                 "parameters": {
                     "type": "object",
                     "properties": {"query": {"type": "string"}},
                     "required": ["query"],
                 },
                 "handler": self._tool_search,
+            },
+            {
+                "name": "robotnotes_list",
+                "description": "List every note's metadata (id, title, path, version, "
+                "timestamps — no content) from the shared robot-notes workspace, "
+                "optionally narrowed to a folder with 'path'. Paginated: call again "
+                "with 'after' set to the previous response's next_cursor until it "
+                "comes back null to see the whole workspace. Use this instead of "
+                "robotnotes_search to browse or enumerate everything.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "after": {"type": "string"},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": [],
+                },
+                "handler": self._tool_list,
             },
             {
                 "name": "robotnotes_note",
@@ -178,6 +213,13 @@ class RobotNotesProvider(MemoryProvider):
     def _tool_search(self, args: Dict[str, Any]) -> str:
         return json.dumps({"items": self._client.search(args["query"])})
 
+    def _tool_list(self, args: Dict[str, Any]) -> str:
+        return json.dumps(
+            self._client.list_notes(
+                path=args.get("path"), after=args.get("after"), limit=args.get("limit", 50)
+            )
+        )
+
     def _tool_note(self, args: Dict[str, Any]) -> str:
         return json.dumps(self._client.get_note(args["id"]))
 
@@ -193,7 +235,10 @@ class RobotNotesProvider(MemoryProvider):
         if not self._client:
             return
         title = self._session_id or "unknown-session"
-        self._overwrite_note(title=title, path=SESSIONS_PATH, content=_summarize(messages))
+        self._overwrite_note(title=title, path=self._conversations_path(), content=_summarize(messages))
+
+    def _conversations_path(self) -> str:
+        return f"{CONVERSATIONS_ROOT}/{_sanitize_actor(self._config.actor)}"
 
     def on_memory_write(
         self, action: str, target: str, content: str, metadata: Optional[Dict[str, Any]] = None

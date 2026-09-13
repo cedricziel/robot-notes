@@ -34,6 +34,14 @@ or corrupting other actors' work.
    filterable by `path` or `tag`. Use it to check whether a similarly
    titled note already exists, or to browse a folder, before deciding to
    create.
+5. **Use `list_notes`, not `search_notes`, to enumerate everything.**
+   `search_notes` is literal FTS5 keyword search, not a wildcard — there
+   is no query that means "every note" (`*` is rejected as invalid FTS
+   syntax, and a generic word like "notes" only matches notes that
+   literally contain it, so an empty hit list does not mean the
+   workspace is empty). To list all notes, call `list_notes` with no
+   `query`-like argument and page through `next_cursor` until it is
+   `null`.
 
 ## Tool catalog
 

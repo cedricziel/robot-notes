@@ -654,6 +654,21 @@ void main() {
     });
 
     test(
+      'tolerates trailing punctuation that breaks raw FTS5 syntax',
+      () async {
+        final index = await seed({
+          'n1': ('Note', 'Siehst du meine Notes heute?'),
+        });
+        expect(await index.search('Siehst du meine Notes?'), hasLength(1));
+      },
+    );
+
+    test('tolerates apostrophes that break raw FTS5 syntax', () async {
+      final index = await seed({'n1': ('Note', "That's the test note.")});
+      expect(await index.search("That's the test"), hasLength(1));
+    });
+
+    test(
       'logs a warning naming the bad query on invalid FTS5 syntax',
       () async {
         final logger = Logger.detached('search-test')..level = Level.ALL;

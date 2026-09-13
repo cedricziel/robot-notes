@@ -45,12 +45,13 @@ the API key.
 
 ## Tools
 
-| Tool                  | Description                        |
-| --------------------- | ---------------------------------- |
-| `robotnotes_search`   | Search the shared workspace        |
-| `robotnotes_note`     | Fetch a note by id                 |
-| `robotnotes_remember` | Store a durable fact as a new note |
-| `robotnotes_forget`   | Delete a note by id                |
+| Tool                  | Description                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| `robotnotes_search`   | Keyword search the shared workspace — not a wildcard; no query means "everything"    |
+| `robotnotes_list`     | Paginated metadata for every note, optionally under a `path` — use this to enumerate |
+| `robotnotes_note`     | Fetch a note by id                                                                    |
+| `robotnotes_remember` | Store a durable fact as a new note                                                    |
+| `robotnotes_forget`   | Delete a note by id                                                                   |
 
 ## Write behavior
 
@@ -61,7 +62,7 @@ conversation turn:
   matches as context; it never blocks a turn on a slow or unreachable
   server.
 - **Session end** files or updates one summary note per session under
-  `Hermes/Sessions/<session id>`.
+  `conversations/<actor>/<session id>`.
 - **Explicit tool calls** (`robotnotes_remember`, `robotnotes_forget`) let
   the model manage notes directly.
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
