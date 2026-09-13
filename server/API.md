@@ -147,11 +147,48 @@ notes. Authenticated.
 }
 ```
 
-Only folders that **directly** contain at least one note are listed
-(an intermediate folder with no notes of its own, only a populated
-descendant, is omitted); `note_count` counts direct notes only. A
-client that wants intermediate tree nodes or aggregate counts derives
-them from these leaf paths.
+Only folders that **directly** contain at least one note, or were
+explicitly created empty (see `POST /notes/tree` below), are listed
+(an intermediate folder with no notes of its own and never explicitly
+created, only a populated descendant, is omitted); `note_count` counts
+direct notes only. A client that wants intermediate tree nodes or
+aggregate counts derives them from these leaf paths.
+
+---
+
+### `POST /notes/tree`
+
+Create an empty folder (and any missing intermediate folders along
+`path`), persisted via a marker file (see "Empty-folder markers" in
+`STORAGE.md`) so it survives a restart even with no notes in it.
+Authenticated.
+
+Request:
+
+```json
+{ "path": "Ideas" }
+```
+
+`path` is required, non-empty, `/`-separated, with no leading or
+trailing slash.
+
+Response `201 Created` when the folder did not already exist:
+
+```json
+{ "path": "Ideas", "note_count": 0 }
+```
+
+Idempotent: a `path` that already resolves to an existing folder
+(whether it holds notes, a marker, or both — including a
+case/NFC-only spelling difference) responds `200 OK` with that
+folder's current state instead of an error:
+
+```json
+{ "path": "Projects/Alpha", "note_count": 2 }
+```
+
+An empty `path` is rejected with `400 Bad Request` — the vault root
+always exists and never needs creating.
 
 ---
 
@@ -597,7 +634,7 @@ the consent page falls back to the paste-the-key form as before.
 
 ### Tool catalog
 
-`tools/list` always returns the same nine tools, regardless of scope
+`tools/list` always returns the same ten tools, regardless of scope
 (scope is enforced per call, not per listing):
 
 | Tool             | What it does                                                                                                  |
@@ -611,6 +648,7 @@ the consent page falls back to the paste-the-key form as before.
 | `append_to_note` | Server-side read-append-write; retries on a lost version race.                                                |
 | `get_backlinks`  | Notes whose content links to this note — mirrors `GET /notes/{id}/backlinks`.                                 |
 | `delete_note`    | Delete a note — mirrors `DELETE /notes/{id}`.                                                                 |
+| `create_folder`  | Create an empty folder (idempotent, no error if it already exists) — mirrors `POST /notes/tree`.              |
 
 Every successful call returns both a `content[0].text` (JSON string)
 and an identical `structuredContent` object. Domain failures (not
