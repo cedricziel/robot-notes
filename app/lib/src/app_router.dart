@@ -12,6 +12,7 @@ import 'auth/oidc_session_refresher.dart';
 import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
+import 'files/picked_file.dart';
 import 'notes/folder_prompt.dart';
 import 'notes/folder_tree_controller.dart';
 import 'notes/folder_tree_sidebar.dart';
@@ -56,6 +57,23 @@ Future<Note> createBlankNote(
 }) {
   final title = blankNoteTitle(now ?? DateTime.now());
   return api.createNote(title: title, content: '', path: path);
+}
+
+/// Opens [pickFile] and, if the user chose a file rather than cancelling,
+/// uploads it into [path] (the vault root when empty) via [api]. Returns
+/// `null` when the picker was cancelled, so the caller can distinguish
+/// "nothing to report" from a completed upload.
+///
+/// Extracted so widget tests can exercise the same call the FAB does
+/// without having to mount the full app shell.
+Future<AttachmentUploadResult?> uploadPickedFile(
+  RobotNotesClient api,
+  PickFile pickFile, {
+  String path = '',
+}) async {
+  final picked = await pickFile();
+  if (picked == null) return null;
+  return api.uploadFile(path: path, filename: picked.name, bytes: picked.bytes);
 }
 
 /// Tracks whether a persisted [AppConfig] exists and lets the setup flow
@@ -187,6 +205,7 @@ FutureOr<String?> _redirect(ConfigHolder configHolder, GoRouterState state) {
 GoRouter buildAppRouter({
   required ConfigHolder configHolder,
   String? initialLocation,
+  PickFile pickFile = pickFileViaFilePicker,
 }) {
   // go_router 18 defaults this to false for backward compatibility, which
   // means `context.push`/`pushReplacement` (used below for notes and search)
@@ -199,7 +218,10 @@ GoRouter buildAppRouter({
     refreshListenable: configHolder,
     redirect: (context, state) => _redirect(configHolder, state),
     routes: [
-      GoRoute(path: '/', builder: (context, state) => _buildListPage(context)),
+      GoRoute(
+        path: '/',
+        builder: (context, state) => _buildListPage(context, pickFile),
+      ),
       GoRoute(
         path: '/notes/:id',
         builder: (context, state) => _buildNotePage(context, state),
@@ -216,7 +238,7 @@ GoRouter buildAppRouter({
   );
 }
 
-Widget _buildListPage(BuildContext context) {
+Widget _buildListPage(BuildContext context, PickFile pickFile) {
   final session = AppSession.of(context);
   return ValueListenableBuilder<NotesListState>(
     valueListenable: session.list,
@@ -229,6 +251,14 @@ Widget _buildListPage(BuildContext context) {
         ),
         onCreateFolder: () => unawaited(
           _createFolder(context, session, initialPath: listState.selectedPath),
+        ),
+        onUploadFile: () => unawaited(
+          _uploadFile(
+            context,
+            session,
+            pickFile: pickFile,
+            path: listState.selectedPath ?? '',
+          ),
         ),
         onSearch: () => unawaited(_openSearch(context, session)),
         onAccount: () => unawaited(_confirmReset(context, session)),
@@ -351,6 +381,32 @@ Future<void> _createFolder(
     initialPath: initialPath,
   );
   if (created) await session.tree.refresh();
+}
+
+/// Opens the file picker via [pickFile] and, unless cancelled, uploads the
+/// chosen file into [path] (the currently selected folder), reporting the
+/// outcome via a SnackBar — the stored filename on success, or the
+/// server's error message on failure. Mirrors [_createNote]'s
+/// SnackBar-on-`ApiException` convention rather than [_createFolder]'s
+/// dialog, since the native picker is already the "choose what to act on"
+/// UI here — there's no freeform input left for a dialog to collect.
+Future<void> _uploadFile(
+  BuildContext context,
+  AppSession session, {
+  required PickFile pickFile,
+  String path = '',
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final result = await uploadPickedFile(session.api, pickFile, path: path);
+    if (result == null) return; // user cancelled the picker
+    messenger.showSnackBar(
+      SnackBar(content: Text('Uploaded ${result.filename}')),
+    );
+  } on ApiException catch (e) {
+    final message = describeError(e, fallback: 'Could not upload file.');
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
 }
 
 Future<void> _confirmReset(BuildContext context, AppSession session) async {

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/app_router.dart';
 import 'package:app/src/config/app_config.dart';
+import 'package:app/src/files/picked_file.dart';
 import 'package:app/src/notes/folder_tree_controller.dart';
 import 'package:app/src/notes/notes_list_controller.dart';
 import 'package:app/src/realtime/ws_client.dart';
@@ -80,6 +82,7 @@ Widget _harness({
   required RobotNotesClient api,
   required String initialLocation,
   VoidCallback? onReset,
+  PickFile? pickFile,
 }) {
   final ws = RobotNotesWsClient(config: _config);
   final list = NotesListController(api: api);
@@ -87,6 +90,7 @@ Widget _harness({
   final router = buildAppRouter(
     configHolder: ConfigHolder.seeded(_config),
     initialLocation: initialLocation,
+    pickFile: pickFile ?? () async => null,
   );
   return MaterialApp.router(
     routerConfig: router,
@@ -137,6 +141,172 @@ void main() {
 
     expect(find.textContaining('null'), findsNothing);
     expect(find.text('Could not create note.'), findsOneWidget);
+  });
+
+  group('upload file from the FAB', () {
+    testWidgets('choosing "Upload file" and picking a file uploads it into the '
+        'currently selected folder', (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      Map<String, dynamic>? capturedFields;
+      final api = RobotNotesClient(
+        config: _config,
+        // MultipartRequest's `fields`/`files` are only inspectable on the
+        // raw BaseRequest handed to a *streaming* mock handler — the plain
+        // `MockClient` reconstructs a bodyless-of-that-info `Request`
+        // before invoking its handler, which loses them.
+        httpClient: MockClient.streaming((request, bodyStream) async {
+          if (request.method == 'GET' && request.url.path == '/notes/tree') {
+            return http.StreamedResponse(
+              Stream.value(
+                utf8.encode(
+                  jsonEncode(<String, Object?>{
+                    'folders': [
+                      {'path': 'Projects/Alpha', 'note_count': 1},
+                    ],
+                  }),
+                ),
+              ),
+              200,
+              request: request,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/attachments') {
+            final multipart = request as http.MultipartRequest;
+            capturedFields = <String, dynamic>{
+              'path': multipart.fields['path'],
+              'filename': multipart.files.single.filename,
+            };
+            return http.StreamedResponse(
+              Stream.value(
+                utf8.encode(
+                  jsonEncode(<String, Object?>{
+                    'path': multipart.fields['path'],
+                    'filename': multipart.files.single.filename,
+                    'size': 3,
+                    'content_type': 'application/octet-stream',
+                  }),
+                ),
+              ),
+              201,
+              request: request,
+            );
+          }
+          final res = await _fakeBackend(
+            http.Request(request.method, request.url)
+              ..headers.addAll(request.headers),
+          );
+          return http.StreamedResponse(
+            Stream.value(res.bodyBytes),
+            res.statusCode,
+            request: request,
+            headers: res.headers,
+          );
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          pickFile: () async =>
+              PickedFile(name: 'diagram.png', bytes: Uint8List(3)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The sidebar lives in a drawer on this narrow layout; open it to
+      // select a folder, then dismiss it (tapping the scrim) so the FAB
+      // underneath is reachable again.
+      await tester.tap(find.byKey(const Key('notes.bottomNav.folders')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Projects'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Alpha'));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(390, 10));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.create.upload')));
+      await tester.pumpAndSettle();
+
+      expect(capturedFields?['path'], 'Projects/Alpha');
+      expect(capturedFields?['filename'], 'diagram.png');
+      expect(find.text('Uploaded diagram.png'), findsOneWidget);
+    });
+
+    testWidgets('cancelling the file picker sends no request', (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      var uploadRequested = false;
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.url.path == '/notes/attachments') {
+            uploadRequested = true;
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/', pickFile: () async => null),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.create.upload')));
+      await tester.pumpAndSettle();
+
+      expect(uploadRequested, isFalse);
+    });
+
+    testWidgets('a failed upload shows the server error via a SnackBar', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/attachments') {
+            return http.Response(
+              jsonEncode(<String, Object?>{'error': 'payload_too_large'}),
+              413,
+            );
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          pickFile: () async =>
+              PickedFile(name: 'huge.bin', bytes: Uint8List(3)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.create.upload')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Could not upload file.'), findsOneWidget);
+    });
   });
 
   group('narrow layout bottom nav wiring', () {

@@ -19,6 +19,7 @@ class NotesListScreen extends StatefulWidget {
     this.onNoteTap,
     this.onCreateNote,
     this.onCreateFolder,
+    this.onUploadFile,
     this.onSearch,
     this.onAccount,
     this.appBarActions,
@@ -38,6 +39,10 @@ class NotesListScreen extends StatefulWidget {
   /// layouts, folder creation is reached via the inline sidebar's own
   /// "New folder" action instead — the FAB doesn't exist there at all.
   final VoidCallback? onCreateFolder;
+
+  /// Invoked when the user chooses "Upload file" from the narrow-layout
+  /// FAB menu. That menu item is omitted when this is `null`.
+  final VoidCallback? onUploadFile;
 
   /// Invoked by the narrow-layout bottom nav's "Search" destination.
   /// Ignored on wide layouts, which keep [appBarActions] instead.
@@ -183,6 +188,13 @@ class _NotesListScreenState extends State<NotesListScreen> {
                         ),
                         onPressed: widget.onCreateFolder,
                         child: const Text('New folder'),
+                      ),
+                    if (widget.onUploadFile != null)
+                      MenuItemButton(
+                        key: const Key('notes.create.upload'),
+                        leadingIcon: const Icon(Icons.upload_file_outlined),
+                        onPressed: widget.onUploadFile,
+                        child: const Text('Upload file'),
                       ),
                   ],
                   builder: (context, menuController, child) {
