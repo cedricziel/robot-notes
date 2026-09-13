@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:dart_frog_web_socket/dart_frog_web_socket.dart';
+import 'package:flutter_otel_api/flutter_otel_api.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/oauth/token_store.dart';
+import 'package:server/src/otel/otel_tracer_holder.dart' as otel_tracer_holder;
 import 'package:server/src/public_url.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/channel_sink.dart';
@@ -23,6 +25,17 @@ FutureOr<Response> onRequest(RequestContext context) {
   final apiKey = context.read<Config>().apiKey;
   final tokenStore = context.read<TokenStore>();
   final restResource = publicBaseUrl(context);
+  final tracer = otel_tracer_holder.otelTracerProvider.getTracer(
+    name: 'robot-notes-server',
+  );
+  // Captured while this handler still runs inside otelHttpTraceMiddleware's
+  // span (see connection.dart's handleMessage doc for why messages don't
+  // simply nest under it instead).
+  final upgradeSpanContext = Span.current?.spanContext;
+  final connectionSpanContext =
+      upgradeSpanContext != null && upgradeSpanContext.isValid
+          ? upgradeSpanContext
+          : null;
 
   final handler = webSocketHandler((channel, _) {
     final id = Ulid().toString();
@@ -35,6 +48,8 @@ FutureOr<Response> onRequest(RequestContext context) {
       apiKey: apiKey,
       tokenStore: tokenStore,
       restResource: restResource,
+      tracer: tracer,
+      connectionSpanContext: connectionSpanContext,
     )..start();
 
     // Auth may now require an async token-store lookup; pause delivery of

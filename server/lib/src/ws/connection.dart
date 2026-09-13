@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/oauth/token_store.dart';
@@ -64,6 +65,8 @@ class WsConnection {
     required String restResource,
     Duration authTimeout = kDefaultWsAuthTimeout,
     Logger? logger,
+    Tracer tracer = const NoopTracer('ws_connection'),
+    this.connectionSpanContext,
   })  : _sink = sink,
         _broadcaster = broadcaster,
         _presence = presence,
@@ -71,7 +74,8 @@ class WsConnection {
         _tokenStore = tokenStore,
         _restResource = restResource,
         _authTimeout = authTimeout,
-        _log = logger ?? Logger('ws_connection');
+        _log = logger ?? Logger('ws_connection'),
+        _tracer = tracer;
 
   /// Unique connection identifier — must be stable for the connection's
   /// lifetime so the broadcaster and presence tracker can correlate.
@@ -85,6 +89,12 @@ class WsConnection {
   final String _restResource;
   final Duration _authTimeout;
   final Logger _log;
+  final Tracer _tracer;
+
+  /// The span context of the request that upgraded this socket, or `null`
+  /// if tracing is disabled or the upgrade wasn't traced. Every message
+  /// handled on this connection links back to it — see [handleMessage].
+  final SpanContext? connectionSpanContext;
 
   Timer? _authTimer;
   StreamSubscription<WsMessage>? _bcastSub;
@@ -110,6 +120,16 @@ class WsConnection {
   /// Feeds an inbound socket frame into the state machine. Strings are
   /// parsed as JSON envelopes; any other type (typically binary data) is
   /// treated as a protocol violation and the connection is closed.
+  ///
+  /// Each message is traced as its own root span rather than a child of the
+  /// connection's upgrade-request span: the socket can outlive that request
+  /// by hours and carry thousands of messages, and per `Span.runWithSpan`'s
+  /// zone-based stickiness the upgrade span would otherwise stay
+  /// [Span.current] for every message delivered on this socket, folding
+  /// them all into one ever-growing trace. `Zone.root.run` steps outside
+  /// that ambient zone so [Tracer.startSpan] falls back to a fresh trace;
+  /// [connectionSpanContext] is attached as a link instead, so the
+  /// connection and its messages stay cross-navigable without merging.
   Future<void> handleMessage(Object? data) async {
     if (_closed) return;
     if (data is! String) {
@@ -128,11 +148,26 @@ class WsConnection {
       _sendError(ErrorCode.unknownType, received: data);
       return;
     }
-    if (!isAuthed) {
-      await _handleConnectingMessage(json, raw: data);
-    } else {
-      _handleAuthedMessage(json, raw: data);
-    }
+    final type = json['type'] is String ? json['type'] as String : 'unknown';
+    final connectionContext = connectionSpanContext;
+    await Zone.root.run(
+      () => _tracer.startActiveSpan(
+        'ws.message.$type',
+        (span) async {
+          if (!isAuthed) {
+            await _handleConnectingMessage(json, raw: data);
+          } else {
+            _handleAuthedMessage(json, raw: data);
+          }
+        },
+        kind: SpanKind.consumer,
+        attributes: {'ws.connection.id': id},
+        links: [
+          if (connectionContext != null)
+            SpanLink(connectionContext, attributes: {'ws.connection.id': id}),
+        ],
+      ),
+    );
   }
 
   /// Called when the underlying socket signals close. Cleans up presence,

@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:flutter_otel_api/flutter_otel_api.dart';
 import 'package:server/src/actor_middleware.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/auth_middleware.dart';
@@ -26,6 +27,7 @@ import 'package:server/src/oidc/discovery.dart';
 import 'package:server/src/oidc/jwks.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
 import 'package:server/src/oidc/token_exchange.dart';
+import 'package:server/src/otel/otel_tracer_holder.dart' as otel_tracer_holder;
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/well_known_middleware.dart';
@@ -51,6 +53,14 @@ import '../../routes/oauth/token.dart' as oauth_token_route;
 import '../../routes/search.dart' as search_route;
 import '../../routes/ws.dart' as ws_route;
 
+// `ws_route.onRequest` reads the tracer straight from the process-wide
+// holder (mirroring production, which populates it in server/main.dart
+// before serve()). This harness has no equivalent bootstrap step, so it
+// must set one explicitly — with the SAME instance on every call, since
+// `setOtelTracerProvider` throws if called twice with different ones and
+// each test file's tests share an isolate.
+const _testTracerProvider = NoopTracerProvider();
+
 /// Spins up an HTTP server bound to a loopback ephemeral port that mirrors
 /// the production routing tree. Tests inject [deps] and [config] directly
 /// instead of going through the global holders, so multiple integration
@@ -63,6 +73,8 @@ Future<HttpServer> startTestServer({
   required Config config,
   HttpPostForm httpPostForm = httpPostFormViaHttpClient,
 }) {
+  otel_tracer_holder.setOtelTracerProvider(_testTracerProvider);
+
   // Unlike the `.use()` chain in routes/_middleware.dart (where the last
   // `.use` is outermost), shelf's Pipeline runs the first-added middleware
   // first. `provider<Config>` and `provider<TokenStore>` are therefore
