@@ -89,8 +89,11 @@ Future<Response> _createFolder(RequestContext context) async {
   final index = context.read<MetaIndex>();
   try {
     final result = await storage.createFolder(path);
-    index.registerEmptyFolder(result.path);
     final noteCount = index.all.where((s) => s.path == result.path).length;
+    // Only a folder with no notes is marker-backed on disk (per
+    // Storage.createFolder); registering a note-backed folder here too
+    // would leave it listed forever once its real notes are removed.
+    if (noteCount == 0) index.registerEmptyFolder(result.path);
     return Response.json(
       statusCode: result.created ? HttpStatus.created : HttpStatus.ok,
       body: {'path': result.path, 'note_count': noteCount},

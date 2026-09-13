@@ -216,6 +216,43 @@ void main() {
     });
 
     test(
+        're-posting to a note-backed folder does not make it linger after '
+        'its notes are removed', () async {
+      final storage = Storage(
+        contentDir: Directory('${tmp.path}/content'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final note = await storage.create(
+        title: 'A',
+        content: '',
+        path: 'Projects/Alpha',
+      );
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      // Re-creating an already note-backed folder (e.g. the "New folder"
+      // prompt pre-filled with the current folder, confirmed unedited)
+      // must not register it as a marker-tracked empty folder — no
+      // marker was written to disk, so nothing should keep it listed
+      // once its real notes are gone.
+      await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          jsonBody: {'path': 'Projects/Alpha'},
+        ),
+      );
+      await storage.delete(note.id);
+      index.remove(note.id);
+
+      final res =
+          await route.onRequest(_ctx(method: HttpMethod.get, metaIndex: index));
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['folders'], isEmpty);
+    });
+
+    test(
         'a path that already has a marker-only folder returns 200, no '
         'duplicate marker or error', () async {
       final storage = Storage(contentDir: Directory('${tmp.path}/content'));
