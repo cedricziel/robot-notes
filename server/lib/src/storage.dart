@@ -39,6 +39,30 @@ class FolderCreateResult {
   final bool created;
 }
 
+/// A non-note file discovered under [Storage.contentDir] — an upload,
+/// not a note. Tracked the same lightweight way an empty-folder marker
+/// is (a set rebuilt on scan), not with the full id/title/tag machinery
+/// [NoteSummary] carries, since a file has none of that.
+@immutable
+class StoredFile {
+  /// Creates a file record.
+  const StoredFile({
+    required this.relativePath,
+    required this.size,
+    required this.updatedAt,
+  });
+
+  /// `/`-separated path relative to [Storage.contentDir], e.g.
+  /// `"Ideas/diagram.png"`.
+  final String relativePath;
+
+  /// Size in bytes.
+  final int size;
+
+  /// Filesystem modification time.
+  final DateTime updatedAt;
+}
+
 /// Metadata-only view of a note (no body). Returned by [Storage.list].
 @immutable
 class NoteSummary {
@@ -271,12 +295,33 @@ class Storage {
   // by [_scanAll] and kept current by [_claim].
   final Set<String> _emptyFolderPaths = {};
 
+  // Non-note files discovered under contentDir (uploads), keyed by
+  // relative path. Populated by [_scanAll]; kept current at runtime by
+  // [registerFile] rather than a full rescan.
+  final Map<String, StoredFile> _files = {};
+
   Future<void>? _indexBuild;
 
   /// Folder paths currently known to hold an empty-folder marker (see
   /// [kFolderMarkerFilename]). A path may appear here and also have notes
   /// in it — the marker is not removed once notes exist alongside it.
   Set<String> get emptyFolderPaths => Set.unmodifiable(_emptyFolderPaths);
+
+  /// Every non-note file currently known (uploads), in no particular
+  /// order. See [filesIn] to narrow to a single folder.
+  Iterable<StoredFile> get files => _files.values;
+
+  /// Direct (non-recursive) file children of [folderPath] (`/`-separated,
+  /// no leading/trailing slash; empty string means the vault root).
+  List<StoredFile> filesIn(String folderPath) => [
+        for (final file in _files.values)
+          if (_folderOf(file.relativePath) == folderPath) file,
+      ];
+
+  /// Registers [file] (e.g. right after a write completes) without a
+  /// full [_scanAll], mirroring how [createFolder] updates
+  /// [_emptyFolderPaths] in place.
+  void registerFile(StoredFile file) => _files[file.relativePath] = file;
 
   /// Lists every well-formed note in the store as a metadata summary.
   ///
@@ -432,6 +477,7 @@ class Storage {
     _relPathById.clear();
     _idByKey.clear();
     _emptyFolderPaths.clear();
+    _files.clear();
     final notes = <StoredNote>[];
     if (!contentDir.existsSync()) return notes;
     await for (final entity in contentDir.list(recursive: true)) {
@@ -440,7 +486,17 @@ class Storage {
         _emptyFolderPaths.add(_folderOf(_relativePathOf(entity)));
         continue;
       }
-      if (!entity.path.endsWith('.md')) continue;
+      if (entity.path.endsWith('.tmp')) continue;
+      if (!entity.path.endsWith('.md')) {
+        final rel = _relativePathOf(entity);
+        final stat = entity.statSync();
+        _files[rel] = StoredFile(
+          relativePath: rel,
+          size: stat.size,
+          updatedAt: stat.modified,
+        );
+        continue;
+      }
       try {
         final note = await _readFile(entity);
         final rel = _relativePathOf(entity);
