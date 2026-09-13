@@ -331,6 +331,87 @@ void main() {
     expect(find.byKey(const Key('note.save')), findsOneWidget);
   });
 
+  group('formatting toolbar', () {
+    testWidgets('bold wraps the selected text', (tester) async {
+      await _pumpEditor(tester);
+
+      final field = tester.widget<TextField>(find.byKey(_contentField));
+      field.controller!.value = const TextEditingValue(
+        text: 'world',
+        selection: TextSelection(baseOffset: 0, extentOffset: 5),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('note.toolbar.bold')));
+      await tester.pump();
+
+      expect(field.controller!.text, '**world**');
+    });
+
+    testWidgets('heading prefixes the current line', (tester) async {
+      await _pumpEditor(tester);
+
+      final field = tester.widget<TextField>(find.byKey(_contentField));
+      field.controller!.value = const TextEditingValue(
+        text: 'world',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('note.toolbar.heading')));
+      await tester.pump();
+
+      expect(field.controller!.text, '# world');
+    });
+
+    testWidgets('link inserts a markdown link template', (tester) async {
+      await _pumpEditor(tester);
+
+      final field = tester.widget<TextField>(find.byKey(_contentField));
+      field.controller!.value = const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('note.toolbar.link')));
+      await tester.pump();
+
+      expect(field.controller!.text, '[title](url)');
+    });
+  });
+
+  group('live preview', () {
+    testWidgets('renders the content as it is typed', (tester) async {
+      await _pumpEditor(tester);
+
+      await tester.enterText(find.byKey(_contentField), '# Heading');
+      await tester.pump();
+
+      final preview = find.byKey(const Key('note.editor.preview'));
+      expect(
+        find.descendant(of: preview, matching: find.text('Heading')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('sits beside the content field on a wide window', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await _pumpEditor(tester);
+
+      final contentTop = tester.getTopLeft(find.byKey(_contentField)).dy;
+      final previewTop = tester
+          .getTopLeft(find.byKey(const Key('note.editor.preview')))
+          .dy;
+      expect(contentTop, closeTo(previewTop, 1));
+    });
+  });
+
   testWidgets('typing in the middle of a field keeps the caret there', (
     tester,
   ) async {
