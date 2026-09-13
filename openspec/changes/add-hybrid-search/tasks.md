@@ -5,9 +5,9 @@
 
 ## 2. Ollama embedding adapter
 
-- [ ] 2.1 Write a failing test asserting `OllamaEmbeddingProvider.embed(text)` POSTs `{"model": ..., "prompt": text}` to `<baseUrl>/api/embeddings` and returns the `embedding` array from the response, using an injected/mocked HTTP client; implement `server/lib/src/embeddings/ollama_embedding_provider.dart` to pass
-- [ ] 2.2 Write a failing test asserting `embed()` throws a typed `EmbeddingProviderException` (not a raw HTTP/socket exception) on a network error, timeout, or non-2xx response; implement to pass
-- [ ] 2.3 Write a failing test asserting `dimensions` matches the configured model's known output size (768 for `nomic-embed-text`); implement to pass
+- [x] 2.1 Write a failing test asserting `OllamaEmbeddingProvider.embed(text)` POSTs `{"model": ..., "prompt": text}` to `<baseUrl>/api/embeddings` and returns the `embedding` array from the response, using an injected/mocked HTTP client; implement `server/lib/src/embeddings/ollama_embedding_provider.dart` to pass
+- [x] 2.2 Write a failing test asserting `embed()` throws a typed `EmbeddingProviderException` (not a raw HTTP/socket exception) on a network error, timeout, or non-2xx response; implement to pass
+- [x] 2.3 Write a failing test asserting `dimensions` matches the configured model's known output size (768 for `nomic-embed-text`); implement to pass
 
 ## 3. Config surface
 
