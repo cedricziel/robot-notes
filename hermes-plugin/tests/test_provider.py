@@ -5,7 +5,7 @@ import httpx
 import pytest
 import respx
 
-from robot_notes import RobotNotesProvider
+from robot_notes import RobotNotesConfig, RobotNotesProvider
 
 
 @pytest.fixture
@@ -201,6 +201,16 @@ def test_handle_tool_call_forget_deletes_note(provider):
 
 def test_conversations_path_scoped_by_actor(provider):
     assert provider._conversations_path() == "conversations/hermes-bot"
+
+
+def test_conversations_path_sanitizes_slashes_in_actor(provider):
+    provider._config = RobotNotesConfig.create(base_url="https://notes.example.com", actor="ops/team")
+    assert provider._conversations_path() == "conversations/ops_team"
+
+
+def test_conversations_path_falls_back_to_default_for_dot_segment(provider):
+    provider._config = RobotNotesConfig.create(base_url="https://notes.example.com", actor="..")
+    assert provider._conversations_path() == "conversations/hermes"
 
 
 @respx.mock

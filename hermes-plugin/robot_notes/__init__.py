@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ._memory_provider_base import MemoryProvider
 from .client import ClientError, RobotNotesClient
-from .config import RobotNotesConfig
+from .config import DEFAULT_ACTOR, RobotNotesConfig
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,15 @@ SYSTEM_PROMPT_BLOCK = (
 )
 
 _MARK_RE = re.compile(r"</?mark>")
+
+
+def _sanitize_actor(actor: str) -> str:
+    """Collapses an actor value to exactly one safe path segment: flattens any
+    '/' (so a misconfigured actor can't nest extra folders under
+    conversations/) and falls back to DEFAULT_ACTOR for anything that would
+    resolve to a no-op or traversal segment ("", ".", "..")."""
+    cleaned = actor.replace("/", "_").strip()
+    return cleaned if cleaned and cleaned not in (".", "..") else DEFAULT_ACTOR
 
 
 def register(ctx) -> None:
@@ -196,7 +205,7 @@ class RobotNotesProvider(MemoryProvider):
         self._overwrite_note(title=title, path=self._conversations_path(), content=_summarize(messages))
 
     def _conversations_path(self) -> str:
-        return f"{CONVERSATIONS_ROOT}/{self._config.actor}"
+        return f"{CONVERSATIONS_ROOT}/{_sanitize_actor(self._config.actor)}"
 
     def on_memory_write(
         self, action: str, target: str, content: str, metadata: Optional[Dict[str, Any]] = None
