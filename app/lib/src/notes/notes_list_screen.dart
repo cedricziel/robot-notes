@@ -17,7 +17,8 @@ class NotesListScreen extends StatefulWidget {
   const NotesListScreen({
     required this.controller,
     this.onNoteTap,
-    this.onCreate,
+    this.onCreateNote,
+    this.onCreateFolder,
     this.onSearch,
     this.onAccount,
     this.appBarActions,
@@ -27,7 +28,16 @@ class NotesListScreen extends StatefulWidget {
 
   final NotesListController controller;
   final ValueChanged<String>? onNoteTap;
-  final VoidCallback? onCreate;
+
+  /// Invoked when the user chooses "New note" — from the wide-layout
+  /// toolbar button, or the narrow-layout FAB menu. `null` hides both.
+  final VoidCallback? onCreateNote;
+
+  /// Invoked when the user chooses "New folder" from the narrow-layout
+  /// FAB menu. That menu item is omitted when this is `null`. On wide
+  /// layouts, folder creation is reached via the inline sidebar's own
+  /// "New folder" action instead — the FAB doesn't exist there at all.
+  final VoidCallback? onCreateFolder;
 
   /// Invoked by the narrow-layout bottom nav's "Search" destination.
   /// Ignored on wide layouts, which keep [appBarActions] instead.
@@ -137,12 +147,12 @@ class _NotesListScreenState extends State<NotesListScreen> {
             automaticallyImplyLeading: isWide,
             actions: isWide
                 ? [
-                    if (widget.onCreate != null)
+                    if (widget.onCreateNote != null)
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: TextButton.icon(
                           key: const Key('notes.create.toolbar'),
-                          onPressed: widget.onCreate,
+                          onPressed: widget.onCreateNote,
                           icon: const Icon(Icons.add),
                           label: const Text('New note'),
                         ),
@@ -154,13 +164,41 @@ class _NotesListScreenState extends State<NotesListScreen> {
           drawer: sidebar == null || showSidebarInline
               ? null
               : Drawer(key: const Key('notes.sidebar.drawer'), child: sidebar),
-          floatingActionButton: widget.onCreate == null || isWide
+          floatingActionButton: widget.onCreateNote == null || isWide
               ? null
-              : FloatingActionButton(
-                  key: const Key('notes.create'),
-                  tooltip: 'New note',
-                  onPressed: widget.onCreate,
-                  child: const Icon(Icons.add),
+              : MenuAnchor(
+                  key: const Key('notes.create.menu'),
+                  menuChildren: [
+                    MenuItemButton(
+                      key: const Key('notes.create.note'),
+                      leadingIcon: const Icon(Icons.note_add_outlined),
+                      onPressed: widget.onCreateNote,
+                      child: const Text('New note'),
+                    ),
+                    if (widget.onCreateFolder != null)
+                      MenuItemButton(
+                        key: const Key('notes.create.folder'),
+                        leadingIcon: const Icon(
+                          Icons.create_new_folder_outlined,
+                        ),
+                        onPressed: widget.onCreateFolder,
+                        child: const Text('New folder'),
+                      ),
+                  ],
+                  builder: (context, menuController, child) {
+                    return FloatingActionButton(
+                      key: const Key('notes.create'),
+                      tooltip: 'Create',
+                      onPressed: () {
+                        if (menuController.isOpen) {
+                          menuController.close();
+                        } else {
+                          menuController.open();
+                        }
+                      },
+                      child: const Icon(Icons.add),
+                    );
+                  },
                 ),
           bottomNavigationBar: isWide
               ? null
