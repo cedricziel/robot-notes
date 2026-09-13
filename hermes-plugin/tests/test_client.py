@@ -34,6 +34,9 @@ def test_search_returns_items(client):
 
     result = client.search("budget")
 
+    sent = respx.calls.last.request
+    assert sent.url.params["q"] == "budget"
+
     assert result[0]["id"] == "01ABC"
 
 

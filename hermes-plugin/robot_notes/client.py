@@ -59,7 +59,7 @@ class RobotNotesClient:
         return response
 
     def search(self, query: str, *, limit: int = 20) -> List[Dict[str, Any]]:
-        response = self._request("GET", "/search", params={"query": query, "limit": limit})
+        response = self._request("GET", "/search", params={"q": query, "limit": limit})
         return response.json().get("items", [])
 
     def get_note(self, note_id: str) -> Dict[str, Any]:

@@ -129,8 +129,8 @@ def test_a_stale_prefetch_does_not_clobber_a_newer_one(provider):
         stale_release.wait(timeout=2)
         return httpx.Response(200, json={"items": [{"id": "1", "title": "Stale", "snippet": "old"}]})
 
-    respx.get("https://notes.example.com/search", params={"query": "first"}).mock(side_effect=_slow_stale_response)
-    respx.get("https://notes.example.com/search", params={"query": "second"}).mock(
+    respx.get("https://notes.example.com/search", params={"q": "first"}).mock(side_effect=_slow_stale_response)
+    respx.get("https://notes.example.com/search", params={"q": "second"}).mock(
         return_value=httpx.Response(200, json={"items": [{"id": "2", "title": "Fresh", "snippet": "new"}]})
     )
 
