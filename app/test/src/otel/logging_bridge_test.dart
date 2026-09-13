@@ -30,6 +30,9 @@ class _FakeLoggerProvider implements otel.LoggerProvider {
   }) => _ScopedLogger(processor, name);
 
   @override
+  void ingestLogRecord(otel.LogRecord record) => processor.onEmit(record);
+
+  @override
   Future<void> forceFlush() => processor.forceFlush();
 
   @override

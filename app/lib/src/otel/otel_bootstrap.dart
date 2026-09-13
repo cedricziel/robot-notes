@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:app/src/config/app_config.dart';
+import 'package:app/src/otel/deployment_environment.dart';
 import 'package:app/src/otel/device_resource_attributes.dart';
 import 'package:app/src/otel/logging_bridge.dart';
 import 'package:app/src/otel/otel_build_config.dart';
 import 'package:app/src/otel/remote_otel_config.dart';
-import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter_otel/flutter_otel.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart' as logging;
@@ -28,12 +28,7 @@ Future<OTelSdk> bootstrapOtel({
         serviceVersion: robotNotesVersion,
         attributes: {
           'service.namespace': otelServiceNamespace,
-          // TODO: distinguish TestFlight from a real App Store build once
-          // flutter_otel_native exposes a native distribution-channel
-          // check (github.com/cedricziel/flutter-otel PR #3).
-          'deployment.environment.name': kReleaseMode
-              ? 'production'
-              : 'development',
+          'deployment.environment.name': await deploymentEnvironmentName(),
           ...await deviceResourceAttributes(),
         },
       ),
