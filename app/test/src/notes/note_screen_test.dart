@@ -103,6 +103,11 @@ Future<NoteController> _pumpEditor(
     noteId: '01H',
     actor: 'cedric',
     scheduler: (_) => Completer<void>().future,
+    // Autosave firing is exercised at the controller level
+    // (note_controller_test.dart); leaving it un-gated here would leave a
+    // stray real 2-second timer running behind every widget test that
+    // types into the editor.
+    autosaveScheduler: (_) => Completer<void>().future,
   );
   addTearDown(ctrl.dispose);
 
@@ -122,22 +127,6 @@ Future<NoteController> _pumpEditor(
   await tester.pumpAndSettle();
   return ctrl;
 }
-
-MockClient _editableNote({VoidCallback? onRelease}) =>
-    MockClient((request) async {
-      final path = request.url.path;
-      if (request.method == 'GET' && path == '/notes/01H') {
-        return http.Response(jsonEncode(_noteJson()), 200);
-      }
-      if (request.method == 'POST' && path == '/notes/01H/lock') {
-        return http.Response(jsonEncode(_lockJson()), 200);
-      }
-      if (request.method == 'DELETE' && path == '/notes/01H/lock') {
-        onRelease?.call();
-        return http.Response('', 204);
-      }
-      return http.Response('unexpected', 500);
-    });
 
 /// Pumps a [NoteScreen] into conflict mode: types the local edits, then
 /// saves against a server that answers the first `PUT` with a 409 at
@@ -505,21 +494,41 @@ void main() {
   group('closing while editing', () {
     var lockReleases = 0;
     var closed = false;
+    var puts = 0;
 
     setUp(() {
       lockReleases = 0;
       closed = false;
+      puts = 0;
     });
 
-    NoteController controller() {
+    /// [onPut] answers `PUT /notes/01H` when supplied; otherwise the mock
+    /// returns 500 for it.
+    NoteController controller({http.Response Function(http.Request)? onPut}) {
+      final mock = MockClient((request) async {
+        final path = request.url.path;
+        if (request.method == 'GET' && path == '/notes/01H') {
+          return http.Response(jsonEncode(_noteJson()), 200);
+        }
+        if (request.method == 'POST' && path == '/notes/01H/lock') {
+          return http.Response(jsonEncode(_lockJson()), 200);
+        }
+        if (request.method == 'DELETE' && path == '/notes/01H/lock') {
+          lockReleases += 1;
+          return http.Response('', 204);
+        }
+        if (request.method == 'PUT' && path == '/notes/01H') {
+          puts += 1;
+          return onPut?.call(request) ?? http.Response('unexpected', 500);
+        }
+        return http.Response('unexpected', 500);
+      });
       final ctrl = NoteController(
-        api: RobotNotesClient(
-          config: _config,
-          httpClient: _editableNote(onRelease: () => lockReleases++),
-        ),
+        api: RobotNotesClient(config: _config, httpClient: mock),
         noteId: '01H',
         actor: 'cedric',
         scheduler: (_) => Completer<void>().future,
+        autosaveScheduler: (_) => Completer<void>().future,
       );
       addTearDown(ctrl.dispose);
       return ctrl;
@@ -531,8 +540,11 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    Future<NoteController> pumpEditing(WidgetTester tester) async {
-      final ctrl = controller();
+    Future<NoteController> pumpEditing(
+      WidgetTester tester, {
+      http.Response Function(http.Request)? onPut,
+    }) async {
+      final ctrl = controller(onPut: onPut);
       await tester.pumpWidget(
         MaterialApp(
           home: NoteScreen(controller: ctrl, onClose: () => closed = true),
@@ -555,59 +567,122 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('without edits releases the lock and closes with no prompt', (
+    testWidgets('without edits closes immediately, with no save', (
       tester,
     ) async {
       final ctrl = await pumpEditing(tester);
 
       await tapClose(tester);
 
+      expect(puts, 0);
+      expect(ctrl.value.mode, NoteMode.viewing);
+      expect(lockReleases, 1);
+      expect(closed, isTrue);
+    });
+
+    testWidgets('with a pending edit, flushes a save and closes', (
+      tester,
+    ) async {
+      final ctrl = await pumpEditing(
+        tester,
+        onPut: (request) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(
+              _noteJson(version: 2, content: body['content'] as String),
+            ),
+            200,
+          );
+        },
+      );
+      await editContent(tester);
+
+      await tapClose(tester);
+
+      expect(puts, 1);
       expect(find.text('Discard changes?'), findsNothing);
       expect(ctrl.value.mode, NoteMode.viewing);
       expect(lockReleases, 1);
       expect(closed, isTrue);
     });
 
-    testWidgets('with unsaved edits, keep editing dismisses the prompt', (
+    testWidgets('a flush that hits a conflict keeps the note open', (
       tester,
     ) async {
-      final ctrl = await pumpEditing(tester);
+      final ctrl = await pumpEditing(
+        tester,
+        onPut: (_) => http.Response(
+          jsonEncode(<String, Object?>{
+            'error': 'version_conflict',
+            'current': _noteJson(version: 7, content: 'server'),
+          }),
+          409,
+        ),
+      );
       await editContent(tester);
 
       await tapClose(tester);
-      expect(find.text('Discard changes?'), findsOneWidget);
-      expect(closed, isFalse);
 
-      await tester.tap(find.byKey(const Key('note.discard.keep')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Discard changes?'), findsNothing);
+      expect(puts, 1);
+      expect(ctrl.value.mode, NoteMode.conflict);
+      expect(find.byKey(const Key('note.banner.conflict')), findsOneWidget);
+      expect(lockReleases, 0);
       expect(closed, isFalse);
+    });
+
+    testWidgets('a flush that hits a transient error keeps the note open', (
+      tester,
+    ) async {
+      final ctrl = await pumpEditing(
+        tester,
+        onPut: (_) => http.Response(jsonEncode({'message': 'db locked'}), 500),
+      );
+      await editContent(tester);
+
+      await tapClose(tester);
+
+      expect(puts, 1);
+      expect(find.text('Could not save: db locked'), findsOneWidget);
       expect(ctrl.value.mode, NoteMode.editing);
       expect(ctrl.value.editContent, 'world, edited');
       expect(lockReleases, 0);
+      expect(closed, isFalse);
     });
 
-    testWidgets('with unsaved edits, discard exits editing and closes', (
-      tester,
-    ) async {
-      final ctrl = await pumpEditing(tester);
+    testWidgets('a flush that loses the lock still closes', (tester) async {
+      final ctrl = await pumpEditing(
+        tester,
+        onPut: (_) => http.Response(
+          jsonEncode({'message': 'locked', 'lock': _lockJson(holder: 'alice')}),
+          423,
+        ),
+      );
       await editContent(tester);
+
       await tapClose(tester);
 
-      await tester.tap(find.byKey(const Key('note.discard.confirm')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Discard changes?'), findsNothing);
+      expect(puts, 1);
       expect(ctrl.value.mode, NoteMode.viewing);
-      expect(lockReleases, 1);
+      expect(ctrl.value.lock?.holder, 'alice');
+      // The lock is no longer ours — no DELETE lock is sent for it.
+      expect(lockReleases, 0);
       expect(closed, isTrue);
     });
 
-    testWidgets('system back with unsaved edits prompts before popping', (
+    testWidgets('system back with a pending edit flushes and pops', (
       tester,
     ) async {
-      final ctrl = controller();
+      final ctrl = controller(
+        onPut: (request) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(
+              _noteJson(version: 2, content: body['content'] as String),
+            ),
+            200,
+          );
+        },
+      );
       await tester.pumpWidget(
         MaterialApp(
           home: Builder(
@@ -635,12 +710,8 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
 
-      expect(find.text('Discard changes?'), findsOneWidget);
-      expect(find.byKey(const Key('note.editor.content')), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('note.discard.confirm')));
-      await tester.pumpAndSettle();
-
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(puts, 1);
       expect(find.byKey(const Key('note.editor.content')), findsNothing);
       expect(find.byKey(const Key('open')), findsOneWidget);
       expect(lockReleases, 1);
@@ -680,8 +751,19 @@ void main() {
       expect(find.text('Saved (v3)'), findsOneWidget);
     });
 
-    testWidgets('Escape while dirty shows the discard prompt', (tester) async {
-      await _pumpEditor(tester);
+    testWidgets('Escape while dirty flushes a save and closes', (tester) async {
+      final ctrl = await _pumpEditor(
+        tester,
+        onSave: (request) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(
+              _noteJson(version: 2, content: body['content'] as String),
+            ),
+            200,
+          );
+        },
+      );
       await tester.tap(find.byKey(_contentField));
       await tester.enterText(find.byKey(_contentField), 'edited');
       await tester.pump();
@@ -689,7 +771,8 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
 
-      expect(find.text('Discard changes?'), findsOneWidget);
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(ctrl.value.mode, NoteMode.viewing);
     });
 
     testWidgets('Cmd+S while only viewing sends no request and no snackbar', (
@@ -881,16 +964,105 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
     });
 
-    testWidgets('editing shows an info banner naming the lock expiry', (
-      tester,
-    ) async {
-      await _pumpEditor(tester);
+    group('editing status', () {
+      testWidgets('shows "Unsaved changes" right after an edit', (
+        tester,
+      ) async {
+        await _pumpEditor(tester);
 
-      final expiry = formatLockExpiry(
-        DateTime.parse('2025-01-01T00:01:00.000Z'),
-      );
-      expect(find.byKey(const Key('note.banner.ownLock')), findsOneWidget);
-      expect(find.text('You are editing (lock until $expiry)'), findsOneWidget);
+        await tester.enterText(find.byKey(_contentField), 'edited');
+        await tester.pump();
+
+        expect(find.byKey(const Key('note.editingStatus')), findsOneWidget);
+        expect(find.text('Unsaved changes'), findsOneWidget);
+      });
+
+      testWidgets('shows "Saving…" while a save is in flight', (tester) async {
+        final saveGate = Completer<http.Response>();
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+            return saveGate.future;
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+          autosaveScheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: NoteScreen(
+              controller: ctrl,
+              linkAutocompleteScheduler: (_) async {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('note.edit')));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(find.byKey(_contentField), 'edited');
+        await tester.tap(find.byKey(const Key('note.save')));
+        await tester.pump();
+
+        expect(find.text('Saving…'), findsOneWidget);
+
+        // Let the pending request settle so the test doesn't leak it.
+        saveGate.complete(
+          http.Response(jsonEncode(_noteJson(content: 'edited')), 200),
+        );
+        await tester.pumpAndSettle();
+      });
+
+      testWidgets('shows "Autosaved" with the last-saved time after a save', (
+        tester,
+      ) async {
+        await _pumpEditor(
+          tester,
+          onSave: (request) {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(
+              jsonEncode(
+                _noteJson(version: 2, content: body['content'] as String),
+              ),
+              200,
+            );
+          },
+        );
+
+        await tester.enterText(find.byKey(_contentField), 'edited');
+        await tester.tap(find.byKey(const Key('note.save')));
+        await tester.pumpAndSettle();
+
+        final saved = formatLockExpiry(
+          DateTime.parse('2025-01-01T00:00:00.000Z'),
+        );
+        expect(find.text('Autosaved $saved'), findsOneWidget);
+      });
+
+      testWidgets('shows an avatar for who is editing', (tester) async {
+        await _pumpEditor(tester);
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('note.editingStatus')),
+            matching: find.byType(CircleAvatar),
+          ),
+          findsOneWidget,
+        );
+      });
     });
 
     testWidgets('a failed load replaces the spinner with the server message', (

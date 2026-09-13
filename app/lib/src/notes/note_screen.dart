@@ -200,32 +200,30 @@ class _NoteScreenState extends State<NoteScreen> {
     if (field.text != next) field.text = next;
   }
 
-  Future<bool> _confirmDiscard() async {
+  /// With autosave, there's nothing meaningful to confirm discarding —
+  /// instead, a pending edit is flushed with an immediate save before
+  /// leaving. Returns whether it's now safe to actually close: `false`
+  /// keeps the note open, either because the flush landed on a conflict
+  /// (the conflict view takes over) or because it failed with a plain
+  /// error (edits stay intact, the existing error snackbar explains why).
+  /// Losing the lock during the flush (423) still counts as safe to
+  /// close — same as any other save that gets overtaken mid-edit.
+  Future<bool> _flushPendingEdit() async {
     if (!widget.controller.value.isDirty) return true;
-    final discard = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Discard changes?'),
-        content: const Text('Your edits to this note have not been saved.'),
-        actions: [
-          TextButton(
-            key: const Key('note.discard.keep'),
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Keep editing'),
-          ),
-          FilledButton.tonal(
-            key: const Key('note.discard.confirm'),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Discard'),
-          ),
-        ],
-      ),
-    );
-    return discard ?? false;
+    widget.controller.cancelPendingAutosave();
+    await widget.controller.save();
+    if (!mounted) return false;
+    final after = widget.controller.value;
+    if (after.mode == NoteMode.conflict) return false;
+    if (after.mode == NoteMode.editing && after.isDirty) {
+      _announceOutcome(failed: 'Could not save');
+      return false;
+    }
+    return true;
   }
 
   Future<void> _close() async {
-    if (!await _confirmDiscard()) return;
+    if (!await _flushPendingEdit()) return;
     await widget.controller.exitEditing();
     if (mounted) widget.onClose?.call();
   }
@@ -445,15 +443,11 @@ class _NoteScreenState extends State<NoteScreen> {
           tone: _BannerTone.info,
         ),
       );
-    } else if (state.mode == NoteMode.editing && state.lock != null) {
+    } else if ((state.mode == NoteMode.editing ||
+            state.mode == NoteMode.saving) &&
+        state.lock != null) {
       banners.add(
-        _Banner(
-          key: const Key('note.banner.ownLock'),
-          text:
-              'You are editing (lock until '
-              '${formatLockExpiry(state.lock!.expiresAt)})',
-          tone: _BannerTone.info,
-        ),
+        _EditingStatus(key: const Key('note.editingStatus'), state: state),
       );
     }
 
@@ -1159,6 +1153,49 @@ class _Banner extends StatelessWidget {
       color: bg,
       padding: const EdgeInsets.all(12),
       child: Text(text, style: TextStyle(color: fg)),
+    );
+  }
+}
+
+/// Who's editing and whether their latest change is saved, at a glance —
+/// replaces the old plain lock-countdown banner now that saving is
+/// automatic. The avatar's initial is [NoteState.lock]'s holder, which is
+/// always the current actor's own name while editing (the lock is theirs).
+class _EditingStatus extends StatelessWidget {
+  const _EditingStatus({required this.state, super.key});
+
+  final NoteState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final holder = state.lock!.holder;
+    final String text;
+    if (state.mode == NoteMode.saving) {
+      text = 'Saving…';
+    } else if (state.isDirty) {
+      text = 'Unsaved changes';
+    } else {
+      text = 'Autosaved ${formatLockExpiry(state.note!.updatedAt)}';
+    }
+    return Container(
+      width: double.infinity,
+      color: scheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 12,
+            child: Text(
+              holder.isEmpty ? '?' : holder[0].toUpperCase(),
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(text, style: TextStyle(color: scheme.onSurface)),
+        ],
+      ),
     );
   }
 }
