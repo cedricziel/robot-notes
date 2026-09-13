@@ -3,9 +3,7 @@
 ## Purpose
 
 TBD - created by archiving change add-mvp-foundation. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Flutter app targets multiple platforms from a single codebase
 
 The Flutter client SHALL build and run on at least Android, iOS, macOS, Windows, Linux, and Web from the same source. Platform-specific code SHALL be limited to secure storage and platform integration glue. Functionality SHALL be equivalent across platforms in v1.
@@ -160,7 +158,7 @@ The list view SHALL offer a "Delete note" action on each entry, opened via long-
 
 ### Requirement: Note view supports edit, lock, and concurrency UX
 
-When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS events, and acquire the editor lock before allowing edits. While editing, the app SHALL heartbeat the lock periodically. On save the app SHALL `PUT /notes/{id}` with the version it last loaded. The app SHALL handle 409 by presenting a conflict view with the server's title and content beside the user's own, editable, title and content; the view SHALL mark the title when the two differ and SHALL mark the content lines each side has that the other does not. The user SHALL be able to take the server's version, or edit their own version in place and save it against the server's current version. The app SHALL handle 423 by switching to read-only mode and surfacing the lock holder.
+When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS events, and acquire the editor lock before allowing edits. While editing, the app SHALL heartbeat the lock periodically. The app SHALL automatically save edits approximately 2 seconds after the user stops changing the title or content, using the same save path as an explicit save; this automatic save SHALL NOT run while the conflict view is shown, and SHALL resume once a conflict is resolved and editing continues. On save (automatic or explicit) the app SHALL `PUT /notes/{id}` with the version it last loaded. The app SHALL handle 409 by presenting a conflict view with the server's title and content beside the user's own, editable, title and content; the view SHALL mark the title when the two differ and SHALL mark the content lines each side has that the other does not. The user SHALL be able to take the server's version, or edit their own version in place and save it against the server's current version. The app SHALL handle 423 by switching to read-only mode and surfacing the lock holder.
 
 #### Scenario: Edit acquires the lock
 
@@ -196,6 +194,24 @@ When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS
 - **GIVEN** a note loaded at version 5
 - **WHEN** the user saves
 - **THEN** the app SHALL send `PUT /notes/{id}` with header `If-Match: 5`
+
+#### Scenario: Edits are saved automatically after a pause in typing
+
+- **GIVEN** the user is in edit mode
+- **WHEN** approximately 2 seconds pass with no further change to the title or content
+- **THEN** the app SHALL `PUT /notes/{id}` with the current edit buffers and `If-Match` from the last-loaded version, without any user action
+
+#### Scenario: A new edit within the debounce window postpones the automatic save
+
+- **GIVEN** the user is in edit mode and stopped typing less than 2 seconds ago
+- **WHEN** the user types again before the automatic save fires
+- **THEN** the pending automatic save SHALL be postponed to run 2 seconds after this latest change instead
+
+#### Scenario: Automatic save does not run while the conflict view is shown
+
+- **GIVEN** a save returned 409 and the conflict view is showing
+- **WHEN** approximately 2 seconds pass
+- **THEN** the app SHALL NOT `PUT /notes/{id}` automatically; saving only happens when the user chooses "Use server version" or "Save mine"
 
 #### Scenario: 409 prompts the user to reconcile
 
@@ -243,54 +259,40 @@ When the user opens a note, the app SHALL `GET /notes/{id}`, subscribe to its WS
 - **WHEN** they press Cmd+S (macOS) or Ctrl+S (other platforms)
 - **THEN** the app SHALL save the note the same way as tapping "Save"
 - **WHEN** they press Escape
-- **THEN** the app SHALL trigger the same close flow as tapping the close button, prompting to discard if there are unsaved edits
-
-### Requirement: Unsaved edits are not discarded without confirmation
-
-When the user leaves the note view — via the close button, the browser back button, or the OS back gesture — while the edit buffers differ from the loaded note, the app SHALL ask for confirmation before releasing the lock and discarding the edits. Leaving with unchanged buffers SHALL NOT prompt.
-
-#### Scenario: Leaving with unsaved edits prompts
-
-- **GIVEN** the user is editing a note and has changed the title or content
-- **WHEN** they tap close or trigger back navigation
-- **THEN** the app SHALL show a "Discard changes?" prompt and SHALL stay in the editor until they choose
-
-#### Scenario: Keep editing
-
-- **WHEN** the user chooses "Keep editing"
-- **THEN** the app SHALL dismiss the prompt, keep the lock, and preserve the edit buffers
-
-#### Scenario: Discard
-
-- **WHEN** the user chooses "Discard"
-- **THEN** the app SHALL `DELETE /notes/{id}/lock`, drop the edits, and leave the note view
-
-#### Scenario: Leaving without edits does not prompt
-
-- **GIVEN** the user is editing but the buffers match the loaded note
-- **WHEN** they tap close or trigger back navigation
-- **THEN** the app SHALL release the lock and leave without prompting
+- **THEN** the app SHALL trigger the same close flow as tapping the close button
 
 ### Requirement: Save and lock outcomes are surfaced in the note view
 
-The note view SHALL confirm a completed save and SHALL show the server's message when a save or lock acquisition fails, so the user is never left silently in the editor. Outcomes the view already renders — 409 (conflict view) and 423 (lock banner) — SHALL NOT additionally produce a message.
+The note view SHALL confirm a completed explicit save and SHALL show the server's message when an explicit save or lock acquisition fails, so the user is never left silently in the editor after taking an explicit action. Outcomes the view already renders — 409 (conflict view) and 423 (lock banner) — SHALL NOT additionally produce a message. An automatic (debounced) save SHALL NOT produce a "Saved" confirmation message; its outcome is reflected only by the editing-status indicator, so it never interrupts typing. An automatic save that fails with neither 409 nor 423 SHALL also produce no message — the editing-status indicator showing "Unsaved changes" is sufficient, and the failure SHALL NOT block further typing.
 
 #### Scenario: Successful save is confirmed
 
 - **GIVEN** the user is editing a note
-- **WHEN** the save returns 200 with version 7
+- **WHEN** the user taps "Save" (or the keyboard shortcut) and it returns 200 with version 7
 - **THEN** the app SHALL show a brief "Saved (v7)" confirmation and stay in edit mode
 
 #### Scenario: Failed save shows the server message
 
 - **GIVEN** the user is editing a note
-- **WHEN** the save fails with a status other than 409 or 423 (for example 400 for an empty title)
+- **WHEN** the user taps "Save" and it fails with a status other than 409 or 423 (for example 400 for an empty title)
 - **THEN** the app SHALL show a message containing the server's `message` and SHALL stay in edit mode with the edits intact
 
 #### Scenario: Failed lock acquisition shows the server message
 
 - **WHEN** `POST /notes/{id}/lock` fails with a status other than 423
 - **THEN** the app SHALL show a message containing the server's `message` and remain read-only
+
+#### Scenario: A successful automatic save shows no confirmation message
+
+- **GIVEN** the user is editing a note
+- **WHEN** the debounced automatic save returns 200
+- **THEN** the app SHALL NOT show a "Saved" confirmation message; the editing-status indicator SHALL update instead
+
+#### Scenario: A failed automatic save shows no error message
+
+- **GIVEN** the user is editing a note
+- **WHEN** the debounced automatic save fails with a status other than 409 or 423
+- **THEN** the app SHALL NOT show an error message; the editing-status indicator SHALL show "Unsaved changes" and the user MAY continue typing or save explicitly
 
 ### Requirement: Note view can delete the note after confirmation
 
@@ -629,3 +631,60 @@ The note view SHALL display the note's computed tags (per `notes-storage`) as ch
 
 - **WHEN** the user taps the `urgent` chip
 - **THEN** the notes list SHALL request `GET /notes?tag=urgent` and show only matching notes
+
+### Requirement: Editor flushes pending edits when closing
+
+When the user leaves the note view — via the close button, the browser back button, or the OS back gesture — while the edit buffers differ from the loaded note, the app SHALL attempt an immediate save before leaving, instead of asking for confirmation. Leaving with unchanged buffers SHALL NOT trigger a save. The outcome of that flush determines whether the note view actually closes.
+
+#### Scenario: Leaving with a pending edit saves it and closes
+
+- **GIVEN** the user is editing a note and has changed the title or content
+- **WHEN** they tap close or trigger back navigation
+- **THEN** the app SHALL `PUT /notes/{id}` immediately, and on success SHALL release the lock and leave the note view
+
+#### Scenario: Leaving without edits does not trigger a save
+
+- **GIVEN** the user is editing but the buffers match the loaded note
+- **WHEN** they tap close or trigger back navigation
+- **THEN** the app SHALL NOT `PUT /notes/{id}`, and SHALL release the lock and leave immediately
+
+#### Scenario: A flush that hits a conflict keeps the note open
+
+- **GIVEN** the user is editing a note with a pending edit
+- **WHEN** they tap close and the flush save returns 409
+- **THEN** the app SHALL present the conflict view and SHALL NOT leave the note view
+
+#### Scenario: A flush that hits a transient error keeps the note open
+
+- **GIVEN** the user is editing a note with a pending edit
+- **WHEN** they tap close and the flush save fails with a status other than 409 or 423
+- **THEN** the app SHALL show a message containing the server's `message`, SHALL keep the edits intact, and SHALL NOT leave the note view
+
+#### Scenario: A flush that loses the lock still closes
+
+- **GIVEN** the user is editing a note with a pending edit
+- **WHEN** they tap close and the flush save fails with 423 because another actor took the lock
+- **THEN** the app SHALL switch to read-only mode, drop the local edits, and leave the note view, consistent with losing the lock during any other save
+
+### Requirement: Editing status indicator shows save state at a glance
+
+While editing, the note view SHALL show who is editing and whether their most recent change has been saved, without requiring the user to open a menu.
+
+#### Scenario: A save in flight shows "Saving…"
+
+- **GIVEN** the user is editing a note
+- **WHEN** a save (automatic or explicit) is in flight
+- **THEN** the editing status SHALL read "Saving…"
+
+#### Scenario: A pending, not-yet-saved edit shows "Unsaved changes"
+
+- **GIVEN** the user is editing a note
+- **WHEN** the edit buffers differ from the last-saved note and no save is currently in flight
+- **THEN** the editing status SHALL read "Unsaved changes"
+
+#### Scenario: A saved note shows when it was last saved
+
+- **GIVEN** the user is editing a note
+- **WHEN** the edit buffers match the last-saved note
+- **THEN** the editing status SHALL read "Autosaved" followed by the last-saved time
+
