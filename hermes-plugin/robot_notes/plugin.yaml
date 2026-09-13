@@ -1,5 +1,5 @@
 name: robot_notes
-version: 0.1.0
+version: 0.2.9 # x-release-please-version
 description: "robot-notes — shared notes workspace as external memory (REST, static API key)."
 pip_dependencies:
   - httpx

@@ -260,16 +260,30 @@ The tool catalog is fixed and identical for every caller:
 | `update_note`    | Update a note, enforcing the note's current `version` (optimistic concurrency). |
 | `append_to_note` | Append text to a note's end without a read-modify-write race.                   |
 | `delete_note`    | Permanently delete a note by id.                                                |
+| `move_note`      | Move a note to a different folder, enforcing `version` like `update_note`.      |
+| `get_backlinks`  | List every note that links to a given note, with context snippets.              |
+| `create_folder`  | Create an empty folder (and missing parents); a no-op if it already exists.     |
 
 An OAuth grant's scopes gate the write tools (`create_note`,
-`update_note`, `append_to_note`, `delete_note`) separately from the read
-tools; the static key always holds both scopes.
+`update_note`, `append_to_note`, `delete_note`, `move_note`,
+`create_folder`) separately from the read tools; the static key always
+holds both scopes.
 
 **Security:** run the server behind HTTPS in any deployment reachable
 over an untrusted network — the consent form submits the workspace API
 key over that connection, with the same exposure as the bearer check
 everywhere else in the API. See `--public-url` above for pinning the
 origin OAuth metadata advertises when the server sits behind a proxy.
+
+### Agent plugins
+
+- [`claude-plugin/`](claude-plugin/) — a Claude Code plugin with a skill
+  teaching an agent how to use the MCP tool catalog above correctly
+  (search-before-create, `append_to_note` vs. `update_note`, optimistic
+  concurrency, locks, folder paths).
+- [`hermes-plugin/`](hermes-plugin/robot_notes/README.md) — a Hermes
+  Agent MemoryProvider backed by robot-notes' REST API directly (no MCP
+  client).
 
 ## Conventions
 
