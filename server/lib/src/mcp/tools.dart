@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:meta/meta.dart';
 import 'package:server/src/app_deps.dart';
+import 'package:server/src/attachments.dart';
 import 'package:server/src/backlinks.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
@@ -122,7 +125,7 @@ class McpInvalidParamsException implements Exception {
   String toString() => 'McpInvalidParamsException: $message';
 }
 
-/// Registry of the ten fixed note tools exposed over `/mcp`.
+/// Registry of the eleven fixed note tools exposed over `/mcp`.
 ///
 /// Built once per server from [AppDeps] via [McpToolRegistry.forDeps];
 /// tests may also build one directly from a hand-picked [List] of
@@ -149,6 +152,7 @@ class McpToolRegistry {
         _moveNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
         _getBacklinksTool(deps.metaIndex, deps.linkIndex, deps.storage),
         _createFolderTool(deps.storage, deps.metaIndex),
+        _uploadFileTool(deps.attachmentStore, deps.maxUploadSizeBytes),
       ]);
 
   final List<McpTool> _tools;
@@ -809,6 +813,73 @@ McpTool _createFolderTool(Storage storage, MetaIndex metaIndex) => McpTool(
           return toolOk({'path': result.path, 'note_count': noteCount});
         } on InvalidPathException catch (e) {
           return toolFail(kErrorValidationFailed, message: e.message);
+        }
+      },
+    );
+
+McpTool _uploadFileTool(
+  AttachmentStore attachmentStore,
+  int maxUploadSizeBytes,
+) =>
+    McpTool(
+      name: 'upload_file',
+      description:
+          'Upload a non-note file (e.g. an image or PDF) into a folder, '
+          'mirroring POST /notes/attachments. Content travels as base64 — '
+          'decode overhead means the effective size limit is smaller than '
+          'the raw byte limit configured on the server.',
+      inputSchema: const {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string'},
+          'filename': {'type': 'string'},
+          'content_base64': {'type': 'string'},
+          'content_type': {'type': 'string'},
+        },
+        'required': ['path', 'filename', 'content_base64'],
+      },
+      annotations: _writeAnnotations(
+        'Upload file',
+        destructive: false,
+        idempotent: false,
+      ),
+      requiresWrite: true,
+      handler: (args, principal) async {
+        final path = _requiredString(args, 'path');
+        final filename = _requiredString(args, 'filename');
+        final contentBase64 = _requiredString(args, 'content_base64');
+        final contentType = args['content_type'] as String?;
+
+        final List<int> bytes;
+        try {
+          bytes = base64Decode(contentBase64);
+        } on FormatException {
+          return toolFail(
+            kErrorValidationFailed,
+            message: 'content_base64 is not valid base64',
+          );
+        }
+
+        try {
+          final result = await attachmentStore.write(
+            path: path,
+            filename: filename,
+            bytes: Stream.value(bytes),
+            maxBytes: maxUploadSizeBytes,
+            contentType: contentType,
+          );
+          return toolOk({
+            'path': result.path,
+            'filename': result.filename,
+            'size': result.size,
+            'content_type': result.contentType,
+          });
+        } on InvalidPathException catch (e) {
+          return toolFail(kErrorValidationFailed, message: e.message);
+        } on AttachmentCollisionException {
+          return toolFail(kErrorPathConflict);
+        } on AttachmentTooLargeException {
+          return toolFail(kErrorPayloadTooLarge);
         }
       },
     );

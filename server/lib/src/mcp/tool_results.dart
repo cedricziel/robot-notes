@@ -17,6 +17,12 @@ const String kErrorValidationFailed = 'validation_failed';
 /// `ErrorCode` enum member — see [kErrorInsufficientScope]).
 const String kErrorPathConflict = 'path_conflict';
 
+/// Wire error code for an `upload_file` call whose decoded payload
+/// exceeds the server's configured maximum upload size, mirroring the
+/// HTTP API's `413`/`payload_too_large` (also not an `ErrorCode` enum
+/// member — see [kErrorInsufficientScope]).
+const String kErrorPayloadTooLarge = 'payload_too_large';
+
 /// Builds a successful `tools/call` result: [payload] serialized as the
 /// sole `text` content item, and again verbatim as `structuredContent`, per
 /// the `mcp-server` spec's "Tool results carry text and structured content"
