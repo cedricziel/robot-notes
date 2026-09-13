@@ -8,6 +8,7 @@ Folders in the vault are purely a derived projection over notes' `path` field �
 - New endpoint: `POST /notes/tree` accepts `{ "path": "<folder>" }`, creates the directory (and the marker file) if it doesn't exist, and returns `{ path, note_count: 0 }`. Idempotent: creating a folder that already exists (with or without notes) returns 200 with its current `note_count` rather than an error. Path collisions with an existing _note_'s title are impossible by construction (notes always carry `.md`, folders never do — an existing invariant), so the only conflict case is a case/NFC-only collision with another folder, which resolves to the same folder rather than erroring.
 - New MCP tool `create_folder` mirroring the endpoint.
 - Flutter: a "New folder" action in the sidebar (folder icon in the sidebar header) opens a text prompt for the folder path and calls the new endpoint, then refreshes the tree.
+- Flutter: the notes list FAB becomes a menu ("New note", "New folder") instead of creating a note instantly. Both actions target the currently selected folder (`NotesListState.selectedPath`), falling back to the vault root — this also fixes the existing gap where "New note" always created at the vault root regardless of the selected folder.
 - `GET /notes/tree` now also lists folders that have zero notes but do have a marker file, so a freshly created empty folder appears immediately.
 
 ## Capabilities
@@ -25,7 +26,7 @@ Folders in the vault are purely a derived projection over notes' `path` field �
 
 ## Impact
 
-Server: `storage.dart` (marker file read/write, startup scan), `meta_index.dart` (track marker-only folders), `routes/notes/tree.dart` (new `POST` handler), `mcp/tools.dart` (new tool). Flutter: `folder_tree_sidebar.dart` (new action + dialog), `api_client.dart` (new `createFolder` method). No changes to auth, locking, or realtime beyond an optional `changed`-style folder-tree refresh signal already covered by existing `moved`/`created`/`deleted` triggers (a folder create doesn't need a new broadcast action — the client can just re-fetch the tree after its own successful create).
+Server: `storage.dart` (marker file read/write, startup scan), `meta_index.dart` (track marker-only folders), `routes/notes/tree.dart` (new `POST` handler), `mcp/tools.dart` (new tool). Flutter: `folder_tree_sidebar.dart` (new action + dialog), `notes_list_screen.dart` (FAB becomes a menu), `app_router.dart` (folder-aware create-note/create-folder handlers), `api_client.dart` (new `createFolder` method). No changes to auth, locking, or realtime beyond an optional `changed`-style folder-tree refresh signal already covered by existing `moved`/`created`/`deleted` triggers (a folder create doesn't need a new broadcast action — the client can just re-fetch the tree after its own successful create).
 
 ## Non-goals
 
