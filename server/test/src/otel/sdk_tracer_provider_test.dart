@@ -3,11 +3,12 @@ import 'package:server/src/otel/sdk_tracer_provider.dart';
 import 'package:test/test.dart';
 
 class _FakeSpanProcessor implements SpanProcessor {
+  final List<SpanData> ended = [];
   bool flushed = false;
   bool shutdownCalled = false;
 
   @override
-  void onEnd(SpanData span) {}
+  void onEnd(SpanData span) => ended.add(span);
 
   @override
   Future<void> forceFlush() async {
@@ -31,6 +32,24 @@ void main() {
 
       expect(identical(a, b), isTrue);
       expect(identical(a, c), isFalse);
+    });
+
+    test('ingestSpan forwards straight to the processor', () {
+      final processor = _FakeSpanProcessor();
+      final provider = SdkTracerProvider(processor: processor);
+      final span = SpanData(
+        name: 'op',
+        spanContext: const SpanContext(
+          traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+          spanId: '00f067aa0ba902b7',
+        ),
+        startTime: DateTime.now(),
+        endTime: DateTime.now(),
+      );
+
+      provider.ingestSpan(span);
+
+      expect(processor.ended, [span]);
     });
 
     test('forceFlush and shutdown delegate to the processor', () async {

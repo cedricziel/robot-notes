@@ -31,10 +31,10 @@ dependency_overrides:
   flutter_otel_api:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
       path: packages/flutter_otel_api
   flutter_otel_exporter_otlp_http:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
       path: packages/flutter_otel_exporter_otlp_http

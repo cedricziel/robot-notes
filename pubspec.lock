@@ -295,8 +295,8 @@ packages:
     dependency: transitive
     description:
       path: "packages/flutter_otel"
-      ref: "3ff0c411a2df6f844b943015efb9fb78d4e5f836"
-      resolved-ref: "3ff0c411a2df6f844b943015efb9fb78d4e5f836"
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
+      resolved-ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
       url: "https://github.com/cedricziel/flutter-otel"
     source: git
     version: "0.1.0"
@@ -304,8 +304,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "packages/flutter_otel_api"
-      ref: "3ff0c411a2df6f844b943015efb9fb78d4e5f836"
-      resolved-ref: "3ff0c411a2df6f844b943015efb9fb78d4e5f836"
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
+      resolved-ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
       url: "https://github.com/cedricziel/flutter-otel"
     source: git
     version: "0.1.0"
@@ -313,8 +313,17 @@ packages:
     dependency: "direct overridden"
     description:
       path: "packages/flutter_otel_exporter_otlp_http"
-      ref: "3ff0c411a2df6f844b943015efb9fb78d4e5f836"
-      resolved-ref: "3ff0c411a2df6f844b943015efb9fb78d4e5f836"
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
+      resolved-ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
+      url: "https://github.com/cedricziel/flutter-otel"
+    source: git
+    version: "0.1.0"
+  flutter_otel_native:
+    dependency: transitive
+    description:
+      path: "packages/flutter_otel_native"
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
+      resolved-ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
       url: "https://github.com/cedricziel/flutter-otel"
     source: git
     version: "0.1.0"
@@ -322,8 +331,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "packages/flutter_otel_sdk"
-      ref: "3ff0c411a2df6f844b943015efb9fb78d4e5f836"
-      resolved-ref: "3ff0c411a2df6f844b943015efb9fb78d4e5f836"
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
+      resolved-ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
       url: "https://github.com/cedricziel/flutter-otel"
     source: git
     version: "0.1.0"

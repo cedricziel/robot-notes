@@ -30,6 +30,9 @@ class SdkTracerProvider implements TracerProvider {
   }
 
   @override
+  void ingestSpan(SpanData span) => processor.onEnd(span);
+
+  @override
   Future<void> forceFlush() => processor.forceFlush();
 
   @override

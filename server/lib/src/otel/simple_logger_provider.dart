@@ -22,6 +22,9 @@ class SimpleLoggerProvider implements LoggerProvider {
       );
 
   @override
+  void ingestLogRecord(LogRecord record) => _processor.onEmit(record);
+
+  @override
   Future<void> forceFlush() => _processor.forceFlush();
 
   @override

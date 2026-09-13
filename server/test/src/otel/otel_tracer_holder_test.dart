@@ -8,6 +8,9 @@ class _FakeTracerProvider implements TracerProvider {
       throw UnimplementedError();
 
   @override
+  void ingestSpan(SpanData span) => throw UnimplementedError();
+
+  @override
   Future<void> forceFlush() async {}
 
   @override

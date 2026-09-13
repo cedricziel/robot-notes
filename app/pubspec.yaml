@@ -22,13 +22,18 @@ dependencies:
   flutter_otel:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
       path: packages/flutter_otel
   flutter_otel_api:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
       path: packages/flutter_otel_api
+  flutter_otel_native:
+    git:
+      url: https://github.com/cedricziel/flutter-otel
+      ref: b78b2d844166bc7cd3ab1ce00f151c350534973a
+      path: packages/flutter_otel_native
   flutter_riverpod: ^3.4.3
   flutter_secure_storage: ^11.1.1
   flutter_web_plugins:

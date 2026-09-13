@@ -54,6 +54,16 @@ void main() {
       expect(processor.emitted[1].scopeVersion, '2.0');
     });
 
+    test('ingestLogRecord forwards straight to the processor', () {
+      final processor = _FakeLogRecordProcessor();
+      final provider = SimpleLoggerProvider(processor);
+      final record = LogRecord(body: 'hello');
+
+      provider.ingestLogRecord(record);
+
+      expect(processor.emitted, [record]);
+    });
+
     test('forceFlush delegates to the processor', () async {
       final processor = _FakeLogRecordProcessor();
       final provider = SimpleLoggerProvider(processor);
