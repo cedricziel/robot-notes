@@ -63,6 +63,26 @@ See proposal.md - Why. The vault today has exactly two kinds of on-disk artifact
 
 **Why:** No new metadata store means nothing to keep in sync; an extension-based lookup is deterministic and matches what every static file server already does. The upload response still echoes back the declared content-type for the client's immediate use (e.g. showing what it thinks it uploaded), but that's not authoritative for later downloads.
 
+### upload_file (MCP) shares the REST route's write path via a common helper, not a duplicate implementation
+
+**Decision:** Both `POST /notes/attachments` and the `upload_file` MCP tool call the same underlying attachment-write helper introduced for the REST route (see the sanitization/collision decision above) — the MCP handler's only job is to base64-decode `content_base64` into bytes, hand them to that helper, and translate its result/exceptions into `toolOk`/`toolFail`, exactly the pattern `create_note`/`update_note`/`move_note` already use around `Storage`.
+
+**Why:** Two independent implementations of "sanitize, check collision, stream to disk atomically, enforce size" would be two places to keep an attack-surface-relevant invariant in sync. The MCP tool is a thin transport adapter, nothing more.
+
+**Alternatives considered:**
+
+- _Reimplement the write path directly in `tools.dart`._ Rejected: exactly the duplication this decision avoids.
+
+### upload_file surfaces the same domain errors as the REST route, translated to tool-error codes
+
+**Decision:** A filename collision maps to `path_conflict` (reusing `kErrorPathConflict`, the same code `create_note`/`update_note`/`move_note` already return for a note path collision, not a new one-off code), an over-limit payload maps to a new `payload_too_large` code, and an invalid path segment or malformed base64 maps to `validation_failed` (reusing `kErrorValidationFailed`). The size check runs against the **decoded** byte length, not the base64 string length (which runs ~33% larger) — the configured `maxUploadSizeBytes` is a statement about the file's real size, not its wire encoding.
+
+**Why:** Reusing existing error codes where the failure is the same _kind_ of thing (a path collision is a path collision, whether the request arrived as multipart or JSON-RPC) keeps the tool catalog's error vocabulary small and predictable for a client already handling `create_note`'s `path_conflict`.
+
+**Alternatives considered:**
+
+- _A single generic `upload_failed` code for every failure._ Rejected: collapses cases a client legitimately wants to handle differently (retry with a new name vs. shrink the file vs. fix the input) into one undifferentiated bucket.
+
 ## Risks / Trade-offs
 
 - **[Risk]** A very large upload could still exhaust memory if `UploadedFile.readAsBytes()` (which buffers into a single `List<int>`) is used instead of streaming to disk incrementally. → **Mitigation:** write via `openRead()` chunk-by-chunk into the tmp file, counting bytes per chunk, not via `readAsBytes()`.
