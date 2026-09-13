@@ -1,0 +1,271 @@
+"""Hermes Agent MemoryProvider plugin backed by a robot-notes workspace.
+
+Talks to robot-notes' existing bearer-key REST API directly (no MCP client).
+Writes are deliberately sparse: session-end summaries, explicit tool calls,
+and mirrored built-in-memory writes only — never one write per turn.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import threading
+from typing import Any, Callable, Dict, List, Optional
+
+from robot_notes._memory_provider_base import MemoryProvider
+from robot_notes.client import ClientError, RobotNotesClient
+from robot_notes.config import RobotNotesConfig
+
+logger = logging.getLogger(__name__)
+
+SESSIONS_PATH = "Hermes/Sessions"
+MEMORY_NOTE = {"title": "Memory", "path": "Hermes"}
+USER_NOTE = {"title": "User", "path": "Hermes"}
+
+SYSTEM_PROMPT_BLOCK = (
+    "A shared robot-notes workspace is connected as external memory. Call "
+    "robotnotes_search before creating a new note, and robotnotes_remember "
+    "to store a fact worth keeping across sessions."
+)
+
+_MARK_RE = re.compile(r"</?mark>")
+
+
+def register(ctx) -> None:
+    ctx.register_memory_provider(RobotNotesProvider())
+
+
+class RobotNotesProvider(MemoryProvider):
+    def __init__(self) -> None:
+        self._config: Optional[RobotNotesConfig] = None
+        self._client: Optional[RobotNotesClient] = None
+        self._session_id: str = ""
+        self._prefetch_cache: str = ""
+        self._prefetch_lock = threading.Lock()
+        self._prefetch_thread: Optional[threading.Thread] = None
+        self._prefetch_generation = 0
+        self._tools = [
+            {
+                "name": "robotnotes_search",
+                "description": "Search the shared robot-notes workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+                "handler": self._tool_search,
+            },
+            {
+                "name": "robotnotes_note",
+                "description": "Fetch a note from the shared robot-notes workspace by id.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                },
+                "handler": self._tool_note,
+            },
+            {
+                "name": "robotnotes_remember",
+                "description": "Store a durable fact as a new note in the shared robot-notes workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"title": {"type": "string"}, "content": {"type": "string"}},
+                    "required": ["title", "content"],
+                },
+                "handler": self._tool_remember,
+            },
+            {
+                "name": "robotnotes_forget",
+                "description": "Delete a note this agent created from the shared robot-notes workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                },
+                "handler": self._tool_forget,
+            },
+        ]
+
+    @property
+    def name(self) -> str:
+        return "robot_notes"
+
+    def is_available(self) -> bool:
+        return self._load_config().is_complete
+
+    def unavailable_reason(self) -> str:
+        return self._load_config().missing_reason or ""
+
+    def _load_config(self) -> RobotNotesConfig:
+        if self._config is None:
+            self._config = RobotNotesConfig.load()
+        return self._config
+
+    def initialize(self, session_id: str, **kwargs) -> None:
+        self._config = RobotNotesConfig.load(kwargs.get("hermes_home"))
+        self._session_id = session_id
+        self._client = RobotNotesClient(
+            base_url=self._config.base_url, api_key=self._config.api_key, actor=self._config.actor
+        )
+
+    def shutdown(self) -> None:
+        if self._client:
+            self._client.close()
+
+    def system_prompt_block(self) -> str:
+        return SYSTEM_PROMPT_BLOCK
+
+    def backup_paths(self) -> List[str]:
+        return []
+
+    # -- Recall ---------------------------------------------------------
+
+    def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
+        """Runs the search off the caller's thread — this must return immediately so a
+        per-turn call site never blocks on network latency; prefetch() picks up the
+        result (if ready by then) on the following turn. A generation counter stops a
+        slow, superseded search from clobbering a faster, more recent one."""
+        self._prefetch_generation += 1
+        generation = self._prefetch_generation
+
+        def _run() -> None:
+            result = self._search_and_format(query)
+            with self._prefetch_lock:
+                if generation == self._prefetch_generation:
+                    self._prefetch_cache = result
+
+        thread = threading.Thread(target=_run, daemon=True)
+        self._prefetch_thread = thread
+        thread.start()
+
+    def prefetch(self, query: str, *, session_id: str = "") -> str:
+        with self._prefetch_lock:
+            cached, self._prefetch_cache = self._prefetch_cache, ""
+        if cached:
+            return cached
+        return self._search_and_format(query)
+
+    def _search_and_format(self, query: str) -> str:
+        if not self._client or not query:
+            return ""
+        try:
+            items = self._client.search(query)
+        except ClientError:
+            return ""
+        if not items:
+            return ""
+        lines = [f"- {item['title']}: {_MARK_RE.sub('', item.get('snippet', ''))}" for item in items[:5]]
+        return "Relevant notes from robot-notes:\n" + "\n".join(lines)
+
+    # -- Explicit tools ---------------------------------------------------
+
+    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+        return [{"name": t["name"], "description": t["description"], "parameters": t["parameters"]} for t in self._tools]
+
+    def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
+        if not self._client:
+            return json.dumps({"error": "unavailable"})
+        tool = next((t for t in self._tools if t["name"] == tool_name), None)
+        if tool is None:
+            raise NotImplementedError(f"robot_notes does not handle tool {tool_name}")
+        try:
+            return tool["handler"](args)
+        except ClientError as exc:
+            return json.dumps({"error": "not_found" if exc.not_found else "error", "message": str(exc)})
+
+    def _tool_search(self, args: Dict[str, Any]) -> str:
+        return json.dumps({"items": self._client.search(args["query"])})
+
+    def _tool_note(self, args: Dict[str, Any]) -> str:
+        return json.dumps(self._client.get_note(args["id"]))
+
+    def _tool_remember(self, args: Dict[str, Any]) -> str:
+        return json.dumps(self._client.create_note(title=args["title"], content=args.get("content", "")))
+
+    def _tool_forget(self, args: Dict[str, Any]) -> str:
+        return json.dumps(self._client.delete_note(args["id"]))
+
+    # -- Sparse writes: session summary + built-in memory mirror ----------
+
+    def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
+        if not self._client:
+            return
+        title = self._session_id or "unknown-session"
+        self._overwrite_note(title=title, path=SESSIONS_PATH, content=_summarize(messages))
+
+    def on_memory_write(
+        self, action: str, target: str, content: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        if not self._client:
+            return
+        note = USER_NOTE if target == "user" else MEMORY_NOTE
+        try:
+            if action == "add":
+                self._append_note(title=note["title"], path=note["path"], addition=content)
+            elif action == "remove":
+                self._overwrite_note(title=note["title"], path=note["path"], content="", create_if_missing=False)
+            else:  # replace
+                self._overwrite_note(title=note["title"], path=note["path"], content=content)
+        except ClientError:
+            logger.warning("robot_notes: failed to mirror memory write (target=%s action=%s)", target, action)
+
+    def _overwrite_note(self, *, title: str, path: str, content: str, create_if_missing: bool = True) -> None:
+        """Create-or-blind-overwrite a fixed note by title, swallowing failures with a
+        logged warning — these are best-effort side writes, never allowed to raise out
+        of a MemoryProvider hook and take the host session down with them."""
+        try:
+            existing = self._client.find_note_by_title(title, path=path)
+            if existing is None:
+                if create_if_missing:
+                    self._client.create_note(title=title, content=content, path=path)
+                return
+            self._client.write_note_with_retry(existing["id"], version=existing["version"], content=content)
+        except ClientError:
+            logger.warning("robot_notes: failed to write note %r under %r", title, path)
+
+    def _append_note(self, *, title: str, path: str, addition: str) -> None:
+        build_content: Callable[[str], str] = lambda current: f"{current.rstrip(chr(10))}\n{addition}" if current else addition
+        existing = self._client.find_note_by_title(title, path=path)
+        if existing is None:
+            self._client.create_note(title=title, content=addition, path=path)
+            return
+        self._client.append_note_with_retry(existing["id"], build_content=build_content)
+
+    # -- Setup wizard -------------------------------------------------------
+
+    def get_config_schema(self) -> List[Dict[str, Any]]:
+        return [
+            {"key": "base_url", "description": "robot-notes server base URL", "required": True, "type": "text"},
+            {
+                "key": "actor",
+                "description": "Actor name attributed to this agent's writes",
+                "required": False,
+                "default": "hermes",
+                "type": "text",
+            },
+            {
+                "key": "api_key",
+                "description": "robot-notes API key",
+                "required": True,
+                "secret": True,
+                "env_var": "ROBOT_NOTES_API_KEY",
+            },
+        ]
+
+    def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
+        RobotNotesConfig.create(base_url=str(values.get("base_url", "")), actor=str(values.get("actor") or "")).save(
+            hermes_home
+        )
+
+
+def _summarize(messages: List[Dict[str, Any]]) -> str:
+    lines = []
+    for message in messages:
+        role = message.get("role", "?")
+        content = message.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(str(part) for part in content)
+        lines.append(f"**{role}**: {content}")
+    return "\n\n".join(lines) if lines else "(empty session)"

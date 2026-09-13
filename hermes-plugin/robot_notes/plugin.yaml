@@ -1,0 +1,7 @@
+name: robot_notes
+version: 0.1.0
+description: "robot-notes — shared notes workspace as external memory (REST, static API key)."
+pip_dependencies:
+  - httpx
+requires_env:
+  - ROBOT_NOTES_API_KEY

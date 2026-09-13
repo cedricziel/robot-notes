@@ -1,4 +1,4 @@
-.PHONY: help install hooks fmt format lint analyze test test-shared test-server test-app run-server run-app web-build outdated upgrade clean docker-build
+.PHONY: help install hooks fmt format lint analyze test test-shared test-server test-app test-hermes-plugin run-server run-app web-build outdated upgrade clean docker-build
 
 # Default target prints the help table
 help:
@@ -12,6 +12,7 @@ help:
 	@printf "  test-shared    run shared/ tests only\n"
 	@printf "  test-server    run server/ tests only\n"
 	@printf "  test-app       run app/ Flutter tests only\n"
+	@printf "  test-hermes-plugin  run the Python hermes-plugin/ test suite (not part of \`test\`)\n"
 	@printf "  run-server     start the Dart Frog dev server (with dev defaults)\n"
 	@printf "  run-app        start the Flutter app on the default device\n"
 	@printf "  web-build      build the Flutter web bundle into app/build/web\n"
@@ -45,6 +46,19 @@ test-server:
 
 test-app:
 	cd app && flutter test
+
+# Not part of `test`: this is the repo's only Python component (requires
+# Python >=3.10), and Dart contributors shouldn't need a Python toolchain
+# for the main suites.
+HERMES_PLUGIN_PYTHON ?= $(shell command -v python3.13 || command -v python3.12 || command -v python3.11 || command -v python3.10 || echo python3)
+
+test-hermes-plugin:
+	@$(HERMES_PLUGIN_PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || \
+	  { echo "error: $(HERMES_PLUGIN_PYTHON) is older than the Python >=3.10 hermes-plugin/pyproject.toml requires; install python3.10+ (e.g. via Homebrew)"; exit 1; }
+	cd hermes-plugin && \
+	  ( test -d .venv || $(HERMES_PLUGIN_PYTHON) -m venv .venv ) && \
+	  .venv/bin/pip install -q -e '.[dev]' && \
+	  .venv/bin/python -m pytest
 
 # `make run-server` boots the Dart Frog dev server with dev defaults.
 # Override any of these on the command line (e.g.
