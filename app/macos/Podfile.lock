@@ -1,14 +1,20 @@
 PODS:
+  - flutter_otel_native (0.1.0):
+    - FlutterMacOS
   - FlutterMacOS (1.0.0)
 
 DEPENDENCIES:
+  - flutter_otel_native (from `Flutter/ephemeral/.symlinks/plugins/flutter_otel_native/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
 
 EXTERNAL SOURCES:
+  flutter_otel_native:
+    :path: Flutter/ephemeral/.symlinks/plugins/flutter_otel_native/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
 
 SPEC CHECKSUMS:
+  flutter_otel_native: 0a246255419c938b9a9bbcff1de184b4312868ea
   FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
 
 PODFILE CHECKSUM: 1e95c36afbfd1cb6423ceca4de7a8e1b256fb6ac
