@@ -1,7 +1,7 @@
 ## 1. Embedding provider adapter interface
 
-- [ ] 1.1 Write a failing test asserting an `EmbeddingProvider` abstract interface exists at `server/lib/src/embeddings/embedding_provider.dart` with `Future<List<double>> embed(String text)` and an `int dimensions` getter; implement the interface to pass
-- [ ] 1.2 Write a failing test for a `NoopEmbeddingProvider` (or equivalent "unconfigured" sentinel) that is never constructed by the config path when no provider is selected, asserting `SearchIndex` treats "no provider" as a distinct state from "provider configured but erroring"; implement to pass
+- [x] 1.1 Write a failing test asserting an `EmbeddingProvider` abstract interface exists at `server/lib/src/embeddings/embedding_provider.dart` with `Future<List<double>> embed(String text)` and an `int dimensions` getter; implement the interface to pass
+- [x] 1.2 Write a failing test for a `NoopEmbeddingProvider` (or equivalent "unconfigured" sentinel) that is never constructed by the config path when no provider is selected, asserting `SearchIndex` treats "no provider" as a distinct state from "provider configured but erroring"; implement to pass — implemented as a nullable `EmbeddingProvider?` (design.md's chosen approach, not a Noop class) plus an `embedOrNull()` helper that collapses "absent" and "erroring" to the same `null` result while logging only the error case
 
 ## 2. Ollama embedding adapter
 
