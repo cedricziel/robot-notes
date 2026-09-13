@@ -45,6 +45,7 @@ Future<Response> onRequest(RequestContext context) async {
   try {
     decoded = jsonDecode(utf8.decode(bodyBytes));
   } on FormatException catch (e) {
+    annotateMcpError('parse_error');
     return Response.json(
       statusCode: HttpStatus.badRequest,
       body: jsonRpcError(null, kParseError, 'Invalid JSON: $e'),
@@ -55,8 +56,10 @@ Future<Response> onRequest(RequestContext context) async {
   try {
     message = JsonRpcMessage.parse(decoded);
   } on JsonRpcInvalidParamsAtParse catch (e) {
+    annotateMcpError('invalid_params');
     return Response.json(body: jsonRpcError(e.id, kInvalidParams, e.message));
   } on JsonRpcInvalidRequest catch (e) {
+    annotateMcpError('invalid_request');
     return Response.json(
       statusCode: HttpStatus.badRequest,
       body: jsonRpcError(null, kInvalidRequest, e.message),

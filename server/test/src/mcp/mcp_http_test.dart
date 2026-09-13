@@ -1,7 +1,31 @@
 import 'package:server/src/mcp/mcp_http.dart';
 import 'package:test/test.dart';
 
+import '../otel/_span_test_helpers.dart';
+
 void main() {
+  group('mcp error responses annotate the current span', () {
+    test('mcpMethodNotAllowed sets mcp.error', () async {
+      final (_, data) = await spanFor(mcpMethodNotAllowed);
+      expect(data.attributes['mcp.error'], 'method_not_allowed');
+    });
+
+    test('mcpForbidden sets mcp.error', () async {
+      final (_, data) = await spanFor(mcpForbidden);
+      expect(data.attributes['mcp.error'], 'forbidden');
+    });
+
+    test('mcpUnsupportedProtocolVersion sets mcp.error', () async {
+      final (_, data) = await spanFor(mcpUnsupportedProtocolVersion);
+      expect(data.attributes['mcp.error'], 'unsupported_protocol_version');
+    });
+
+    test('mcpPayloadTooLarge sets mcp.error', () async {
+      final (_, data) = await spanFor(mcpPayloadTooLarge);
+      expect(data.attributes['mcp.error'], 'payload_too_large');
+    });
+  });
+
   group('isAllowedMcpOrigin', () {
     test('accepts an http loopback origin regardless of publicUrl', () {
       expect(
