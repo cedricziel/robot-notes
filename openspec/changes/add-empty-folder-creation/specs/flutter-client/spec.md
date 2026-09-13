@@ -2,7 +2,7 @@
 
 ### Requirement: Sidebar presents the vault as a folder tree
 
-The app SHALL provide a sidebar (or equivalent navigation panel on narrow screens) backed by `GET /notes/tree` that shows folders as an expandable/collapsible tree with each folder's note count, plus a "All notes" root entry. Selecting a folder SHALL scope the notes list to that folder. The tree SHALL refresh when a `changed` event with `action: "moved"`, `"created"`, or `"deleted"` is received, since any of the three can change which folders have notes in them. The sidebar SHALL also provide a "New folder" action that prompts for a folder path and calls `POST /notes/tree` (per `notes-api`), then re-fetches the tree on success so the new (possibly empty) folder appears immediately.
+The app SHALL provide a sidebar (or equivalent navigation panel on narrow screens) backed by `GET /notes/tree` that shows folders as an expandable/collapsible tree with each folder's note count, plus a "All notes" root entry. Selecting a folder SHALL scope the notes list to that folder. The tree SHALL refresh when a `changed` event with `action: "moved"`, `"created"`, or `"deleted"` is received, since any of the three can change which folders have notes in them. The sidebar SHALL also provide a "New folder" action that prompts for a folder path (pre-filled with the currently selected folder, if any) and calls `POST /notes/tree` (per `notes-api`), then re-fetches the tree on success so the new (possibly empty) folder appears immediately.
 
 #### Scenario: Tree renders folders from the server
 
@@ -37,3 +37,38 @@ The app SHALL provide a sidebar (or equivalent navigation panel on narrow screen
 
 - **WHEN** `POST /notes/tree` fails
 - **THEN** the app SHALL show the server's error message (falling back to a generic message when none is provided), not a raw or empty error, and SHALL NOT close the "New folder" prompt destructively
+
+## ADDED Requirements
+
+### Requirement: The notes list FAB offers note and folder creation
+
+The notes list screen's floating action button SHALL present a menu of at least two actions: "New note" and "New folder", rather than immediately creating a note on tap. Both actions SHALL target the currently selected folder (`NotesListState.selectedPath`), falling back to the vault root when no folder is selected.
+
+#### Scenario: FAB presents a menu instead of creating instantly
+
+- **WHEN** the user taps the FAB on the notes list screen
+- **THEN** the app SHALL present a menu with "New note" and "New folder" actions rather than creating a note immediately
+
+#### Scenario: New note from the FAB targets the current folder
+
+- **GIVEN** the sidebar has folder `Projects/Alpha` selected
+- **WHEN** the user chooses "New note" from the FAB menu
+- **THEN** the app SHALL create the note with `path: "Projects/Alpha"` and navigate to it in edit mode, exactly as today's direct-create flow does otherwise
+
+#### Scenario: New folder from the FAB pre-fills the current folder as a starting point
+
+- **GIVEN** the sidebar has folder `Projects` selected
+- **WHEN** the user chooses "New folder" from the FAB menu
+- **THEN** the app SHALL open the prompt with its input pre-filled with `Projects`, editable — confirming without editing it resubmits `Projects` itself (idempotent per `notes-api`'s `POST /notes/tree`, not a new child)
+
+#### Scenario: New folder from the FAB creates a child folder once the prompt is edited
+
+- **GIVEN** the sidebar has folder `Projects` selected and the "New folder" prompt is open, pre-filled with `Projects`
+- **WHEN** the user edits the input to `Projects/NewFolder` and confirms
+- **THEN** the app SHALL call `POST /notes/tree` with `{ "path": "Projects/NewFolder" }` and, on success, re-fetch the tree so the new folder appears
+
+#### Scenario: New note from the FAB at the vault root
+
+- **GIVEN** no folder is selected (`selectedPath` is `null`)
+- **WHEN** the user chooses "New note" from the FAB menu
+- **THEN** the app SHALL create the note with `path: ""` (vault root), matching prior behavior
