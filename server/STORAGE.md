@@ -66,6 +66,31 @@ as needed). Both go through the same tmp+fsync+rename atomicity as
 any other write. A folder is never deleted just because it becomes
 empty.
 
+### Empty-folder markers
+
+```
+data/content/<path>/.folder
+```
+
+A folder created with no notes in it (via `POST /notes/tree`, see
+`API.md`) is made durable by an empty marker file named `.folder`
+written directly inside it. The marker carries no `.md` extension, so
+it is never treated as a note by any scan: it is excluded from
+`GET /notes`, `GET /search`, link parsing, and tag computation. On
+startup the same recursive walk that indexes `content/**/*.md` also
+looks for `.folder` files and registers each one's parent directory as
+a known-empty folder, so `GET /notes/tree` continues to report it
+after a restart even though it holds no notes.
+
+The marker is written only if the folder had zero notes at the moment
+it was created, and it is never removed automatically — creating a
+note inside a marked folder leaves the marker in place alongside it,
+and deleting that note again does not resurrect or re-create a marker.
+If you filter dotfiles out of a backup or sync tool, an empty folder
+created this way can silently stop being reported after a restore;
+this is a cosmetic loss (the folder just needs to be re-created empty,
+or gets a note back once one is added), not a data-loss risk.
+
 ### File body
 
 A note file is YAML frontmatter followed by an empty line and the

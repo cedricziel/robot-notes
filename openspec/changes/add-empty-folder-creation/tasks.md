@@ -41,21 +41,21 @@
 
 ## 5. Flutter: FAB menu for note + folder creation
 
-- [ ] 5.1 Write a failing widget test: tapping the notes list FAB shows a menu with "New note" and "New folder" entries instead of creating a note immediately
-- [ ] 5.2 Write a failing widget test: choosing "New note" while a folder is selected (`NotesListState.selectedPath == "Projects/Alpha"`) creates the note with `path: "Projects/Alpha"` and navigates to it in edit mode
-- [ ] 5.3 Write a failing widget test: choosing "New note" with no folder selected creates the note with `path: ""`
-- [ ] 5.4 Write a failing widget test: choosing "New folder" opens a prompt pre-filled with the currently selected folder path, and confirming calls `createFolder` with the (possibly edited) path, then refreshes the tree/list
-- [ ] 5.5 Write a failing widget test: a failed "New folder" submission from the FAB shows the server's error message via `describeError()` and leaves the prompt open (mirrors 4.5)
-- [ ] 5.6 Implement the FAB menu (reusing the existing `MenuAnchor`/`PopupMenuButton` pattern already used elsewhere in the app), the folder-aware note-create call, and the "New folder" prompt reusing the dialog built in task group 4; run 5.1–5.5 green
-- [ ] 5.7 Commit: `feat(app): turn the notes list FAB into a New note / New folder menu`
+- [x] 5.1 Write a failing widget test: tapping the notes list FAB shows a menu with "New note" and "New folder" entries instead of creating a note immediately
+- [x] 5.2 Write a failing widget test: choosing "New note" while a folder is selected (`NotesListState.selectedPath == "Projects/Alpha"`) creates the note with `path: "Projects/Alpha"` and navigates to it in edit mode
+- [x] 5.3 Write a failing widget test: choosing "New note" with no folder selected creates the note with `path: ""`
+- [x] 5.4 Write a failing widget test: choosing "New folder" opens a prompt pre-filled with the currently selected folder path, and confirming calls `createFolder` with the (possibly edited) path, then refreshes the tree/list
+- [x] 5.5 Write a failing widget test: a failed "New folder" submission from the FAB shows the server's error message via `describeError()` and leaves the prompt open (mirrors 4.5)
+- [x] 5.6 Implement the FAB menu (reusing the existing `MenuAnchor`/`PopupMenuButton` pattern already used elsewhere in the app), the folder-aware note-create call, and the "New folder" prompt reusing the dialog built in task group 4; run 5.1–5.5 green
+- [x] 5.7 Commit: `feat(app): turn the notes list FAB into a New note / New folder menu`
 
 ## 6. Docs and end-to-end check
 
-- [ ] 6.1 Run the full server and app test suites; fix any regressions
-- [ ] 6.2 Update `server/STORAGE.md` to document the `.folder` marker file convention alongside the existing `<id>.md`/frontmatter documentation
-- [ ] 6.3 Update `server/API.md` to document `POST /notes/tree`
-- [ ] 6.4 Manually verify against a running server + app: create an empty folder from the sidebar and from the FAB, confirm both appear with a zero count, restart the server, confirm it's still listed; create a note inside it and confirm the marker file and note coexist on disk
-- [ ] 6.5 Commit: `docs(server): document the empty-folder marker file and POST /notes/tree`
+- [x] 6.1 Run the full server and app test suites; fix any regressions
+- [x] 6.2 Update `server/STORAGE.md` to document the `.folder` marker file convention alongside the existing `<id>.md`/frontmatter documentation
+- [x] 6.3 Update `server/API.md` to document `POST /notes/tree`
+- [x] 6.4 Manually verify against a running server + app: create an empty folder from the sidebar and from the FAB, confirm both appear with a zero count, restart the server, confirm it's still listed; create a note inside it and confirm the marker file and note coexist on disk
+- [x] 6.5 Commit: `docs(server): document the empty-folder marker file and POST /notes/tree`
 
 ## Definition of Done
 
