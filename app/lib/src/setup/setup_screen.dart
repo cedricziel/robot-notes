@@ -61,6 +61,11 @@ bool _isMobilePlatform() =>
 
 enum _SetupStep { server, login }
 
+/// Live outcome of pinging the entered server's `/healthz`, shown next to
+/// the URL field so a typo or unreachable host surfaces before the user
+/// reaches "Connect" rather than only after it fails.
+enum _Reachability { idle, checking, ok, error }
+
 class _SetupScreenState extends State<SetupScreen> {
   late final TextEditingController _baseUrl;
   late final TextEditingController _apiKey;
@@ -68,6 +73,13 @@ class _SetupScreenState extends State<SetupScreen> {
   Timer? _capabilitiesDebounce;
   ServerCapabilities _capabilities = ServerCapabilities.none;
   _SetupStep _step = _SetupStep.server;
+  _Reachability _reachability = _Reachability.idle;
+  int _reachabilityGen = 0;
+
+  /// Whether the manual API-key/display-name fields have been expanded via
+  /// the "Use an API key instead" disclosure. Only consulted when sign-in
+  /// is offered — otherwise manual entry is always shown, unconditionally.
+  bool _manualEntryExpanded = false;
 
   @override
   void initState() {
@@ -84,6 +96,7 @@ class _SetupScreenState extends State<SetupScreen> {
     widget.oidcController?.addListener(_onOidcState);
     _baseUrl.addListener(_onBaseUrlChanged);
     _checkCapabilities();
+    _checkReachability();
   }
 
   @override
@@ -100,10 +113,10 @@ class _SetupScreenState extends State<SetupScreen> {
 
   void _onBaseUrlChanged() {
     _capabilitiesDebounce?.cancel();
-    _capabilitiesDebounce = Timer(
-      widget.capabilitiesDebounce,
-      _checkCapabilities,
-    );
+    _capabilitiesDebounce = Timer(widget.capabilitiesDebounce, () {
+      _checkCapabilities();
+      _checkReachability();
+    });
   }
 
   void _continue() {
@@ -135,6 +148,35 @@ class _SetupScreenState extends State<SetupScreen> {
     }
     if (!mounted) return;
     setState(() => _capabilities = caps);
+  }
+
+  /// Pings `/healthz` and updates [_reachability]. Guarded by a generation
+  /// counter (mirroring the note editor's heartbeat/autosave scheduling) so
+  /// a slow response to a stale URL can't clobber a newer, already-settled
+  /// result.
+  Future<void> _checkReachability() async {
+    final baseUrl = _baseUrl.text.trim();
+    if (baseUrl.isEmpty || !isSecureBaseUrl(baseUrl)) {
+      _reachabilityGen++;
+      if (mounted) setState(() => _reachability = _Reachability.idle);
+      return;
+    }
+    final gen = ++_reachabilityGen;
+    if (mounted) setState(() => _reachability = _Reachability.checking);
+    final client = widget.capabilitiesClientFactory();
+    var result = _Reachability.error;
+    try {
+      final res = await client
+          .get(Uri.parse('$baseUrl/healthz'))
+          .timeout(const Duration(seconds: 10));
+      result = res.statusCode == 200 ? _Reachability.ok : _Reachability.error;
+    } on Object {
+      result = _Reachability.error;
+    } finally {
+      client.close();
+    }
+    if (!mounted || gen != _reachabilityGen) return;
+    setState(() => _reachability = result);
   }
 
   void _onState() {
@@ -179,14 +221,57 @@ class _SetupScreenState extends State<SetupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Connect to robot-notes')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: switch (_step) {
-          _SetupStep.server => _buildServerStep(context),
-          _SetupStep.login => _buildLoginStep(context),
-        },
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Card(
+            key: const Key('setup.card'),
+            margin: const EdgeInsets.all(16),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: SingleChildScrollView(
+                child: switch (_step) {
+                  _SetupStep.server => _buildServerStep(context),
+                  _SetupStep.login => _buildLoginStep(context),
+                },
+              ),
+            ),
+          ),
+        ),
       ),
     );
+  }
+
+  Widget _buildReachabilityIndicator() {
+    switch (_reachability) {
+      case _Reachability.idle:
+        return const SizedBox.shrink();
+      case _Reachability.checking:
+        return const Padding(
+          padding: EdgeInsets.all(12),
+          child: SizedBox(
+            key: Key('setup.reachability.checking'),
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      case _Reachability.ok:
+        return const Icon(
+          Icons.check_circle,
+          key: Key('setup.reachability.ok'),
+          color: Colors.green,
+        );
+      case _Reachability.error:
+        return Tooltip(
+          message: 'Could not reach this server.',
+          child: Icon(
+            Icons.error_outline,
+            key: const Key('setup.reachability.error'),
+            color: Theme.of(context).colorScheme.error,
+          ),
+        );
+    }
   }
 
   Widget _buildServerStep(BuildContext context) {
@@ -197,9 +282,10 @@ class _SetupScreenState extends State<SetupScreen> {
           key: const Key('setup.baseUrl'),
           controller: _baseUrl,
           keyboardType: TextInputType.url,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Server URL',
             hintText: 'https://notes.example',
+            suffixIcon: _buildReachabilityIndicator(),
           ),
         ),
         const SizedBox(height: 24),
@@ -226,6 +312,11 @@ class _SetupScreenState extends State<SetupScreen> {
         widget.oidcController != null &&
         !_isMobilePlatform() &&
         _capabilities.supportsOidcLogin;
+    // Sign-in is the primary path when it's offered; manual key entry is
+    // tucked behind a disclosure instead of competing for equal attention.
+    // With no sign-in option, manual entry is the only path and always
+    // shown.
+    final manualEntryVisible = !showSignIn || _manualEntryExpanded;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -262,42 +353,49 @@ class _SetupScreenState extends State<SetupScreen> {
                   )
                 : const Text('Sign in with your identity provider'),
           ),
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text(
-              'Or enter an API key manually:',
-              style: TextStyle(fontSize: 12),
+          if (!manualEntryVisible)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  key: const Key('setup.useApiKey'),
+                  onPressed: () => setState(() => _manualEntryExpanded = true),
+                  child: const Text('Use an API key instead'),
+                ),
+              ),
+            ),
+        ],
+        if (manualEntryVisible) ...[
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('setup.apiKey'),
+            controller: _apiKey,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: 'API key'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('setup.actor'),
+            controller: _actor,
+            decoration: const InputDecoration(
+              labelText: 'Display name',
+              helperText: 'Sent as X-Actor on every request.',
             ),
           ),
-        ],
-        const SizedBox(height: 12),
-        TextField(
-          key: const Key('setup.apiKey'),
-          controller: _apiKey,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'API key'),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          key: const Key('setup.actor'),
-          controller: _actor,
-          decoration: const InputDecoration(
-            labelText: 'Display name',
-            helperText: 'Sent as X-Actor on every request.',
+          const SizedBox(height: 24),
+          FilledButton(
+            key: const Key('setup.submit'),
+            onPressed: submitting ? null : _submit,
+            child: submitting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Connect'),
           ),
-        ),
-        const SizedBox(height: 24),
-        FilledButton(
-          key: const Key('setup.submit'),
-          onPressed: submitting ? null : _submit,
-          child: submitting
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Connect'),
-        ),
+        ],
       ],
     );
   }
