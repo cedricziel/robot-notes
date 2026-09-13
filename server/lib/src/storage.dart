@@ -16,6 +16,29 @@ export 'package:server/src/note_path.dart' show InvalidPathException;
 /// Crockford base-32 strings.
 typedef NoteId = String;
 
+/// Filename of the marker written into a folder to make its existence
+/// durable when it holds no notes yet (see `notes-storage`'s "Empty
+/// folders are persisted via a marker file"). Deliberately not a `.md`
+/// file so it is never mistaken for a note by any note-shaped scan.
+const String kFolderMarkerFilename = '.folder';
+
+/// Result of [Storage.createFolder]: the canonical, normalized folder
+/// path, and whether this call is what brought it into existence.
+@immutable
+class FolderCreateResult {
+  /// Creates a folder-creation result.
+  const FolderCreateResult({required this.path, required this.created});
+
+  /// Canonical `/`-separated folder path. When the folder already existed
+  /// under a different case/normalization, this is the pre-existing
+  /// spelling, not the one that was requested.
+  final String path;
+
+  /// `true` if this call created the folder (and its marker); `false` if
+  /// it already existed (with notes, a marker, or both).
+  final bool created;
+}
+
 /// Metadata-only view of a note (no body). Returned by [Storage.list].
 @immutable
 class NoteSummary {
@@ -242,7 +265,18 @@ class Storage {
   // [_relPathById], used for O(1) collision detection.
   final Map<String, NoteId> _idByKey = {};
 
+  // Folder paths (relative to [contentDir], `/`-joined) known to hold a
+  // [kFolderMarkerFilename] marker. Populated by [_scanAll] and kept
+  // current by [createFolder], mirroring how [_relPathById] is populated
+  // by [_scanAll] and kept current by [_claim].
+  final Set<String> _emptyFolderPaths = {};
+
   Future<void>? _indexBuild;
+
+  /// Folder paths currently known to hold an empty-folder marker (see
+  /// [kFolderMarkerFilename]). A path may appear here and also have notes
+  /// in it — the marker is not removed once notes exist alongside it.
+  Set<String> get emptyFolderPaths => Set.unmodifiable(_emptyFolderPaths);
 
   /// Lists every well-formed note in the store as a metadata summary.
   ///
@@ -397,10 +431,16 @@ class Storage {
   Future<List<StoredNote>> _scanAll() async {
     _relPathById.clear();
     _idByKey.clear();
+    _emptyFolderPaths.clear();
     final notes = <StoredNote>[];
     if (!contentDir.existsSync()) return notes;
     await for (final entity in contentDir.list(recursive: true)) {
-      if (entity is! File || !entity.path.endsWith('.md')) continue;
+      if (entity is! File) continue;
+      if (entity.path.endsWith('/$kFolderMarkerFilename')) {
+        _emptyFolderPaths.add(_folderOf(_relativePathOf(entity)));
+        continue;
+      }
+      if (!entity.path.endsWith('.md')) continue;
       try {
         final note = await _readFile(entity);
         final rel = _relativePathOf(entity);
@@ -413,6 +453,53 @@ class Storage {
     }
     notes.sort((a, b) => a.id.compareTo(b.id));
     return notes;
+  }
+
+  /// Creates an empty folder at [path] (and any missing intermediate
+  /// folders), persisted via a [kFolderMarkerFilename] marker so it
+  /// survives a restart even with no notes in it. Idempotent: a [path]
+  /// that already resolves (per [collisionKey]) to a folder that holds
+  /// notes, an existing marker, or both returns that folder's canonical
+  /// path with `created: false` and touches nothing on disk.
+  ///
+  /// Throws [InvalidPathException] if any segment of [path] is invalid
+  /// (see [sanitizedPathSegments]).
+  Future<FolderCreateResult> createFolder(String path) async {
+    await _ensureIndexed();
+    final segments = sanitizedPathSegments(path);
+    final normalized = segments.join('/');
+    final key = collisionKey(normalized);
+    final existing = _resolveExistingFolderPath(key);
+    if (existing != null) {
+      return FolderCreateResult(path: existing, created: false);
+    }
+    final dir = Directory('${contentDir.path}/$normalized');
+    await dir.create(recursive: true);
+    final marker = File('${dir.path}/$kFolderMarkerFilename');
+    if (!marker.existsSync()) await marker.create();
+    _emptyFolderPaths.add(normalized);
+    return FolderCreateResult(path: normalized, created: true);
+  }
+
+  // Finds a folder already known to the index (via a note's containing
+  // folder or an existing marker) whose collisionKey matches [key],
+  // returning its canonical (as-stored) path, or `null` if none matches.
+  String? _resolveExistingFolderPath(String key) {
+    for (final relPath in _relPathById.values) {
+      final folder = _folderOf(relPath);
+      if (collisionKey(folder) == key) return folder;
+    }
+    for (final marker in _emptyFolderPaths) {
+      if (collisionKey(marker) == key) return marker;
+    }
+    return null;
+  }
+
+  // Directory portion of a relative note file path, e.g.
+  // "Projects/Alpha/Note.md" -> "Projects/Alpha", "Note.md" -> "".
+  String _folderOf(String relPath) {
+    final idx = relPath.lastIndexOf('/');
+    return idx < 0 ? '' : relPath.substring(0, idx);
   }
 
   Future<StoredNote> _readFile(File file) async {

@@ -90,12 +90,26 @@ class MetaIndex {
   // duplicate-title case (see resolveTitle).
   final Map<String, List<NoteId>> _byTitle = {};
 
+  // Folder paths known to hold an empty-folder marker (see
+  // `storage.dart`'s `kFolderMarkerFilename`), i.e. folders with no notes
+  // that still need to appear in `GET /notes/tree`. Repopulated wholesale
+  // by [scan] from [Storage.emptyFolderPaths]; individual entries are
+  // added by [registerEmptyFolder] when a folder is created without a
+  // full rescan.
+  final Set<String> _emptyFolders = {};
+
   /// Number of entries currently held.
   int get length => _byId.length;
 
   /// Snapshot of every currently-indexed summary, in no particular order.
   /// Used by `path`/`tag` filtering (see [page]) and by `GET /notes/tree`.
   Iterable<NoteSummary> get all => _byId.values;
+
+  /// Folder paths known to hold an empty-folder marker, i.e. folders that
+  /// should be listed by `GET /notes/tree` even though they have no
+  /// notes. A path may also have notes; the two are not mutually
+  /// exclusive.
+  Set<String> get emptyFolders => Set.unmodifiable(_emptyFolders);
 
   /// Replaces the index contents with everything [storage] reports as
   /// well-formed. Files that fail to parse are skipped and logged by
@@ -116,9 +130,16 @@ class MetaIndex {
     _sortedByUpdated.sort(
       (a, b) => _compareUpdatedDesc(_byId[a]!, _byId[b]!),
     );
+    _emptyFolders
+      ..clear()
+      ..addAll(storage.emptyFolderPaths);
     _log.info('Indexed ${_byId.length} note(s)');
     return _byId.length;
   }
+
+  /// Registers [path] as a known-empty folder without a full [scan],
+  /// e.g. right after `POST /notes/tree` creates it on disk.
+  void registerEmptyFolder(String path) => _emptyFolders.add(path);
 
   /// Returns the summary for [id], or `null` if no such id is indexed.
   NoteSummary? get(NoteId id) => _byId[id];
