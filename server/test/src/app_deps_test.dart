@@ -295,7 +295,7 @@ void main() {
           _config(tmp),
           clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
         );
-        addTearDown(deps.searchIndex.close);
+        addTearDown(deps.close);
 
         expect(deps.noteWriteService.embeddingProvider, isNull);
         final db = sqlite3.open('${tmp.path}/search.db');
@@ -314,7 +314,7 @@ void main() {
           _embeddingConfig(tmp),
           clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
         );
-        addTearDown(deps.searchIndex.close);
+        addTearDown(deps.close);
 
         expect(
           deps.noteWriteService.embeddingProvider,
