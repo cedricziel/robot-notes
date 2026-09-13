@@ -122,7 +122,7 @@ class McpInvalidParamsException implements Exception {
   String toString() => 'McpInvalidParamsException: $message';
 }
 
-/// Registry of the nine fixed note tools exposed over `/mcp`.
+/// Registry of the ten fixed note tools exposed over `/mcp`.
 ///
 /// Built once per server from [AppDeps] via [McpToolRegistry.forDeps];
 /// tests may also build one directly from a hand-picked [List] of
@@ -148,6 +148,7 @@ class McpToolRegistry {
         _deleteNoteTool(deps.noteWriteService, deps.lockManager),
         _moveNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
         _getBacklinksTool(deps.metaIndex, deps.linkIndex, deps.storage),
+        _createFolderTool(deps.storage, deps.metaIndex),
       ]);
 
   final List<McpTool> _tools;
@@ -764,6 +765,46 @@ McpTool _getBacklinksTool(
           });
         } on NoteNotFoundException {
           return toolFail(ErrorCode.notFound.wire);
+        }
+      },
+    );
+
+McpTool _createFolderTool(Storage storage, MetaIndex metaIndex) => McpTool(
+      name: 'create_folder',
+      description:
+          'Create an empty folder (and any missing intermediate folders) at '
+          'the given path, mirroring POST /notes/tree. Succeeds as a no-op '
+          'if the folder already exists — there is no error case that '
+          'distinguishes "created" from "already existed".',
+      inputSchema: const {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string'},
+        },
+        'required': ['path'],
+      },
+      annotations: _writeAnnotations(
+        'Create folder',
+        destructive: false,
+        idempotent: true,
+      ),
+      requiresWrite: true,
+      handler: (args, principal) async {
+        final path = _requiredString(args, 'path');
+        if (path.isEmpty) {
+          return toolFail(
+            kErrorValidationFailed,
+            message: 'path must not be empty',
+          );
+        }
+        try {
+          final result = await storage.createFolder(path);
+          metaIndex.registerEmptyFolder(result.path);
+          final noteCount =
+              metaIndex.all.where((s) => s.path == result.path).length;
+          return toolOk({'path': result.path, 'note_count': noteCount});
+        } on InvalidPathException catch (e) {
+          return toolFail(kErrorValidationFailed, message: e.message);
         }
       },
     );

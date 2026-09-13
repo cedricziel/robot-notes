@@ -1219,8 +1219,30 @@ void main() {
     });
   });
 
+  group('create_folder', () {
+    test('creates a new folder and returns structuredContent', () async {
+      final result = await call('create_folder', {'path': 'Ideas'});
+      expect(result['isError'], isNot(true));
+      expect(_structured(result), {'path': 'Ideas', 'note_count': 0});
+    });
+
+    test('calling twice succeeds both times with the same structuredContent',
+        () async {
+      final first = await call('create_folder', {'path': 'Ideas'});
+      final second = await call('create_folder', {'path': 'Ideas'});
+      expect(_structured(first), _structured(second));
+      expect(second['isError'], isNot(true));
+    });
+
+    test('an empty path is a validation_failed error', () async {
+      final result = await call('create_folder', {'path': ''});
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'validation_failed');
+    });
+  });
+
   group('tools/list catalog', () {
-    test('has exactly the nine note tools with object schemas', () {
+    test('has exactly the ten note tools with object schemas', () {
       final names = registry.tools.map((t) => t.name).toSet();
       expect(names, {
         'list_notes',
@@ -1232,10 +1254,16 @@ void main() {
         'search_notes',
         'move_note',
         'get_backlinks',
+        'create_folder',
       });
       for (final tool in registry.tools) {
         expect(tool.inputSchema['type'], 'object');
       }
+    });
+
+    test('create_folder declares path as required', () {
+      final tool = registry.tools.firstWhere((t) => t.name == 'create_folder');
+      expect(tool.inputSchema['required'], ['path']);
     });
 
     test('update_note declares id and version as required', () {
