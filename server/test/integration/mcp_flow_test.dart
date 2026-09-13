@@ -145,7 +145,7 @@ void main() {
         // tools/list
         final listRes = await _rpc(app, grant.accessToken, 'tools/list');
         final tools = (listRes['result'] as Map)['tools'] as List;
-        expect(tools.length, 9);
+        expect(tools.length, 10);
 
         // create_note — sent with a spoofed X-Actor header, which MUST be
         // ignored for an OAuth-authenticated call.
