@@ -5,6 +5,7 @@ import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:server/src/embeddings/embedding_provider.dart';
+import 'package:server/src/excerpt.dart';
 import 'package:server/src/links.dart';
 import 'package:server/src/storage.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -52,15 +53,31 @@ class SearchHit {
   /// Folder the note lives in at index time, matching [StoredNote.path].
   final String path;
 
-  /// Highlighted excerpt of the matched content with `<mark>` markers.
+  /// Highlighted excerpt of the matched content with `<mark>` markers, or
+  /// a plain-text excerpt for a hit that matched only via vector
+  /// similarity (no FTS5 match to highlight).
   final String snippet;
 
-  /// FTS5 rank — lower is more relevant. Negative values come from
-  /// `bm25()` and are passed through unchanged.
+  /// Lower is more relevant. A raw `bm25()` value when hybrid ranking
+  /// isn't active for this result set; `-`(RRF fused score) when it is —
+  /// see [SearchIndex.search]. Comparable only within one response, never
+  /// across requests or ranking modes.
   final double rank;
 
   /// The note's `updated_at` as of the last [SearchIndex.upsert].
   final DateTime updatedAt;
+
+  /// Returns a copy with [rank] replaced — used by fusion to re-rank a
+  /// hit that already carries full BM25-derived data (title/snippet/etc.)
+  /// without hand-copying every field.
+  SearchHit copyWith({double? rank}) => SearchHit(
+        id: id,
+        title: title,
+        path: path,
+        snippet: snippet,
+        rank: rank ?? this.rank,
+        updatedAt: updatedAt,
+      );
 }
 
 /// One result row from [SearchIndex.vectorSearch]: a note id and its
@@ -412,40 +429,34 @@ class SearchIndex {
   }) async {
     final span = _tracer.startSpan('search.query');
     try {
-      if (_embeddingProvider == null) {
-        final hits = _bm25Search(query, limit: limit, path: path, tag: tag);
-        span.setAttribute('search.hit_count', hits.length);
-        return hits;
+      final List<SearchHit> hits;
+      final provider = _embeddingProvider;
+      if (provider == null) {
+        hits = _bm25Search(query, limit: limit, path: path, tag: tag);
+      } else {
+        // Kick off the query embedding request without awaiting it yet,
+        // so it's in flight while the synchronous BM25 query below runs.
+        final embeddingFuture = embedOrNull(provider, query, logger: _log);
+        final bm25Hits = _bm25Search(
+          query,
+          limit: _fusionCandidateLimit,
+          path: path,
+          tag: tag,
+        );
+        final queryEmbedding = await embeddingFuture;
+        if (queryEmbedding == null) {
+          hits = bm25Hits.take(limit).toList();
+        } else {
+          final vectorHits = vectorSearch(queryEmbedding);
+          hits = _fuse(
+            bm25Hits: bm25Hits,
+            vectorHits: vectorHits,
+            limit: limit,
+            path: path,
+            tag: tag,
+          );
+        }
       }
-
-      // Kick off the query embedding request without awaiting it yet, so
-      // it's in flight while the synchronous BM25 query below runs.
-      final embeddingFuture = embedOrNull(
-        _embeddingProvider,
-        query,
-        logger: _log,
-      );
-      final bm25Hits = _bm25Search(
-        query,
-        limit: _fusionCandidateLimit,
-        path: path,
-        tag: tag,
-      );
-      final queryEmbedding = await embeddingFuture;
-      if (queryEmbedding == null) {
-        final hits = bm25Hits.take(limit).toList();
-        span.setAttribute('search.hit_count', hits.length);
-        return hits;
-      }
-
-      final vectorHits = vectorSearch(queryEmbedding);
-      final hits = _fuse(
-        bm25Hits: bm25Hits,
-        vectorHits: vectorHits,
-        limit: limit,
-        path: path,
-        tag: tag,
-      );
       span.setAttribute('search.hit_count', hits.length);
       return hits;
     } on SqliteException catch (e, st) {
@@ -524,10 +535,10 @@ class SearchIndex {
   /// [bm25Hits] already carry full [SearchHit] data (including an FTS5
   /// snippet) since they came from a `MATCH` query. A note that
   /// [vectorHits] names but [bm25Hits] doesn't has no FTS snippet context,
-  /// so its [SearchHit] is built from a raw lookup with a plain
-  /// content-prefix snippet — and, since [vectorSearch] doesn't apply
-  /// [path]/[tag] filtering the way the BM25 query does, that filter is
-  /// re-applied here for vector-only notes.
+  /// so its [SearchHit] is built from a raw lookup with a plain-text
+  /// excerpt — and, since [vectorSearch] doesn't apply [path]/[tag]
+  /// filtering the way the BM25 query does, that filter is re-applied
+  /// here for vector-only notes.
   List<SearchHit> _fuse({
     required List<SearchHit> bm25Hits,
     required List<VectorHit> vectorHits,
@@ -543,6 +554,12 @@ class SearchIndex {
     };
     final bm25HitById = {for (final h in bm25Hits) h.id: h};
 
+    // One batched lookup for every vector-only id, instead of one query
+    // per id inside the loop below.
+    final vectorOnlyIds =
+        vectorRankById.keys.where((id) => !bm25HitById.containsKey(id));
+    final metaById = _lookupNoteMetaBatch(vectorOnlyIds);
+
     final hits = <SearchHit>[];
     for (final id in {...bm25RankById.keys, ...vectorRankById.keys}) {
       final bm25Rank = bm25RankById[id];
@@ -552,20 +569,11 @@ class SearchIndex {
 
       final existing = bm25HitById[id];
       if (existing != null) {
-        hits.add(
-          SearchHit(
-            id: existing.id,
-            title: existing.title,
-            path: existing.path,
-            snippet: existing.snippet,
-            updatedAt: existing.updatedAt,
-            rank: -score,
-          ),
-        );
+        hits.add(existing.copyWith(rank: -score));
         continue;
       }
 
-      final meta = _lookupNoteMeta(id);
+      final meta = metaById[id];
       if (meta == null) continue;
       if (path != null && !_pathMatches(meta.path, path)) continue;
       if (tag != null && !_tagsContain(meta.tags, tag)) continue;
@@ -574,7 +582,7 @@ class SearchIndex {
           id: id,
           title: meta.title,
           path: meta.path,
-          snippet: _fallbackSnippet(meta.content),
+          snippet: computeExcerpt(meta.content),
           updatedAt: meta.updatedAt,
           rank: -score,
         ),
@@ -585,25 +593,30 @@ class SearchIndex {
     return hits.take(limit).toList();
   }
 
-  /// Raw note metadata for a vector-only fusion hit, read directly from
-  /// `notes_fts` (its `id`/`path`/`tags` columns are `UNINDEXED` — plain
-  /// equality lookups, not `MATCH`). `null` if the id no longer exists
-  /// (e.g. deleted between when its embedding was written and now).
-  _NoteMeta? _lookupNoteMeta(String id) {
+  /// Raw note metadata for every id in [ids], read directly from
+  /// `notes_fts` (its `id`/`path`/`tags` columns are `UNINDEXED` — a plain
+  /// `IN (...)` lookup, not `MATCH`) in one query rather than one per id.
+  /// An id with no matching row (e.g. deleted between when its embedding
+  /// was written and now) is simply absent from the result.
+  Map<String, _NoteMeta> _lookupNoteMetaBatch(Iterable<String> ids) {
+    final idList = ids.toList();
+    if (idList.isEmpty) return const {};
+    final placeholders = List.filled(idList.length, '?').join(',');
     final rows = _db.select(
-      'SELECT title, path, content, updated_at, tags '
-      'FROM notes_fts WHERE id = ?;',
-      [id],
+      'SELECT id, title, path, content, updated_at, tags '
+      'FROM notes_fts WHERE id IN ($placeholders);',
+      idList,
     );
-    if (rows.isEmpty) return null;
-    final row = rows.single;
-    return _NoteMeta(
-      title: row['title'] as String,
-      path: row['path'] as String,
-      content: row['content'] as String,
-      updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
-      tags: row['tags'] as String,
-    );
+    return {
+      for (final row in rows)
+        row['id'] as String: _NoteMeta(
+          title: row['title'] as String,
+          path: row['path'] as String,
+          content: row['content'] as String,
+          updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
+          tags: row['tags'] as String,
+        ),
+    };
   }
 
   /// Whether [notePath] equals or is nested under [filterPath] — mirrors
@@ -617,20 +630,16 @@ class SearchIndex {
   static bool _tagsContain(String encodedTags, String tag) =>
       encodedTags.contains(' ${tag.toLowerCase()} ');
 
-  /// Plain-text fallback snippet for a vector-only hit, which has no FTS5
-  /// match to build a highlighted snippet from.
-  static String _fallbackSnippet(String content, {int maxLength = 160}) =>
-      content.length <= maxLength
-          ? content
-          : '${content.substring(0, maxLength)}…';
-
   /// Runs a K-nearest-neighbors query against `note_vectors`, returning up
   /// to [k] hits ordered by ascending distance (most similar first).
   /// Returns an empty list when no embedding provider is configured (the
   /// table doesn't exist) or when `note_vectors` has no rows — neither is
   /// an error condition, per the "search remains available" requirement.
   @visibleForTesting
-  List<VectorHit> vectorSearch(List<double> queryEmbedding, {int k = 50}) {
+  List<VectorHit> vectorSearch(
+    List<double> queryEmbedding, {
+    int k = _fusionCandidateLimit,
+  }) {
     if (_embeddingProvider == null) return const [];
     final rows = _db.select(
       'SELECT e.id, v.distance FROM note_vectors AS e '
@@ -664,9 +673,13 @@ class SearchIndex {
   ///
   /// Processes ids in batches of [batchSize], pausing [delayBetweenBatches]
   /// between (not within) batches via [sleep] — overridable in tests to
-  /// avoid real delays; defaults to [Future.delayed]. A note whose
-  /// `embed()` call fails is simply left for the next backfill pass (same
-  /// best-effort semantics as the write path).
+  /// avoid real delays; defaults to [Future.delayed]. Within a batch,
+  /// `embed()` calls run concurrently (independent requests to the same
+  /// provider); the delay between batches is what limits overall request
+  /// rate, not serializing within one. A note whose `embed()` call fails
+  /// is simply left for the next backfill pass (same best-effort
+  /// semantics as the write path); all of a batch's successful embeddings
+  /// are written in one transaction.
   Future<void> backfillEmbeddings({
     int batchSize = _defaultBackfillBatchSize,
     Duration delayBetweenBatches = _defaultBackfillDelay,
@@ -676,34 +689,48 @@ class SearchIndex {
     if (provider == null) return;
     final sleepFn = sleep ?? Future<void>.delayed;
 
-    final ids = _idsMissingEmbeddings();
-    for (var offset = 0; offset < ids.length; offset += batchSize) {
-      final batch = ids.skip(offset).take(batchSize);
-      for (final id in batch) {
-        final meta = _lookupNoteMeta(id);
-        if (meta == null) continue;
-        final embedding = await embedOrNull(
-          provider,
-          meta.content,
-          logger: _log,
-        );
-        if (embedding != null) {
-          _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
+    final pending = _idsMissingEmbeddings();
+    for (var offset = 0; offset < pending.length; offset += batchSize) {
+      final batch = pending.skip(offset).take(batchSize);
+      final embeddings = await Future.wait([
+        for (final note in batch)
+          embedOrNull(provider, note.content, logger: _log)
+              .then((embedding) => (id: note.id, embedding: embedding)),
+      ]);
+
+      _db.execute('BEGIN');
+      try {
+        for (final result in embeddings) {
+          if (result.embedding == null) continue;
+          _upsertVectorStmt.execute([
+            result.id,
+            _encodeVector(result.embedding!),
+          ]);
         }
+        _db.execute('COMMIT');
+      } catch (e) {
+        _db.execute('ROLLBACK');
+        rethrow;
       }
-      if (offset + batchSize < ids.length) {
+
+      if (offset + batchSize < pending.length) {
         await sleepFn(delayBetweenBatches);
       }
     }
   }
 
-  /// Note ids present in `notes_fts` but absent from `note_vectors`.
-  List<String> _idsMissingEmbeddings() {
+  /// `(id, content)` for every note present in `notes_fts` but absent from
+  /// `note_vectors`, in one query — [backfillEmbeddings] needs both to
+  /// compute each note's embedding.
+  List<({String id, String content})> _idsMissingEmbeddings() {
     final rows = _db.select(
-      'SELECT id FROM notes_fts '
+      'SELECT id, content FROM notes_fts '
       'WHERE id NOT IN (SELECT id FROM note_vectors);',
     );
-    return [for (final row in rows) row['id'] as String];
+    return [
+      for (final row in rows)
+        (id: row['id'] as String, content: row['content'] as String),
+    ];
   }
 
   /// Closes the database file. After calling this method the index must

@@ -32,15 +32,12 @@ class OllamaEmbeddingProvider implements EmbeddingProvider {
 
   final http.Client _client;
 
-  /// Known output dimension for the supported embedding models. Ollama's
-  /// API doesn't report this, so it's a static lookup rather than a
-  /// runtime probe.
-  static const Map<String, int> _knownDimensions = {
-    'nomic-embed-text': 768,
-  };
-
+  /// Ollama's API doesn't report an embedding model's output dimension,
+  /// so this is a static value rather than a runtime probe. Only
+  /// `nomic-embed-text` (768-dim) is supported today — revisit as a
+  /// per-model lookup if/when a second model is added.
   @override
-  int get dimensions => _knownDimensions[model] ?? 768;
+  int get dimensions => 768;
 
   @override
   Future<List<double>> embed(String text) async {

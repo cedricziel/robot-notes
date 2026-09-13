@@ -10,6 +10,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'embeddings/fake_embedding_provider.dart';
+import 'search_test_helpers.dart';
 
 class _RecordingSpanProcessor implements SpanProcessor {
   final List<SpanData> ended = [];
@@ -82,21 +83,6 @@ bool _hasVectorTable(Directory tmp) {
     final rows = db.select(
       "SELECT name FROM sqlite_master WHERE type='table' "
       "AND name='note_vectors';",
-    );
-    return rows.isNotEmpty;
-  } finally {
-    db.close();
-  }
-}
-
-/// Whether `note_vectors` has a row for [id], checked via a second raw
-/// connection (same rationale as [_hasVectorTable]/[_linkEdges]).
-bool _vectorRowExists(Directory tmp, String id) {
-  final db = sqlite3.open(_dbFile(tmp).path);
-  try {
-    final rows = db.select(
-      'SELECT 1 FROM note_vectors WHERE id = ?;',
-      [id],
     );
     return rows.isNotEmpty;
   } finally {
@@ -554,7 +540,7 @@ void main() {
         embedding: [1.0, 2.0, 3.0, 4.0],
       );
 
-      expect(_vectorRowExists(tmp, 'a'), isTrue);
+      expect(vectorRowExists(_dbFile(tmp).path, 'a'), isTrue);
     });
 
     test(
@@ -574,7 +560,7 @@ void main() {
       );
 
       expect(await index.search('hello'), hasLength(1));
-      expect(_vectorRowExists(tmp, 'a'), isFalse);
+      expect(vectorRowExists(_dbFile(tmp).path, 'a'), isFalse);
     });
 
     test('delete removes the embedding row alongside FTS and link edges',
@@ -595,7 +581,7 @@ void main() {
         )
         ..delete('a');
 
-      expect(_vectorRowExists(tmp, 'a'), isFalse);
+      expect(vectorRowExists(_dbFile(tmp).path, 'a'), isFalse);
     });
   });
 

@@ -11,10 +11,10 @@ import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'embeddings/fake_embedding_provider.dart';
+import 'search_test_helpers.dart';
 
 class _RecordingSpanProcessor implements SpanProcessor {
   final List<SpanData> ended = [];
@@ -98,21 +98,6 @@ Future<({Storage storage, MetaIndex meta, SearchIndex search})> _stack(
     embeddingProvider: embeddingProvider,
   );
   return (storage: storage, meta: meta, search: search);
-}
-
-/// Whether `note_vectors` has a row for [id] in the `search.db` under
-/// [tmp], checked via a second raw connection.
-bool _vectorRowExists(Directory tmp, String id) {
-  final db = sqlite3.open('${tmp.path}/search.db');
-  try {
-    final rows = db.select(
-      'SELECT 1 FROM note_vectors WHERE id = ?;',
-      [id],
-    );
-    return rows.isNotEmpty;
-  } finally {
-    db.close();
-  }
 }
 
 void main() {
@@ -553,7 +538,7 @@ void main() {
       );
 
       expect(provider.callCount, 1);
-      expect(_vectorRowExists(tmp, note.id), isTrue);
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
 
     test('update recomputes the embedding', () async {
@@ -579,7 +564,7 @@ void main() {
       );
 
       expect(provider.callCount, 1);
-      expect(_vectorRowExists(tmp, note.id), isTrue);
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
 
     test('write still succeeds when the embedding provider fails', () async {
@@ -601,7 +586,7 @@ void main() {
       );
 
       expect(await s.search.search('findable'), hasLength(1));
-      expect(_vectorRowExists(tmp, note.id), isFalse);
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isFalse);
     });
 
     test('does not call embed at all when no provider is configured', () async {
