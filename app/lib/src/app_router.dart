@@ -199,11 +199,6 @@ GoRouter buildAppRouter({
         builder: (context, state) => _buildNotePage(context, state),
       ),
       GoRoute(
-        path: '/search',
-        builder: (context, state) =>
-            _SearchRoutePage(api: AppSession.of(context).api),
-      ),
-      GoRoute(
         path: '/setup',
         builder: (context, state) => _SetupRoute(
           store: configHolder.store,
@@ -224,7 +219,7 @@ Widget _buildListPage(BuildContext context) {
         controller: session.list,
         onNoteTap: (id) => unawaited(context.push('/notes/$id')),
         onCreate: () => unawaited(_createNote(context, session)),
-        onSearch: () => unawaited(context.push('/search')),
+        onSearch: () => unawaited(_openSearch(context, session)),
         onAccount: () => unawaited(_confirmReset(context, session)),
         sidebar: FolderTreeSidebar(
           controller: session.tree,
@@ -242,7 +237,7 @@ Widget _buildListPage(BuildContext context) {
             key: const Key('shell.search'),
             tooltip: 'Search',
             icon: const Icon(Icons.search),
-            onPressed: () => unawaited(context.push('/search')),
+            onPressed: () => unawaited(_openSearch(context, session)),
           ),
           IconButton(
             key: const Key('shell.reset'),
@@ -254,6 +249,58 @@ Widget _buildListPage(BuildContext context) {
       );
     },
   );
+}
+
+/// Opens search as an overlay above the current screen instead of routing
+/// to a full page — the list underneath stays mounted (no refetch, no
+/// scroll-position loss) and dismissing (scrim tap or back gesture) just
+/// closes the dialog. [NotesSearchController] is scoped to this call: a
+/// fresh one is created per open and disposed once it closes.
+Future<void> _openSearch(BuildContext context, AppSession session) async {
+  final controller = NotesSearchController(api: session.api);
+  try {
+    await showGeneralDialog<void>(
+      context: context,
+      barrierLabel: 'Search',
+      barrierDismissible: true,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 200),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: FractionallySizedBox(
+              heightFactor: 0.92,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(16),
+                ),
+                child: SearchScreen(
+                  controller: controller,
+                  recentNotes: session.list.value.items,
+                  onResultTap: (id) {
+                    Navigator.of(context).pop();
+                    unawaited(context.push('/notes/$id'));
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, -1),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+          child: child,
+        );
+      },
+    );
+  } finally {
+    controller.dispose();
+  }
 }
 
 Future<void> _createNote(BuildContext context, AppSession session) async {
@@ -329,44 +376,6 @@ void _handleNoteClosed(BuildContext context, AppSession session, bool saved) {
     // A deep-linked note (reload, bookmark, or a search hit reached via
     // `go`) has no history to pop back into.
     context.go('/');
-  }
-}
-
-/// Per-search route. Owns [NotesSearchController] for as long as the search
-/// screen is on screen.
-class _SearchRoutePage extends StatefulWidget {
-  const _SearchRoutePage({required this.api});
-
-  final RobotNotesClient api;
-
-  @override
-  State<_SearchRoutePage> createState() => _SearchRoutePageState();
-}
-
-class _SearchRoutePageState extends State<_SearchRoutePage> {
-  late final NotesSearchController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = NotesSearchController(api: widget.api);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SearchScreen(
-      controller: _controller,
-      // Replaces the current location rather than pushing on top of it, so
-      // closing the note lands back on whatever opened search (usually the
-      // list) instead of back on the search screen.
-      onResultTap: (id) => context.go('/notes/$id'),
-    );
   }
 }
 
