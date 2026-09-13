@@ -42,6 +42,26 @@ void main() {
       expect(deps.storage.contentDir.path, '${tmp.path}/content');
     });
 
+    test('wires the attachment store to the same content dir as storage',
+        () async {
+      final deps = await AppDeps.bootstrap(
+        _config(tmp),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+      );
+      expect(
+        deps.attachmentStore.contentDir.path,
+        deps.storage.contentDir.path,
+      );
+    });
+
+    test('defaults maxUploadSizeBytes from config', () async {
+      final deps = await AppDeps.bootstrap(
+        _config(tmp),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+      );
+      expect(deps.maxUploadSizeBytes, Config.defaultMaxUploadSizeBytes);
+    });
+
     test('scans existing files into the meta index on bootstrap', () async {
       final deps = await AppDeps.bootstrap(
         _config(tmp),
