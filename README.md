@@ -281,7 +281,7 @@ origin OAuth metadata advertises when the server sits behind a proxy.
   teaching an agent how to use the MCP tool catalog above correctly
   (search-before-create, `append_to_note` vs. `update_note`, optimistic
   concurrency, locks, folder paths), plus an opt-in hook that continuously
-  logs the session's conversation to a note under `Claude/Sessions/`.
+  logs the session's conversation to a note under `conversations/<actor>/`.
 - [`hermes-plugin/`](hermes-plugin/robot_notes/README.md) — a Hermes
   Agent MemoryProvider backed by robot-notes' REST API directly (no MCP
   client).

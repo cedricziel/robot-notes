@@ -37,8 +37,9 @@ of that: it talks to robot-notes' REST API directly, the same way
 
 Fires on `UserPromptSubmit` and `Stop` and appends one line per prompt
 or assistant reply to a note titled with the session id, filed under
-`Claude/Sessions/<session_id>` in the workspace — one note per session,
-continuously appended to rather than written once at the end.
+`conversations/<actor>/<session_id>` in the workspace — one note per
+session, scoped by actor, continuously appended to rather than written
+once at the end.
 
 **Opt-in.** The hook no-ops silently unless both env vars are set:
 

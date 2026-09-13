@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code hook: appends this session's prompts and assistant replies to a
-robot-notes note at Claude/Sessions/<session_id>, one line per UserPromptSubmit
-or Stop event.
+robot-notes note at conversations/<actor>/<session_id>, one line per
+UserPromptSubmit or Stop event.
 
 Opt-in and best-effort: no-ops silently when ROBOT_NOTES_BASE_URL /
 ROBOT_NOTES_API_KEY aren't set, and never raises or blocks the interactive
@@ -22,9 +22,13 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, Optional
 
-SESSIONS_PATH = "Claude/Sessions"
+CONVERSATIONS_ROOT = "conversations"
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 8
+
+
+def conversations_path(actor: str) -> str:
+    return f"{CONVERSATIONS_ROOT}/{actor}"
 
 
 class VersionConflict(Exception):
@@ -123,7 +127,7 @@ def run(payload: Dict[str, Any]) -> None:
 
     session_id = payload.get("session_id") or "unknown-session"
     try:
-        append_line(base_url, api_key, actor, session_id, SESSIONS_PATH, line)
+        append_line(base_url, api_key, actor, session_id, conversations_path(actor), line)
     except Exception:
         pass  # best-effort logging only; never surface a failure here
 

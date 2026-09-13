@@ -12,6 +12,12 @@ from unittest import mock
 import log_conversation as lc
 
 
+class ConversationsPathTests(unittest.TestCase):
+    def test_scoped_by_actor(self) -> None:
+        self.assertEqual(lc.conversations_path("cedric"), "conversations/cedric")
+        self.assertEqual(lc.conversations_path("claude-code"), "conversations/claude-code")
+
+
 class FormatLineTests(unittest.TestCase):
     def test_user_prompt_submit(self) -> None:
         line = lc.format_line({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
@@ -89,7 +95,17 @@ class RunTests(unittest.TestCase):
         env = {"ROBOT_NOTES_BASE_URL": "http://x/", "ROBOT_NOTES_API_KEY": "key"}
         with mock.patch.dict("os.environ", env, clear=True), mock.patch.object(lc, "append_line") as append:
             lc.run({"hook_event_name": "Stop", "last_assistant_message": "hi", "session_id": "s1"})
-        append.assert_called_once_with("http://x", "key", "claude-code", "s1", lc.SESSIONS_PATH, "**assistant**: hi")
+        append.assert_called_once_with(
+            "http://x", "key", "claude-code", "s1", "conversations/claude-code", "**assistant**: hi"
+        )
+
+    def test_appends_under_configured_actor(self) -> None:
+        env = {"ROBOT_NOTES_BASE_URL": "http://x", "ROBOT_NOTES_API_KEY": "key", "ROBOT_NOTES_ACTOR": "cedric"}
+        with mock.patch.dict("os.environ", env, clear=True), mock.patch.object(lc, "append_line") as append:
+            lc.run({"hook_event_name": "Stop", "last_assistant_message": "hi", "session_id": "s1"})
+        append.assert_called_once_with(
+            "http://x", "key", "cedric", "s1", "conversations/cedric", "**assistant**: hi"
+        )
 
     def test_never_raises_on_network_failure(self) -> None:
         env = {"ROBOT_NOTES_BASE_URL": "http://x", "ROBOT_NOTES_API_KEY": "key"}
