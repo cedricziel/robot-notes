@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.2.9](https://github.com/cedricziel/robot-notes/compare/v0.2.8...v0.2.9) (2026-09-13)
+
+
+### Features
+
+* **app:** add a "New folder" action to the sidebar ([#182](https://github.com/cedricziel/robot-notes/issues/182)) ([0ac2ca2](https://github.com/cedricziel/robot-notes/commit/0ac2ca26e32a55edbe11e4c5afa5981029d03201))
+* **app:** add macOS tray so the app can stay in the background ([#187](https://github.com/cedricziel/robot-notes/issues/187)) ([c03ec08](https://github.com/cedricziel/robot-notes/commit/c03ec0836f28c51e99e06afb2b4394e12d307ac6))
+* **app:** turn the notes list FAB into a New note / New folder menu ([#183](https://github.com/cedricziel/robot-notes/issues/183)) ([24e891d](https://github.com/cedricziel/robot-notes/commit/24e891d8bc7dd1f07890ebb2caa5973909f40c2d))
+* **server:** add create_folder MCP tool ([#181](https://github.com/cedricziel/robot-notes/issues/181)) ([dd23cd8](https://github.com/cedricziel/robot-notes/commit/dd23cd873a7760411c003ce8e103d6310fc1087e))
+* **server:** add POST /notes/tree to create empty folders ([#180](https://github.com/cedricziel/robot-notes/issues/180)) ([d9d158f](https://github.com/cedricziel/robot-notes/commit/d9d158f565a54d8ef804b31800814f42e543c833))
+* **server:** scan for empty-folder marker files on startup ([#179](https://github.com/cedricziel/robot-notes/issues/179)) ([ef4c879](https://github.com/cedricziel/robot-notes/commit/ef4c879c42a5c6b0f8720ffdd00ea6f1ccf3cd1d))
+* **server:** tag /mcp error spans with why the request was rejected ([#189](https://github.com/cedricziel/robot-notes/issues/189)) ([1b1667e](https://github.com/cedricziel/robot-notes/commit/1b1667e8eea9ca7b798aa8e1ce1ef9caac58bd92))
+
+
+### Bug Fixes
+
+* **server:** point _span_test_helpers at flutter_otel_sdk's SdkTracer ([#190](https://github.com/cedricziel/robot-notes/issues/190)) ([cd6fb55](https://github.com/cedricziel/robot-notes/commit/cd6fb55e49b26be82c5678de4c8d5788043aebea))
+
+
+### Documentation
+
+* **openspec:** route FAB folder/note creation through add-empty-folder-creation ([#178](https://github.com/cedricziel/robot-notes/issues/178)) ([638a6c2](https://github.com/cedricziel/robot-notes/commit/638a6c294157e18bd7bee7cd8b2a056fe55b9c43))
+* **server:** document the empty-folder marker file and POST /notes/tree ([#185](https://github.com/cedricziel/robot-notes/issues/185)) ([b4684cc](https://github.com/cedricziel/robot-notes/commit/b4684cc55330d7403e25d94a7392b5a4514826a7))
+
 ## [0.2.8](https://github.com/cedricziel/robot-notes/compare/v0.2.7...v0.2.8) (2026-09-13)
 
 
