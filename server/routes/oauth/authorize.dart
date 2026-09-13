@@ -10,6 +10,7 @@ import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/error_page.dart';
 import 'package:server/src/oauth/form_body.dart';
 import 'package:server/src/oauth/oauth_records.dart';
+import 'package:server/src/public_url.dart';
 
 final Logger _log = Logger('oauth.authorize');
 
@@ -149,6 +150,7 @@ Response _renderConsent({
       scopes: scopes,
       state: params['state'],
       resource: params['resource'],
+      serverHost: Uri.parse(publicBaseUrl(context)).host,
     ),
     errorMessage: errorMessage,
     oidcConfigured: context.read<Config>().oidc != null,
