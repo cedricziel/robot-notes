@@ -1,34 +1,43 @@
 ## Why
 
-The vault has no way to store anything but notes. A user who wants to keep a screenshot, PDF, or reference file alongside their notes — the way Obsidian and every other note-taking tool treats attachments — has no path to do it: there is no upload endpoint, no attachment storage convention, and no client affordance. This blocks the FAB's third action ("Upload file") from being anything but a stub.
+The vault has no way to store anything but notes. A user who wants to keep a screenshot, PDF, or reference file alongside their notes — the way Obsidian and every other note-taking tool treats attachments — has no path to do it. This blocks the FAB's third action ("Upload file") from being anything but a stub, and blocks an MCP-driven agent from placing a file into the vault at all.
+
+This is a revision of the original `add-file-upload` proposal (its first three tasks — `maxUploadSizeBytes` config, the write helper, and their tests — already merged and are kept as-is). Two problems surfaced with the original design before the rest landed:
+
+1. **The `upload_file` MCP tool carried the file as base64 in its JSON-RPC arguments.** Base64 inflates the payload ~33%, and — more importantly — the entire file's bytes sit in the calling agent's context window and get logged/traced as a tool call. Fine for a byte or two; wrong for anything a person would actually call a "file."
+2. **Uploaded files lived in a separate `attachments` namespace**, retrievable only if the caller already knew the exact path. A folder holding only files (no notes) didn't show up when browsing — files were effectively a write-only side channel, not a real citizen of the vault's folder structure.
 
 ## What Changes
 
-- New endpoint `POST /notes/attachments`: accepts a `multipart/form-data` body (a `path` field naming the target folder, a `file` field carrying the upload) and writes the file to disk alongside notes, reusing the existing filename/path sanitization from `note_path.dart`. Rejects a request over a configured max size (default 25 MiB) with `413`, and a name collision with `409` — no silent overwrite, no auto-renaming, matching how a colliding note title/path already behaves.
-- New endpoint `GET /notes/attachments/{path}`: streams the raw bytes back with a content-type derived from the file extension, so an uploaded file is retrievable, not a write-only black hole.
-- Flutter: the FAB's "Upload file" action opens the platform file picker (`file_picker` package, new dependency), uploads the chosen file to the currently selected folder, and shows a snackbar with the result (success naming the stored filename, or the server's error message on failure) — matching the existing note/folder FAB actions' error-handling convention.
-- Server: a `maxUploadSizeBytes` config setting (`--max-upload-size-bytes` / `ROBOT_NOTES_MAX_UPLOAD_SIZE_BYTES`), defaulting to 25 MiB.
-- New MCP tool `upload_file`, mirroring `POST /notes/attachments`: content travels as base64 in the JSON-RPC payload (the same encoding MCP already uses for binary tool content elsewhere), decoded server-side and run through the identical size/collision/sanitization path as the REST endpoint — an agent gets the same upload capability a human gets from the FAB, not a second-class one.
+- **Two-phase upload for MCP/agent callers**, replacing the single-call `upload_file(content_base64)` tool:
+  1. `request_upload(path, filename, size_bytes?)` reserves a short-lived, single-use upload slot and returns `{ upload_url, token, expires_at }` — a tiny JSON-RPC call, no bytes.
+  2. The caller (or whatever on its side actually holds the bytes — a sandboxed `curl`, the agent's host) `PUT`s the raw file to `upload_url` (`/notes/files/uploads/{token}`), authenticated by token possession alone (a true presigned-URL-style transfer, no bearer key needed) — this is the only step that ever touches the file's actual bytes, and it never goes through the LLM's context.
+  3. `finalize_upload(token)` places the staged bytes into the vault (sanitization, collision check, atomic write — the same path a direct upload already goes through) and returns `{ path, filename, size, content_type }`.
+- **Files are first-class vault entries, not a walled-off "attachments" concept.** A folder holding only uploaded files (no notes, no empty-folder marker) now appears in `GET /notes/tree` (with a `file_count` alongside `note_count`), and a new `GET /notes/files?path=` lists a folder's files directly, the same way `GET /notes` lists its notes.
+- **Direct multipart upload stays for real HTTP clients.** `POST /notes/files` (renamed from `/notes/attachments`) is unchanged in spirit — the Flutter app already has real bytes and a real HTTP client, so a one-shot multipart POST has no context-bloat problem and doesn't need the two-phase dance. `GET /notes/files/{path}` (renamed from `/notes/attachments/{path}`) retrieves a file's bytes, unchanged.
+- Flutter: the FAB's "Upload file" action is unaffected in behavior — it still opens the file picker and posts to the (renamed) direct-upload route.
+- Server: `maxUploadSizeBytes` config (already merged) governs both upload paths.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `attachments`: upload/download of non-note files into the vault's folder structure — the request/response contract, size/collision handling, and content-type resolution for `POST` and `GET /notes/attachments`.
+- `vault-files`: files as first-class, browsable vault entries — direct upload/retrieval/listing (`POST`/`GET` `/notes/files`), and the two-phase upload-session flow (`PUT /notes/files/uploads/{token}`) that backs the MCP tools. Supersedes the original `attachments` capability (never released — this change replaces it in place before archival).
 
 ### Modified Capabilities
 
-- `notes-storage`: the filesystem now holds a third kind of on-disk artifact (alongside note `.md` files and empty-folder `.folder` markers) — attachment files, excluded from every note-shaped scan the same way markers already are.
-- `flutter-client`: the FAB gains a working "Upload file" action (previously out of scope for `add-empty-folder-creation`, which only wired up "New note" and "New folder").
-- `mcp-server`: adds the `upload_file` tool to the catalog (nine tools → ten, or ten → eleven once `add-empty-folder-creation`'s `create_folder` has landed).
+- `notes-storage`: files are indexed the same way empty-folder markers are (a lightweight, non-note-shaped tracked set), so they contribute to folder discoverability without being treated as notes by any note-shaped scan or operation.
+- `flutter-client`: unchanged behaviorally from the original proposal — the FAB's "Upload file" action, now pointed at the renamed route.
+- `mcp-server`: `request_upload` and `finalize_upload` join the catalog; `upload_file` (from the original proposal) never merged and is no longer part of this change — the catalog grows from today's ten tools to twelve.
 
 ## Impact
 
-Server: new route `server/routes/notes/attachments/index.dart` (or similar dart_frog file-route layout) reusing `context.request.formData()` (dart_frog's built-in multipart parser — no new server dependency), `note_path.dart`'s sanitization, and `Storage`'s existing atomic-write helpers. `config.dart` gains the size-limit setting. `server/lib/src/mcp/tools.dart` gains the `upload_file` tool, delegating to the same underlying attachment-write helper the REST route uses. Flutter: `api_client.dart` gains an `uploadFile` method, `notes_list_screen.dart`'s FAB menu gains a third item, `app_router.dart` wires it to a file-picker flow, `pubspec.yaml` gains `file_picker`.
+Server: `server/lib/src/attachments.dart` → `server/lib/src/vault_files.dart` (renamed `FileStore`, was `AttachmentStore`), plus a new `server/lib/src/upload_sessions.dart` (in-memory `UploadSessionStore`: token mint, expiry, staged-bytes-to-final-vault handoff). Routes move from `server/routes/notes/attachments/` to `server/routes/notes/files/`, plus a new `server/routes/notes/files/uploads/[token].dart`. `Storage`/`MetaIndex` gain file-awareness for tree/listing. `server/lib/src/mcp/tools.dart`: `upload_file` removed, `request_upload` and `finalize_upload` added. Flutter: `api_client.dart`'s `uploadFile` target path renamed; no behavioral change.
 
 ## Non-goals
 
-- No in-app attachment browser, listing, or delete UI — this proposal is upload + retrieval only, exactly as `add-empty-folder-creation` was creation-only for folders.
-- No inline rendering of uploaded images/files inside the note editor or viewer — a note that wants to reference an attachment links to it manually; automatic embedding is a follow-up.
-- No MCP tool for _downloading_ an attachment's bytes back through JSON-RPC in this pass — `GET /notes/attachments/{path}` covers retrieval for any client that can make an authenticated HTTP request (including an agent), so a base64-return tool is a follow-up if a text-only MCP client turns out to need it.
+- No in-app file browser UI showing files mixed into the notes list (this proposal makes files _server-discoverable_; rendering them in the Flutter UI is a follow-up).
+- No inline rendering of uploaded images/files inside the note editor or viewer.
+- No resumable/chunked upload (a dropped connection mid-PUT means starting over with a fresh `request_upload`).
 - No virus/content scanning, no thumbnailing, no image transformation.
+- No iOS/macOS share extension, no macOS Finder drag-and-drop upload — both are separate, platform-specific proposals that build on top of this once it lands.

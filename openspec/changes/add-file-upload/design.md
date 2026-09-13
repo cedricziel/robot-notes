@@ -1,94 +1,79 @@
 ## Context
 
-See proposal.md - Why. The vault today has exactly two kinds of on-disk artifact: note `.md` files and (once `add-empty-folder-creation` lands) empty-folder `.folder` markers, both discovered by `Storage`'s single recursive scan of `content/`. `note_path.dart` already provides NFC normalization, illegal-character stripping, and a case-insensitive `collisionKey` used by every existing path-collision check. `dart_frog`'s `Request` type (the framework this server is built on) has a built-in `formData()` parser that decodes `multipart/form-data` into fields and `UploadedFile`s (name, content-type, byte stream) with no extra dependency — this change reuses it rather than adding `shelf_multipart` or similar.
+See proposal.md - Why. `maxUploadSizeBytes` (config) and the sanitize/collision/atomic-write logic (currently `AttachmentStore`, being renamed `FileStore`) already merged from the original proposal and are reused unchanged here — this design only revises how bytes get _to_ that write path, and how a written file becomes _discoverable_ afterward.
+
+`InviteStore` (`server/lib/src/invite_store.dart`) is the existing precedent for "mint an opaque token, track its expiry, consume it once": `KeyedMutex`/`isSafeStoreKey`/`atomicWriteJsonFile` (`server/lib/src/oauth/store_support.dart`) are reused infrastructure, not new concepts.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- An attachment can be uploaded to any folder and retrieved later, surviving a restart, with the same path-safety guarantees a note already has.
-- Reuse the existing sanitization/collision primitives so an attachment's path/filename rules are identical to a note's.
-- Keep the upload path memory-safe: a request over the configured size limit must not be fully buffered before being rejected.
+- An MCP-driven agent can place a file of any realistic size into the vault without embedding its bytes in a JSON-RPC tool call.
+- A file, once uploaded by either path, is discoverable by browsing (folder tree, folder listing) — not only retrievable if the exact path is already known.
+- The two upload entry points (direct multipart, two-phase token) share one write implementation, so sanitization/collision/size-limit invariants only need to be correct once.
 
 **Non-Goals:**
 
-- No new persisted metadata (a database row, a JSON sidecar) — the file on disk, discovered by the existing startup scan, is the only state.
-- No change to `MetaIndex`'s data model — attachments are invisible to it entirely, unlike empty folders which get a small tracked set.
+- No resumable/chunked upload — a `PUT` that's interrupted mid-transfer just fails; the caller calls `request_upload` again for a fresh token.
+- No persistence of upload-session state across a server restart — a session is expected to complete within its TTL (minutes), so losing in-flight (never-finalized) sessions on restart is an acceptable trade for not needing atomic-JSON-file machinery for something this short-lived. (The underlying vault file store itself remains fully durable, as always.)
+- No full pagination machinery for file listings — a folder's files are returned as a flat, unpaginated list. A vault folder holding thousands of loose files is not a case this needs to optimize for; notes already have proper pagination for the case that matters.
 
 ## Decisions
 
-### Reuse dart_frog's built-in `formData()`, no new server multipart dependency
+### The two-phase flow is three MCP-visible steps, but only one new route
 
-**Decision:** Parse the upload via `context.request.formData()`, which returns a `FormData` with `fields` (a `Map<String, String>`, giving us `path`) and `files` (a `Map<String, UploadedFile>`, giving us the upload by field name `file`). `UploadedFile.openRead()` exposes the byte stream without buffering it all into memory up front.
+**Decision:** `request_upload` and `finalize_upload` are the only new MCP surface. The byte transfer itself (`PUT /notes/files/uploads/{token}`) is a REST route, not a JSON-RPC call — it has to be, since that's the entire point (raw bytes, not JSON). `request_upload` doesn't need a REST equivalent: it's a plain in-process call (mint a token, record a session) that the MCP handler can make directly since it lives in the same server.
 
-**Why:** The framework already ships this; adding `shelf_multipart` or hand-rolling a `MimeMultipartTransformer` pipeline would duplicate what's already available and tested, for no behavioral benefit.
-
-**Alternatives considered:**
-
-- _`shelf_multipart` directly._ Rejected: `dart_frog`'s `Request.formData()` already wraps the same underlying `mime` package; going around it would mean bypassing the framework's own request body handling.
-
-### Size limit is enforced while streaming, not only via `Content-Length`
-
-**Decision:** Check the `Content-Length` header against the configured max as a fast pre-check (reject immediately if it already exceeds the limit), and additionally count bytes while consuming `UploadedFile.openRead()`, aborting the write and deleting any partial temp file the moment the running total exceeds the limit — the same tmp+fsync+rename pattern notes already use, so a rejected upload never leaves a partial file at the final path.
-
-**Why:** `Content-Length` is client-supplied and not authoritative (a chunked or lying request could omit or misstate it); the streaming counter is what actually bounds memory and disk usage regardless of what the header claims.
+**Why:** Minimal new surface for the minimal new problem. A direct HTTP client (the Flutter app) never needs `request_upload`/`finalize_upload` at all — it already has real bytes and stays on the one-shot `POST /notes/files`.
 
 **Alternatives considered:**
 
-- _Trust `Content-Length` alone._ Rejected: not a real bound — nothing stops a client from streaming more bytes than it declared.
+- _Expose `request_upload`/`finalize_upload` as REST routes too, for symmetry._ Rejected for now: no current caller needs it, and it's easy to add later if a non-MCP client turns out to want the same two-phase flow (e.g. a future resumable-upload web client).
 
-### Attachment path resolution reuses `Storage`'s folder/collision logic, but attachments are not routed through `Storage`'s note-shaped API
+### The upload-session token is the sole authentication for the PUT step
 
-**Decision:** Introduce a small sibling helper (not a new public method on `Storage`, to avoid stretching a note-shaped class over a different kind of artifact) that: sanitizes `path` via `sanitizedPathSegments` (the same helper `Storage.createFolder` uses), sanitizes the filename via `sanitizeFilenameSegment`/`normalizeToNfc` (the same helpers a note's title goes through), and checks the resulting `<path>/<filename>` against `collisionKey` — treating a hit against either an existing note file, an existing attachment, or an empty-folder marker as a collision, matching the requirement that any of the three block an upload.
+**Decision:** `PUT /notes/files/uploads/{token}` does **not** require the normal `Authorization: Bearer <api-key>` header. The token itself — 16 bytes of secure randomness, single-use, short TTL, scoped to one `path`+`filename` pair chosen at `request_upload` time — is the credential, exactly like a cloud-storage presigned URL.
 
-**Why:** The path/filename rules must be identical to a note's for the "no path traversal, no illegal characters" guarantee to hold uniformly, but an attachment has no frontmatter, no id, no version, and isn't indexed — bolting it onto `Storage`'s note-oriented `create`/`update` API would mean threading a lot of note-only concepts through code that doesn't need them.
-
-**Alternatives considered:**
-
-- _Add `Storage.createAttachment(...)` alongside `createFolder`._ Considered reasonable and not strongly rejected — during implementation, if the sanitization/collision logic ends up small enough, it may simply live as a method on `Storage` after all rather than a separate helper. This is left as an implementation-time call, not a spec-level concern (see proposal.md's "Quick test" framing: this decision doesn't change any observable behavior).
-
-### GET route uses a catch-all path segment
-
-**Decision:** `GET /notes/attachments/{path}` is served by a single dart_frog catch-all route (`routes/notes/attachments/[...path].dart`) so a nested attachment path (`Projects/Alpha/diagram.png`) resolves in one route rather than needing per-depth route files. `POST /notes/attachments` (no trailing path — the target folder is a form field, not part of the URL) is a separate, sibling route file (`routes/notes/attachments/index.dart`).
-
-**Why:** Mirrors how `GET /notes/{id}` already uses a dynamic segment (`routes/notes/[id]/index.dart`); a catch-all is the natural extension for a path that can be arbitrarily deep, and splitting POST (index) from GET (catch-all) avoids one handler having to distinguish "am I being POSTed to with a form body, or GETed with a path" in the same file.
+**Why:** The whole reason this flow exists is to let something other than the LLM-driven agent (a bare `curl`, the agent's host process) perform the byte transfer. Requiring the main API key there too would mean that process needs the same credential as the agent, defeating the "narrow, expiring, single-purpose" property a presigned URL is supposed to have.
 
 **Alternatives considered:**
 
-- _A single query-parameter-based endpoint (`GET /notes/attachments?path=...`)._ Rejected: every other path-addressed resource in this API (`GET /notes/{id}`) uses the path itself as the address; a query param here would be an inconsistent one-off.
+- _Require both the token and the bearer key._ Rejected: doesn't add meaningful defense here (the token is already unguessable and single-use) and forces the byte-transfer step to carry the same broad credential as everything else, which is exactly what a scoped token is meant to avoid.
 
-### Content-Type on download is derived from the file extension, not stored
+### Upload sessions live in memory; staged bytes live on disk outside the vault
 
-**Decision:** `GET /notes/attachments/{path}` resolves the response `Content-Type` from the requested filename's extension at read time (via the same `mime` package dart_frog already depends on transitively), rather than persisting the upload's declared content-type anywhere.
+**Decision:** `UploadSessionStore` tracks `{token → path, filename, maxBytes, status, expiresAt, size?, contentType?}` in a plain in-memory map (see Non-Goals above). The staged bytes from a completed `PUT` are written to `<dataDir>/uploads/<token>.bin` — a sibling of `<dataDir>/content/` (the vault root), never inside it, so a staged-but-not-yet-finalized file can never be scanned, indexed, or served as a vault file by anything.
 
-**Why:** No new metadata store means nothing to keep in sync; an extension-based lookup is deterministic and matches what every static file server already does. The upload response still echoes back the declared content-type for the client's immediate use (e.g. showing what it thinks it uploaded), but that's not authoritative for later downloads.
+**Why:** Keeping staging physically outside `contentDir` means the "files are indexed by scanning `contentDir`" mechanism (see below) needs zero special-casing to avoid picking up in-flight uploads — they're simply never in the directory it walks.
 
-### upload_file (MCP) shares the REST route's write path via a common helper, not a duplicate implementation
+### finalize_upload reuses FileStore.write; no separate placement logic
 
-**Decision:** Both `POST /notes/attachments` and the `upload_file` MCP tool call the same underlying attachment-write helper introduced for the REST route (see the sanitization/collision decision above) — the MCP handler's only job is to base64-decode `content_base64` into bytes, hand them to that helper, and translate its result/exceptions into `toolOk`/`toolFail`, exactly the pattern `create_note`/`update_note`/`move_note` already use around `Storage`.
+**Decision:** `finalize_upload` opens the staged `.bin` file as a byte stream and calls the exact same `FileStore.write(path, filename, bytes, maxBytes, contentType)` that `POST /notes/files` calls — sanitization, the collision check, and the atomic tmp+rename all happen exactly once, in one place, regardless of which upload path produced the bytes. A collision discovered only at finalize time (the target was claimed by something else between `request_upload` and now) surfaces as the same `path_conflict` error either route already uses; the session and its staged file are deleted either way — a rejected finalize doesn't leave a stale reservation.
 
-**Why:** Two independent implementations of "sanitize, check collision, stream to disk atomically, enforce size" would be two places to keep an attack-surface-relevant invariant in sync. The MCP tool is a thin transport adapter, nothing more.
+**Why:** Two independent "place a file in the vault" implementations would be two places to keep collision/sanitization/atomicity correct. This mirrors the original proposal's decision to route the old `upload_file` tool through the same write helper `POST /notes/attachments` used — same reasoning, same shape.
 
-**Alternatives considered:**
+### Files are indexed the same lightweight way empty-folder markers are
 
-- _Reimplement the write path directly in `tools.dart`._ Rejected: exactly the duplication this decision avoids.
+**Decision:** `Storage._scanAll()`, while it walks `contentDir` looking for `.md` notes and `.folder` markers, also collects every other regular file it encounters (excluding anything ending in `.tmp`, the in-progress-write suffix) into a small tracked set: relative path, size, and modified time. `Storage.filesIn(folderPath)` returns the direct (non-recursive) file children of a folder from that set. `GET /notes/tree`'s folder-discovery union (currently: folders holding a note ∪ folders holding an empty-folder marker) gains a third term: folders holding at least one file, with a `file_count` alongside the existing `note_count`.
 
-### upload_file surfaces the same domain errors as the REST route, translated to tool-error codes
-
-**Decision:** A filename collision maps to `path_conflict` (reusing `kErrorPathConflict`, the same code `create_note`/`update_note`/`move_note` already return for a note path collision, not a new one-off code), an over-limit payload maps to a new `payload_too_large` code, and an invalid path segment or malformed base64 maps to `validation_failed` (reusing `kErrorValidationFailed`). The size check runs against the **decoded** byte length, not the base64 string length (which runs ~33% larger) — the configured `maxUploadSizeBytes` is a statement about the file's real size, not its wire encoding.
-
-**Why:** Reusing existing error codes where the failure is the same _kind_ of thing (a path collision is a path collision, whether the request arrived as multipart or JSON-RPC) keeps the tool catalog's error vocabulary small and predictable for a client already handling `create_note`'s `path_conflict`.
+**Why:** This is deliberately the same shape as the empty-folder-marker tracking already in `Storage` — a plain in-memory set rebuilt on scan, not a second `MetaIndex`-grade paginated structure. Files don't need id-based lookup, title resolution, tag filtering, or cursor pagination the way notes do; giving them the full `MetaIndex` treatment would be building for a scale and a set of operations nothing here actually needs yet (see Non-Goals).
 
 **Alternatives considered:**
 
-- _A single generic `upload_failed` code for every failure._ Rejected: collapses cases a client legitimately wants to handle differently (retry with a new name vs. shrink the file vs. fix the input) into one undifferentiated bucket.
+- _Fold files into `MetaIndex` as a new summary type alongside `NoteSummary`._ Rejected as more machinery than the stated goal (folder discoverability, a flat per-folder listing) requires; revisit if a future requirement needs file search, tagging, or cross-folder pagination.
+
+### GET /notes/files?path= is a flat, unpaginated listing
+
+**Decision:** `GET /notes/files?path=<folder>` returns every file directly in `<folder>` (not recursive into subfolders) as `{ items: [{ path, filename, size, content_type, updated_at }] }`, with no `next_cursor` / `after` / `limit` — the whole set, every time.
+
+**Why:** See Non-Goals — this isn't the note-listing use case pagination exists for. Content-type here is resolved the same way `GET /notes/files/{path}` resolves it for retrieval (extension-based lookup), for consistency between "browsing" and "fetching."
 
 ## Risks / Trade-offs
 
-- **[Risk]** A very large upload could still exhaust memory if `UploadedFile.readAsBytes()` (which buffers into a single `List<int>`) is used instead of streaming to disk incrementally. → **Mitigation:** write via `openRead()` chunk-by-chunk into the tmp file, counting bytes per chunk, not via `readAsBytes()`.
-- **[Risk]** Two concurrent uploads to the same target path could both pass the collision check before either writes. → **Mitigation:** reuse the same per-target-path mutex `Storage` already uses for note create/rename races, keyed by the attachment's collision key.
-- **[Risk]** An attacker-controlled filename could still attempt path traversal or an overlong name. → **Mitigation:** identical sanitization to note titles already defends against this; no new attack surface beyond what note creation already handles.
+- **[Risk]** An abandoned upload session (client called `request_upload`, never `PUT` or `finalize`d) leaves a staged `.bin` file and an in-memory entry until the TTL sweep runs. → **Mitigation:** short TTL (15 minutes), a periodic sweep inside `UploadSessionStore` that evicts expired sessions and deletes their staged files, plus a lazy expiry check on every access (`PUT`, `finalize_upload`) so an expired session is never usable even between sweeps.
+- **[Risk]** A server restart mid-flight orphans any `<dataDir>/uploads/*.bin` file whose in-memory session was lost. → **Mitigation:** accepted (see Non-Goals) — these are small, rare, and don't affect the vault's actual content; a future pass could add a startup sweep of `<dataDir>/uploads/` by file age if this proves to matter in practice.
+- **[Risk]** The token-only-auth `PUT` route is technically reachable by anyone who obtains the token (e.g. from a proxy log). → **Mitigation:** same threat model as any presigned URL — short TTL, single-use, scoped to a specific path+filename chosen by an already-authenticated `request_upload` call. This is a deliberate, standard trade-off, not an oversight.
 
 ## Migration Plan
 
-No migration needed: purely additive. A vault with no uploaded attachments behaves exactly as today. No changes to note files, frontmatter, or the search/link/tag indices.
+No migration needed: purely additive on top of what already merged (`maxUploadSizeBytes`, the sanitize/collision/atomic-write helper). Renaming `AttachmentStore` → `FileStore` and the route paths (`/notes/attachments` → `/notes/files`) has no external callers yet — nothing shipped depending on the old names.
