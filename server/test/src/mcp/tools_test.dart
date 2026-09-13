@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:server/src/app_deps.dart';
@@ -1257,8 +1258,89 @@ void main() {
     });
   });
 
+  group('upload_file', () {
+    test(
+        'uploads a small file and returns structuredContent matching the '
+        'REST shape', () async {
+      final result = await call('upload_file', {
+        'path': 'Ideas',
+        'filename': 'note.txt',
+        'content_base64': base64Encode(utf8.encode('hello')),
+      });
+
+      expect(result['isError'], isNot(true));
+      expect(_structured(result), {
+        'path': 'Ideas',
+        'filename': 'note.txt',
+        'size': 5,
+        'content_type': 'text/plain',
+      });
+      expect(
+        File('${tmp.path}/content/Ideas/note.txt').readAsStringSync(),
+        'hello',
+      );
+    });
+
+    test('a filename collision is a path_conflict tool error', () async {
+      await call('upload_file', {
+        'path': 'Ideas',
+        'filename': 'note.txt',
+        'content_base64': base64Encode(utf8.encode('first')),
+      });
+
+      final result = await call('upload_file', {
+        'path': 'Ideas',
+        'filename': 'note.txt',
+        'content_base64': base64Encode(utf8.encode('second')),
+      });
+
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'path_conflict');
+    });
+
+    test('malformed base64 is a validation_failed tool error', () async {
+      final result = await call('upload_file', {
+        'path': 'Ideas',
+        'filename': 'note.txt',
+        'content_base64': 'not valid base64!!',
+      });
+
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'validation_failed');
+    });
+
+    test(
+        'a decoded payload over the configured limit is a '
+        'payload_too_large tool error', () async {
+      final smallLimitDeps = await AppDeps.bootstrap(
+        Config(
+          apiKey: 'test-key',
+          dataDir: tmp.path,
+          port: 0,
+          lockTtlSeconds: 60,
+          maxUploadSizeBytes: 3,
+        ),
+      );
+      addTearDown(smallLimitDeps.close);
+      final smallLimitRegistry = McpToolRegistry.forDeps(smallLimitDeps);
+
+      final result = await smallLimitRegistry.call(
+        'upload_file',
+        {
+          'path': '',
+          'filename': 'big.txt',
+          'content_base64': base64Encode(utf8.encode('hello')),
+        },
+        fullAccess,
+      );
+
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'payload_too_large');
+    });
+  });
+
   group('tools/list catalog', () {
-    test('has exactly the ten note tools with object schemas', () {
+    test('has exactly the eleven note tools with object schemas', () {
       final names = registry.tools.map((t) => t.name).toSet();
       expect(names, {
         'list_notes',
@@ -1271,6 +1353,7 @@ void main() {
         'move_note',
         'get_backlinks',
         'create_folder',
+        'upload_file',
       });
       for (final tool in registry.tools) {
         expect(tool.inputSchema['type'], 'object');
@@ -1280,6 +1363,17 @@ void main() {
     test('create_folder declares path as required', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'create_folder');
       expect(tool.inputSchema['required'], ['path']);
+    });
+
+    test(
+        'upload_file declares path, filename, and content_base64 as '
+        'required', () {
+      final tool = registry.tools.firstWhere((t) => t.name == 'upload_file');
+      expect(tool.inputSchema['required'], [
+        'path',
+        'filename',
+        'content_base64',
+      ]);
     });
 
     test('update_note declares id and version as required', () {
