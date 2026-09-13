@@ -926,6 +926,9 @@ void main() {
 
   testWidgets('the FAB presents a menu with New note and New folder instead of '
       'creating instantly', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final mock = MockClient((request) async {
       return _page(<Object?>[]);
     });
@@ -956,6 +959,9 @@ void main() {
   testWidgets('choosing "New note" from the FAB menu invokes onCreateNote', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final mock = MockClient((request) async {
       return _page(<Object?>[]);
     });
@@ -985,6 +991,9 @@ void main() {
   testWidgets('no "New folder" menu item when onCreateFolder is omitted', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final mock = MockClient((request) async {
       return _page(<Object?>[]);
     });
