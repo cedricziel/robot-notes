@@ -20,6 +20,7 @@ Future<void> _pumpSidebar(
   required FolderTreeController controller,
   String? selectedPath,
   ValueChanged<String?>? onSelect,
+  VoidCallback? onCreateFolder,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -28,6 +29,7 @@ Future<void> _pumpSidebar(
           controller: controller,
           selectedPath: selectedPath,
           onSelect: onSelect ?? (_) {},
+          onCreateFolder: onCreateFolder ?? () {},
         ),
       ),
     ),
@@ -126,6 +128,28 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(selected, 'Projects/Alpha');
+    });
+
+    testWidgets('tapping the header action invokes onCreateFolder', (
+      tester,
+    ) async {
+      final mock = MockClient((request) async {
+        return http.Response(jsonEncode({'folders': <Object?>[]}), 200);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final controller = FolderTreeController(api: api);
+      addTearDown(controller.dispose);
+      var tapped = false;
+
+      await _pumpSidebar(
+        tester,
+        controller: controller,
+        onCreateFolder: () => tapped = true,
+      );
+      await tester.tap(find.byKey(const Key('sidebar.newFolder')));
+      await tester.pumpAndSettle();
+
+      expect(tapped, isTrue);
     });
   });
 }

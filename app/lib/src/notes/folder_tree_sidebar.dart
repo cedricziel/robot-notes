@@ -10,12 +10,16 @@ class FolderTreeSidebar extends StatefulWidget {
   const FolderTreeSidebar({
     required this.controller,
     required this.onSelect,
+    required this.onCreateFolder,
     this.selectedPath,
     super.key,
   });
 
   final FolderTreeController controller;
   final ValueChanged<String?> onSelect;
+
+  /// Invoked when the user taps the "New folder" header action.
+  final VoidCallback onCreateFolder;
 
   /// The folder currently scoping the notes list, or `null` for "All
   /// notes" — used only to highlight the active selection.
@@ -40,31 +44,56 @@ class _FolderTreeSidebarState extends State<FolderTreeSidebar> {
     return ValueListenableBuilder<FolderTreeState>(
       valueListenable: widget.controller,
       builder: (context, state, _) {
-        return ListView(
-          key: const Key('sidebar.tree'),
+        return Column(
           children: [
-            ListTile(
-              key: const Key('sidebar.allNotes'),
-              leading: const Icon(Icons.all_inbox),
-              title: const Text('All notes'),
-              selected: widget.selectedPath == null,
-              onTap: () => widget.onSelect(null),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Folders',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('sidebar.newFolder'),
+                    tooltip: 'New folder',
+                    icon: const Icon(Icons.create_new_folder_outlined),
+                    onPressed: widget.onCreateFolder,
+                  ),
+                ],
+              ),
             ),
-            if (state.rootNoteCount != null)
-              ListTile(
-                key: const Key('sidebar.root'),
-                leading: const Icon(Icons.description_outlined),
-                title: const Text('(root)'),
-                trailing: Text('${state.rootNoteCount}'),
-                selected: widget.selectedPath == '',
-                onTap: () => widget.onSelect(''),
+            Expanded(
+              child: ListView(
+                key: const Key('sidebar.tree'),
+                children: [
+                  ListTile(
+                    key: const Key('sidebar.allNotes'),
+                    leading: const Icon(Icons.all_inbox),
+                    title: const Text('All notes'),
+                    selected: widget.selectedPath == null,
+                    onTap: () => widget.onSelect(null),
+                  ),
+                  if (state.rootNoteCount != null)
+                    ListTile(
+                      key: const Key('sidebar.root'),
+                      leading: const Icon(Icons.description_outlined),
+                      title: const Text('(root)'),
+                      trailing: Text('${state.rootNoteCount}'),
+                      selected: widget.selectedPath == '',
+                      onTap: () => widget.onSelect(''),
+                    ),
+                  for (final node in state.roots)
+                    _FolderTile(
+                      node: node,
+                      selectedPath: widget.selectedPath,
+                      onSelect: widget.onSelect,
+                    ),
+                ],
               ),
-            for (final node in state.roots)
-              _FolderTile(
-                node: node,
-                selectedPath: widget.selectedPath,
-                onSelect: widget.onSelect,
-              ),
+            ),
           ],
         );
       },
