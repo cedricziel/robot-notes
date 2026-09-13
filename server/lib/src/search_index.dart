@@ -4,20 +4,27 @@ import 'dart:io';
 import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
+import 'package:server/src/embeddings/embedding_provider.dart';
 import 'package:server/src/links.dart';
 import 'package:server/src/storage.dart';
 import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite_vector/sqlite_vector.dart';
 
 /// Schema version for the FTS5 search index. Bumping this constant forces a
 /// rebuild on the next startup — useful when the index columns or tokenizer
 /// configuration change in incompatible ways.
 ///
-/// Bumped to 3 for the `path`/`tags` columns on `notes_fts` and the new
-/// `link_edges` table (vault-structure change): any pre-existing
-/// `search.db` reports schema_version 2 and is therefore treated as
-/// mismatched and rebuilt, per the "old schema triggers a rebuild"
-/// requirement.
-const int kSearchSchemaVersion = 3;
+/// Bumped to 4 for the `note_vectors` table (hybrid search): any
+/// pre-existing `search.db` reports schema_version 3 and is therefore
+/// treated as mismatched and rebuilt, per the "old schema triggers a
+/// rebuild" requirement.
+const int kSearchSchemaVersion = 4;
+
+/// Guards [SearchIndex._ensureVectorExtensionLoaded] so
+/// `sqlite3.loadSqliteVectorExtension()` — a process-global registration,
+/// not a per-database one — runs at most once per process, even though
+/// tests open many [SearchIndex]s in the same process.
+bool _vectorExtensionLoaded = false;
 
 /// Hard ceiling on a search `limit`, shared by `GET /search` and the
 /// `search_notes` MCP tool so both surfaces clamp/reject the same way.
@@ -54,6 +61,21 @@ class SearchHit {
 
   /// The note's `updated_at` as of the last [SearchIndex.upsert].
   final DateTime updatedAt;
+}
+
+/// One result row from [SearchIndex.vectorSearch]: a note id and its
+/// distance to the query embedding (lower is more similar).
+@immutable
+class VectorHit {
+  /// Creates a KNN result pairing a note [id] with its [distance].
+  const VectorHit({required this.id, required this.distance});
+
+  /// Note id (ULID), matching [SearchHit.id].
+  final String id;
+
+  /// Distance from the query embedding, as reported by
+  /// `sqlite_vector`'s `vector_full_scan`. Lower is more similar.
+  final double distance;
 }
 
 /// One of a note's outgoing `[[wikilinks]]`, as recorded in the
@@ -109,11 +131,17 @@ class InvalidSearchQueryException implements Exception {
 /// note save/delete must call [upsert] / [delete] to keep the index in
 /// sync.
 class SearchIndex {
-  SearchIndex._(this._db, this._log, this._tracer);
+  SearchIndex._(this._db, this._log, this._tracer, this._embeddingProvider);
 
   final Database _db;
   final Logger _log;
   final Tracer _tracer;
+
+  /// When non-null, hybrid ranking is active: [search] fuses BM25 with
+  /// vector similarity, and [upsert] computes and stores an embedding per
+  /// note. `null` (the default) means search behaves exactly as it did
+  /// before hybrid search existed.
+  final EmbeddingProvider? _embeddingProvider;
   late final PreparedStatement _upsertStmt = _db.prepare(
     'INSERT OR REPLACE INTO notes_fts '
     '(rowid, id, title, path, content, updated_at, tags) '
@@ -137,12 +165,21 @@ class SearchIndex {
   ///
   /// Operators can flip [forceRebuild] to drop the existing file regardless
   /// of state — useful for ops runbooks that want to reseed from disk.
+  ///
+  /// When [embeddingProvider] is supplied, hybrid ranking is enabled: a
+  /// `note_vectors` table sized to its `dimensions` is created (if absent)
+  /// and (re)initialized for this connection — `sqlite_vector`'s
+  /// `vector_init` registers per-connection metadata, not a persistent
+  /// index, so it must run on every `open()`, not just once at table
+  /// creation. `null` (the default) leaves search exactly as it behaved
+  /// before hybrid search existed, including not creating the table at all.
   static Future<SearchIndex> open({
     required File dbFile,
     required Storage storage,
     Logger? logger,
     Tracer? tracer,
     bool forceRebuild = false,
+    EmbeddingProvider? embeddingProvider,
   }) async {
     final log = logger ?? Logger('search_index');
     await dbFile.parent.create(recursive: true);
@@ -160,16 +197,31 @@ class SearchIndex {
       rebuild = true;
     }
 
+    if (embeddingProvider != null) _ensureVectorExtensionLoaded();
     final db = sqlite3.open(dbFile.path);
-    _initSchema(db);
+    _initSchema(db, dimensions: embeddingProvider?.dimensions);
 
-    final index =
-        SearchIndex._(db, log, tracer ?? const NoopTracer('search_index'));
+    final index = SearchIndex._(
+      db,
+      log,
+      tracer ?? const NoopTracer('search_index'),
+      embeddingProvider,
+    );
     if (rebuild) {
       final loaded = await index._rebuild(storage);
       log.info('search.db rebuilt with $loaded note(s)');
     }
     return index;
+  }
+
+  /// Loads `sqlite_vector`'s native functions, process-wide, exactly once —
+  /// `Sqlite3.loadSqliteVectorExtension` registers them for every
+  /// subsequently opened database, so a second call would be redundant (and
+  /// isn't guaranteed idempotent the way `vector_init` is).
+  static void _ensureVectorExtensionLoaded() {
+    if (_vectorExtensionLoaded) return;
+    sqlite3.loadSqliteVectorExtension();
+    _vectorExtensionLoaded = true;
   }
 
   /// Inserts or replaces a row for [id] with [title], [path], [content],
@@ -334,6 +386,31 @@ class SearchIndex {
     }
   }
 
+  /// Runs a K-nearest-neighbors query against `note_vectors`, returning up
+  /// to [k] hits ordered by ascending distance (most similar first).
+  /// Returns an empty list when no embedding provider is configured (the
+  /// table doesn't exist) or when `note_vectors` has no rows — neither is
+  /// an error condition, per the "search remains available" requirement.
+  @visibleForTesting
+  List<VectorHit> vectorSearch(List<double> queryEmbedding, {int k = 50}) {
+    if (_embeddingProvider == null) return const [];
+    final rows = _db.select(
+      'SELECT e.id, v.distance FROM note_vectors AS e '
+      "JOIN vector_full_scan('note_vectors', 'embedding', "
+      'vector_as_f32(?), ?) AS v '
+      'ON e.rowid = v.rowid '
+      'ORDER BY v.distance;',
+      [_encodeVector(queryEmbedding), k],
+    );
+    return [
+      for (final row in rows)
+        VectorHit(
+          id: row['id'] as String,
+          distance: (row['distance'] as num).toDouble(),
+        ),
+    ];
+  }
+
   /// Closes the database file. After calling this method the index must
   /// not be used again.
   void close() {
@@ -350,6 +427,11 @@ class SearchIndex {
   /// join table — a personal vault's tag cardinality doesn't warrant one.
   static String _encodeTags(Set<String> tags) =>
       ' ${tags.map((t) => t.toLowerCase()).join(' ')} ';
+
+  /// Encodes [vector] as the JSON-array-string literal `sqlite_vector`'s
+  /// `vector_as_f32` scalar function expects (confirmed by the task 4.1
+  /// spike — it does not accept a bound `List<double>` directly).
+  static String _encodeVector(List<double> vector) => '[${vector.join(',')}]';
 
   Future<int> _rebuild(Storage storage) async {
     var count = 0;
@@ -433,7 +515,10 @@ class SearchIndex {
     }
   }
 
-  static void _initSchema(Database db) {
+  /// [dimensions] is the configured embedding provider's vector size, or
+  /// `null` when no provider is configured — in which case `note_vectors`
+  /// is not created at all, matching pre-hybrid-search behavior exactly.
+  static void _initSchema(Database db, {int? dimensions}) {
     db
       ..execute('''
         CREATE TABLE IF NOT EXISTS meta (
@@ -468,5 +553,18 @@ class SearchIndex {
         CREATE INDEX IF NOT EXISTS link_edges_source_idx
           ON link_edges(source_id);
       ''');
+    if (dimensions != null) {
+      db
+        ..execute('''
+          CREATE TABLE IF NOT EXISTS note_vectors (
+            id TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL
+          );
+        ''')
+        ..execute(
+          "SELECT vector_init('note_vectors', 'embedding', "
+          "'type=FLOAT32,dimension=$dimensions');",
+        );
+    }
   }
 }

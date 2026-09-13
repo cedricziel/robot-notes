@@ -2,10 +2,13 @@ import 'dart:io';
 
 import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
+import 'package:server/src/embeddings/embedding_provider.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'embeddings/fake_embedding_provider.dart';
 
 class _RecordingSpanProcessor implements SpanProcessor {
   final List<SpanData> ended = [];
@@ -55,6 +58,7 @@ Future<SearchIndex> _open(
   Logger? logger,
   Tracer? tracer,
   bool forceRebuild = false,
+  EmbeddingProvider? embeddingProvider,
 }) {
   return SearchIndex.open(
     dbFile: _dbFile(tmp),
@@ -62,7 +66,24 @@ Future<SearchIndex> _open(
     logger: logger,
     tracer: tracer,
     forceRebuild: forceRebuild,
+    embeddingProvider: embeddingProvider,
   );
+}
+
+/// Whether `note_vectors` exists in the `search.db` at [tmp], checked via a
+/// second raw connection, mirroring how [_linkEdges] bypasses the public
+/// API to inspect derived-table state directly.
+bool _hasVectorTable(Directory tmp) {
+  final db = sqlite3.open(_dbFile(tmp).path);
+  try {
+    final rows = db.select(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name='note_vectors';",
+    );
+    return rows.isNotEmpty;
+  } finally {
+    db.close();
+  }
 }
 
 void main() {
@@ -162,6 +183,32 @@ void main() {
       expect(index.search('tokenized'), hasLength(1));
     });
 
+    test('rebuilds a pre-hybrid-search v3 search.db (no note_vectors table)',
+        () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'Bumped', content: 'tokenized words');
+
+      final initial = await _open(tmp, storage: storage);
+      initial.close();
+
+      // Simulate the exact prior on-disk shape: schema_version 3, the
+      // version this constant held before hybrid search added
+      // note_vectors.
+      sqlite3.open(_dbFile(tmp).path)
+        ..execute("UPDATE meta SET value = '3' WHERE key = 'schema_version';")
+        ..close();
+
+      final logger = Logger.detached('search-test')..level = Level.ALL;
+      final logged = <String>[];
+      logger.onRecord.listen((rec) => logged.add(rec.message));
+
+      final index = await _open(tmp, storage: storage, logger: logger);
+      addTearDown(index.close);
+
+      expect(logged.any((l) => l.contains('schema_version mismatch')), isTrue);
+      expect(index.search('tokenized'), hasLength(1));
+    });
+
     test('rebuild logs the count of indexed notes', () async {
       final storage = _storage(tmp);
       await storage.create(title: 'a', content: 'apple');
@@ -248,6 +295,91 @@ void main() {
         expect(index.search('kept'), hasLength(1));
       },
     );
+  });
+
+  group('SearchIndex vector storage', () {
+    test(
+        'creates note_vectors sized to the provider dimensions when '
+        'configured', () async {
+      final index = await _open(
+        tmp,
+        embeddingProvider: FakeEmbeddingProvider(),
+      );
+      addTearDown(index.close);
+
+      expect(_hasVectorTable(tmp), isTrue);
+    });
+
+    test('does not create note_vectors when no provider is configured',
+        () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      expect(_hasVectorTable(tmp), isFalse);
+    });
+
+    group('vectorSearch', () {
+      /// Inserts a raw `note_vectors` row via a second connection — bypasses
+      /// `upsert()` (which doesn't write embeddings until a later task) so
+      /// this KNN query can be tested against the vector table in
+      /// isolation.
+      void insertVector(String id, List<double> embedding) {
+        final db = sqlite3.open(_dbFile(tmp).path);
+        try {
+          db.execute(
+            'INSERT INTO note_vectors (id, embedding) '
+            'VALUES (?, vector_as_f32(?));',
+            [id, '[${embedding.join(',')}]'],
+          );
+        } finally {
+          db.close();
+        }
+      }
+
+      test('returns up to k note ids ordered by ascending distance', () async {
+        final index = await _open(
+          tmp,
+          embeddingProvider: FakeEmbeddingProvider(),
+        );
+        addTearDown(index.close);
+
+        insertVector('near', [1.0, 2.0, 3.0, 4.0]);
+        insertVector('far', [100.0, 200.0, 300.0, 400.0]);
+        insertVector('medium', [2.0, 3.0, 4.0, 5.0]);
+
+        final hits = index.vectorSearch([1.0, 2.0, 3.0, 4.0], k: 2);
+
+        expect(hits, hasLength(2));
+        expect(hits.map((h) => h.id).toList(), ['near', 'medium']);
+        expect(hits[0].distance, lessThan(hits[1].distance));
+      });
+
+      test('k larger than the row count returns all available rows', () async {
+        final index = await _open(
+          tmp,
+          embeddingProvider: FakeEmbeddingProvider(),
+        );
+        addTearDown(index.close);
+
+        insertVector('only', [1.0, 2.0, 3.0, 4.0]);
+
+        final hits = index.vectorSearch([1.0, 2.0, 3.0, 4.0]);
+
+        expect(hits, hasLength(1));
+      });
+
+      test('empty note_vectors returns no results, not an error', () async {
+        final index = await _open(
+          tmp,
+          embeddingProvider: FakeEmbeddingProvider(),
+        );
+        addTearDown(index.close);
+
+        final hits = index.vectorSearch([1.0, 2.0, 3.0, 4.0], k: 5);
+
+        expect(hits, isEmpty);
+      });
+    });
   });
 
   group('SearchIndex.upsert / delete', () {
