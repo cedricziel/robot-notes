@@ -8,6 +8,20 @@ import 'package:server/src/otel/simple_logger_provider.dart';
 import 'package:server/src/otel/simple_span_processor.dart';
 import 'package:shared/shared.dart';
 
+/// Builds the [OTelResource] every server signal is exported under:
+/// `service.name`/`service.version` identify this process, `service.
+/// namespace` groups it with the app and probe as one system, and
+/// `deployment.environment.name` (from [Config.otelEnvironmentName]) says
+/// which deployment produced the telemetry.
+OTelResource _resource(Config config) => OTelResource(
+      serviceName: 'robot-notes-server',
+      serviceVersion: robotNotesVersion,
+      attributes: {
+        'service.namespace': otelServiceNamespace,
+        'deployment.environment.name': config.otelEnvironmentName,
+      },
+    );
+
 /// Builds the [LoggerProvider] the server exports logs through. When
 /// [Config.otlpEndpoint] is unset, exports are a no-op (no HTTP client is
 /// even required), so this is safe to wire up unconditionally.
@@ -16,10 +30,7 @@ LoggerProvider createOtelLoggerProvider(
   http.Client? httpClient,
 }) {
   final endpoint = config.otlpEndpoint;
-  final resource = OTelResource(
-    serviceName: 'robot-notes-server',
-    serviceVersion: robotNotesVersion,
-  );
+  final resource = _resource(config);
   final LogRecordExporter exporter;
   if (endpoint == null) {
     exporter = const NoopLogRecordExporter();
@@ -44,10 +55,7 @@ TracerProvider createOtelTracerProvider(
   http.Client? httpClient,
 }) {
   final endpoint = config.otlpEndpoint;
-  final resource = OTelResource(
-    serviceName: 'robot-notes-server',
-    serviceVersion: robotNotesVersion,
-  );
+  final resource = _resource(config);
   final SpanExporter exporter;
   if (endpoint == null) {
     exporter = const NoopSpanExporter();

@@ -54,6 +54,7 @@ class Config {
     this.publicUrl,
     this.otlpEndpoint,
     this.otlpHeaders = const {},
+    this.otelEnvironmentName = defaultOtelEnvironmentName,
     this.oidc,
   });
 
@@ -140,6 +141,12 @@ class Config {
       ),
     );
 
+    final otelEnvironmentName = _coalesce(
+          parsed['otel-environment-name'] as String?,
+          env['ROBOT_NOTES_OTEL_ENVIRONMENT_NAME'],
+        ) ??
+        defaultOtelEnvironmentName;
+
     final oidc = _resolveOidc(parsed, env);
 
     return Config(
@@ -151,6 +158,7 @@ class Config {
       publicUrl: publicUrl,
       otlpEndpoint: otlpEndpoint,
       otlpHeaders: otlpHeaders,
+      otelEnvironmentName: otelEnvironmentName,
       oidc: oidc,
     );
   }
@@ -166,6 +174,11 @@ class Config {
 
   /// Floor for `--lock-ttl-seconds`; values below this are rejected.
   static const int minLockTtlSeconds = 5;
+
+  /// Default `deployment.environment.name` resource attribute when neither
+  /// flag nor env supplies one — this server has no staging deployment
+  /// today, so "production" is the only value that's ever actually true.
+  static const String defaultOtelEnvironmentName = 'production';
 
   /// Bearer key required on every HTTP request and the WebSocket auth frame.
   final String apiKey;
@@ -199,6 +212,10 @@ class Config {
   /// Extra headers (e.g. an auth token) sent with every OTLP export request.
   /// Empty by default.
   final Map<String, String> otlpHeaders;
+
+  /// The `deployment.environment.name` OTel resource attribute exported
+  /// alongside every log and span. Defaults to [defaultOtelEnvironmentName].
+  final String otelEnvironmentName;
 
   /// OIDC login configuration, or `null` when OIDC login is disabled (the
   /// default — every request behaves exactly as without this capability).
@@ -236,6 +253,11 @@ class Config {
       'otel-headers',
       help: 'Comma-separated key=value headers sent with every OTLP '
           'export request (e.g. an auth token).',
+    )
+    ..addOption(
+      'otel-environment-name',
+      help: 'deployment.environment.name resource attribute exported with '
+          'every log and span. Defaults to "$defaultOtelEnvironmentName".',
     )
     ..addOption(
       'oidc-issuer',
