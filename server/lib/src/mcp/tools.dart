@@ -285,8 +285,12 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
       description:
           'List note metadata (id, title, version, timestamps — no content) '
           'with cursor pagination, oldest-id-first by default or '
-          "newest-updated-first with sort: 'updated_desc'. Use this to "
-          'browse the workspace, or before create_note to check whether a '
+          "newest-updated-first with sort: 'updated_desc'. This is the "
+          "tool for browsing or enumerating everything — to list \"all "
+          'notes" call it with no arguments and follow next_cursor until '
+          "it's null; search_notes has no wildcard query for this and an "
+          'empty path/tag filter here still means "no filter", not "no '
+          'notes". Also use this before create_note to check whether a '
           'similarly titled note already exists.',
       inputSchema: const {
         'type': 'object',
@@ -382,8 +386,14 @@ McpTool _getNoteTool(Storage storage, LockManager lockManager) => McpTool(
 McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
       name: 'search_notes',
       description: 'Full-text search over note titles and content, ranked by '
-          'relevance. Always try this before create_note — creating a note '
-          'that duplicates an existing one fragments the workspace memory.',
+          'relevance. query is a literal FTS5 keyword expression, not a '
+          "wildcard — there is no query that means \"everything\", so "
+          "'*' is rejected and a generic term like 'notes' only matches "
+          'notes whose title or content contains that word. To enumerate '
+          'every note instead of searching for one, use list_notes (with '
+          'no query) rather than guessing a query here. Always try this '
+          'before create_note — creating a note that duplicates an '
+          'existing one fragments the workspace memory.',
       inputSchema: const {
         'type': 'object',
         'properties': {
@@ -430,10 +440,12 @@ McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
                 },
             ],
           });
-        } on InvalidSearchQueryException {
+        } on InvalidSearchQueryException catch (e) {
           return toolFail(
             kErrorValidationFailed,
-            message: 'invalid search query',
+            message: 'invalid search query: ${e.reason}. query is a '
+                'literal FTS5 keyword expression, not a wildcard — to list '
+                'every note use list_notes instead.',
           );
         }
       },

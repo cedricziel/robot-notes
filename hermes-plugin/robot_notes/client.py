@@ -62,6 +62,22 @@ class RobotNotesClient:
         response = self._request("GET", "/search", params={"q": query, "limit": limit})
         return response.json().get("items", [])
 
+    def list_notes(
+        self, *, path: Optional[str] = None, limit: int = 50, after: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Paginated note metadata (no content) via ``GET /notes`` — the only way to
+        enumerate every note in the workspace. ``search`` cannot do this: it is
+        keyword search, not a wildcard, so it has no query that means "everything".
+        Returns the raw ``{"items": [...], "next_cursor": ...}`` page; pass a
+        result's ``next_cursor`` back as ``after`` to fetch the next page."""
+        params: Dict[str, Any] = {"limit": limit}
+        if path is not None:
+            params["path"] = path
+        if after is not None:
+            params["after"] = after
+        response = self._request("GET", "/notes", params=params)
+        return response.json()
+
     def get_note(self, note_id: str) -> Dict[str, Any]:
         return self._request("GET", f"/notes/{note_id}").json()
 

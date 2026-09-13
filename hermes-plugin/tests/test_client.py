@@ -41,6 +41,34 @@ def test_search_returns_items(client):
 
 
 @respx.mock
+def test_list_notes_returns_items_and_next_cursor(client):
+    respx.get("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "01ABC", "title": "Budget"}], "next_cursor": "01DEF"}
+        )
+    )
+
+    result = client.list_notes()
+
+    assert result["items"][0]["id"] == "01ABC"
+    assert result["next_cursor"] == "01DEF"
+
+
+@respx.mock
+def test_list_notes_forwards_path_and_after(client):
+    route = respx.get("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(200, json={"items": [], "next_cursor": None})
+    )
+
+    client.list_notes(path="Hermes", after="01CURSOR", limit=10)
+
+    sent = route.calls.last.request
+    assert sent.url.params["path"] == "Hermes"
+    assert sent.url.params["after"] == "01CURSOR"
+    assert sent.url.params["limit"] == "10"
+
+
+@respx.mock
 def test_get_note_not_found_raises_client_error(client):
     respx.get("https://notes.example.com/notes/missing").mock(return_value=httpx.Response(404))
 

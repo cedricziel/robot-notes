@@ -26,7 +26,9 @@ USER_NOTE = {"title": "User", "path": "Hermes"}
 SYSTEM_PROMPT_BLOCK = (
     "A shared robot-notes workspace is connected as external memory. Call "
     "robotnotes_search before creating a new note, and robotnotes_remember "
-    "to store a fact worth keeping across sessions."
+    "to store a fact worth keeping across sessions. robotnotes_search is "
+    "keyword search only — to browse or list every note in the workspace, "
+    "use robotnotes_list instead."
 )
 
 _MARK_RE = re.compile(r"</?mark>")
@@ -48,13 +50,37 @@ class RobotNotesProvider(MemoryProvider):
         self._tools = [
             {
                 "name": "robotnotes_search",
-                "description": "Search the shared robot-notes workspace.",
+                "description": "Search the shared robot-notes workspace. This is keyword "
+                "full-text search, not a wildcard — there is no query that means "
+                "\"every note\" (a query like '*' is rejected, and a generic term "
+                "like 'notes' only matches notes that literally contain that word). "
+                "To enumerate everything in the workspace, use robotnotes_list "
+                "instead.",
                 "parameters": {
                     "type": "object",
                     "properties": {"query": {"type": "string"}},
                     "required": ["query"],
                 },
                 "handler": self._tool_search,
+            },
+            {
+                "name": "robotnotes_list",
+                "description": "List every note's metadata (id, title, path, version, "
+                "timestamps — no content) from the shared robot-notes workspace, "
+                "optionally narrowed to a folder with 'path'. Paginated: call again "
+                "with 'after' set to the previous response's next_cursor until it "
+                "comes back null to see the whole workspace. Use this instead of "
+                "robotnotes_search to browse or enumerate everything.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "after": {"type": "string"},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": [],
+                },
+                "handler": self._tool_list,
             },
             {
                 "name": "robotnotes_note",
@@ -177,6 +203,13 @@ class RobotNotesProvider(MemoryProvider):
 
     def _tool_search(self, args: Dict[str, Any]) -> str:
         return json.dumps({"items": self._client.search(args["query"])})
+
+    def _tool_list(self, args: Dict[str, Any]) -> str:
+        return json.dumps(
+            self._client.list_notes(
+                path=args.get("path"), after=args.get("after"), limit=args.get("limit", 50)
+            )
+        )
 
     def _tool_note(self, args: Dict[str, Any]) -> str:
         return json.dumps(self._client.get_note(args["id"]))

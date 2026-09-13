@@ -45,12 +45,13 @@ the API key.
 
 ## Tools
 
-| Tool                  | Description                        |
-| --------------------- | ---------------------------------- |
-| `robotnotes_search`   | Search the shared workspace        |
-| `robotnotes_note`     | Fetch a note by id                 |
-| `robotnotes_remember` | Store a durable fact as a new note |
-| `robotnotes_forget`   | Delete a note by id                |
+| Tool                  | Description                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| `robotnotes_search`   | Keyword search the shared workspace — not a wildcard; no query means "everything"    |
+| `robotnotes_list`     | Paginated metadata for every note, optionally under a `path` — use this to enumerate |
+| `robotnotes_note`     | Fetch a note by id                                                                    |
+| `robotnotes_remember` | Store a durable fact as a new note                                                    |
+| `robotnotes_forget`   | Delete a note by id                                                                   |
 
 ## Write behavior
 
