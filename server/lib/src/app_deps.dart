@@ -20,6 +20,7 @@ import 'package:server/src/oidc/jwks.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/upload_sessions.dart';
 import 'package:server/src/vault_files.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
@@ -61,6 +62,7 @@ class AppDeps {
     JwksCache? oidcJwks,
     PendingLoginStore? pendingLoginStore,
     FileStore? fileStore,
+    UploadSessionStore? uploadSessions,
   }) {
     final resolvedLinkIndex = linkIndex ?? LinkIndex();
     final resolvedWriteService = noteWriteService ??
@@ -91,6 +93,16 @@ class AppDeps {
       oidcJwks: oidcJwks,
       pendingLoginStore: pendingLoginStore,
       fileStore: fileStore ?? FileStore(contentDir: storage.contentDir),
+      // sweepInterval: null — this default is only reached by call sites
+      // that don't care about upload sessions at all (most tests); a
+      // background timer there would risk "pending timer" test-runner
+      // warnings across the whole suite. Real production use goes
+      // through bootstrap() below, which passes a real interval.
+      uploadSessions: uploadSessions ??
+          UploadSessionStore(
+            stagingDir: Directory('${storage.contentDir.parent.path}/uploads'),
+            sweepInterval: null,
+          ),
     );
   }
 
@@ -110,6 +122,7 @@ class AppDeps {
     required this.linkIndex,
     required this.noteWriteService,
     required this.fileStore,
+    required this.uploadSessions,
     this.oidcDiscovery,
     this.oidcJwks,
     PendingLoginStore? pendingLoginStore,
@@ -151,6 +164,10 @@ class AppDeps {
     }
     final storage = Storage(contentDir: contentDir, clock: clock);
     final fileStore = FileStore(contentDir: contentDir);
+    final uploadSessions = UploadSessionStore(
+      stagingDir: Directory('${config.dataDir}/uploads'),
+      clock: clock,
+    );
     final metaIndex = MetaIndex();
     final loaded = await metaIndex.scan(storage);
     log.info('Bootstrapped MetaIndex with $loaded note(s)');
@@ -240,6 +257,7 @@ class AppDeps {
       oidcJwks: oidcJwks,
       pendingLoginStore: PendingLoginStore(clock: clock),
       fileStore: fileStore,
+      uploadSessions: uploadSessions,
     );
   }
 
@@ -249,6 +267,10 @@ class AppDeps {
   /// Write path for uploaded (non-note) files, rooted at the same
   /// `contentDir` as [storage].
   final FileStore fileStore;
+
+  /// Registry of in-flight two-phase (`request_upload`/`finalize_upload`)
+  /// upload slots, staging bytes outside [Storage.contentDir].
+  final UploadSessionStore uploadSessions;
 
   /// In-memory listing index, derived from [storage].
   final MetaIndex metaIndex;
@@ -315,5 +337,6 @@ class AppDeps {
     await broadcaster.close();
     await lockManager.close();
     searchIndex.close();
+    uploadSessions.dispose();
   }
 }

@@ -18,7 +18,7 @@ An uploaded file (see `vault-files`) SHALL be stored as a plain file at `<data-d
 
 ### Requirement: A staging upload's bytes are never scanned as vault content
 
-Bytes staged by an in-progress or abandoned upload session (see `vault-files`'s `PUT /notes/files/uploads/{token}`) SHALL live outside `<data-dir>/content/` entirely, and SHALL NOT appear in any note scan, file index, folder tree, or file listing until `finalize_upload` places them at their final path.
+Bytes staged by an in-progress or abandoned upload session (see `vault-files`'s `PUT /notes/file-uploads/{token}`) SHALL live outside `<data-dir>/content/` entirely, and SHALL NOT appear in any note scan, file index, folder tree, or file listing until `finalize_upload` places them at their final path.
 
 #### Scenario: A staged-but-not-finalized upload is invisible to the vault
 
@@ -28,7 +28,7 @@ Bytes staged by an in-progress or abandoned upload session (see `vault-files`'s 
 
 ### Requirement: Maximum upload size is configurable but defaults to 25 MiB
 
-The server SHALL default the maximum accepted upload size to 25 MiB (26,214,400 bytes). Operators MAY override via a `--max-upload-size-bytes <n>` CLI argument or `ROBOT_NOTES_MAX_UPLOAD_SIZE_BYTES` env var. The configured limit SHALL apply to every `POST /notes/files` request and every completed `PUT /notes/files/uploads/{token}` transfer.
+The server SHALL default the maximum accepted upload size to 25 MiB (26,214,400 bytes). Operators MAY override via a `--max-upload-size-bytes <n>` CLI argument or `ROBOT_NOTES_MAX_UPLOAD_SIZE_BYTES` env var. The configured limit SHALL apply to every `POST /notes/files` request and every completed `PUT /notes/file-uploads/{token}` transfer.
 
 #### Scenario: The default limit applies when unconfigured
 

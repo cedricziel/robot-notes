@@ -218,6 +218,41 @@ void main() {
       expect(response.statusCode, HttpStatus.unauthorized);
     });
 
+    test('PUT /notes/file-uploads/{token} bypasses auth', () async {
+      final ctx = _ctx(
+        path: '/notes/file-uploads/abc-123',
+        method: HttpMethod.put,
+      );
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+        handlerResponse: Response(body: 'uploaded'),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+      expect(await response.body(), 'uploaded');
+    });
+
+    test('GET on the upload-completion URL still requires auth', () async {
+      final ctx = _ctx(
+        path: '/notes/file-uploads/abc-123',
+        method: HttpMethod.get,
+      );
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
+    test('PUT /notes/files (no token segment) still requires auth', () async {
+      final ctx = _ctx(path: '/notes/files', method: HttpMethod.put);
+      final response = await _runMiddleware(
+        bearerAuth(configuredKey: configured),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.unauthorized);
+    });
+
     test('GET /invites (without onboarding suffix) still requires auth',
         () async {
       final ctx = _ctx(path: '/invites', method: HttpMethod.get);

@@ -37,11 +37,11 @@
 - [ ] 5.5 Write a failing test: an expired session (`expiresAt` in the past) behaves as not-found for both `complete` and `finalize`
 - [ ] 5.6 Write a failing test: `UploadSessionStore.finalize(token, fileStore)` reads the staged bytes and calls `FileStore.write` with the session's `path`/`filename`/`contentType`/`maxBytes`, deletes the session and staging file on success, and propagates `FileCollisionException` untouched (also cleaning up the session/staging file) on a finalize-time collision
 - [ ] 5.7 Implement `server/lib/src/upload_sessions.dart` (`UploadSession`, `UploadSessionStore`, staging directory under `<dataDir>/uploads/`, periodic expiry sweep); run 5.1–5.6 green
-- [ ] 5.8 Write a failing route test: `PUT /notes/files/uploads/{token}` with no `Authorization` header, valid token, and a body within the size limit responds `200` with `{ token, size, content_type, expires_at }` and the file is completable via `finalize_upload`
+- [ ] 5.8 Write a failing route test: `PUT /notes/file-uploads/{token}` with no `Authorization` header, valid token, and a body within the size limit responds `200` with `{ token, size, content_type, expires_at }` and the file is completable via `finalize_upload`
 - [ ] 5.9 Write a failing route test: `PUT` with a missing/expired/already-completed token responds `404`
 - [ ] 5.10 Write a failing route test: `PUT` exceeding the configured max size responds `413` and leaves no staged file
-- [ ] 5.11 Implement `server/routes/notes/files/uploads/[token].dart`, wiring it to skip the normal bearer-auth middleware requirement (token-only auth, per design.md); run 5.8–5.10 green
-- [ ] 5.12 Commit: `feat(server): add upload-session store and PUT /notes/files/uploads/{token}`
+- [ ] 5.11 Implement `server/routes/notes/file-uploads/[token].dart`, wiring it to skip the normal bearer-auth middleware requirement (token-only auth, per design.md); run 5.8–5.10 green
+- [ ] 5.12 Commit: `feat(server): add upload-session store and PUT /notes/file-uploads/{token}`
 
 ## 6. Server: request_upload and finalize_upload MCP tools
 
@@ -64,7 +64,7 @@
 
 - [ ] 8.1 Run the full server and app test suites; fix any regressions
 - [ ] 8.2 Update `server/STORAGE.md` to document the file index, the `<dataDir>/uploads/` staging directory, and the two upload paths
-- [ ] 8.3 Update `server/API.md` to document `POST /notes/files`, `GET /notes/files/{path}`, `GET /notes/files?path=`, `PUT /notes/files/uploads/{token}`, and the `request_upload`/`finalize_upload` MCP tools
+- [ ] 8.3 Update `server/API.md` to document `POST /notes/files`, `GET /notes/files/{path}`, `GET /notes/files?path=`, `PUT /notes/file-uploads/{token}`, and the `request_upload`/`finalize_upload` MCP tools
 - [ ] 8.4 Manually verify against a running server + app: upload via the FAB, confirm the folder shows up in the tree and its file is listed via `GET /notes/files?path=`; call `request_upload` → `curl -T` → `finalize_upload` directly over `/mcp` and confirm the same file lands, is retrievable, and a same-path re-`request_upload`+finalize collides with `409`/`path_conflict`
 - [ ] 8.5 Commit: `docs(server): document vault-files, upload sessions, and the two upload paths`
 

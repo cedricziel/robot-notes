@@ -22,7 +22,7 @@ See proposal.md - Why. `maxUploadSizeBytes` (config) and the sanitize/collision/
 
 ### The two-phase flow is three MCP-visible steps, but only one new route
 
-**Decision:** `request_upload` and `finalize_upload` are the only new MCP surface. The byte transfer itself (`PUT /notes/files/uploads/{token}`) is a REST route, not a JSON-RPC call — it has to be, since that's the entire point (raw bytes, not JSON). `request_upload` doesn't need a REST equivalent: it's a plain in-process call (mint a token, record a session) that the MCP handler can make directly since it lives in the same server.
+**Decision:** `request_upload` and `finalize_upload` are the only new MCP surface. The byte transfer itself (`PUT /notes/file-uploads/{token}`) is a REST route, not a JSON-RPC call — it has to be, since that's the entire point (raw bytes, not JSON). `request_upload` doesn't need a REST equivalent: it's a plain in-process call (mint a token, record a session) that the MCP handler can make directly since it lives in the same server.
 
 **Why:** Minimal new surface for the minimal new problem. A direct HTTP client (the Flutter app) never needs `request_upload`/`finalize_upload` at all — it already has real bytes and stays on the one-shot `POST /notes/files`.
 
@@ -32,7 +32,7 @@ See proposal.md - Why. `maxUploadSizeBytes` (config) and the sanitize/collision/
 
 ### The upload-session token is the sole authentication for the PUT step
 
-**Decision:** `PUT /notes/files/uploads/{token}` does **not** require the normal `Authorization: Bearer <api-key>` header. The token itself — 16 bytes of secure randomness, single-use, short TTL, scoped to one `path`+`filename` pair chosen at `request_upload` time — is the credential, exactly like a cloud-storage presigned URL.
+**Decision:** `PUT /notes/file-uploads/{token}` does **not** require the normal `Authorization: Bearer <api-key>` header. The token itself — 16 bytes of secure randomness, single-use, short TTL, scoped to one `path`+`filename` pair chosen at `request_upload` time — is the credential, exactly like a cloud-storage presigned URL.
 
 **Why:** The whole reason this flow exists is to let something other than the LLM-driven agent (a bare `curl`, the agent's host process) perform the byte transfer. Requiring the main API key there too would mean that process needs the same credential as the agent, defeating the "narrow, expiring, single-purpose" property a presigned URL is supposed to have.
 
