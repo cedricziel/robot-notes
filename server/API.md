@@ -141,18 +141,20 @@ notes. Authenticated.
 ```json
 {
   "folders": [
-    { "path": "", "note_count": 2 },
-    { "path": "Projects/Alpha", "note_count": 1 }
+    { "path": "", "note_count": 2, "file_count": 0 },
+    { "path": "Projects/Alpha", "note_count": 1, "file_count": 0 },
+    { "path": "Attachments", "note_count": 0, "file_count": 3 }
   ]
 }
 ```
 
-Only folders that **directly** contain at least one note, or were
-explicitly created empty (see `POST /notes/tree` below), are listed
-(an intermediate folder with no notes of its own and never explicitly
-created, only a populated descendant, is omitted); `note_count` counts
-direct notes only. A client that wants intermediate tree nodes or
-aggregate counts derives them from these leaf paths.
+Only folders that **directly** contain at least one note or file, or
+were explicitly created empty (see `POST /notes/tree` below), are
+listed (an intermediate folder with no notes/files of its own and
+never explicitly created, only a populated descendant, is omitted);
+`note_count`/`file_count` each count direct children only. A client
+that wants intermediate tree nodes or aggregate counts derives them
+from these leaf paths.
 
 ---
 
@@ -189,6 +191,100 @@ folder's current state instead of an error:
 
 An empty `path` is rejected with `400 Bad Request` — the vault root
 always exists and never needs creating.
+
+---
+
+### `POST /notes/files`
+
+Upload a non-note file directly into the vault (a real HTTP client
+with the bytes already in hand — the Flutter app's FAB, for instance).
+`multipart/form-data`: a `path` field (target folder, same convention
+as a note's `path`) and a `file` field (the upload, carrying its own
+filename). Authenticated.
+
+Response `201 Created`:
+
+```json
+{
+  "path": "Ideas",
+  "filename": "diagram.png",
+  "size": 4821,
+  "content_type": "image/png"
+}
+```
+
+`409 Conflict` (`{"error": "path_conflict"}`) on a filename collision
+with an existing note, file, or empty-folder marker — no overwrite, no
+auto-rename. `413 Payload Too Large`
+(`{"error": "payload_too_large"}`) over the configured max upload size
+(see `notes-storage`'s `maxUploadSizeBytes`), rejected without writing
+a partial file. `400 Bad Request` for an invalid `path` segment or a
+missing `path`/`file` field.
+
+---
+
+### `GET /notes/files/{path}`
+
+Retrieve a previously uploaded file's raw bytes, `Content-Type`
+derived from the extension (falling back to `application/octet-stream`
+for an unrecognized one). Authenticated. `404 Not Found` when nothing
+exists at `path`.
+
+---
+
+### `GET /notes/files?path=`
+
+List a folder's files directly (not recursing into subfolders); an
+empty or omitted `path` lists the vault root's. Authenticated. Flat,
+unpaginated — see `add-file-upload`'s design.md for why (this isn't
+the note-listing use case pagination exists for).
+
+```json
+{
+  "items": [
+    {
+      "path": "Ideas",
+      "filename": "diagram.png",
+      "size": 4821,
+      "content_type": "image/png",
+      "updated_at": "2026-04-25T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### `PUT /notes/file-uploads/{token}`
+
+Completes a two-phase upload reserved by the MCP `request_upload` tool
+(see "Tool catalog" below) — an agent's control-plane call never
+carries the file's bytes; this is the only step that does. Accepts the
+raw request body as the file's bytes (**not** multipart).
+
+**Not gated by the normal bearer key** — `token` itself (16 bytes of
+secure randomness, single-use, short TTL, scoped to one path+filename
+pair) is the credential, the same trust model a cloud-storage
+presigned URL uses. This lets whatever actually holds the bytes (a
+sandboxed `curl`, the agent's host process) perform the transfer
+without needing the broader API key.
+
+Response `200 OK`:
+
+```json
+{
+  "token": "...",
+  "size": 4821,
+  "content_type": "image/png",
+  "expires_at": "2026-04-25T10:15:00.000Z"
+}
+```
+
+`404 Not Found` for a missing, expired, or already-completed token.
+`413 Payload Too Large` over the configured max upload size, aborting
+and discarding any partial data. Completing the `PUT` does **not**
+place the file in the vault — the caller still has to call
+`finalize_upload` (MCP) afterward.
 
 ---
 
@@ -634,21 +730,23 @@ the consent page falls back to the paste-the-key form as before.
 
 ### Tool catalog
 
-`tools/list` always returns the same ten tools, regardless of scope
+`tools/list` always returns the same twelve tools, regardless of scope
 (scope is enforced per call, not per listing):
 
-| Tool             | What it does                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------- |
-| `list_notes`     | Paginated note metadata (id, title, path, version, timestamps); `path`/`tag` params — mirrors `GET /notes`.   |
-| `get_note`       | Full content of one note by id, including lock status — mirrors `GET /notes/{id}`.                            |
-| `search_notes`   | Full-text search with `<mark>` snippets; `path`/`tag` params — mirrors `GET /search`.                         |
-| `create_note`    | Create a note; accepts `path` — mirrors `POST /notes`.                                                        |
-| `update_note`    | Update a note under optimistic concurrency (`version` required); accepts `path` — mirrors `PUT /notes/{id}`.  |
-| `move_note`      | Change only a note's `path` under the same version/lock rules as `update_note`; broadcasts `action: "moved"`. |
-| `append_to_note` | Server-side read-append-write; retries on a lost version race.                                                |
-| `get_backlinks`  | Notes whose content links to this note — mirrors `GET /notes/{id}/backlinks`.                                 |
-| `delete_note`    | Delete a note — mirrors `DELETE /notes/{id}`.                                                                 |
-| `create_folder`  | Create an empty folder (idempotent, no error if it already exists) — mirrors `POST /notes/tree`.              |
+| Tool              | What it does                                                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `list_notes`      | Paginated note metadata (id, title, path, version, timestamps); `path`/`tag` params — mirrors `GET /notes`.                   |
+| `get_note`        | Full content of one note by id, including lock status — mirrors `GET /notes/{id}`.                                            |
+| `search_notes`    | Full-text search with `<mark>` snippets; `path`/`tag` params — mirrors `GET /search`.                                         |
+| `create_note`     | Create a note; accepts `path` — mirrors `POST /notes`.                                                                        |
+| `update_note`     | Update a note under optimistic concurrency (`version` required); accepts `path` — mirrors `PUT /notes/{id}`.                  |
+| `move_note`       | Change only a note's `path` under the same version/lock rules as `update_note`; broadcasts `action: "moved"`.                 |
+| `append_to_note`  | Server-side read-append-write; retries on a lost version race.                                                                |
+| `get_backlinks`   | Notes whose content links to this note — mirrors `GET /notes/{id}/backlinks`.                                                 |
+| `delete_note`     | Delete a note — mirrors `DELETE /notes/{id}`.                                                                                 |
+| `create_folder`   | Create an empty folder (idempotent, no error if it already exists) — mirrors `POST /notes/tree`.                              |
+| `request_upload`  | Reserve a token-authenticated upload slot; returns `upload_url`/`token`/`expires_at` for a `PUT /notes/file-uploads/{token}`. |
+| `finalize_upload` | Place a completed upload (see `request_upload`) into the vault — the same write path `POST /notes/files` uses.                |
 
 Every successful call returns both a `content[0].text` (JSON string)
 and an identical `structuredContent` object. Domain failures (not

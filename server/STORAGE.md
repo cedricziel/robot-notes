@@ -29,12 +29,14 @@ data/
 ├── invites/                     # one JSON file per invite
 │   ├── 01HM2C...token.json
 │   └── …
+├── uploads/                     # staging for in-flight two-phase uploads (see below)
+│   └── <token>.bin
 └── search.db                    # SQLite FTS5 index + link/tag data (rebuildable)
 ```
 
 The directory must exist and be writable by the server's UID
 (`10001` in the published Docker image). The server creates
-`content/` and `invites/` lazily on the first write.
+`content/`, `invites/`, and `uploads/` lazily on the first write.
 
 ---
 
@@ -90,6 +92,47 @@ If you filter dotfiles out of a backup or sync tool, an empty folder
 created this way can silently stop being reported after a restore;
 this is a cosmetic loss (the folder just needs to be re-created empty,
 or gets a note back once one is added), not a data-loss risk.
+
+### Uploaded files
+
+```
+data/content/<path>/<sanitized-filename>
+```
+
+A non-note file — uploaded via `POST /notes/files` or the MCP
+`request_upload`/`finalize_upload` pair (see `API.md`) — lands
+alongside notes in the same folder structure, sanitized the same way
+a note's path/title are. It is excluded from every note-shaped scan
+(`GET /notes`, `GET /search`, link parsing, tag computation) the same
+way an empty-folder marker is, but — unlike a marker — it **is**
+tracked in a lightweight file index (relative path, size, modified
+time) rebuilt on every startup scan, so `GET /notes/tree` reports a
+`file_count` per folder and `GET /notes/files?path=` can list a
+folder's files. A filename collision with an existing note, file, or
+empty-folder marker is rejected (`409`), never silently overwritten or
+auto-renamed — matching a note title collision.
+
+#### Two-phase upload staging (`data/uploads/`)
+
+The MCP `request_upload`/`finalize_upload` flow exists so an agent
+never has to embed a file's bytes in a JSON-RPC call: `request_upload`
+mints a short-lived, single-use token; the actual bytes are `PUT`
+directly to `/notes/file-uploads/{token}` (a route deliberately
+outside the normal bearer-key check — the token itself is the
+credential) and staged at `data/uploads/<token>.bin`, **outside**
+`content/` so an in-flight or abandoned upload is never scanned,
+indexed, or served as a vault file. `finalize_upload` moves the staged
+bytes into their final `content/` location via the identical write
+path a direct upload uses, then deletes the staging file and the
+in-memory session record.
+
+Session metadata (which token maps to which path/filename/expiry)
+lives only in memory, not on disk — a server restart loses any
+session that was reserved but never finalized, orphaning its staged
+`.bin` file. This is an accepted trade-off (see
+`openspec/changes/add-file-upload/design.md`'s Non-Goals): sessions
+are short-lived (minutes) by design, and a stray small file under
+`uploads/` has no bearing on the vault's actual content.
 
 ### File body
 
