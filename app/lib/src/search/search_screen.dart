@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
@@ -12,12 +13,24 @@ import 'search_controller.dart';
 /// [ValueListenableBuilder]. Tapping a result calls [onResultTap] with
 /// the note id so the parent can route into the note view. A failed
 /// request shows the server's message; earlier results stay on screen
-/// beneath it until the next query replaces them.
+/// beneath it until the next query replaces them. Before the user types
+/// anything, [recentNotes] (already loaded and sorted by the caller —
+/// typically the notes list, already most-recently-updated-first) fills
+/// the empty state instead of a bare hint.
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({required this.controller, this.onResultTap, super.key});
+  const SearchScreen({
+    required this.controller,
+    this.onResultTap,
+    this.recentNotes = const <NoteMeta>[],
+    super.key,
+  });
 
   final NotesSearchController controller;
   final ValueChanged<String>? onResultTap;
+
+  /// Shown as a "Recent" section while the query is empty. `null`/empty
+  /// falls back to the plain "Type to search." hint.
+  final List<NoteMeta> recentNotes;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -73,7 +86,13 @@ class _SearchScreenState extends State<SearchScreen> {
         builder: (context, state, _) {
           final trimmedQuery = state.query.trim();
           if (trimmedQuery.isEmpty) {
-            return const Center(child: Text('Type to search.'));
+            if (widget.recentNotes.isEmpty) {
+              return const Center(child: Text('Type to search.'));
+            }
+            return _RecentSection(
+              notes: widget.recentNotes,
+              onTap: widget.onResultTap,
+            );
           }
           final error = state.error;
           if (state.hits.isEmpty) {
@@ -177,6 +196,43 @@ class _SyntaxHint extends StatelessWidget {
         textAlign: textAlign,
         style: Theme.of(context).textTheme.bodySmall,
       ),
+    );
+  }
+}
+
+/// Fills the empty state before the user types anything: a short list of
+/// recently-updated notes, so search never opens to a blank page.
+class _RecentSection extends StatelessWidget {
+  const _RecentSection({required this.notes, this.onTap});
+
+  final List<NoteMeta> notes;
+  final ValueChanged<String>? onTap;
+
+  /// Caps how many recent notes to show — this is a quick jumping-off
+  /// point, not a second notes list.
+  static const _maxShown = 8;
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = notes.take(_maxShown).toList(growable: false);
+    return ListView(
+      key: const Key('search.recent'),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          child: Text('Recent', style: Theme.of(context).textTheme.labelMedium),
+        ),
+        for (final note in shown)
+          ListTile(
+            key: Key('search.recent.${note.id}'),
+            title: Text(note.title.isEmpty ? '(untitled)' : note.title),
+            trailing: Text(
+              formatNoteTimestamp(note.updatedAt),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            onTap: onTap == null ? null : () => onTap!(note.id),
+          ),
+      ],
     );
   }
 }

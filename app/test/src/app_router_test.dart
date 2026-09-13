@@ -241,14 +241,55 @@ void main() {
     await tester.pump(const Duration(days: 365 * 100));
   });
 
-  testWidgets('/search shows the search screen', (tester) async {
-    final api = RobotNotesClient(config: _config, httpClient: _mockClient());
-    addTearDown(api.close);
+  group('search overlay', () {
+    testWidgets('opens above the list rather than replacing it', (
+      tester,
+    ) async {
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
 
-    await tester.pumpWidget(_harness(api: api, initialLocation: '/search'));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+      expect(find.text('Notes'), findsOneWidget);
 
-    expect(find.byKey(const Key('search.input')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('shell.search')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+      // The list is still in the tree underneath, not popped/replaced.
+      expect(find.text('Notes'), findsOneWidget);
+    });
+
+    testWidgets(
+      'closing the overlay returns to the list without a fresh fetch',
+      (tester) async {
+        var listFetches = 0;
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes') {
+            listFetches += 1;
+          }
+          return _fakeBackend(request);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        addTearDown(api.close);
+
+        await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+        await tester.pumpAndSettle();
+        expect(listFetches, 1);
+
+        await tester.tap(find.byKey(const Key('shell.search')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('search.input')), findsOneWidget);
+
+        // Dismiss via the scrim, like tapping outside a dialog.
+        await tester.tapAt(const Offset(5, 5));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('search.input')), findsNothing);
+        expect(find.text('Notes'), findsOneWidget);
+        expect(listFetches, 1, reason: 'closing search should not refetch');
+      },
+    );
   });
 
   testWidgets('pushing to a note updates the reported URL', (tester) async {

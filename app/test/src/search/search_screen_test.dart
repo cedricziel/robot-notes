@@ -10,6 +10,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared/shared.dart';
+
+NoteMeta _recentNote({required String id, required String title}) => NoteMeta(
+  id: id,
+  title: title,
+  version: 1,
+  createdAt: DateTime.utc(2026, 1, 1),
+  updatedAt: DateTime.utc(2026, 1, 1),
+);
 
 const _config = AppConfig(
   baseUrl: 'https://notes.example',
@@ -142,6 +151,106 @@ void main() {
 
     expect(calls, 1);
     expect(find.text('Type to search.'), findsOneWidget);
+  });
+
+  group('recent notes', () {
+    testWidgets('shows a Recent section before the user types anything', (
+      tester,
+    ) async {
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async => http.Response('', 500)),
+      );
+      final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SearchScreen(
+            controller: ctrl,
+            recentNotes: [
+              _recentNote(id: '01H', title: 'Weekend Trip'),
+              _recentNote(id: '02H', title: 'Grocery List'),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Recent'), findsOneWidget);
+      expect(find.text('Weekend Trip'), findsOneWidget);
+      expect(find.text('Grocery List'), findsOneWidget);
+    });
+
+    testWidgets('tapping a recent note invokes onResultTap', (tester) async {
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async => http.Response('', 500)),
+      );
+      final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+      addTearDown(ctrl.dispose);
+      String? tapped;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SearchScreen(
+            controller: ctrl,
+            recentNotes: [_recentNote(id: '01H', title: 'Weekend Trip')],
+            onResultTap: (id) => tapped = id,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Weekend Trip'));
+      await tester.pump();
+
+      expect(tapped, '01H');
+    });
+
+    testWidgets('falls back to the empty-state hint when there are no '
+        'recent notes', (tester) async {
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async => http.Response('', 500)),
+      );
+      final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: SearchScreen(controller: ctrl)),
+      );
+      await tester.pump();
+
+      expect(find.text('Recent'), findsNothing);
+      expect(find.text('Type to search.'), findsOneWidget);
+    });
+
+    testWidgets('the Recent section is replaced once the user types', (
+      tester,
+    ) async {
+      final mock = MockClient((request) async => _hits(['03H']));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SearchScreen(
+            controller: ctrl,
+            recentNotes: [_recentNote(id: '01H', title: 'Weekend Trip')],
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Recent'), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('search.input')), 'trip');
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Recent'), findsNothing);
+    });
   });
 
   testWidgets('an API error with no results shows the message centred', (
