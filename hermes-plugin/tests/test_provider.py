@@ -152,7 +152,13 @@ def test_a_stale_prefetch_does_not_clobber_a_newer_one(provider):
 
 def test_get_tool_schemas_lists_expected_tools(provider):
     names = {schema["name"] for schema in provider.get_tool_schemas()}
-    assert names == {"robotnotes_search", "robotnotes_note", "robotnotes_remember", "robotnotes_forget"}
+    assert names == {
+        "robotnotes_search",
+        "robotnotes_list",
+        "robotnotes_note",
+        "robotnotes_remember",
+        "robotnotes_forget",
+    }
 
 
 @respx.mock
@@ -164,6 +170,35 @@ def test_handle_tool_call_search(provider):
     result = json.loads(provider.handle_tool_call("robotnotes_search", {"query": "budget"}))
 
     assert result["items"][0]["id"] == "1"
+
+
+@respx.mock
+def test_handle_tool_call_list(provider):
+    route = respx.get("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "1", "title": "Budget"}], "next_cursor": None}
+        )
+    )
+
+    result = json.loads(provider.handle_tool_call("robotnotes_list", {}))
+
+    assert route.called
+    assert result["items"][0]["id"] == "1"
+    assert result["next_cursor"] is None
+
+
+@respx.mock
+def test_handle_tool_call_list_forwards_path_and_after(provider):
+    route = respx.get("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(200, json={"items": [], "next_cursor": None})
+    )
+
+    provider.handle_tool_call("robotnotes_list", {"path": "Hermes", "after": "01CURSOR", "limit": 10})
+
+    sent = route.calls.last.request
+    assert sent.url.params["path"] == "Hermes"
+    assert sent.url.params["after"] == "01CURSOR"
+    assert sent.url.params["limit"] == "10"
 
 
 @respx.mock
