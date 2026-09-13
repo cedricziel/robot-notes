@@ -1239,6 +1239,22 @@ void main() {
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
+
+    test(
+        'calling create_folder on an existing note-backed folder does not '
+        'register it as a marker-tracked empty folder', () async {
+      await deps.noteWriteService.create(
+        title: 'A',
+        content: '',
+        actor: 'tester',
+        path: 'Projects/Alpha',
+      );
+
+      final result = await call('create_folder', {'path': 'Projects/Alpha'});
+
+      expect(_structured(result), {'path': 'Projects/Alpha', 'note_count': 1});
+      expect(deps.metaIndex.emptyFolders, isNot(contains('Projects/Alpha')));
+    });
   });
 
   group('tools/list catalog', () {

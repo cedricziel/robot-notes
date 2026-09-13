@@ -799,9 +799,13 @@ McpTool _createFolderTool(Storage storage, MetaIndex metaIndex) => McpTool(
         }
         try {
           final result = await storage.createFolder(path);
-          metaIndex.registerEmptyFolder(result.path);
           final noteCount =
               metaIndex.all.where((s) => s.path == result.path).length;
+          // Only a folder with no notes is marker-backed on disk (per
+          // Storage.createFolder); registering a note-backed folder here
+          // too would leave it listed forever once its real notes are
+          // removed.
+          if (noteCount == 0) metaIndex.registerEmptyFolder(result.path);
           return toolOk({'path': result.path, 'note_count': noteCount});
         } on InvalidPathException catch (e) {
           return toolFail(kErrorValidationFailed, message: e.message);
