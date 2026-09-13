@@ -42,15 +42,20 @@ String blankNoteTitle(DateTime now) {
 }
 
 /// Creates a fresh note with the date-prefixed placeholder title and
-/// empty content. The server rejects empty titles (`POST /notes`
-/// requires a non-empty string), so the client always sends a stand-in;
-/// the user renames it inline once the editor opens.
+/// empty content, in [path] (defaulting to the vault root). The server
+/// rejects empty titles (`POST /notes` requires a non-empty string), so
+/// the client always sends a stand-in; the user renames it inline once
+/// the editor opens.
 ///
 /// Extracted so widget tests can exercise the same call the FAB does
 /// without having to mount the full app shell.
-Future<Note> createBlankNote(RobotNotesClient api, {DateTime? now}) {
+Future<Note> createBlankNote(
+  RobotNotesClient api, {
+  DateTime? now,
+  String path = '',
+}) {
   final title = blankNoteTitle(now ?? DateTime.now());
-  return api.createNote(title: title, content: '');
+  return api.createNote(title: title, content: '', path: path);
 }
 
 /// Tracks whether a persisted [AppConfig] exists and lets the setup flow
@@ -219,7 +224,12 @@ Widget _buildListPage(BuildContext context) {
       return NotesListScreen(
         controller: session.list,
         onNoteTap: (id) => unawaited(context.push('/notes/$id')),
-        onCreate: () => unawaited(_createNote(context, session)),
+        onCreateNote: () => unawaited(
+          _createNote(context, session, path: listState.selectedPath ?? ''),
+        ),
+        onCreateFolder: () => unawaited(
+          _createFolder(context, session, initialPath: listState.selectedPath),
+        ),
         onSearch: () => unawaited(_openSearch(context, session)),
         onAccount: () => unawaited(_confirmReset(context, session)),
         sidebar: FolderTreeSidebar(
@@ -311,10 +321,14 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
   }
 }
 
-Future<void> _createNote(BuildContext context, AppSession session) async {
+Future<void> _createNote(
+  BuildContext context,
+  AppSession session, {
+  String path = '',
+}) async {
   final messenger = ScaffoldMessenger.of(context);
   try {
-    final note = await createBlankNote(session.api);
+    final note = await createBlankNote(session.api, path: path);
     if (!context.mounted) return;
     unawaited(context.push('/notes/${note.id}?edit=1'));
   } on ApiException catch (e) {

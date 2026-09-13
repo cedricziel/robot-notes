@@ -693,12 +693,12 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: NotesListScreen(controller: ctrl, onCreate: () {}),
+          home: NotesListScreen(controller: ctrl, onCreateNote: () {}),
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.byTooltip('New note'), findsOneWidget);
+      expect(find.byTooltip('Create'), findsOneWidget);
       expect(find.widgetWithText(TextButton, 'New note'), findsNothing);
     });
 
@@ -717,7 +717,7 @@ void main() {
 
         await tester.pumpWidget(
           MaterialApp(
-            home: NotesListScreen(controller: ctrl, onCreate: () {}),
+            home: NotesListScreen(controller: ctrl, onCreateNote: () {}),
           ),
         );
         await tester.pumpAndSettle();
@@ -730,7 +730,7 @@ void main() {
       },
     );
 
-    testWidgets('the wide New note action invokes onCreate when tapped', (
+    testWidgets('the wide New note action invokes onCreateNote when tapped', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(1200, 800);
@@ -748,7 +748,7 @@ void main() {
         MaterialApp(
           home: NotesListScreen(
             controller: ctrl,
-            onCreate: () => created = true,
+            onCreateNote: () => created = true,
           ),
         ),
       );
@@ -922,5 +922,95 @@ void main() {
 
       expect(find.byKey(const Key('notes.bottomNav.search')), findsNothing);
     });
+  });
+
+  testWidgets('the FAB presents a menu with New note and New folder instead of '
+      'creating instantly', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final mock = MockClient((request) async {
+      return _page(<Object?>[]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+    var noteCreated = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotesListScreen(
+          controller: ctrl,
+          onCreateNote: () => noteCreated = true,
+          onCreateFolder: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('notes.create')));
+    await tester.pumpAndSettle();
+
+    expect(noteCreated, isFalse);
+    expect(find.text('New note'), findsOneWidget);
+    expect(find.text('New folder'), findsOneWidget);
+  });
+
+  testWidgets('choosing "New note" from the FAB menu invokes onCreateNote', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final mock = MockClient((request) async {
+      return _page(<Object?>[]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+    var noteCreated = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotesListScreen(
+          controller: ctrl,
+          onCreateNote: () => noteCreated = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('notes.create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('notes.create.note')));
+    await tester.pumpAndSettle();
+
+    expect(noteCreated, isTrue);
+  });
+
+  testWidgets('no "New folder" menu item when onCreateFolder is omitted', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final mock = MockClient((request) async {
+      return _page(<Object?>[]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotesListScreen(controller: ctrl, onCreateNote: () {}),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('notes.create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('New folder'), findsNothing);
   });
 }

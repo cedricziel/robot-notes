@@ -117,13 +117,15 @@ void main() {
       MaterialApp(
         home: NotesListScreen(
           controller: ctrl,
-          onCreate: () => createBlankNote(api, now: DateTime(2026, 4, 25)),
+          onCreateNote: () => createBlankNote(api, now: DateTime(2026, 4, 25)),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('notes.create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('notes.create.note')));
     await tester.pumpAndSettle();
 
     expect(createBody, isNotNull, reason: 'POST /notes should fire');

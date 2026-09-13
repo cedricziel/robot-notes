@@ -132,6 +132,8 @@ void main() {
 
     await tester.tap(find.byKey(const Key('notes.create')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('notes.create.note')));
+    await tester.pumpAndSettle();
 
     expect(find.textContaining('null'), findsNothing);
     expect(find.text('Could not create note.'), findsOneWidget);
@@ -204,6 +206,190 @@ void main() {
       expect(wasReset, isTrue);
     });
   });
+
+  testWidgets('choosing "New note" targets the currently selected folder', (
+    tester,
+  ) async {
+    Map<String, dynamic>? createBody;
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((request) async {
+        if (request.method == 'GET' && request.url.path == '/notes/tree') {
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'folders': [
+                {'path': 'Projects/Alpha', 'note_count': 1},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'POST' && request.url.path == '/notes') {
+          createBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(jsonEncode(_noteJson()), 201);
+        }
+        return _fakeBackend(request);
+      }),
+    );
+    addTearDown(api.close);
+
+    await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Projects'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alpha'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('notes.create.toolbar')));
+    await tester.pumpAndSettle();
+
+    expect(createBody?['path'], 'Projects/Alpha');
+
+    // Creating navigates into the editor, which starts a real lock
+    // heartbeat timer; stop it so the test ends with nothing pending.
+    await tester.tap(find.byKey(const Key('note.close')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(days: 365 * 100));
+  });
+
+  testWidgets(
+    'choosing "New note" with no folder selected uses the vault root',
+    (tester) async {
+      Map<String, dynamic>? createBody;
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.method == 'POST' && request.url.path == '/notes') {
+            createBody = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(jsonEncode(_noteJson()), 201);
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.create.toolbar')));
+      await tester.pumpAndSettle();
+
+      expect(createBody?['path'], '');
+
+      // Creating navigates into the editor, which starts a real lock
+      // heartbeat timer; stop it so the test ends with nothing pending.
+      await tester.tap(find.byKey(const Key('note.close')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(days: 365 * 100));
+    },
+  );
+
+  testWidgets(
+    'choosing "New folder" from the FAB creates it and refreshes the tree',
+    (tester) async {
+      // The FAB's "New folder" menu item only exists on the narrow layout
+      // — on wide, folder creation is reached via the inline sidebar's own
+      // action instead (covered by the sidebar test below).
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      var folderCreated = false;
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.method == 'POST' && request.url.path == '/notes/tree') {
+            folderCreated = true;
+            return http.Response(
+              jsonEncode(<String, Object?>{'path': 'Ideas', 'note_count': 0}),
+              201,
+            );
+          }
+          if (request.method == 'GET' && request.url.path == '/notes/tree') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'folders': folderCreated
+                    ? [
+                        {'path': 'Ideas', 'note_count': 0},
+                      ]
+                    : <Object?>[],
+              }),
+              200,
+            );
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.create.folder')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('folder.create.input')),
+        'Ideas',
+      );
+      await tester.tap(find.byKey(const Key('folder.create.confirm')));
+      await tester.pumpAndSettle();
+
+      // The sidebar lives in a drawer on this narrow layout; open it to
+      // see the refreshed tree.
+      await tester.tap(find.byKey(const Key('notes.bottomNav.folders')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ideas'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'a failed "New folder" from the FAB shows the server error and leaves '
+    'the prompt open',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.method == 'POST' && request.url.path == '/notes/tree') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'error': 'bad_request',
+                'message': 'path is required and must be a non-empty string',
+              }),
+              400,
+            );
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.create')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.create.folder')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('folder.create.input')),
+        'Ideas',
+      );
+      await tester.tap(find.byKey(const Key('folder.create.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('path is required and must be a non-empty string'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('folder.create.confirm')), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'creating a folder from the sidebar refreshes the tree so it appears',
