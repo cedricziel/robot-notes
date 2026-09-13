@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.10](https://github.com/cedricziel/robot-notes/compare/v0.2.9...v0.2.10) (2026-09-13)
+
+
+### Features
+
+* **app:** add file upload — client API, file picker, and FAB wiring ([#211](https://github.com/cedricziel/robot-notes/issues/211)) ([e8a4332](https://github.com/cedricziel/robot-notes/commit/e8a4332aad0875fddc7fa027f5c940264ea1cedd))
+* **hermes-plugin:** robot-notes memory provider for Hermes Agent ([#199](https://github.com/cedricziel/robot-notes/issues/199)) ([65556e3](https://github.com/cedricziel/robot-notes/commit/65556e3cabcbfb674c340eda003f0588c5c45a66))
+* **plugins:** add robot-notes and hermes-agent plugins, version alongside project ([#203](https://github.com/cedricziel/robot-notes/issues/203)) ([4d2cfeb](https://github.com/cedricziel/robot-notes/commit/4d2cfeb650d5540e7f7f4ea93947a2d31eacd4fd))
+* **server:** add a configurable max upload size setting ([#191](https://github.com/cedricziel/robot-notes/issues/191)) ([cf2d778](https://github.com/cedricziel/robot-notes/commit/cf2d77865c4c22fd6c4dd14397c4de9133549e01))
+* **server:** add attachment write helper (sanitization, collision, atomic write) ([#192](https://github.com/cedricziel/robot-notes/issues/192)) ([e1d723f](https://github.com/cedricziel/robot-notes/commit/e1d723ff18bc8ced9dd19557f0fbb0a41a241da1))
+* **server:** add POST/GET /notes/files and folder listing ([#205](https://github.com/cedricziel/robot-notes/issues/205)) ([1e59b18](https://github.com/cedricziel/robot-notes/commit/1e59b182ad678e51352177584e31a421d4d0759f))
+* **server:** add request_upload and finalize_upload MCP tools ([#210](https://github.com/cedricziel/robot-notes/issues/210)) ([a266311](https://github.com/cedricziel/robot-notes/commit/a266311a783bb4ad2455fe703554f877e7614446))
+* **server:** add upload-session store and PUT /notes/file-uploads/{token} ([#206](https://github.com/cedricziel/robot-notes/issues/206)) ([8bd640e](https://github.com/cedricziel/robot-notes/commit/8bd640e11d61832ab1024a9ce8b9be5698e6a2a7))
+* **server:** index uploaded files for folder-tree discoverability ([#204](https://github.com/cedricziel/robot-notes/issues/204)) ([3aaa803](https://github.com/cedricziel/robot-notes/commit/3aaa8035314bfb7dc41b829a6e3a42285b627a40))
+
+
+### Bug Fixes
+
+* **hermes-plugin:** relative imports and correct search query param ([#200](https://github.com/cedricziel/robot-notes/issues/200)) ([c041796](https://github.com/cedricziel/robot-notes/commit/c041796be510aa364697f9ff856a5a61295d58a3))
+
+
+### Documentation
+
+* **server:** document vault-files, upload sessions, and the two upload paths ([#212](https://github.com/cedricziel/robot-notes/issues/212)) ([7d7e35d](https://github.com/cedricziel/robot-notes/commit/7d7e35dc171bda8066522950e1ca246465055408))
+
 ## [0.2.9](https://github.com/cedricziel/robot-notes/compare/v0.2.8...v0.2.9) (2026-09-13)
 
 
