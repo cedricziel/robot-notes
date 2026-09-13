@@ -20,6 +20,7 @@ import 'package:server/src/oidc/jwks.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/vault_files.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
 import 'package:shared/shared.dart';
@@ -59,6 +60,7 @@ class AppDeps {
     OidcDiscoveryDocument? oidcDiscovery,
     JwksCache? oidcJwks,
     PendingLoginStore? pendingLoginStore,
+    FileStore? fileStore,
   }) {
     final resolvedLinkIndex = linkIndex ?? LinkIndex();
     final resolvedWriteService = noteWriteService ??
@@ -88,6 +90,7 @@ class AppDeps {
       oidcDiscovery: oidcDiscovery,
       oidcJwks: oidcJwks,
       pendingLoginStore: pendingLoginStore,
+      fileStore: fileStore ?? FileStore(contentDir: storage.contentDir),
     );
   }
 
@@ -106,6 +109,7 @@ class AppDeps {
     required this.clock,
     required this.linkIndex,
     required this.noteWriteService,
+    required this.fileStore,
     this.oidcDiscovery,
     this.oidcJwks,
     PendingLoginStore? pendingLoginStore,
@@ -146,6 +150,7 @@ class AppDeps {
       log.info('Migrated $migrated legacy note file(s) to vault layout');
     }
     final storage = Storage(contentDir: contentDir, clock: clock);
+    final fileStore = FileStore(contentDir: contentDir);
     final metaIndex = MetaIndex();
     final loaded = await metaIndex.scan(storage);
     log.info('Bootstrapped MetaIndex with $loaded note(s)');
@@ -234,11 +239,16 @@ class AppDeps {
       oidcDiscovery: oidcDiscovery,
       oidcJwks: oidcJwks,
       pendingLoginStore: PendingLoginStore(clock: clock),
+      fileStore: fileStore,
     );
   }
 
   /// Canonical filesystem-backed note store.
   final Storage storage;
+
+  /// Write path for uploaded (non-note) files, rooted at the same
+  /// `contentDir` as [storage].
+  final FileStore fileStore;
 
   /// In-memory listing index, derived from [storage].
   final MetaIndex metaIndex;
