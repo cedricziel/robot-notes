@@ -77,6 +77,25 @@ void main() {
       expect(loaded, 1);
       expect(index.get(ok.id), isNotNull);
     });
+
+    test('picks up empty-folder markers from Storage', () async {
+      final storage = Storage(
+        contentDir: Directory('${tmp.path}/content'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      await storage.createFolder('Ideas');
+      final index = MetaIndex();
+      await index.scan(storage);
+      expect(index.emptyFolders, {'Ideas'});
+    });
+  });
+
+  group('MetaIndex.registerEmptyFolder', () {
+    test('adds a folder path without a full rescan', () {
+      final index = MetaIndex();
+      index.registerEmptyFolder('Ideas');
+      expect(index.emptyFolders, {'Ideas'});
+    });
   });
 
   group('MetaIndex mutations', () {
