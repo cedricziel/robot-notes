@@ -58,6 +58,35 @@ void main() {
       expect(back, equals(meta));
       expect(back.path, 'Projects/Alpha');
     });
+
+    test('excerpt and tags default when omitted from the JSON', () {
+      final meta = NoteMeta.fromJson({
+        'id': '01HXY00000000000000000000A',
+        'title': 'Hello',
+        'version': 1,
+        'created_at': '2026-01-01T00:00:00.000Z',
+        'updated_at': '2026-01-01T00:00:00.000Z',
+      });
+      expect(meta.excerpt, '');
+      expect(meta.tags, isEmpty);
+    });
+
+    test('round-trips excerpt and tags', () {
+      final meta = NoteMeta(
+        id: '01HXY00000000000000000000A',
+        title: 'Hello',
+        version: 3,
+        createdAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 2),
+        excerpt: 'A short preview of the note body…',
+        tags: const ['planning', 'urgent'],
+      );
+      final json = meta.toJson();
+      expect(json['excerpt'], 'A short preview of the note body…');
+      expect(json['tags'], ['planning', 'urgent']);
+      final back = NoteMeta.fromJson(json);
+      expect(back, equals(meta));
+    });
   });
 
   group('Note', () {

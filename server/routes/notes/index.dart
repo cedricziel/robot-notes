@@ -7,6 +7,14 @@ import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/storage.dart';
 
+/// Sorts [tags] ascending, case-insensitively, for a deterministic list
+/// response (a `Set` has no inherent order).
+List<String> _sortedTags(Set<String> tags) {
+  final sorted = tags.toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return sorted;
+}
+
 /// `GET /notes`  — paginated listing of note metadata (no content).
 /// `POST /notes` — create a new note.
 Future<Response> onRequest(RequestContext context) async {
@@ -93,6 +101,8 @@ Response _list(RequestContext context) {
             'version': s.version,
             'created_at': s.createdAt.toUtc().toIso8601String(),
             'updated_at': s.updatedAt.toUtc().toIso8601String(),
+            'excerpt': s.excerpt,
+            'tags': _sortedTags(s.tags),
           },
       ],
       'limit': effectiveLimit,

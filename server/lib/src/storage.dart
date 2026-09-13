@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/excerpt.dart';
 import 'package:server/src/frontmatter.dart';
 import 'package:server/src/note_path.dart';
 import 'package:server/src/tags.dart';
@@ -27,6 +28,7 @@ class NoteSummary {
     required this.createdAt,
     required this.updatedAt,
     this.tags = const <String>{},
+    this.excerpt = '',
   });
 
   /// Note identifier (ULID).
@@ -54,6 +56,11 @@ class NoteSummary {
   /// note's frontmatter/content, so it is always recomputed by
   /// [StoredNote.toSummary] from whatever is currently on disk.
   final Set<String> tags;
+
+  /// Bounded, markdown-stripped preview of the note's body (see
+  /// `excerpt.dart`'s `computeExcerpt`). Derived the same way as [tags]:
+  /// never persisted, always recomputed by [StoredNote.toSummary].
+  final String excerpt;
 }
 
 /// Full on-disk view of a note: required metadata + body + any extra
@@ -101,11 +108,12 @@ class StoredNote {
   final Map<String, Object?> extra;
 
   /// Returns a [NoteSummary] derived from this note, recomputing its tag
-  /// set from [extra]/[content] (see [computeTags]) rather than caching
-  /// it anywhere — this is what makes the tag set "recalculated on every
-  /// write and on startup index rebuild" per `notes-storage` spec: every
-  /// caller of `toSummary()` (`Storage.list`, and `NoteWriteService` on
-  /// every create/update) gets a fresh computation for free.
+  /// set and excerpt from [extra]/[content] (see [computeTags],
+  /// [computeExcerpt]) rather than caching either anywhere — this is what
+  /// makes them "recalculated on every write and on startup index rebuild"
+  /// per `notes-storage` spec: every caller of `toSummary()`
+  /// (`Storage.list`, and `NoteWriteService` on every create/update) gets a
+  /// fresh computation for free.
   NoteSummary toSummary() => NoteSummary(
         id: id,
         title: title,
@@ -114,6 +122,7 @@ class StoredNote {
         createdAt: createdAt,
         updatedAt: updatedAt,
         tags: computeTags(extra: extra, content: content),
+        excerpt: computeExcerpt(content),
       );
 }
 

@@ -210,14 +210,23 @@ class NotesListController extends ValueNotifier<NotesListState> {
   }
 
   void _upsert(Note note, {required bool prepend}) {
+    final idx = value.items.indexWhere((n) => n.id == note.id);
+    // GET /notes/{id} (what a `changed` event triggers) never carries an
+    // excerpt — only the list endpoint computes one. Keep the previous
+    // entry's excerpt rather than blanking it; it goes stale until the
+    // next full refresh, which beats the row losing its preview text on
+    // every live edit.
+    final previousExcerpt = idx >= 0 ? value.items[idx].excerpt : '';
     final meta = NoteMeta(
       id: note.id,
       title: note.title,
+      path: note.path,
       version: note.version,
       createdAt: note.createdAt,
       updatedAt: note.updatedAt,
+      excerpt: previousExcerpt,
+      tags: note.tags,
     );
-    final idx = value.items.indexWhere((n) => n.id == note.id);
     final rest = idx >= 0
         ? <NoteMeta>[...value.items.take(idx), ...value.items.skip(idx + 1)]
         : value.items;

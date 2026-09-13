@@ -22,10 +22,16 @@ Map<String, Object?> _metaJson({
   required String id,
   String title = 'note',
   int version = 1,
+  String path = '',
+  String excerpt = '',
+  List<String> tags = const [],
 }) => <String, Object?>{
   'id': id,
   'title': title,
   'version': version,
+  'path': path,
+  'excerpt': excerpt,
+  'tags': tags,
   'created_at': _now,
   'updated_at': _now,
 };
@@ -35,11 +41,15 @@ Map<String, Object?> _noteJson({
   String title = 'note',
   String content = 'body',
   int version = 1,
+  String path = '',
+  List<String> tags = const [],
 }) => <String, Object?>{
   'id': id,
   'title': title,
   'content': content,
   'version': version,
+  'path': path,
+  'tags': tags,
   'created_at': _now,
   'updated_at': _now,
 };
@@ -295,6 +305,77 @@ void main() {
         expect(ctrl.value.items.single.title, 'edited');
       },
     );
+
+    test('changed{updated} keeps the path and tags fresh, and preserves the '
+        'prior excerpt (not shipped on GET /notes/{id})', () async {
+      final mock = MockClient((request) async {
+        if (request.url.path == '/notes' && request.method == 'GET') {
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'items': <Object?>[
+                _metaJson(
+                  id: '01H',
+                  version: 1,
+                  path: 'Old/Path',
+                  excerpt: 'stale preview',
+                  tags: ['old'],
+                ),
+              ],
+              'limit': 50,
+              'next_cursor': null,
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/notes/01H' && request.method == 'GET') {
+          // The full Note never carries an excerpt — only the list
+          // endpoint does.
+          return http.Response(
+            jsonEncode(
+              _noteJson(
+                id: '01H',
+                title: 'edited',
+                version: 7,
+                path: 'New/Path',
+                tags: ['fresh'],
+              ),
+            ),
+            200,
+          );
+        }
+        return http.Response('unexpected: ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final events = StreamController<RealtimeEvent>.broadcast();
+      addTearDown(events.close);
+      final ctrl = NotesListController(api: api, events: events.stream);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.refresh();
+      events.add(
+        const RealtimeMessage(
+          ChangedEvent(
+            noteId: '01H',
+            version: 7,
+            by: 'alice',
+            action: ChangeAction.updated,
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      final updated = ctrl.value.items.single;
+      expect(updated.path, 'New/Path');
+      expect(updated.tags, ['fresh']);
+      expect(
+        updated.excerpt,
+        'stale preview',
+        reason:
+            'not recomputable client-side; kept rather than blanked '
+            'until the next full refresh',
+      );
+    });
 
     test('changed{updated} moves the entry to the top', () async {
       final mock = MockClient((request) async {

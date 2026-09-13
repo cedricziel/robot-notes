@@ -38,6 +38,8 @@ class NoteMeta {
     required this.version,
     required this.createdAt,
     required this.updatedAt,
+    this.excerpt = '',
+    this.tags = const <String>[],
   });
 
   final String id;
@@ -52,6 +54,14 @@ class NoteMeta {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// Bounded, markdown-stripped preview of the note's body. Empty when the
+  /// server response omits the field.
+  final String excerpt;
+
+  /// Computed tag set, in server-provided display casing. Empty when the
+  /// server response omits the field.
+  final List<String> tags;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
@@ -59,6 +69,8 @@ class NoteMeta {
         'version': version,
         'created_at': createdAt.toUtc().toIso8601String(),
         'updated_at': updatedAt.toUtc().toIso8601String(),
+        'excerpt': excerpt,
+        'tags': tags,
       };
 
   factory NoteMeta.fromJson(Map<String, dynamic> json) => NoteMeta(
@@ -68,6 +80,10 @@ class NoteMeta {
         version: json['version'] as int,
         createdAt: DateTime.parse(json['created_at'] as String).toUtc(),
         updatedAt: DateTime.parse(json['updated_at'] as String).toUtc(),
+        excerpt: json['excerpt'] as String? ?? '',
+        tags: json['tags'] == null
+            ? const <String>[]
+            : (json['tags'] as List).cast<String>(),
       );
 
   @override
@@ -78,7 +94,9 @@ class NoteMeta {
       other.path == path &&
       other.version == version &&
       other.createdAt.isAtSameMomentAs(createdAt) &&
-      other.updatedAt.isAtSameMomentAs(updatedAt);
+      other.updatedAt.isAtSameMomentAs(updatedAt) &&
+      other.excerpt == excerpt &&
+      _listEquals(other.tags, tags);
 
   @override
   int get hashCode => Object.hash(
@@ -88,6 +106,8 @@ class NoteMeta {
         version,
         createdAt.toUtc(),
         updatedAt.toUtc(),
+        excerpt,
+        Object.hashAll(tags),
       );
 }
 

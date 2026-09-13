@@ -116,14 +116,20 @@ Response:
       "title": "Inbox",
       "path": "",
       "version": 4,
-      "updated_at": "2026-04-25T10:14:23Z"
+      "created_at": "2026-04-20T09:00:00Z",
+      "updated_at": "2026-04-25T10:14:23Z",
+      "excerpt": "Weekly review notes and open questions…",
+      "tags": ["planning", "urgent"]
     }
   ],
   "next_cursor": "01HM2A..."
 }
 ```
 
-`next_cursor` is `null` when there is no further page.
+`excerpt` is a bounded (~140 character), markdown-stripped preview of the
+note's body — never the full content. `tags` is the note's computed tag
+set (same set the `tag` filter matches against), sorted ascending,
+case-insensitively. `next_cursor` is `null` when there is no further page.
 
 ---
 
