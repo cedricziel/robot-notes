@@ -1,6 +1,7 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor_middleware.dart';
 import 'package:server/src/app_deps_holder.dart' as app_deps_holder;
+import 'package:server/src/attachments.dart';
 import 'package:server/src/auth_middleware.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
@@ -90,6 +91,7 @@ Handler middleware(Handler handler) {
           .use(provider<LinkIndex>((_) => deps.linkIndex))
           .use(provider<NoteWriteService>((_) => deps.noteWriteService))
           .use(provider<Storage>((_) => deps.storage))
+          .use(provider<AttachmentStore>((_) => deps.attachmentStore))
           .use(provider<Clock>((_) => deps.clock))
           .use(provider<Config>((_) => config))
           .use(staticWebMiddleware(webDir: config.webDir))

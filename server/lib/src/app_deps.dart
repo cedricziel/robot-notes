@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
+import 'package:server/src/attachments.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/invite_store.dart';
@@ -59,6 +60,8 @@ class AppDeps {
     OidcDiscoveryDocument? oidcDiscovery,
     JwksCache? oidcJwks,
     PendingLoginStore? pendingLoginStore,
+    AttachmentStore? attachmentStore,
+    int maxUploadSizeBytes = Config.defaultMaxUploadSizeBytes,
   }) {
     final resolvedLinkIndex = linkIndex ?? LinkIndex();
     final resolvedWriteService = noteWriteService ??
@@ -88,6 +91,9 @@ class AppDeps {
       oidcDiscovery: oidcDiscovery,
       oidcJwks: oidcJwks,
       pendingLoginStore: pendingLoginStore,
+      attachmentStore:
+          attachmentStore ?? AttachmentStore(contentDir: storage.contentDir),
+      maxUploadSizeBytes: maxUploadSizeBytes,
     );
   }
 
@@ -106,6 +112,8 @@ class AppDeps {
     required this.clock,
     required this.linkIndex,
     required this.noteWriteService,
+    required this.attachmentStore,
+    required this.maxUploadSizeBytes,
     this.oidcDiscovery,
     this.oidcJwks,
     PendingLoginStore? pendingLoginStore,
@@ -234,11 +242,23 @@ class AppDeps {
       oidcDiscovery: oidcDiscovery,
       oidcJwks: oidcJwks,
       pendingLoginStore: PendingLoginStore(clock: clock),
+      attachmentStore: AttachmentStore(contentDir: contentDir),
+      maxUploadSizeBytes: config.maxUploadSizeBytes,
     );
   }
 
   /// Canonical filesystem-backed note store.
   final Storage storage;
+
+  /// Writes uploaded, non-note files alongside notes. Shares
+  /// `storage.contentDir` so attachments live in the same folder
+  /// structure a note's `path` already addresses.
+  final AttachmentStore attachmentStore;
+
+  /// Maximum accepted size, in bytes, for a single attachment upload —
+  /// mirrors `config.maxUploadSizeBytes` at the time this bundle was
+  /// built.
+  final int maxUploadSizeBytes;
 
   /// In-memory listing index, derived from [storage].
   final MetaIndex metaIndex;
