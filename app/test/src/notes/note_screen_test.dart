@@ -277,6 +277,13 @@ void main() {
 
       expect(find.textContaining('Personal/Trip Planning'), findsOneWidget);
       expect(find.textContaining('v4'), findsOneWidget);
+      // `_now` (2025-01-01) is more than a week before "real now", so the
+      // relative-time fallback renders as this local absolute date.
+      final t = DateTime.parse(_now).toLocal();
+      final expectedDate =
+          '${t.year}-${t.month.toString().padLeft(2, '0')}-'
+          '${t.day.toString().padLeft(2, '0')}';
+      expect(find.textContaining(expectedDate), findsOneWidget);
     });
 
     testWidgets('omits the path segment for a root note', (tester) async {
@@ -298,7 +305,7 @@ void main() {
       await _pumpViewer(tester, content: 'hello');
 
       final width = tester.getSize(find.byKey(const Key('note.body'))).width;
-      expect(width, lessThan(900));
+      expect(width, lessThanOrEqualTo(760));
     });
   });
 
