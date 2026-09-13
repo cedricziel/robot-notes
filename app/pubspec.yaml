@@ -17,6 +17,7 @@ dependencies:
   flutter:
     sdk: flutter
   crypto: ^3.0.6
+  device_info_plus: ^13.2.0
   flutter_markdown_plus: ^1.0.12
   flutter_otel:
     git:

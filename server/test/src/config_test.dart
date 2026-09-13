@@ -363,6 +363,41 @@ void main() {
       expect(config.otlpEndpoint, Uri.parse('https://cli.example.com'));
     });
 
+    test('otelEnvironmentName defaults to "production"', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x'],
+        env: const {},
+      );
+      expect(config.otelEnvironmentName, 'production');
+    });
+
+    test('--otel-environment-name overrides the default', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x', '--otel-environment-name', 'staging'],
+        env: const {},
+      );
+      expect(config.otelEnvironmentName, 'staging');
+    });
+
+    test(
+      'ROBOT_NOTES_OTEL_ENVIRONMENT_NAME env var overrides the default',
+      () {
+        final config = Config.fromArgs(
+          const ['--api-key', 'rn_x'],
+          env: const {'ROBOT_NOTES_OTEL_ENVIRONMENT_NAME': 'staging'},
+        );
+        expect(config.otelEnvironmentName, 'staging');
+      },
+    );
+
+    test('--otel-environment-name CLI flag wins over env var', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x', '--otel-environment-name', 'cli-env'],
+        env: const {'ROBOT_NOTES_OTEL_ENVIRONMENT_NAME': 'env-env'},
+      );
+      expect(config.otelEnvironmentName, 'cli-env');
+    });
+
     test('rejects --otel-endpoint with a non-http(s) scheme', () {
       expect(
         () => Config.fromArgs(

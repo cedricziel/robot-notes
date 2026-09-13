@@ -8,6 +8,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+/// Flattens an OTLP-JSON `resource.attributes` array (`[{key, value:
+/// {stringValue}}, ...]`) into a plain `{key: stringValue}` map for easy
+/// assertions.
+Map<String, Object?> _resourceAttributes(Map<String, Object?> body) {
+  final resourceLogs = body['resourceLogs'] as List<dynamic>;
+  final resource =
+      (resourceLogs.single as Map<String, Object?>)['resource']
+          as Map<String, Object?>;
+  final attributes = (resource['attributes'] as List<dynamic>)
+      .cast<Map<String, Object?>>();
+  return {
+    for (final attr in attributes)
+      attr['key'] as String:
+          (attr['value'] as Map<String, Object?>)['stringValue'],
+  };
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -57,6 +74,29 @@ void main() {
       expect(capturedUri, Uri.parse('https://otel.example.com/v1/logs'));
       expect(capturedHeaders?['X-Api-Key'], 'secret');
       expect(capturedBody, isNotNull);
+    });
+
+    test('exports service.namespace and a debug-build '
+        'deployment.environment.name on the resource', () async {
+      Map<String, Object?>? capturedBody;
+      final httpClient = MockClient((request) async {
+        capturedBody = jsonDecode(request.body) as Map<String, Object?>;
+        return http.Response('', 200);
+      });
+
+      final sdk = await bootstrapOtel(
+        buildConfig: OtelBuildConfig(
+          endpoint: Uri.parse('https://otel.example.com'),
+        ),
+        httpClient: httpClient,
+      );
+      sdk.getLogger().info('hello');
+      await sdk.forceFlush();
+
+      final attributes = _resourceAttributes(capturedBody!);
+      expect(attributes['service.namespace'], 'robot-notes');
+      // flutter test always runs in debug mode (kReleaseMode is false).
+      expect(attributes['deployment.environment.name'], 'development');
     });
   });
 
