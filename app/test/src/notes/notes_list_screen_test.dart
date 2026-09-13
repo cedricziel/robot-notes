@@ -1013,4 +1013,65 @@ void main() {
 
     expect(find.text('New folder'), findsNothing);
   });
+
+  testWidgets('no "Upload file" menu item when onUploadFile is omitted', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final mock = MockClient((request) async {
+      return _page(<Object?>[]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotesListScreen(controller: ctrl, onCreateNote: () {}),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('notes.create')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Upload file'), findsNothing);
+  });
+
+  testWidgets('choosing "Upload file" from the FAB menu invokes onUploadFile', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final mock = MockClient((request) async {
+      return _page(<Object?>[]);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final ctrl = NotesListController(api: api);
+    addTearDown(ctrl.dispose);
+    var uploadRequested = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotesListScreen(
+          controller: ctrl,
+          onCreateNote: () {},
+          onUploadFile: () => uploadRequested = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('notes.create')));
+    await tester.pumpAndSettle();
+    expect(find.text('Upload file'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('notes.create.upload')));
+    await tester.pumpAndSettle();
+
+    expect(uploadRequested, isTrue);
+  });
 }

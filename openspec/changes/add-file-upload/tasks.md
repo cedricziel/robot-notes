@@ -54,11 +54,22 @@
 - [ ] 6.7 Implement both tool definitions and handlers in `server/lib/src/mcp/tools.dart`, delegating to `UploadSessionStore`/`FileStore`; run 6.1–6.6 green
 - [ ] 6.8 Commit: `feat(server): add request_upload and finalize_upload MCP tools`
 
-## 7. Flutter: point the client and FAB at the renamed route
+## 7. Flutter: upload API client and FAB wiring
 
-- [ ] 7.1 Write a failing test: `RobotNotesClient.uploadFile` now posts to `/notes/files` (was `/notes/attachments`)
-- [ ] 7.2 Implement the rename; run the app test suite green (the FAB wiring from the prior implementation attempt needs no further change beyond this URL)
-- [ ] 7.3 Commit: `fix(app): point uploadFile at the renamed /notes/files route`
+Correction: the app-side implementation from the original proposal
+(`RobotNotesClient.uploadFile`, the file-picker adapter, the FAB menu
+item) never actually merged — its PRs were closed when the design was
+reworked. This task builds it fresh against `/notes/files`, not just a
+URL rename.
+
+- [ ] 7.1 Write a failing test: `RobotNotesClient.uploadFile({path, filename, bytes, contentType})` POSTs a multipart request to `/notes/files` and returns the decoded `{path, filename, size, content_type}`
+- [ ] 7.2 Write a failing test: a `409` surfaces as `PathConflictException`; a `413` surfaces as `PayloadTooLargeException`
+- [ ] 7.3 Implement `RobotNotesClient.uploadFile`; add `http_parser` for the multipart content-type; run 7.1–7.2 green
+- [ ] 7.4 Add the `file_picker` dependency; add an injectable `PickFile` adapter (`PickedFile { name, bytes }`, `pickFileViaFilePicker()`) so tests can fake the picker
+- [ ] 7.5 Write a failing widget test: the FAB menu (from `add-empty-folder-creation`) gains an "Upload file" item alongside "New note"/"New folder"
+- [ ] 7.6 Write a failing router-level test: choosing "Upload file" and picking a file calls `uploadFile` with `path` set to the currently selected folder (falling back to the vault root), shows a success snackbar naming the stored filename, shows the server's error on failure, and sends no request if the picker is cancelled
+- [ ] 7.7 Implement the FAB menu item, threading a `PickFile` through `buildAppRouter`/`_buildListPage`; run 7.5–7.6 green
+- [ ] 7.8 Commit: `feat(app): add file upload — client API, file picker, and FAB wiring`
 
 ## 8. Docs and end-to-end check
 

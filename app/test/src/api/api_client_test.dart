@@ -478,6 +478,84 @@ void main() {
       );
     });
 
+    test('uploadFile posts a multipart request to /notes/files', () async {
+      String? capturedPath;
+      String? capturedMethod;
+      Map<String, String>? capturedFields;
+      String? capturedFilename;
+      List<int>? capturedBytes;
+      final mock = MockClient.streaming((request, bodyStream) async {
+        capturedMethod = request.method;
+        capturedPath = request.url.path;
+        final multipart = request as http.MultipartRequest;
+        capturedFields = multipart.fields;
+        capturedFilename = multipart.files.single.filename;
+        capturedBytes = await multipart.files.single.finalize().toBytes();
+        return http.StreamedResponse(
+          Stream.value(
+            utf8.encode(
+              jsonEncode(<String, Object?>{
+                'path': 'Ideas',
+                'filename': 'diagram.png',
+                'size': 3,
+                'content_type': 'image/png',
+              }),
+            ),
+          ),
+          201,
+          request: request,
+        );
+      });
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+
+      final result = await client.uploadFile(
+        path: 'Ideas',
+        filename: 'diagram.png',
+        bytes: [1, 2, 3],
+        contentType: 'image/png',
+      );
+
+      expect(capturedMethod, 'POST');
+      expect(capturedPath, '/notes/files');
+      expect(capturedFields?['path'], 'Ideas');
+      expect(capturedFilename, 'diagram.png');
+      expect(capturedBytes, [1, 2, 3]);
+      expect(result.path, 'Ideas');
+      expect(result.filename, 'diagram.png');
+      expect(result.size, 3);
+      expect(result.contentType, 'image/png');
+    });
+
+    test('uploadFile surfaces a 409 as PathConflictException', () async {
+      final mock = MockClient((request) async {
+        return http.Response(
+          jsonEncode(<String, Object?>{'error': 'path_conflict'}),
+          409,
+        );
+      });
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+
+      await expectLater(
+        client.uploadFile(path: 'Ideas', filename: 'a.png', bytes: [1]),
+        throwsA(isA<PathConflictException>()),
+      );
+    });
+
+    test('uploadFile surfaces a 413 as PayloadTooLargeException', () async {
+      final mock = MockClient((request) async {
+        return http.Response(
+          jsonEncode(<String, Object?>{'error': 'payload_too_large'}),
+          413,
+        );
+      });
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+
+      await expectLater(
+        client.uploadFile(path: '', filename: 'big.bin', bytes: [1]),
+        throwsA(isA<PayloadTooLargeException>()),
+      );
+    });
+
     test('updateNote sends path when moving a note', () async {
       Map<String, dynamic>? body;
       final mock = MockClient((request) async {
