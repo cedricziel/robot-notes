@@ -199,6 +199,10 @@ def test_handle_tool_call_forget_deletes_note(provider):
     assert result["deleted"] is True
 
 
+def test_conversations_path_scoped_by_actor(provider):
+    assert provider._conversations_path() == "conversations/hermes-bot"
+
+
 @respx.mock
 def test_on_session_end_creates_one_note_first_time(provider):
     respx.get("https://notes.example.com/notes").mock(return_value=httpx.Response(200, json={"items": []}))
@@ -210,7 +214,7 @@ def test_on_session_end_creates_one_note_first_time(provider):
 
     assert create_route.called
     body = json.loads(create_route.calls.last.request.content)
-    assert body["path"] == "Hermes/Sessions"
+    assert body["path"] == "conversations/hermes-bot"
     assert body["title"] == "session-1"
 
 
@@ -219,7 +223,11 @@ def test_on_session_end_updates_existing_note_for_resumed_session(provider):
     respx.get("https://notes.example.com/notes").mock(
         return_value=httpx.Response(
             200,
-            json={"items": [{"id": "01SESSION", "title": "session-1", "path": "Hermes/Sessions", "version": 1}]},
+            json={
+                "items": [
+                    {"id": "01SESSION", "title": "session-1", "path": "conversations/hermes-bot", "version": 1}
+                ]
+            },
         )
     )
     get_route = respx.get("https://notes.example.com/notes/01SESSION")

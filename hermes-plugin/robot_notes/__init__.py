@@ -19,7 +19,7 @@ from .config import RobotNotesConfig
 
 logger = logging.getLogger(__name__)
 
-SESSIONS_PATH = "Hermes/Sessions"
+CONVERSATIONS_ROOT = "conversations"
 MEMORY_NOTE = {"title": "Memory", "path": "Hermes"}
 USER_NOTE = {"title": "User", "path": "Hermes"}
 
@@ -193,7 +193,10 @@ class RobotNotesProvider(MemoryProvider):
         if not self._client:
             return
         title = self._session_id or "unknown-session"
-        self._overwrite_note(title=title, path=SESSIONS_PATH, content=_summarize(messages))
+        self._overwrite_note(title=title, path=self._conversations_path(), content=_summarize(messages))
+
+    def _conversations_path(self) -> str:
+        return f"{CONVERSATIONS_ROOT}/{self._config.actor}"
 
     def on_memory_write(
         self, action: str, target: str, content: str, metadata: Optional[Dict[str, Any]] = None

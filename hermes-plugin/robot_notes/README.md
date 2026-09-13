@@ -61,7 +61,7 @@ conversation turn:
   matches as context; it never blocks a turn on a slow or unreachable
   server.
 - **Session end** files or updates one summary note per session under
-  `Hermes/Sessions/<session id>`.
+  `conversations/<actor>/<session id>`.
 - **Explicit tool calls** (`robotnotes_remember`, `robotnotes_forget`) let
   the model manage notes directly.
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
