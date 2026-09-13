@@ -112,11 +112,11 @@ void main() {
   });
 
   group('tools/list', () {
-    test('returns the ten tools with declared required arrays', () async {
+    test('returns the twelve tools with declared required arrays', () async {
       final response = await handler.handle(_req('tools/list'), fullAccess);
       final result = response!['result']! as Map<String, Object?>;
       final tools = result['tools']! as List<Object?>;
-      expect(tools, hasLength(10));
+      expect(tools, hasLength(12));
       final byName = {
         for (final t in tools.cast<Map<String, Object?>>()) t['name']: t,
       };

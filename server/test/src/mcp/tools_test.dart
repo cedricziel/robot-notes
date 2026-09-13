@@ -1257,8 +1257,128 @@ void main() {
     });
   });
 
+  group('request_upload / finalize_upload', () {
+    test('request_upload returns a token, upload_url, and expires_at',
+        () async {
+      final result = await call('request_upload', {
+        'path': 'Ideas',
+        'filename': 'photo.png',
+      });
+
+      expect(result['isError'], isNot(true));
+      final structured = _structured(result);
+      expect(structured['token'], isA<String>());
+      expect(
+        structured['upload_url'],
+        '/notes/file-uploads/${structured['token']}',
+      );
+      expect(structured['expires_at'], isA<String>());
+    });
+
+    test('a declared size_bytes over the configured limit is rejected',
+        () async {
+      final result = await call('request_upload', {
+        'path': 'Ideas',
+        'filename': 'big.bin',
+        'size_bytes': Config.defaultMaxUploadSizeBytes + 1,
+      });
+
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'payload_too_large');
+    });
+
+    test(
+        'finalize_upload places a completed upload into the vault and it '
+        'is retrievable', () async {
+      final requested = _structured(
+        await call('request_upload', {
+          'path': 'Ideas',
+          'filename': 'photo.png',
+        }),
+      );
+      final token = requested['token']! as String;
+      await deps.uploadSessions.complete(
+        token: token,
+        bytes: Stream.value([1, 2, 3]),
+        contentType: 'image/png',
+      );
+
+      final result = await call('finalize_upload', {'token': token});
+
+      expect(result['isError'], isNot(true));
+      expect(_structured(result), {
+        'path': 'Ideas',
+        'filename': 'photo.png',
+        'size': 3,
+        'content_type': 'image/png',
+      });
+      expect(
+        File('${tmp.path}/content/Ideas/photo.png').readAsBytesSync(),
+        [1, 2, 3],
+      );
+      // Discoverable without a restart, the same as a direct upload —
+      // regression coverage for finalize_upload forgetting to tell
+      // Storage's file index about the write.
+      expect(
+        deps.storage.filesIn('Ideas').map((f) => f.relativePath),
+        ['Ideas/photo.png'],
+      );
+    });
+
+    test('finalize_upload before the PUT has completed is validation_failed',
+        () async {
+      final requested = _structured(
+        await call('request_upload', {
+          'path': 'Ideas',
+          'filename': 'photo.png',
+        }),
+      );
+
+      final result = await call(
+        'finalize_upload',
+        {'token': requested['token']! as String},
+      );
+
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'validation_failed');
+    });
+
+    test('finalize_upload with an unknown token is validation_failed',
+        () async {
+      final result = await call('finalize_upload', {'token': 'nope'});
+
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'validation_failed');
+    });
+
+    test('a collision at finalize time is a path_conflict tool error',
+        () async {
+      final requested = _structured(
+        await call('request_upload', {
+          'path': 'Ideas',
+          'filename': 'photo.png',
+        }),
+      );
+      final token = requested['token']! as String;
+      await deps.uploadSessions
+          .complete(token: token, bytes: Stream.value([1]));
+      // Claim the target after the slot was reserved but before finalize.
+      await deps.fileStore.write(
+        path: 'Ideas',
+        filename: 'photo.png',
+        bytes: Stream.value([9]),
+        maxBytes: Config.defaultMaxUploadSizeBytes,
+      );
+
+      final result = await call('finalize_upload', {'token': token});
+
+      expect(result['isError'], isTrue);
+      expect(_structured(result)['error'], 'path_conflict');
+    });
+  });
+
   group('tools/list catalog', () {
-    test('has exactly the ten note tools with object schemas', () {
+    test('has exactly the twelve note tools with object schemas', () {
       final names = registry.tools.map((t) => t.name).toSet();
       expect(names, {
         'list_notes',
@@ -1271,6 +1391,8 @@ void main() {
         'move_note',
         'get_backlinks',
         'create_folder',
+        'request_upload',
+        'finalize_upload',
       });
       for (final tool in registry.tools) {
         expect(tool.inputSchema['type'], 'object');
@@ -1280,6 +1402,17 @@ void main() {
     test('create_folder declares path as required', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'create_folder');
       expect(tool.inputSchema['required'], ['path']);
+    });
+
+    test('request_upload declares path and filename as required', () {
+      final tool = registry.tools.firstWhere((t) => t.name == 'request_upload');
+      expect(tool.inputSchema['required'], ['path', 'filename']);
+    });
+
+    test('finalize_upload declares token as required', () {
+      final tool =
+          registry.tools.firstWhere((t) => t.name == 'finalize_upload');
+      expect(tool.inputSchema['required'], ['token']);
     });
 
     test('update_note declares id and version as required', () {

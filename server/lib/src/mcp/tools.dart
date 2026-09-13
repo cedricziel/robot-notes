@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/backlinks.dart';
+import 'package:server/src/clock.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/mcp/principal.dart';
@@ -9,6 +10,8 @@ import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/upload_sessions.dart';
+import 'package:server/src/vault_files.dart';
 import 'package:shared/shared.dart';
 
 /// Default page size for `search_notes`, matching `GET /search`'s default
@@ -122,7 +125,7 @@ class McpInvalidParamsException implements Exception {
   String toString() => 'McpInvalidParamsException: $message';
 }
 
-/// Registry of the ten fixed note tools exposed over `/mcp`.
+/// Registry of the twelve fixed note tools exposed over `/mcp`.
 ///
 /// Built once per server from [AppDeps] via [McpToolRegistry.forDeps];
 /// tests may also build one directly from a hand-picked [List] of
@@ -133,7 +136,7 @@ class McpToolRegistry {
       : _tools = List.unmodifiable(tools),
         _byName = {for (final tool in tools) tool.name: tool};
 
-  /// Builds the nine note tools wired to [deps]'s services.
+  /// Builds the twelve note tools wired to [deps]'s services.
   factory McpToolRegistry.forDeps(AppDeps deps) => McpToolRegistry([
         _listNotesTool(deps.metaIndex),
         _getNoteTool(deps.storage, deps.lockManager),
@@ -149,6 +152,13 @@ class McpToolRegistry {
         _moveNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
         _getBacklinksTool(deps.metaIndex, deps.linkIndex, deps.storage),
         _createFolderTool(deps.storage, deps.metaIndex),
+        _requestUploadTool(deps.uploadSessions, deps.maxUploadSizeBytes),
+        _finalizeUploadTool(
+          deps.uploadSessions,
+          deps.fileStore,
+          deps.storage,
+          deps.clock,
+        ),
       ]);
 
   final List<McpTool> _tools;
@@ -809,6 +819,112 @@ McpTool _createFolderTool(Storage storage, MetaIndex metaIndex) => McpTool(
           return toolOk({'path': result.path, 'note_count': noteCount});
         } on InvalidPathException catch (e) {
           return toolFail(kErrorValidationFailed, message: e.message);
+        }
+      },
+    );
+
+McpTool _requestUploadTool(
+  UploadSessionStore uploadSessions,
+  int maxUploadSizeBytes,
+) =>
+    McpTool(
+      name: 'request_upload',
+      description:
+          'Reserve a single-use upload slot for a file at the given path '
+          "and filename, returning an upload_url to PUT the file's raw "
+          'bytes to (no Authorization header needed — the token itself is '
+          'the credential) and a token to pass to finalize_upload once the '
+          "PUT completes. Use this instead of embedding a file's bytes "
+          'directly in a tool call — the whole point is to keep them out '
+          'of this call entirely.',
+      inputSchema: const {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string'},
+          'filename': {'type': 'string'},
+          'size_bytes': {'type': 'integer', 'minimum': 0},
+        },
+        'required': ['path', 'filename'],
+      },
+      annotations: _writeAnnotations(
+        'Request upload',
+        destructive: false,
+        idempotent: false,
+      ),
+      requiresWrite: true,
+      handler: (args, principal) async {
+        final path = _requiredString(args, 'path');
+        final filename = _requiredString(args, 'filename');
+        final sizeBytes = args['size_bytes'] as int?;
+        if (sizeBytes != null && sizeBytes > maxUploadSizeBytes) {
+          return toolFail(kErrorPayloadTooLarge);
+        }
+        final reserved = uploadSessions.reserve(
+          path: path,
+          filename: filename,
+          maxBytes: maxUploadSizeBytes,
+        );
+        return toolOk({
+          'upload_url': '/notes/file-uploads/${reserved.token}',
+          'token': reserved.token,
+          'expires_at': reserved.expiresAt.toIso8601String(),
+        });
+      },
+    );
+
+McpTool _finalizeUploadTool(
+  UploadSessionStore uploadSessions,
+  FileStore fileStore,
+  Storage storage,
+  Clock clock,
+) =>
+    McpTool(
+      name: 'finalize_upload',
+      description:
+          'Place a completed upload (see request_upload) into the vault at '
+          'the path/filename it was reserved for. Call this once the PUT to '
+          "upload_url has succeeded — it's the only step that actually "
+          'writes the file.',
+      inputSchema: const {
+        'type': 'object',
+        'properties': {
+          'token': {'type': 'string'},
+        },
+        'required': ['token'],
+      },
+      annotations: _writeAnnotations(
+        'Finalize upload',
+        destructive: false,
+        idempotent: false,
+      ),
+      requiresWrite: true,
+      handler: (args, principal) async {
+        final token = _requiredString(args, 'token');
+        try {
+          final result = await uploadSessions.finalize(token, fileStore);
+          storage.registerFile(
+            StoredFile(
+              relativePath: vaultRelativePath(
+                path: result.path,
+                filename: result.filename,
+              ),
+              size: result.size,
+              updatedAt: clock.nowUtc(),
+            ),
+          );
+          return toolOk({
+            'path': result.path,
+            'filename': result.filename,
+            'size': result.size,
+            'content_type': result.contentType,
+          });
+        } on UploadSessionNotFoundException {
+          return toolFail(
+            kErrorValidationFailed,
+            message: 'token is unknown, expired, or not yet uploaded',
+          );
+        } on FileCollisionException {
+          return toolFail(kErrorPathConflict);
         }
       },
     );

@@ -63,6 +63,7 @@ class AppDeps {
     PendingLoginStore? pendingLoginStore,
     FileStore? fileStore,
     UploadSessionStore? uploadSessions,
+    int maxUploadSizeBytes = Config.defaultMaxUploadSizeBytes,
   }) {
     final resolvedLinkIndex = linkIndex ?? LinkIndex();
     final resolvedWriteService = noteWriteService ??
@@ -103,6 +104,7 @@ class AppDeps {
             stagingDir: Directory('${storage.contentDir.parent.path}/uploads'),
             sweepInterval: null,
           ),
+      maxUploadSizeBytes: maxUploadSizeBytes,
     );
   }
 
@@ -123,6 +125,7 @@ class AppDeps {
     required this.noteWriteService,
     required this.fileStore,
     required this.uploadSessions,
+    required this.maxUploadSizeBytes,
     this.oidcDiscovery,
     this.oidcJwks,
     PendingLoginStore? pendingLoginStore,
@@ -258,6 +261,7 @@ class AppDeps {
       pendingLoginStore: PendingLoginStore(clock: clock),
       fileStore: fileStore,
       uploadSessions: uploadSessions,
+      maxUploadSizeBytes: config.maxUploadSizeBytes,
     );
   }
 
@@ -267,6 +271,12 @@ class AppDeps {
   /// Write path for uploaded (non-note) files, rooted at the same
   /// `contentDir` as [storage].
   final FileStore fileStore;
+
+  /// Maximum accepted upload size, in bytes — see `Config.maxUploadSizeBytes`.
+  /// Captured here (rather than threading `Config` itself through) so MCP
+  /// tools, which are built once from [AppDeps] with no per-call request
+  /// context, can enforce the same limit `POST /notes/files` does.
+  final int maxUploadSizeBytes;
 
   /// Registry of in-flight two-phase (`request_upload`/`finalize_upload`)
   /// upload slots, staging bytes outside [Storage.contentDir].

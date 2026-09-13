@@ -7,6 +7,17 @@ import 'package:server/src/note_path.dart';
 
 export 'package:server/src/note_path.dart' show InvalidPathException;
 
+/// Joins a [FileWriteResult]'s `path`/`filename` into the single
+/// `/`-separated relative path `Storage.registerFile`/`filesIn` key on —
+/// shared by every caller that writes a file via [FileStore] and then
+/// needs to tell `Storage`'s file index about it (the REST upload route
+/// and the `finalize_upload` MCP tool alike; see `vault_files.dart`'s
+/// class doc — `FileStore` itself has no `Storage` reference, so this is
+/// always the caller's responsibility, not something [FileStore.write]
+/// does on its own).
+String vaultRelativePath({required String path, required String filename}) =>
+    path.isEmpty ? filename : '$path/$filename';
+
 /// Result of a successful [FileStore.write].
 @immutable
 class FileWriteResult {
