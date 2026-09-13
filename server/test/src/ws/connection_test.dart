@@ -11,12 +11,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter_otel_api/flutter_otel_api.dart';
+import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' show SdkTracer;
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/connection.dart';
 import 'package:server/src/ws/presence.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
+
+import '../otel/_span_test_helpers.dart';
 
 const _restResource = 'http://localhost';
 
@@ -491,6 +495,77 @@ void main() {
       conn.handleMessage('this-is-not-json');
       expect(conn.isClosed, isFalse);
       expect(_decode(sink.sent.single)['type'], 'error');
+    });
+  });
+
+  group('tracing', () {
+    test(
+        'a message is traced as a root span linked to the connection span, '
+        'not nested under an ambient span', () async {
+      final processor = RecordingProcessor();
+      final tracer =
+          SdkTracer(name: 'test', version: null, processor: processor);
+      const connectionContext = SpanContext(
+        traceId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        spanId: 'bbbbbbbbbbbbbbbb',
+      );
+      final sink = _FakeSink();
+      final conn = WsConnection(
+        id: 'c1',
+        sink: sink,
+        broadcaster: broadcaster,
+        presence: presence,
+        apiKey: apiKey,
+        tokenStore: tokenStore,
+        restResource: _restResource,
+        tracer: tracer,
+        connectionSpanContext: connectionContext,
+      )..start();
+
+      // Simulates the WS upgrade request's span still being ambient in this
+      // callback's zone, the way it would be if the socket's message loop
+      // ran inside otelHttpTraceMiddleware's Span.runWithSpan zone.
+      final ambientSpan = tracer.startSpan('ambient', kind: SpanKind.server);
+      await Span.runWithSpan(
+        ambientSpan,
+        () => conn.handleMessage(jsonEncode({'type': 'auth', 'key': apiKey})),
+      );
+      ambientSpan.end();
+
+      final messageSpan =
+          processor.ended.firstWhere((d) => d.name == 'ws.message.auth');
+      expect(messageSpan.parentSpanId, isNull);
+      expect(
+        messageSpan.spanContext.traceId,
+        isNot(ambientSpan.spanContext.traceId),
+      );
+      expect(messageSpan.spanContext.traceId, isNot(connectionContext.traceId));
+      expect(messageSpan.links, hasLength(1));
+      expect(messageSpan.links.single.context, connectionContext);
+      expect(messageSpan.attributes['ws.connection.id'], 'c1');
+    });
+
+    test('a message span carries no links when connectionSpanContext is null',
+        () async {
+      final processor = RecordingProcessor();
+      final tracer =
+          SdkTracer(name: 'test', version: null, processor: processor);
+      final sink = _FakeSink();
+      final conn = WsConnection(
+        id: 'c1',
+        sink: sink,
+        broadcaster: broadcaster,
+        presence: presence,
+        apiKey: apiKey,
+        tokenStore: tokenStore,
+        restResource: _restResource,
+        tracer: tracer,
+      )..start();
+
+      await conn.handleMessage(jsonEncode({'type': 'auth', 'key': apiKey}));
+
+      final messageSpan = processor.ended.single;
+      expect(messageSpan.links, isEmpty);
     });
   });
 
