@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.7](https://github.com/cedricziel/robot-notes/compare/v0.2.6...v0.2.7) (2026-09-13)
+
+
+### Features
+
+* **app:** distinguish TestFlight from production in deployment.environment.name ([#174](https://github.com/cedricziel/robot-notes/issues/174)) ([f07e728](https://github.com/cedricziel/robot-notes/commit/f07e728c491b886e227cc18d14009fd0e4b8804c))
+* **server:** brand the OAuth consent page, show the redirect destination, add a Cancel link ([#172](https://github.com/cedricziel/robot-notes/issues/172)) ([737f161](https://github.com/cedricziel/robot-notes/commit/737f1614ecd8b5fd6990fe85e23f618236aaa776))
+
 ## [0.2.6](https://github.com/cedricziel/robot-notes/compare/v0.2.5...v0.2.6) (2026-09-13)
 
 
