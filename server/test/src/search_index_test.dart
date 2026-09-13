@@ -1,8 +1,7 @@
 import 'dart:io';
 
-import 'package:flutter_otel_api/flutter_otel_api.dart' hide LogRecord, Logger;
+import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
-import 'package:server/src/otel/sdk_tracer.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -38,10 +37,9 @@ File _dbFile(Directory tmp) => File('${tmp.path}/search.db');
 List<Row> _linkEdges(Directory tmp, String sourceId) {
   final db = sqlite3.open(_dbFile(tmp).path);
   try {
-    return db.select(
-      'SELECT * FROM link_edges WHERE source_id = ?;',
-      [sourceId],
-    );
+    return db.select('SELECT * FROM link_edges WHERE source_id = ?;', [
+      sourceId,
+    ]);
   } finally {
     db.close();
   }
@@ -149,9 +147,7 @@ void main() {
 
       // Simulate a stale-schema db: directly tamper with meta.
       sqlite3.open(_dbFile(tmp).path)
-        ..execute(
-          "UPDATE meta SET value = '0' WHERE key = 'schema_version';",
-        )
+        ..execute("UPDATE meta SET value = '0' WHERE key = 'schema_version';")
         ..close();
 
       final logger = Logger.detached('search-test')..level = Level.ALL;
@@ -161,10 +157,7 @@ void main() {
       final index = await _open(tmp, storage: storage, logger: logger);
       addTearDown(index.close);
 
-      expect(
-        logged.any((l) => l.contains('schema_version mismatch')),
-        isTrue,
-      );
+      expect(logged.any((l) => l.contains('schema_version mismatch')), isTrue);
       // Surviving content remains searchable after rebuild.
       expect(index.search('tokenized'), hasLength(1));
     });
@@ -208,9 +201,7 @@ void main() {
       final betaId =
           (await storage.list()).firstWhere((s) => s.title == 'Beta').id;
       final rows = _linkEdges(tmp, betaId);
-      final byTitle = {
-        for (final r in rows) r['target_title'] as String: r,
-      };
+      final byTitle = {for (final r in rows) r['target_title'] as String: r};
       expect(byTitle['Alpha']!['resolved'], 1);
       expect(byTitle['Alpha']!['target_id'], isNotNull);
       expect(byTitle['Nowhere']!['resolved'], 0);
@@ -419,9 +410,7 @@ void main() {
     });
 
     test('matches case-insensitively', () async {
-      final index = await seed({
-        'n1': ('Hello', 'The quick brown FOX jumps.'),
-      });
+      final index = await seed({'n1': ('Hello', 'The quick brown FOX jumps.')});
       expect(index.search('fox'), hasLength(1));
       expect(index.search('FOX'), hasLength(1));
       expect(index.search('Fox'), hasLength(1));
@@ -464,32 +453,37 @@ void main() {
       );
     });
 
-    test('logs a warning naming the bad query on invalid FTS5 syntax',
-        () async {
-      final logger = Logger.detached('search-test')..level = Level.ALL;
-      final index = await _open(tmp, logger: logger);
-      addTearDown(index.close);
-      // Attached after open() so its own bootstrap logging (e.g. "search.db
-      // missing, rebuilding from storage") isn't captured alongside the
-      // warning search() logs below.
-      final records = <LogRecord>[];
-      final sub = logger.onRecord.listen(records.add);
-      addTearDown(sub.cancel);
+    test(
+      'logs a warning naming the bad query on invalid FTS5 syntax',
+      () async {
+        final logger = Logger.detached('search-test')..level = Level.ALL;
+        final index = await _open(tmp, logger: logger);
+        addTearDown(index.close);
+        // Attached after open() so its own bootstrap logging (e.g. "search.db
+        // missing, rebuilding from storage") isn't captured alongside the
+        // warning search() logs below.
+        final records = <LogRecord>[];
+        final sub = logger.onRecord.listen(records.add);
+        addTearDown(sub.cancel);
 
-      expect(
-        () => index.search('"unterminated'),
-        throwsA(isA<InvalidSearchQueryException>()),
-      );
+        expect(
+          () => index.search('"unterminated'),
+          throwsA(isA<InvalidSearchQueryException>()),
+        );
 
-      expect(records, isNotEmpty);
-      expect(records.single.level, Level.WARNING);
-      expect(records.single.message, contains('unterminated'));
-    });
+        expect(records, isNotEmpty);
+        expect(records.single.level, Level.WARNING);
+        expect(records.single.message, contains('unterminated'));
+      },
+    );
 
     test('starts a search.query span naming the hit count', () async {
       final processor = _RecordingSpanProcessor();
-      final tracer =
-          SdkTracer(name: 'test', version: null, processor: processor);
+      final tracer = SdkTracer(
+        name: 'test',
+        version: null,
+        processor: processor,
+      );
       final index = await _open(tmp, tracer: tracer)
         ..upsert(
           id: 'n1',
@@ -509,8 +503,11 @@ void main() {
 
     test('sets an error status on the span for an invalid query', () async {
       final processor = _RecordingSpanProcessor();
-      final tracer =
-          SdkTracer(name: 'test', version: null, processor: processor);
+      final tracer = SdkTracer(
+        name: 'test',
+        version: null,
+        processor: processor,
+      );
       final index = await _open(tmp, tracer: tracer);
       addTearDown(index.close);
 
@@ -522,30 +519,32 @@ void main() {
       expect(processor.ended.single.statusCode, StatusCode.error);
     });
 
-    test('returns id, title, snippet, rank; rows ordered by rank ascending',
-        () async {
-      final index = await seed({
-        'n1': ('Just one mention', 'kangaroo'),
-        'n2': (
-          'Many kangaroo mentions',
-          'kangaroo kangaroo kangaroo plays in the field',
-        ),
-      });
+    test(
+      'returns id, title, snippet, rank; rows ordered by rank ascending',
+      () async {
+        final index = await seed({
+          'n1': ('Just one mention', 'kangaroo'),
+          'n2': (
+            'Many kangaroo mentions',
+            'kangaroo kangaroo kangaroo plays in the field',
+          ),
+        });
 
-      final hits = index.search('kangaroo');
-      expect(hits, hasLength(2));
-      // bm25 returns ascending rank where the first row is most relevant.
-      expect(hits.first.id, 'n2');
-      expect(hits.last.id, 'n1');
-      for (final h in hits) {
-        expect(h.id, isNotEmpty);
-        expect(h.title, isNotEmpty);
-        expect(h.snippet, isNotEmpty);
-        expect(h.rank, isA<double>());
-      }
-      // Ascending: first <= last
-      expect(hits.first.rank, lessThanOrEqualTo(hits.last.rank));
-    });
+        final hits = index.search('kangaroo');
+        expect(hits, hasLength(2));
+        // bm25 returns ascending rank where the first row is most relevant.
+        expect(hits.first.id, 'n2');
+        expect(hits.last.id, 'n1');
+        for (final h in hits) {
+          expect(h.id, isNotEmpty);
+          expect(h.title, isNotEmpty);
+          expect(h.snippet, isNotEmpty);
+          expect(h.rank, isA<double>());
+        }
+        // Ascending: first <= last
+        expect(hits.first.rank, lessThanOrEqualTo(hits.last.rank));
+      },
+    );
 
     test('returns the updatedAt passed to upsert', () async {
       final index = await _open(tmp);

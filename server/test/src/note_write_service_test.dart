@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter_otel_api/flutter_otel_api.dart' hide LogRecord, Logger;
+import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
-import 'package:server/src/otel/sdk_tracer.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
@@ -239,11 +238,7 @@ void main() {
         broadcaster: bc,
       );
 
-      final note = await svc.create(
-        title: 'Draft',
-        content: 'c',
-        actor: 'a',
-      );
+      final note = await svc.create(title: 'Draft', content: 'c', actor: 'a');
       await svc.update(
         id: note.id,
         title: 'Final',
@@ -400,8 +395,11 @@ void main() {
         seed = await bare.create(title: 'V1', content: 'c', actor: 'a');
       }
       final processor = _RecordingSpanProcessor();
-      final tracer =
-          SdkTracer(name: 'test', version: null, processor: processor);
+      final tracer = SdkTracer(
+        name: 'test',
+        version: null,
+        processor: processor,
+      );
       final traced = NoteWriteService(
         storage: s.storage,
         metaIndex: s.meta,
@@ -412,23 +410,25 @@ void main() {
       return (processor: processor, traced: traced, seed: seed);
     }
 
-    test('create starts a note.write.create span naming the new note',
-        () async {
-      final s = await _stack(tmp);
-      addTearDown(s.search.close);
-      final f = await tracedFixture(s);
+    test(
+      'create starts a note.write.create span naming the new note',
+      () async {
+        final s = await _stack(tmp);
+        addTearDown(s.search.close);
+        final f = await tracedFixture(s);
 
-      final note = await f.traced.create(
-        title: 'Traced',
-        content: 'body',
-        actor: 'a',
-      );
+        final note = await f.traced.create(
+          title: 'Traced',
+          content: 'body',
+          actor: 'a',
+        );
 
-      final span = f.processor.ended.single;
-      expect(span.name, 'note.write.create');
-      expect(span.attributes['note.id'], note.id);
-      expect(span.statusCode, StatusCode.unset);
-    });
+        final span = f.processor.ended.single;
+        expect(span.name, 'note.write.create');
+        expect(span.attributes['note.id'], note.id);
+        expect(span.statusCode, StatusCode.unset);
+      },
+    );
 
     test('create logs an info record naming the new note', () async {
       final s = await _stack(tmp);

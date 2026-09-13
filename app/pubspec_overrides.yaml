@@ -11,5 +11,5 @@ dependency_overrides:
   flutter_otel_sdk:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 12589a6116971933c54003bf37129ecd7e1f8f10
+      ref: 83670a6676d524dc85c68689cae16871e664ed98
       path: packages/flutter_otel_sdk
