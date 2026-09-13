@@ -78,6 +78,28 @@ class VectorHit {
   final double distance;
 }
 
+/// Raw note metadata read directly from `notes_fts`, used by fusion to
+/// build a [SearchHit] for a note that matched only via vector similarity
+/// (so has no FTS5 match to build a highlighted snippet from).
+@immutable
+class _NoteMeta {
+  const _NoteMeta({
+    required this.title,
+    required this.path,
+    required this.content,
+    required this.updatedAt,
+    required this.tags,
+  });
+
+  final String title;
+  final String path;
+  final String content;
+  final DateTime updatedAt;
+
+  /// Space-delimited, lowercased, space-padded — see [SearchIndex._encodeTags].
+  final String tags;
+}
+
 /// One of a note's outgoing `[[wikilinks]]`, as recorded in the
 /// `link_edges` table by [SearchIndex.upsert]. Mirrors `link_index.dart`'s
 /// `LinkEdge`, but carries the resolution snapshot (`targetId`) computed by
@@ -336,19 +358,30 @@ class SearchIndex {
     }
   }
 
-  /// Runs an FTS5 [query] and returns the matching rows ordered by rank
-  /// ascending (most relevant first), optionally narrowed to notes whose
-  /// `path` equals or is nested under [path] and/or whose tag set
-  /// contains [tag] (case-insensitive, matching `tags.dart`'s matching
-  /// rule). Throws [InvalidSearchQueryException] if the query is not a
-  /// valid FTS5 expression.
+  /// Reciprocal Rank Fusion constant, per the add-hybrid-search design's
+  /// documented default (unvalidated against real content yet — a
+  /// deliberate non-goal of that change, revisit empirically later).
+  static const double _fusionK = 60;
+
+  /// Candidate-set size pulled from each ranker before fusion, independent
+  /// of the caller's [search] `limit` — fusion needs a wide-enough pool
+  /// from both rankers to combine before truncating to what the caller
+  /// asked for.
+  static const int _fusionCandidateLimit = 50;
+
+  /// Runs an FTS5 [query] and, when an embedding provider is configured,
+  /// fuses the result with a vector KNN search via Reciprocal Rank Fusion
+  /// — optionally narrowed to notes whose `path` equals or is nested under
+  /// [path] and/or whose tag set contains [tag] (case-insensitive,
+  /// matching `tags.dart`'s matching rule), applied to both rankers.
+  /// Throws [InvalidSearchQueryException] if [query] is not a valid FTS5
+  /// expression.
   ///
-  /// Snippets contain `<mark>...</mark>` markers around matched terms.
-  ///
-  /// `async` so that, when an embedding provider is configured, the query
-  /// embedding can be requested before running the (synchronous) FTS5
-  /// query rather than after it — the network round trip and the local
-  /// query then overlap instead of adding up serially.
+  /// Without a configured provider (or when it fails to produce a query
+  /// embedding), this is exactly the pre-hybrid-search BM25-only behavior.
+  /// `async` so the query embedding can be requested before running the
+  /// (synchronous) FTS5 query rather than after it — the network round
+  /// trip and the local query then overlap instead of adding up serially.
   Future<List<SearchHit>> search(
     String query, {
     int limit = 50,
@@ -357,42 +390,40 @@ class SearchIndex {
   }) async {
     final span = _tracer.startSpan('search.query');
     try {
-      final conditions = ['notes_fts MATCH ?'];
-      final params = <Object?>[query];
-      if (path != null) {
-        // Avoided LIKE here: a folder name containing `%` or `_` would
-        // otherwise be misinterpreted as a wildcard.
-        conditions.add(
-          "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')",
-        );
-        params.addAll([path, path, path]);
+      if (_embeddingProvider == null) {
+        final hits = _bm25Search(query, limit: limit, path: path, tag: tag);
+        span.setAttribute('search.hit_count', hits.length);
+        return hits;
       }
-      if (tag != null) {
-        conditions.add("instr(tags, ' ' || ? || ' ') > 0");
-        params.add(tag.toLowerCase());
-      }
-      params.add(limit);
-      final rows = _db.select(
-        'SELECT id, title, path, updated_at, '
-        "snippet(notes_fts, 3, '<mark>', '</mark>', '…', 16) AS snippet, "
-        'bm25(notes_fts) AS rank '
-        'FROM notes_fts '
-        'WHERE ${conditions.join(' AND ')} '
-        'ORDER BY rank '
-        'LIMIT ?;',
-        params,
+
+      // Kick off the query embedding request without awaiting it yet, so
+      // it's in flight while the synchronous BM25 query below runs.
+      final embeddingFuture = embedOrNull(
+        _embeddingProvider,
+        query,
+        logger: _log,
       );
-      final hits = [
-        for (final row in rows)
-          SearchHit(
-            id: row['id'] as String,
-            title: row['title'] as String,
-            path: row['path'] as String,
-            snippet: row['snippet'] as String,
-            rank: (row['rank'] as num).toDouble(),
-            updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
-          ),
-      ];
+      final bm25Hits = _bm25Search(
+        query,
+        limit: _fusionCandidateLimit,
+        path: path,
+        tag: tag,
+      );
+      final queryEmbedding = await embeddingFuture;
+      if (queryEmbedding == null) {
+        final hits = bm25Hits.take(limit).toList();
+        span.setAttribute('search.hit_count', hits.length);
+        return hits;
+      }
+
+      final vectorHits = vectorSearch(queryEmbedding);
+      final hits = _fuse(
+        bm25Hits: bm25Hits,
+        vectorHits: vectorHits,
+        limit: limit,
+        path: path,
+        tag: tag,
+      );
       span.setAttribute('search.hit_count', hits.length);
       return hits;
     } on SqliteException catch (e, st) {
@@ -414,6 +445,162 @@ class SearchIndex {
       span.end();
     }
   }
+
+  /// The synchronous BM25-only half of [search]: runs the FTS5 query and
+  /// maps rows to [SearchHit]s, ordered by `bm25()` ascending. Shared by
+  /// both the no-provider path and hybrid fusion's candidate gathering.
+  List<SearchHit> _bm25Search(
+    String query, {
+    required int limit,
+    String? path,
+    String? tag,
+  }) {
+    final conditions = ['notes_fts MATCH ?'];
+    final params = <Object?>[query];
+    if (path != null) {
+      // Avoided LIKE here: a folder name containing `%` or `_` would
+      // otherwise be misinterpreted as a wildcard.
+      conditions.add(
+        "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')",
+      );
+      params.addAll([path, path, path]);
+    }
+    if (tag != null) {
+      conditions.add("instr(tags, ' ' || ? || ' ') > 0");
+      params.add(tag.toLowerCase());
+    }
+    params.add(limit);
+    final rows = _db.select(
+      'SELECT id, title, path, updated_at, '
+      "snippet(notes_fts, 3, '<mark>', '</mark>', '…', 16) AS snippet, "
+      'bm25(notes_fts) AS rank '
+      'FROM notes_fts '
+      'WHERE ${conditions.join(' AND ')} '
+      'ORDER BY rank '
+      'LIMIT ?;',
+      params,
+    );
+    return [
+      for (final row in rows)
+        SearchHit(
+          id: row['id'] as String,
+          title: row['title'] as String,
+          path: row['path'] as String,
+          snippet: row['snippet'] as String,
+          rank: (row['rank'] as num).toDouble(),
+          updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
+        ),
+    ];
+  }
+
+  /// Combines [bm25Hits] and [vectorHits] via Reciprocal Rank Fusion:
+  /// `score(id) = Σ 1/(k + rankInList)` over whichever of the two ranked
+  /// lists contain `id`, 1-based rank position within each list. A note
+  /// present in only one list still gets a (weaker) score rather than
+  /// being dropped.
+  ///
+  /// [bm25Hits] already carry full [SearchHit] data (including an FTS5
+  /// snippet) since they came from a `MATCH` query. A note that
+  /// [vectorHits] names but [bm25Hits] doesn't has no FTS snippet context,
+  /// so its [SearchHit] is built from a raw lookup with a plain
+  /// content-prefix snippet — and, since [vectorSearch] doesn't apply
+  /// [path]/[tag] filtering the way the BM25 query does, that filter is
+  /// re-applied here for vector-only notes.
+  List<SearchHit> _fuse({
+    required List<SearchHit> bm25Hits,
+    required List<VectorHit> vectorHits,
+    required int limit,
+    String? path,
+    String? tag,
+  }) {
+    final bm25RankById = <String, int>{
+      for (var i = 0; i < bm25Hits.length; i++) bm25Hits[i].id: i + 1,
+    };
+    final vectorRankById = <String, int>{
+      for (var i = 0; i < vectorHits.length; i++) vectorHits[i].id: i + 1,
+    };
+    final bm25HitById = {for (final h in bm25Hits) h.id: h};
+
+    final hits = <SearchHit>[];
+    for (final id in {...bm25RankById.keys, ...vectorRankById.keys}) {
+      final bm25Rank = bm25RankById[id];
+      final vectorRank = vectorRankById[id];
+      final score = (bm25Rank != null ? 1 / (_fusionK + bm25Rank) : 0.0) +
+          (vectorRank != null ? 1 / (_fusionK + vectorRank) : 0.0);
+
+      final existing = bm25HitById[id];
+      if (existing != null) {
+        hits.add(
+          SearchHit(
+            id: existing.id,
+            title: existing.title,
+            path: existing.path,
+            snippet: existing.snippet,
+            updatedAt: existing.updatedAt,
+            rank: -score,
+          ),
+        );
+        continue;
+      }
+
+      final meta = _lookupNoteMeta(id);
+      if (meta == null) continue;
+      if (path != null && !_pathMatches(meta.path, path)) continue;
+      if (tag != null && !_tagsContain(meta.tags, tag)) continue;
+      hits.add(
+        SearchHit(
+          id: id,
+          title: meta.title,
+          path: meta.path,
+          snippet: _fallbackSnippet(meta.content),
+          updatedAt: meta.updatedAt,
+          rank: -score,
+        ),
+      );
+    }
+
+    hits.sort((a, b) => a.rank.compareTo(b.rank));
+    return hits.take(limit).toList();
+  }
+
+  /// Raw note metadata for a vector-only fusion hit, read directly from
+  /// `notes_fts` (its `id`/`path`/`tags` columns are `UNINDEXED` — plain
+  /// equality lookups, not `MATCH`). `null` if the id no longer exists
+  /// (e.g. deleted between when its embedding was written and now).
+  _NoteMeta? _lookupNoteMeta(String id) {
+    final rows = _db.select(
+      'SELECT title, path, content, updated_at, tags '
+      'FROM notes_fts WHERE id = ?;',
+      [id],
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.single;
+    return _NoteMeta(
+      title: row['title'] as String,
+      path: row['path'] as String,
+      content: row['content'] as String,
+      updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
+      tags: row['tags'] as String,
+    );
+  }
+
+  /// Whether [notePath] equals or is nested under [filterPath] — mirrors
+  /// [_bm25Search]'s SQL path condition for use against a single
+  /// in-memory row instead of a WHERE clause.
+  static bool _pathMatches(String notePath, String filterPath) =>
+      notePath == filterPath || notePath.startsWith('$filterPath/');
+
+  /// Whether [encodedTags] (as produced by [_encodeTags]) contains [tag]
+  /// — mirrors [_bm25Search]'s SQL tag condition.
+  static bool _tagsContain(String encodedTags, String tag) =>
+      encodedTags.contains(' ${tag.toLowerCase()} ');
+
+  /// Plain-text fallback snippet for a vector-only hit, which has no FTS5
+  /// match to build a highlighted snippet from.
+  static String _fallbackSnippet(String content, {int maxLength = 160}) =>
+      content.length <= maxLength
+          ? content
+          : '${content.substring(0, maxLength)}…';
 
   /// Runs a K-nearest-neighbors query against `note_vectors`, returning up
   /// to [k] hits ordered by ascending distance (most similar first).

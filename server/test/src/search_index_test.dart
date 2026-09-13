@@ -453,7 +453,10 @@ void main() {
         tags: {'Urgent'},
       );
 
-      expect(await index.search('budget', path: 'Projects/Alpha'), hasLength(1));
+      expect(
+        await index.search('budget', path: 'Projects/Alpha'),
+        hasLength(1),
+      );
       // 'Projects' is an ancestor folder, so it matches too (nested).
       expect(await index.search('budget', path: 'Projects'), hasLength(1));
       expect(await index.search('budget', path: 'Other'), isEmpty);
@@ -791,6 +794,154 @@ void main() {
         );
       }
       expect(await index.search('orbit', limit: 3), hasLength(3));
+    });
+  });
+
+  group('SearchIndex.search hybrid ranking', () {
+    test('stays BM25-only ordered when no provider is configured', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+      index
+        ..upsert(
+          id: 'weak',
+          title: 'Weak match',
+          content: 'apple mentioned once',
+          updatedAt: _testStamp,
+        )
+        ..upsert(
+          id: 'strong',
+          title: 'Strong match',
+          content: 'apple apple apple everywhere apple',
+          updatedAt: _testStamp,
+        );
+
+      final hits = await index.search('apple');
+
+      expect(hits.map((h) => h.id).toList(), ['strong', 'weak']);
+    });
+
+    test('calls the embedding provider once with the query text', () async {
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+      index.upsert(
+        id: 'n1',
+        title: 'A',
+        content: 'hello world',
+        updatedAt: _testStamp,
+        embedding: [1.0, 2.0, 3.0, 4.0],
+      );
+
+      await index.search('hello');
+
+      expect(provider.callCount, 1);
+    });
+
+    test('a note found only via vector similarity is still returned', () async {
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+
+      // "auth" note: matches the query by keyword, far in vector space.
+      index
+        ..upsert(
+          id: 'keyword-match',
+          title: 'Auth',
+          content: 'the word auth appears here',
+          updatedAt: _testStamp,
+          embedding: [100.0, 100.0, 100.0, 100.0],
+        )
+        // "oauth" note: no keyword overlap with "auth", but close in
+        // vector space to the query embedding.
+        ..upsert(
+          id: 'semantic-match',
+          title: 'Login redesign',
+          content: 'switching to OAuth for third-party login',
+          updatedAt: _testStamp,
+          embedding: [1.0, 2.0, 3.0, 4.1],
+        );
+      provider.overrides['auth'] = [1.0, 2.0, 3.0, 4.0];
+
+      final hits = await index.search('auth');
+
+      expect(hits.map((h) => h.id), contains('semantic-match'));
+      expect(hits.map((h) => h.id), contains('keyword-match'));
+    });
+
+    test('a vector-only hit carries title, path, and a content snippet',
+        () async {
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'semantic-match',
+        title: 'Login redesign',
+        content: 'switching to OAuth for third-party login',
+        updatedAt: _testStamp,
+        path: 'Projects/Auth',
+        embedding: [1.0, 2.0, 3.0, 4.1],
+      );
+      provider.overrides['auth'] = [1.0, 2.0, 3.0, 4.0];
+
+      final hits = await index.search('auth');
+
+      final hit = hits.singleWhere((h) => h.id == 'semantic-match');
+      expect(hit.title, 'Login redesign');
+      expect(hit.path, 'Projects/Auth');
+      expect(hit.snippet, contains('OAuth'));
+    });
+
+    test(
+        'falls back to BM25-only results when the provider fails at '
+        'query time', () async {
+      final provider = FakeEmbeddingProvider()..shouldThrow = true;
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+      // Seed a vector row directly (bypassing embed(), which always
+      // throws for this provider) so there's something a working query
+      // could have matched, to prove the fallback is BM25-only.
+      index.upsert(
+        id: 'n1',
+        title: 'A',
+        content: 'findable by keyword',
+        updatedAt: _testStamp,
+        embedding: [1.0, 2.0, 3.0, 4.0],
+      );
+
+      final hits = await index.search('findable');
+
+      expect(hits, hasLength(1));
+      expect(hits.single.id, 'n1');
+    });
+
+    test('respects path/tag filters for vector-only hits too', () async {
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(tmp, embeddingProvider: provider);
+      addTearDown(index.close);
+
+      index
+        ..upsert(
+          id: 'in-scope',
+          title: 'In scope',
+          content: 'switching to OAuth for third-party login',
+          updatedAt: _testStamp,
+          path: 'Projects/Alpha',
+          embedding: [1.0, 2.0, 3.0, 4.1],
+        )
+        ..upsert(
+          id: 'out-of-scope',
+          title: 'Out of scope',
+          content: 'switching to OAuth for third-party login too',
+          updatedAt: _testStamp,
+          path: 'Elsewhere',
+          embedding: [1.0, 2.0, 3.0, 4.2],
+        );
+      provider.overrides['auth'] = [1.0, 2.0, 3.0, 4.0];
+
+      final hits = await index.search('auth', path: 'Projects/Alpha');
+
+      expect(hits.map((h) => h.id).toList(), ['in-scope']);
     });
   });
 }

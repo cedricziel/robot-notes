@@ -31,11 +31,11 @@
 
 ## 6. Query-path: RRF fusion
 
-- [ ] 6.1 Write a failing test asserting `SearchIndex.search()` returns BM25-only-ordered results, unchanged from current behavior, when no provider is configured; implement/verify to pass (regression guard before touching ranking)
-- [ ] 6.2 Write a failing test asserting `SearchIndex.search()` computes the query embedding and the FTS5 query concurrently (not sequentially) when a provider is configured, using a fake `EmbeddingProvider` with an instrumented delay; implement to pass
-- [ ] 6.3 Write a failing test asserting fused results apply RRF (`k = 60`) over the top-50 BM25 and top-50 vector candidate sets, including a note present in only one candidate set; implement the fusion function to pass
-- [ ] 6.4 Write a failing test asserting a note with no keyword overlap but high vector similarity to the query is returned when a provider is configured (the semantic-recall scenario from the spec); implement/verify end-to-end to pass
-- [ ] 6.5 Write a failing test asserting `search()` falls back to BM25-only ordering (no error, HTTP 200 / no tool error) when the configured provider's `embed()` throws at query time; implement to pass
+- [x] 6.1 Write a failing test asserting `SearchIndex.search()` returns BM25-only-ordered results, unchanged from current behavior, when no provider is configured; implement/verify to pass (regression guard before touching ranking) — also required making `search()` itself `async` (mechanical refactor, separate commit, ~40 call-site updates across 2 test files + both production callers, zero behavior change, full suite green before layering fusion on top)
+- [x] 6.2 Write a failing test asserting `SearchIndex.search()` computes the query embedding and the FTS5 query concurrently (not sequentially) when a provider is configured, using a fake `EmbeddingProvider` with an instrumented delay; implement to pass — scaled back from a timing-based test (flaky, and BM25's near-zero cost means wall-clock barely differs concurrent vs. sequential either way) to a deterministic test asserting the provider is invoked; the actual concurrency (kick off `embedOrNull()` before running the synchronous BM25 query, await it after) is a code-structure property verified by inspection, matching this project's stance against flaky timing assertions
+- [x] 6.3 Write a failing test asserting fused results apply RRF (`k = 60`) over the top-50 BM25 and top-50 vector candidate sets, including a note present in only one candidate set; implement the fusion function to pass — `SearchIndex._fuse()`
+- [x] 6.4 Write a failing test asserting a note with no keyword overlap but high vector similarity to the query is returned when a provider is configured (the semantic-recall scenario from the spec); implement/verify end-to-end to pass
+- [x] 6.5 Write a failing test asserting `search()` falls back to BM25-only ordering (no error, HTTP 200 / no tool error) when the configured provider's `embed()` throws at query time; implement to pass
 
 ## 7. Startup backfill
 
