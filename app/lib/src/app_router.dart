@@ -12,6 +12,7 @@ import 'auth/oidc_session_refresher.dart';
 import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
+import 'notes/folder_prompt.dart';
 import 'notes/folder_tree_controller.dart';
 import 'notes/folder_tree_sidebar.dart';
 import 'notes/note_controller.dart';
@@ -225,6 +226,13 @@ Widget _buildListPage(BuildContext context) {
           controller: session.tree,
           selectedPath: listState.selectedPath,
           onSelect: session.list.selectFolder,
+          onCreateFolder: () => unawaited(
+            _createFolder(
+              context,
+              session,
+              initialPath: listState.selectedPath,
+            ),
+          ),
         ),
         appBarActions: [
           IconButton(
@@ -313,6 +321,22 @@ Future<void> _createNote(BuildContext context, AppSession session) async {
     final message = describeError(e, fallback: 'Could not create note.');
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
+}
+
+/// Shows the "New folder" prompt (pre-filled with [initialPath], typically
+/// the currently selected folder) and, on success, refreshes the folder
+/// tree so the new (possibly empty) folder appears immediately.
+Future<void> _createFolder(
+  BuildContext context,
+  AppSession session, {
+  String? initialPath,
+}) async {
+  final created = await showCreateFolderDialog(
+    context,
+    api: session.api,
+    initialPath: initialPath,
+  );
+  if (created) await session.tree.refresh();
 }
 
 Future<void> _confirmReset(BuildContext context, AppSession session) async {

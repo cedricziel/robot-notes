@@ -428,6 +428,56 @@ void main() {
       expect(tree.folders[1].noteCount, 3);
     });
 
+    test('createNote sends path when creating inside a folder', () async {
+      Map<String, dynamic>? body;
+      final mock = MockClient((request) async {
+        body = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(jsonEncode(_noteJson()), 201);
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      await client.createNote(title: 'new', path: 'Projects/Alpha');
+
+      expect(body?['path'], 'Projects/Alpha');
+    });
+
+    test('createFolder posts the path to /notes/tree', () async {
+      Map<String, dynamic>? body;
+      final mock = MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/notes/tree');
+        body = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(
+          jsonEncode(<String, Object?>{'path': 'Ideas', 'note_count': 0}),
+          201,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      await client.createFolder('Ideas');
+
+      expect(body?['path'], 'Ideas');
+    });
+
+    test('createFolder surfaces a 400 as BadRequestException', () async {
+      final mock = MockClient((request) async {
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'error': 'bad_request',
+            'message': 'path is required',
+          }),
+          400,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+
+      await expectLater(
+        client.createFolder(''),
+        throwsA(isA<BadRequestException>()),
+      );
+    });
+
     test('updateNote sends path when moving a note', () async {
       Map<String, dynamic>? body;
       final mock = MockClient((request) async {

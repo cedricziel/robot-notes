@@ -184,16 +184,41 @@ class RobotNotesClient {
     return Note.fromJson(_ok(res));
   }
 
-  Future<Note> createNote({required String title, String content = ''}) async {
+  Future<Note> createNote({
+    required String title,
+    String content = '',
+    String path = '',
+  }) async {
     final res = await _http.post(
       _uri('/notes'),
       headers: <String, String>{
         ..._baseHeaders,
         'Content-Type': 'application/json',
       },
-      body: jsonEncode(<String, Object?>{'title': title, 'content': content}),
+      body: jsonEncode(<String, Object?>{
+        'title': title,
+        'content': content,
+        'path': path,
+      }),
     );
     return Note.fromJson(_ok(res));
+  }
+
+  /// `POST /notes/tree` — creates an empty folder (and any missing
+  /// intermediate folders) at [path], persisted via a marker file so it
+  /// survives a restart even with no notes in it. Idempotent: succeeds
+  /// (200) if the folder already exists, whether it holds notes, a
+  /// marker, or both.
+  Future<void> createFolder(String path) async {
+    final res = await _http.post(
+      _uri('/notes/tree'),
+      headers: <String, String>{
+        ..._baseHeaders,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(<String, Object?>{'path': path}),
+    );
+    _ok(res);
   }
 
   Future<Note> updateNote({

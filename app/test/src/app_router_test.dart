@@ -205,6 +205,55 @@ void main() {
     });
   });
 
+  testWidgets(
+    'creating a folder from the sidebar refreshes the tree so it appears',
+    (tester) async {
+      var folderCreated = false;
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.method == 'POST' && request.url.path == '/notes/tree') {
+            folderCreated = true;
+            return http.Response(
+              jsonEncode(<String, Object?>{'path': 'Ideas', 'note_count': 0}),
+              201,
+            );
+          }
+          if (request.method == 'GET' && request.url.path == '/notes/tree') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'folders': folderCreated
+                    ? [
+                        {'path': 'Ideas', 'note_count': 0},
+                      ]
+                    : <Object?>[],
+              }),
+              200,
+            );
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ideas'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('sidebar.newFolder')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('folder.create.input')),
+        'Ideas',
+      );
+      await tester.tap(find.byKey(const Key('folder.create.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ideas'), findsOneWidget);
+    },
+  );
+
   testWidgets('/notes/01H deep link renders that note', (tester) async {
     final api = RobotNotesClient(config: _config, httpClient: _mockClient());
     addTearDown(api.close);
