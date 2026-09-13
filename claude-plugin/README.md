@@ -8,7 +8,7 @@ error handling).
 ## Install
 
 ```bash
-cc --plugin-dir ./claude-plugin
+claude --plugin-dir ./claude-plugin
 ```
 
 or add `claude-plugin/` as a marketplace entry / local plugin path per

@@ -24,9 +24,12 @@ handling; they are rejected before the handler runs.
 
 ## Retry guidance
 
-- `version_conflict`: re-read the fresh `current_version` from the error
-  details (no extra `get_note` call needed) and reissue the write with
-  it. Do not retry blindly with the stale version.
+- `version_conflict`: the error details carry `current_version` and, if
+  the caller holds `notes:read`, `current_content` — no extra `get_note`
+  call needed to learn the fresh version. Do not resend the original
+  content with only the version bumped: that discards whoever won the
+  race. Merge the intended edit into `current_content` and resubmit that
+  merged content with `current_version`.
 - `locked`: not retryable on a timer — either wait for the holder to
   release the lock (or for it to expire, per `expires_at` from
   `get_note`) or surface the conflict to the user instead of looping.

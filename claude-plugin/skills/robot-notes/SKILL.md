@@ -69,9 +69,14 @@ the outside, and there is no reason to try.
 `update_note` and `move_note` both require the note's current `version`
 and fail with `version_conflict` if it has changed since it was last
 read. On `version_conflict`, the error details carry `current_version`
-(and `current_content`, if the caller holds `notes:read`) — re-issue the
-call with the fresh version rather than blindly retrying with the stale
-one. `append_to_note` does this retry loop internally, so it never
+and, if the caller holds `notes:read`, `current_content` — the note as
+it now stands, written by whoever won the race. Do not resend the
+original content with only the version bumped: that silently discards
+the other actor's change. Instead, merge the intended edit into
+`current_content` (re-reading with `get_note` first if the error
+didn't include it) and resubmit that merged content with
+`current_version`. `append_to_note` does this retry loop internally —
+appending onto the latest content on each attempt — so it never
 surfaces `version_conflict` to the caller under normal contention.
 
 ## Editor locks
