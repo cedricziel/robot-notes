@@ -122,9 +122,10 @@ Future<Response> _upload(RequestContext context) async {
     );
     storage.registerFile(
       StoredFile(
-        relativePath: result.path.isEmpty
-            ? result.filename
-            : '${result.path}/${result.filename}',
+        relativePath: vaultRelativePath(
+          path: result.path,
+          filename: result.filename,
+        ),
         size: result.size,
         updatedAt: clock.nowUtc(),
       ),
