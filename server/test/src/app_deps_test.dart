@@ -6,9 +6,11 @@ import 'package:server/src/app_deps.dart';
 import 'package:server/src/app_deps_holder.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/embeddings/ollama_embedding_provider.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oidc/discovery.dart';
 import 'package:shared/shared.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 Directory _tempDir() {
@@ -20,6 +22,14 @@ Config _config(Directory tmp) => Config(
       dataDir: tmp.path,
       port: 8080,
       lockTtlSeconds: 60,
+    );
+
+Config _embeddingConfig(Directory tmp) => Config(
+      apiKey: 'rn_test',
+      dataDir: tmp.path,
+      port: 8080,
+      lockTtlSeconds: 60,
+      embeddingProvider: 'ollama',
     );
 
 void main() {
@@ -276,6 +286,47 @@ void main() {
           ),
           throwsA(isA<OidcDiscoveryException>()),
         );
+      });
+    });
+
+    group('embedding provider', () {
+      test('no embedding provider is wired when unconfigured', () async {
+        final deps = await AppDeps.bootstrap(
+          _config(tmp),
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+        );
+        addTearDown(deps.searchIndex.close);
+
+        expect(deps.noteWriteService.embeddingProvider, isNull);
+        final db = sqlite3.open('${tmp.path}/search.db');
+        final tables = db.select(
+          "SELECT name FROM sqlite_master WHERE type='table' "
+          "AND name='note_vectors';",
+        );
+        db.close();
+        expect(tables, isEmpty);
+      });
+
+      test(
+          'an Ollama embedding provider is wired into NoteWriteService and '
+          'SearchIndex when configured', () async {
+        final deps = await AppDeps.bootstrap(
+          _embeddingConfig(tmp),
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
+        );
+        addTearDown(deps.searchIndex.close);
+
+        expect(
+          deps.noteWriteService.embeddingProvider,
+          isA<OllamaEmbeddingProvider>(),
+        );
+        final db = sqlite3.open('${tmp.path}/search.db');
+        final tables = db.select(
+          "SELECT name FROM sqlite_master WHERE type='table' "
+          "AND name='note_vectors';",
+        );
+        db.close();
+        expect(tables, isNotEmpty);
       });
     });
   });

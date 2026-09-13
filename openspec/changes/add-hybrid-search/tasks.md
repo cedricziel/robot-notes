@@ -46,9 +46,9 @@
 
 ## 8. Wiring and docs
 
-- [ ] 8.1 Wire the `EmbeddingProvider?` built in task 3.3 into `SearchIndex` construction at server startup (`server/lib/src/...` entrypoint) and into the backfill trigger from task 7.3
-- [ ] 8.2 Update `server/README.md` (or the relevant ops doc) documenting the new `--embedding-provider`/`ROBOT_NOTES_EMBEDDING_PROVIDER` flags, the Ollama prerequisite, and that search works identically without them
-- [ ] 8.3 Run `dart analyze` and the full `server` test suite; fix any warnings introduced by this change
+- [x] 8.1 Wire the `EmbeddingProvider?` built in task 3.3 into `SearchIndex` construction at server startup (`server/lib/src/...` entrypoint) and into the backfill trigger from task 7.3 — `AppDeps.bootstrap` in `app_deps.dart` now calls `embeddingProviderFromConfig(config)` once and passes it to both `SearchIndex.open()` and `NoteWriteService`; the backfill trigger needed no separate wiring since it's already automatic inside `SearchIndex.open()` (task 7.3)
+- [x] 8.2 Update `server/README.md` (or the relevant ops doc) documenting the new `--embedding-provider`/`ROBOT_NOTES_EMBEDDING_PROVIDER` flags, the Ollama prerequisite, and that search works identically without them — added to the root `README.md`'s flags table and a new "Hybrid search (optional, additive)" section (no separate `server/README.md` exists; root README is the project's actual ops doc)
+- [x] 8.3 Run `dart analyze` and the full `server` test suite; fix any warnings introduced by this change — clean (`dart analyze` shows only one pre-existing, unrelated info-level lint in `routes/notes/files/index.dart`); full suite: 1214/1214 passing
 
 ## Definition of Done
 
