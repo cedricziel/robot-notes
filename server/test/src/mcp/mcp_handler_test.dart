@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_otel_api/flutter_otel_api.dart' hide LogRecord, Logger;
+import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/config.dart';
@@ -9,7 +9,6 @@ import 'package:server/src/mcp/json_rpc.dart';
 import 'package:server/src/mcp/mcp_handler.dart';
 import 'package:server/src/mcp/principal.dart';
 import 'package:server/src/mcp/tools.dart';
-import 'package:server/src/otel/sdk_tracer.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
@@ -206,10 +205,7 @@ void main() {
         final error = response!['error']! as Map<String, Object?>;
         expect(error['code'], kInternalError);
         expect(error['message'], 'Internal error');
-        expect(
-          jsonEncode(response),
-          isNot(contains('/secret/data/path')),
-        );
+        expect(jsonEncode(response), isNot(contains('/secret/data/path')));
       },
     );
   });
@@ -217,8 +213,11 @@ void main() {
   group('tools/call tracing and logging', () {
     ({_RecordingSpanProcessor processor, McpHandler handler}) tracedHandler() {
       final processor = _RecordingSpanProcessor();
-      final tracer =
-          SdkTracer(name: 'test', version: null, processor: processor);
+      final tracer = SdkTracer(
+        name: 'test',
+        version: null,
+        processor: processor,
+      );
       return (
         processor: processor,
         handler: McpHandler(
@@ -287,42 +286,47 @@ void main() {
       expect(h.processor.ended.single.statusCode, StatusCode.error);
     });
 
-    test('records the exception on the span for an unexpected tool failure',
-        () async {
-      final processor = _RecordingSpanProcessor();
-      final tracer =
-          SdkTracer(name: 'test', version: null, processor: processor);
-      final boomHandler = McpHandler(
-        tools: McpToolRegistry([
-          McpTool(
-            name: 'boom',
-            description: 'throws for the test',
-            inputSchema: const {
-              'type': 'object',
-              'properties': <String, Object?>{},
-              'required': <String>[],
-            },
-            annotations: const {'title': 'Boom'},
-            requiresWrite: false,
-            handler: (args, principal) async {
-              throw StateError('boom');
-            },
-          ),
-        ]),
-        serverVersion: robotNotesVersion,
-        tracer: tracer,
-      );
+    test(
+      'records the exception on the span for an unexpected tool failure',
+      () async {
+        final processor = _RecordingSpanProcessor();
+        final tracer = SdkTracer(
+          name: 'test',
+          version: null,
+          processor: processor,
+        );
+        final boomHandler = McpHandler(
+          tools: McpToolRegistry([
+            McpTool(
+              name: 'boom',
+              description: 'throws for the test',
+              inputSchema: const {
+                'type': 'object',
+                'properties': <String, Object?>{},
+                'required': <String>[],
+              },
+              annotations: const {'title': 'Boom'},
+              requiresWrite: false,
+              handler: (args, principal) async {
+                throw StateError('boom');
+              },
+            ),
+          ]),
+          serverVersion: robotNotesVersion,
+          tracer: tracer,
+        );
 
-      await boomHandler.handle(
-        _req('tools/call', params: {'name': 'boom'}),
-        fullAccess,
-      );
+        await boomHandler.handle(
+          _req('tools/call', params: {'name': 'boom'}),
+          fullAccess,
+        );
 
-      final span = processor.ended.single;
-      expect(span.statusCode, StatusCode.error);
-      expect(span.events.single.name, 'exception');
-      expect(span.events.single.attributes['exception.type'], 'StateError');
-    });
+        final span = processor.ended.single;
+        expect(span.statusCode, StatusCode.error);
+        expect(span.events.single.name, 'exception');
+        expect(span.events.single.attributes['exception.type'], 'StateError');
+      },
+    );
 
     test('logs a warning naming the tool when it is unknown', () async {
       final h = loggedHandler();
@@ -337,26 +341,25 @@ void main() {
       expect(h.records.single.message, contains('no_such_tool'));
     });
 
-    test('logs a warning naming the violation when params are invalid',
-        () async {
-      final h = loggedHandler();
+    test(
+      'logs a warning naming the violation when params are invalid',
+      () async {
+        final h = loggedHandler();
 
-      await h.handler.handle(
-        _req('tools/call', params: {'name': 'get_note'}),
-        fullAccess,
-      );
+        await h.handler.handle(
+          _req('tools/call', params: {'name': 'get_note'}),
+          fullAccess,
+        );
 
-      expect(h.records, isNotEmpty);
-      expect(h.records.single.level, Level.WARNING);
-      expect(h.records.single.message, contains('id is required'));
-    });
+        expect(h.records, isNotEmpty);
+        expect(h.records.single.level, Level.WARNING);
+        expect(h.records.single.message, contains('id is required'));
+      },
+    );
   });
 
   test('unknown method maps to -32601 and echoes the id', () async {
-    final response = await handler.handle(
-      _req('resources/list'),
-      fullAccess,
-    );
+    final response = await handler.handle(_req('resources/list'), fullAccess);
     final error = response!['error']! as Map<String, Object?>;
     expect(error['code'], kMethodNotFound);
     expect(response['id'], 1);

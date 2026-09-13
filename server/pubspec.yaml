@@ -19,13 +19,18 @@ dependencies:
   flutter_otel_api:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
+      ref: baf04060197b1fc0abcc7b63a7ed7a38f59060c4
       path: packages/flutter_otel_api
   flutter_otel_exporter_otlp_http:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 3ff0c411a2df6f844b943015efb9fb78d4e5f836
+      ref: baf04060197b1fc0abcc7b63a7ed7a38f59060c4
       path: packages/flutter_otel_exporter_otlp_http
+  flutter_otel_sdk:
+    git:
+      url: https://github.com/cedricziel/flutter-otel
+      ref: baf04060197b1fc0abcc7b63a7ed7a38f59060c4
+      path: packages/flutter_otel_sdk
   http: ^1.5.0
   logging: ^1.3.0
   meta: ^1.16.0

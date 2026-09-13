@@ -1,11 +1,7 @@
-import 'package:flutter_otel_api/flutter_otel_api.dart';
 import 'package:flutter_otel_exporter_otlp_http/flutter_otel_exporter_otlp_http.dart';
+import 'package:flutter_otel_sdk/flutter_otel_sdk.dart';
 import 'package:http/http.dart' as http;
 import 'package:server/src/config.dart';
-import 'package:server/src/otel/sdk_tracer_provider.dart';
-import 'package:server/src/otel/simple_log_record_processor.dart';
-import 'package:server/src/otel/simple_logger_provider.dart';
-import 'package:server/src/otel/simple_span_processor.dart';
 import 'package:shared/shared.dart';
 
 /// Builds the [OTelResource] every server signal is exported under:
@@ -44,7 +40,10 @@ LoggerProvider createOtelLoggerProvider(
       ownsClient: httpClient == null,
     );
   }
-  return SimpleLoggerProvider(SimpleLogRecordProcessor(exporter, resource));
+  return SdkLoggerProvider(
+    resource: resource,
+    processor: SimpleLogRecordProcessor(exporter, resource),
+  );
 }
 
 /// Builds the [TracerProvider] the server exports spans through. When
@@ -69,7 +68,5 @@ TracerProvider createOtelTracerProvider(
       ownsClient: httpClient == null,
     );
   }
-  return SdkTracerProvider(
-    processor: SimpleSpanProcessor(exporter, resource),
-  );
+  return SdkTracerProvider(processor: SimpleSpanProcessor(exporter, resource));
 }

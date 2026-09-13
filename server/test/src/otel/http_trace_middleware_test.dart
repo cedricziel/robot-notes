@@ -1,10 +1,9 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
-import 'package:flutter_otel_api/flutter_otel_api.dart';
+import 'package:flutter_otel_sdk/flutter_otel_sdk.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/otel/http_trace_middleware.dart';
-import 'package:server/src/otel/sdk_tracer.dart';
 import 'package:shelf/shelf.dart' show HijackException;
 import 'package:test/test.dart';
 
