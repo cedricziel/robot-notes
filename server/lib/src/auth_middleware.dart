@@ -9,6 +9,7 @@ import 'package:shared/shared.dart';
 const String _healthzPath = '/healthz';
 const String _wsPath = '/ws';
 final RegExp _onboardingPath = RegExp(r'^/invites/[^/]+/onboarding\.txt$');
+final RegExp _uploadCompletionPath = RegExp(r'^/notes/file-uploads/[^/]+$');
 
 /// Builds a Dart Frog [Middleware] that enforces a single configured bearer
 /// key — or a scoped OAuth access token issued by this server's own
@@ -83,6 +84,11 @@ bool _isSafeMethod(HttpMethod method) =>
 ///   arbitrary headers on the upgrade request)
 /// - `GET /invites/{token}/onboarding.txt` (the token itself is the
 ///   credential and is single-use; bearer auth would defeat the bootstrap)
+/// - `PUT /notes/file-uploads/{token}` (the upload-session token is a
+///   short-lived, single-use, narrowly-scoped credential in its own
+///   right — a presigned-URL-style transfer — so whatever actually holds
+///   the file's bytes doesn't also need the main API key; see
+///   `vault-files`'s `request_upload`/`finalize_upload` requirements)
 /// - `GET /.well-known/oauth-protected-resource`,
 ///   `GET /.well-known/oauth-protected-resource/mcp`, and
 ///   `GET /.well-known/oauth-authorization-server` (public discovery
@@ -117,11 +123,12 @@ bool _isExempt(Request request) {
           path == Routes.oauthAuthorize ||
           path == Routes.oauthToken ||
           path == Routes.oauthRevoke;
+    case HttpMethod.put:
+      return _uploadCompletionPath.hasMatch(path);
     case HttpMethod.delete:
     case HttpMethod.head:
     case HttpMethod.options:
     case HttpMethod.patch:
-    case HttpMethod.put:
       return false;
   }
 }

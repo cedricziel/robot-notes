@@ -84,7 +84,7 @@ Lets a client store, retrieve, and browse arbitrary non-note files (images, PDFs
 
 ### Requirement: request_upload reserves a token-authenticated upload slot
 
-An MCP client SHALL be able to call `request_upload` with `{ path, filename, size_bytes? }` to reserve a single-use upload slot, receiving `{ upload_url, token, expires_at }` in response. `upload_url` SHALL be a path relative to the same server the MCP request reached (e.g. `/notes/files/uploads/<token>`), suitable for a `PUT` carrying the raw file bytes. When `size_bytes` is supplied and exceeds the server's configured maximum upload size, the call SHALL fail immediately with a `payload_too_large` tool error rather than minting a token that could never be completed.
+An MCP client SHALL be able to call `request_upload` with `{ path, filename, size_bytes? }` to reserve a single-use upload slot, receiving `{ upload_url, token, expires_at }` in response. `upload_url` SHALL be a path relative to the same server the MCP request reached (e.g. `/notes/file-uploads/<token>`), suitable for a `PUT` carrying the raw file bytes. When `size_bytes` is supplied and exceeds the server's configured maximum upload size, the call SHALL fail immediately with a `payload_too_large` tool error rather than minting a token that could never be completed.
 
 #### Scenario: Reserving an upload slot
 
@@ -98,9 +98,9 @@ An MCP client SHALL be able to call `request_upload` with `{ path, filename, siz
 - **THEN** the result SHALL have `isError == true` and `structuredContent.error == "payload_too_large"`
 - **AND** no upload slot SHALL be created
 
-### Requirement: PUT /notes/files/uploads/{token} completes an upload slot with raw bytes
+### Requirement: PUT /notes/file-uploads/{token} completes an upload slot with raw bytes
 
-`PUT /notes/files/uploads/{token}` SHALL accept the raw request body as the file's bytes (not multipart), authenticated by possession of a valid, unexpired, not-yet-completed `token` alone — no `Authorization` header is required. On success it SHALL respond `200 OK` with `{ token, size, content_type, expires_at }`. It SHALL enforce the same maximum-upload-size limit as `POST /notes/files`, aborting and discarding any partial data if exceeded. A missing, expired, or already-completed token SHALL respond `404 Not Found`.
+`PUT /notes/file-uploads/{token}` SHALL accept the raw request body as the file's bytes (not multipart), authenticated by possession of a valid, unexpired, not-yet-completed `token` alone — no `Authorization` header is required. On success it SHALL respond `200 OK` with `{ token, size, content_type, expires_at }`. It SHALL enforce the same maximum-upload-size limit as `POST /notes/files`, aborting and discarding any partial data if exceeded. A missing, expired, or already-completed token SHALL respond `404 Not Found`.
 
 #### Scenario: Completing a reserved upload
 

@@ -11,7 +11,7 @@ This is a revision of the original `add-file-upload` proposal (its first three t
 
 - **Two-phase upload for MCP/agent callers**, replacing the single-call `upload_file(content_base64)` tool:
   1. `request_upload(path, filename, size_bytes?)` reserves a short-lived, single-use upload slot and returns `{ upload_url, token, expires_at }` — a tiny JSON-RPC call, no bytes.
-  2. The caller (or whatever on its side actually holds the bytes — a sandboxed `curl`, the agent's host) `PUT`s the raw file to `upload_url` (`/notes/files/uploads/{token}`), authenticated by token possession alone (a true presigned-URL-style transfer, no bearer key needed) — this is the only step that ever touches the file's actual bytes, and it never goes through the LLM's context.
+  2. The caller (or whatever on its side actually holds the bytes — a sandboxed `curl`, the agent's host) `PUT`s the raw file to `upload_url` (`/notes/file-uploads/{token}`), authenticated by token possession alone (a true presigned-URL-style transfer, no bearer key needed) — this is the only step that ever touches the file's actual bytes, and it never goes through the LLM's context.
   3. `finalize_upload(token)` places the staged bytes into the vault (sanitization, collision check, atomic write — the same path a direct upload already goes through) and returns `{ path, filename, size, content_type }`.
 - **Files are first-class vault entries, not a walled-off "attachments" concept.** A folder holding only uploaded files (no notes, no empty-folder marker) now appears in `GET /notes/tree` (with a `file_count` alongside `note_count`), and a new `GET /notes/files?path=` lists a folder's files directly, the same way `GET /notes` lists its notes.
 - **Direct multipart upload stays for real HTTP clients.** `POST /notes/files` (renamed from `/notes/attachments`) is unchanged in spirit — the Flutter app already has real bytes and a real HTTP client, so a one-shot multipart POST has no context-bloat problem and doesn't need the two-phase dance. `GET /notes/files/{path}` (renamed from `/notes/attachments/{path}`) retrieves a file's bytes, unchanged.
@@ -22,7 +22,7 @@ This is a revision of the original `add-file-upload` proposal (its first three t
 
 ### New Capabilities
 
-- `vault-files`: files as first-class, browsable vault entries — direct upload/retrieval/listing (`POST`/`GET` `/notes/files`), and the two-phase upload-session flow (`PUT /notes/files/uploads/{token}`) that backs the MCP tools. Supersedes the original `attachments` capability (never released — this change replaces it in place before archival).
+- `vault-files`: files as first-class, browsable vault entries — direct upload/retrieval/listing (`POST`/`GET` `/notes/files`), and the two-phase upload-session flow (`PUT /notes/file-uploads/{token}`) that backs the MCP tools. Supersedes the original `attachments` capability (never released — this change replaces it in place before archival).
 
 ### Modified Capabilities
 
@@ -32,7 +32,7 @@ This is a revision of the original `add-file-upload` proposal (its first three t
 
 ## Impact
 
-Server: `server/lib/src/attachments.dart` → `server/lib/src/vault_files.dart` (renamed `FileStore`, was `AttachmentStore`), plus a new `server/lib/src/upload_sessions.dart` (in-memory `UploadSessionStore`: token mint, expiry, staged-bytes-to-final-vault handoff). Routes move from `server/routes/notes/attachments/` to `server/routes/notes/files/`, plus a new `server/routes/notes/files/uploads/[token].dart`. `Storage`/`MetaIndex` gain file-awareness for tree/listing. `server/lib/src/mcp/tools.dart`: `upload_file` removed, `request_upload` and `finalize_upload` added. Flutter: `api_client.dart`'s `uploadFile` target path renamed; no behavioral change.
+Server: `server/lib/src/attachments.dart` → `server/lib/src/vault_files.dart` (renamed `FileStore`, was `AttachmentStore`), plus a new `server/lib/src/upload_sessions.dart` (in-memory `UploadSessionStore`: token mint, expiry, staged-bytes-to-final-vault handoff). Routes move from `server/routes/notes/attachments/` to `server/routes/notes/files/`, plus a new `server/routes/notes/file-uploads/[token].dart`. `Storage`/`MetaIndex` gain file-awareness for tree/listing. `server/lib/src/mcp/tools.dart`: `upload_file` removed, `request_upload` and `finalize_upload` added. Flutter: `api_client.dart`'s `uploadFile` target path renamed; no behavioral change.
 
 ## Non-goals
 

@@ -23,6 +23,7 @@ import 'package:server/src/otel/otel_tracer_holder.dart' as otel_tracer_holder;
 import 'package:server/src/search_index.dart';
 import 'package:server/src/static_web_middleware.dart';
 import 'package:server/src/storage.dart';
+import 'package:server/src/upload_sessions.dart';
 import 'package:server/src/vault_files.dart';
 import 'package:server/src/well_known_middleware.dart';
 import 'package:server/src/ws/broadcaster.dart';
@@ -92,6 +93,7 @@ Handler middleware(Handler handler) {
           .use(provider<NoteWriteService>((_) => deps.noteWriteService))
           .use(provider<Storage>((_) => deps.storage))
           .use(provider<FileStore>((_) => deps.fileStore))
+          .use(provider<UploadSessionStore>((_) => deps.uploadSessions))
           .use(provider<Clock>((_) => deps.clock))
           .use(provider<Config>((_) => config))
           .use(staticWebMiddleware(webDir: config.webDir))
