@@ -48,6 +48,31 @@ void main() {
       expect(config.dataDir, './data');
       expect(config.port, 8080);
       expect(config.lockTtlSeconds, 60);
+      expect(config.maxUploadSizeBytes, 26214400);
+    });
+
+    test('--max-upload-size-bytes overrides the default', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x', '--max-upload-size-bytes', '52428800'],
+        env: const {},
+      );
+      expect(config.maxUploadSizeBytes, 52428800);
+    });
+
+    test('ROBOT_NOTES_MAX_UPLOAD_SIZE_BYTES overrides the default', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x'],
+        env: const {'ROBOT_NOTES_MAX_UPLOAD_SIZE_BYTES': '1048576'},
+      );
+      expect(config.maxUploadSizeBytes, 1048576);
+    });
+
+    test('--max-upload-size-bytes wins over the env var', () {
+      final config = Config.fromArgs(
+        const ['--api-key', 'rn_x', '--max-upload-size-bytes', '2097152'],
+        env: const {'ROBOT_NOTES_MAX_UPLOAD_SIZE_BYTES': '1048576'},
+      );
+      expect(config.maxUploadSizeBytes, 2097152);
     });
 
     test('--data-dir overrides default', () {
