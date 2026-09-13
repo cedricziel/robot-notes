@@ -1,7 +1,7 @@
 import 'package:logging/logging.dart';
 
 /// Produces vector embeddings for note content and search queries,
-/// decoupling [SearchIndex]'s hybrid ranking from how those vectors are
+/// decoupling the search index's hybrid ranking from how those vectors are
 /// generated. Implementations are expected to be stateless and safe to call
 /// concurrently.
 abstract class EmbeddingProvider {
