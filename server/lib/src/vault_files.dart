@@ -7,22 +7,22 @@ import 'package:server/src/note_path.dart';
 
 export 'package:server/src/note_path.dart' show InvalidPathException;
 
-/// Result of a successful [AttachmentStore.write].
+/// Result of a successful [FileStore.write].
 @immutable
-class AttachmentWriteResult {
-  /// Creates an attachment write result.
-  const AttachmentWriteResult({
+class FileWriteResult {
+  /// Creates a file write result.
+  const FileWriteResult({
     required this.path,
     required this.filename,
     required this.size,
     required this.contentType,
   });
 
-  /// Folder the attachment was written to, `/`-separated, no
+  /// Folder the file was written to, `/`-separated, no
   /// leading/trailing slash. Empty string means the vault root.
   final String path;
 
-  /// Sanitized filename the attachment was stored under.
+  /// Sanitized filename the file was stored under.
   final String filename;
 
   /// Size of the written file, in bytes.
@@ -33,13 +33,13 @@ class AttachmentWriteResult {
   final String contentType;
 }
 
-/// Thrown by [AttachmentStore.write] when the sanitized target
+/// Thrown by [FileStore.write] when the sanitized target
 /// `<path>/<filename>` already refers to an existing file or directory —
-/// a note, another attachment, an empty-folder marker, or a subfolder.
+/// a note, another uploaded file, an empty-folder marker, or a subfolder.
 @immutable
-class AttachmentCollisionException implements Exception {
+class FileCollisionException implements Exception {
   /// Creates a collision naming the [path]/[filename] that collided.
-  const AttachmentCollisionException({
+  const FileCollisionException({
     required this.path,
     required this.filename,
   });
@@ -51,22 +51,22 @@ class AttachmentCollisionException implements Exception {
   final String filename;
 
   @override
-  String toString() => 'AttachmentCollisionException: $path/$filename';
+  String toString() => 'FileCollisionException: $path/$filename';
 }
 
-/// Thrown by [AttachmentStore.write] when the byte stream exceeds
+/// Thrown by [FileStore.write] when the byte stream exceeds
 /// [maxBytes] before finishing. No partial file is left at the target
 /// path.
 @immutable
-class AttachmentTooLargeException implements Exception {
+class FileTooLargeException implements Exception {
   /// Creates an exception naming the [maxBytes] limit that was exceeded.
-  const AttachmentTooLargeException({required this.maxBytes});
+  const FileTooLargeException({required this.maxBytes});
 
   /// The configured maximum upload size, in bytes.
   final int maxBytes;
 
   @override
-  String toString() => 'AttachmentTooLargeException: exceeds $maxBytes bytes';
+  String toString() => 'FileTooLargeException: exceeds $maxBytes bytes';
 }
 
 /// Writes uploaded, non-note files into the same folder structure notes
@@ -74,15 +74,16 @@ class AttachmentTooLargeException implements Exception {
 /// case/NFC-insensitive collision rules a note's path/title already go
 /// through (see `note_path.dart`) — but through its own small write path
 /// rather than `Storage`'s note-oriented `create`/`update` API, since an
-/// attachment has no frontmatter, id, or version and is never indexed.
+/// uploaded file has no frontmatter, id, or version and is never a note.
 ///
-/// Both `POST /notes/attachments` and the `upload_file` MCP tool call
-/// this same store so the sanitization/collision/atomicity invariants
-/// only need to be correct in one place.
-class AttachmentStore {
+/// Every upload path — `POST /notes/files` and `finalize_upload` (via
+/// `UploadSessionStore`) alike — calls this same store so the
+/// sanitization/collision/atomicity invariants only need to be correct
+/// in one place.
+class FileStore {
   /// Creates a store rooted at [contentDir] — the same directory
   /// `Storage` writes note files into.
-  AttachmentStore({required this.contentDir});
+  FileStore({required this.contentDir});
 
   /// Filesystem directory shared with `Storage`'s note files.
   final Directory contentDir;
@@ -90,7 +91,7 @@ class AttachmentStore {
   // Per-target-path write serialization, keyed by `collisionKey` of the
   // relative file path a write is about to claim — the same pattern
   // `Storage` uses for note create/rename races, so two writers racing
-  // to the same new attachment path can't both pass the collision check
+  // to the same new file path can't both pass the collision check
   // before either writes.
   final Map<String, Future<void>> _pathLocks = {};
 
@@ -100,11 +101,11 @@ class AttachmentStore {
   /// limit can reject it.
   ///
   /// Throws [InvalidPathException] if [path] or [filename] sanitizes to
-  /// nothing usable, [AttachmentCollisionException] if the target
-  /// already exists, and [AttachmentTooLargeException] if [bytes]
+  /// nothing usable, [FileCollisionException] if the target
+  /// already exists, and [FileTooLargeException] if [bytes]
   /// exceeds [maxBytes] — in the last case, no partial file is left on
   /// disk.
-  Future<AttachmentWriteResult> write({
+  Future<FileWriteResult> write({
     required String path,
     required String filename,
     required Stream<List<int>> bytes,
@@ -128,7 +129,7 @@ class AttachmentStore {
         final targetKey = collisionKey(sanitizedFilename);
         for (final entity in dir.listSync()) {
           if (collisionKey(_basename(entity.path)) == targetKey) {
-            throw AttachmentCollisionException(
+            throw FileCollisionException(
               path: relDir,
               filename: sanitizedFilename,
             );
@@ -158,14 +159,14 @@ class AttachmentStore {
       }
       if (tooLarge) {
         if (tmp.existsSync()) await tmp.delete();
-        throw AttachmentTooLargeException(maxBytes: maxBytes);
+        throw FileTooLargeException(maxBytes: maxBytes);
       }
       await tmp.rename(finalFile.path);
 
       final resolvedContentType = contentType ??
           lookupMimeType(sanitizedFilename) ??
           'application/octet-stream';
-      return AttachmentWriteResult(
+      return FileWriteResult(
         path: relDir,
         filename: sanitizedFilename,
         size: total,
