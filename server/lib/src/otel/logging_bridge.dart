@@ -38,9 +38,9 @@ otel.LogRecord _toOtelRecord(logging.LogRecord record, otel.Span? span) =>
       body: record.message,
       severity: _severityFor(record.level),
       timestamp: record.time,
+      traceId: span?.spanContext.traceId,
+      spanId: span?.spanContext.spanId,
       attributes: {
-        if (span != null) 'trace_id': span.spanContext.traceId,
-        if (span != null) 'span_id': span.spanContext.spanId,
         if (record.error != null)
           'exception.type': record.error.runtimeType.toString(),
         if (record.error != null) 'exception.message': record.error.toString(),
