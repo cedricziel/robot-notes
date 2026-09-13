@@ -1,28 +1,28 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:server/src/attachments.dart';
+import 'package:server/src/vault_files.dart';
 import 'package:test/test.dart';
 
 Directory _tempDir() =>
-    Directory.systemTemp.createTempSync('robot-notes-attachments-test-');
+    Directory.systemTemp.createTempSync('robot-notes-vault-files-test-');
 
 Stream<List<int>> _bytesOf(String s) => Stream.value(s.codeUnits);
 
 void main() {
   late Directory tmp;
-  late AttachmentStore store;
+  late FileStore store;
 
   setUp(() {
     tmp = _tempDir();
-    store = AttachmentStore(contentDir: Directory('${tmp.path}/content'));
+    store = FileStore(contentDir: Directory('${tmp.path}/content'));
   });
 
   tearDown(() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  group('AttachmentStore.write', () {
+  group('FileStore.write', () {
     test('sanitizes path and filename the same way notes do', () async {
       final result = await store.write(
         path: 'Projects/Alpha',
@@ -80,7 +80,7 @@ void main() {
           bytes: _bytesOf('two'),
           maxBytes: 1024,
         ),
-        throwsA(isA<AttachmentCollisionException>()),
+        throwsA(isA<FileCollisionException>()),
       );
       expect(
         File('${tmp.path}/content/Ideas/diagram.png').readAsStringSync(),
@@ -116,7 +116,7 @@ void main() {
           bytes: chunks,
           maxBytes: 15,
         ),
-        throwsA(isA<AttachmentTooLargeException>()),
+        throwsA(isA<FileTooLargeException>()),
       );
       expect(
         Directory('${tmp.path}/content/Ideas').listSync().whereType<File>(),
@@ -148,8 +148,8 @@ void main() {
             .catchError((Object e) => e),
       ]);
 
-      final succeeded = results.whereType<AttachmentWriteResult>().toList();
-      final failed = results.whereType<AttachmentCollisionException>().toList();
+      final succeeded = results.whereType<FileWriteResult>().toList();
+      final failed = results.whereType<FileCollisionException>().toList();
       expect(succeeded, hasLength(1));
       expect(failed, hasLength(1));
     });
