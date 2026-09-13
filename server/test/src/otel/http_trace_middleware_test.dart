@@ -5,6 +5,7 @@ import 'package:flutter_otel_api/flutter_otel_api.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/otel/http_trace_middleware.dart';
 import 'package:server/src/otel/sdk_tracer.dart';
+import 'package:shelf/shelf.dart' show HijackException;
 import 'package:test/test.dart';
 
 class _MockRequestContext extends Mock implements RequestContext {}
@@ -51,40 +52,45 @@ RequestContext _ctx({
 
 void main() {
   group('otelHttpTraceMiddleware', () {
-    test('wraps the handler in a server-kind span with http attributes',
-        () async {
-      final h = _harness();
-      final ctx = _ctx(method: HttpMethod.post);
+    test(
+      'wraps the handler in a server-kind span with http attributes',
+      () async {
+        final h = _harness();
+        final ctx = _ctx(method: HttpMethod.post);
 
-      final response =
-          await h.middleware((_) async => Response(statusCode: 201))(ctx);
+        final response = await h.middleware(
+          (_) async => Response(statusCode: 201),
+        )(ctx);
 
-      expect(response.statusCode, 201);
-      final data = h.processor.ended.single;
-      expect(data.name, 'POST /notes');
-      expect(data.kind, SpanKind.server);
-      expect(data.attributes['http.method'], 'POST');
-      expect(data.attributes['http.target'], '/notes');
-      expect(data.attributes['http.route'], '/notes');
-      expect(data.attributes['http.status_code'], 201);
-      expect(data.statusCode, StatusCode.unset);
-    });
+        expect(response.statusCode, 201);
+        final data = h.processor.ended.single;
+        expect(data.name, 'POST /notes');
+        expect(data.kind, SpanKind.server);
+        expect(data.attributes['http.method'], 'POST');
+        expect(data.attributes['http.target'], '/notes');
+        expect(data.attributes['http.route'], '/notes');
+        expect(data.attributes['http.status_code'], 201);
+        expect(data.statusCode, StatusCode.unset);
+      },
+    );
 
-    test('normalizes a note ID segment into the span name and http.route',
-        () async {
-      final h = _harness();
-      final ctx = _ctx(path: '/notes/01J8Z9K3QYN8V6R6ZC1E7S4G3M/backlinks');
+    test(
+      'normalizes a note ID segment into the span name and http.route',
+      () async {
+        final h = _harness();
+        final ctx = _ctx(path: '/notes/01J8Z9K3QYN8V6R6ZC1E7S4G3M/backlinks');
 
-      await h.middleware((_) async => Response())(ctx);
+        await h.middleware((_) async => Response())(ctx);
 
-      final data = h.processor.ended.single;
-      expect(data.name, 'GET /notes/:id/backlinks');
-      expect(
-        data.attributes['http.target'],
-        '/notes/01J8Z9K3QYN8V6R6ZC1E7S4G3M/backlinks',
-      );
-      expect(data.attributes['http.route'], '/notes/:id/backlinks');
-    });
+        final data = h.processor.ended.single;
+        expect(data.name, 'GET /notes/:id/backlinks');
+        expect(
+          data.attributes['http.target'],
+          '/notes/01J8Z9K3QYN8V6R6ZC1E7S4G3M/backlinks',
+        );
+        expect(data.attributes['http.route'], '/notes/:id/backlinks');
+      },
+    );
 
     test('normalizes an invite token segment into the span name', () async {
       final h = _harness();
@@ -108,20 +114,39 @@ void main() {
       expect(data.statusCode, StatusCode.error);
     });
 
-    test('records an unhandled exception, sets an error status, and rethrows',
-        () async {
-      final h = _harness();
-      final ctx = _ctx();
+    test(
+      'records an unhandled exception, sets an error status, and rethrows',
+      () async {
+        final h = _harness();
+        final ctx = _ctx();
 
-      await expectLater(
-        h.middleware((_) async => throw StateError('boom'))(ctx),
-        throwsA(isA<StateError>()),
-      );
+        await expectLater(
+          h.middleware((_) async => throw StateError('boom'))(ctx),
+          throwsA(isA<StateError>()),
+        );
 
-      final data = h.processor.ended.single;
-      expect(data.statusCode, StatusCode.error);
-      expect(data.events.single.name, 'exception');
-    });
+        final data = h.processor.ended.single;
+        expect(data.statusCode, StatusCode.error);
+        expect(data.events.single.name, 'exception');
+      },
+    );
+
+    test(
+      'rethrows a HijackException without recording it as an error',
+      () async {
+        final h = _harness();
+        final ctx = _ctx();
+
+        await expectLater(
+          h.middleware((_) async => throw const HijackException())(ctx),
+          throwsA(isA<HijackException>()),
+        );
+
+        final data = h.processor.ended.single;
+        expect(data.statusCode, isNot(StatusCode.error));
+        expect(data.events, isEmpty);
+      },
+    );
 
     test('uses an incoming traceparent header as the parent context', () async {
       final h = _harness();
