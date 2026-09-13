@@ -2,7 +2,7 @@
 
 ### Requirement: GET /notes returns paginated metadata
 
-`GET /notes` SHALL return a JSON object containing `items` (an array of note metadata) and `next_cursor` (a string or null). Each item SHALL contain `id`, `title`, `path`, `version`, `updated_at`, `created_at`, `excerpt`, and `tags`. `excerpt` SHALL be a bounded, plain-text preview of the note body — not the note's full content. `tags` SHALL be the note's computed tag set (array of strings), the same set used for the `tag` filter. The endpoint SHALL accept `limit` (default 50, max 200), `after`, `sort`, `path` (return only notes whose `path` equals or is nested under the given folder), and `tag` (return only notes carrying the given tag) query parameters. `after` is an opaque cursor derived from the last item of the previous page. `path` and `tag` MAY be combined with either `sort` value and with each other; they narrow the result set before pagination is applied. Item full content SHALL NOT be included.
+`GET /notes` SHALL return a JSON object containing `items` (an array of note metadata) and `next_cursor` (a string or null). Each item SHALL contain `id`, `title`, `path`, `version`, `updated_at`, `created_at`, `excerpt`, and `tags`. `excerpt` SHALL be a bounded, plain-text preview of the note body — not the note's full content. `tags` SHALL be the note's computed tag set (array of strings), the same set used for the `tag` filter, sorted ascending case-insensitively. The endpoint SHALL accept `limit` (default 50, max 200), `after`, `sort`, `path` (return only notes whose `path` equals or is nested under the given folder), and `tag` (return only notes carrying the given tag) query parameters. `after` is an opaque cursor derived from the last item of the previous page. `path` and `tag` MAY be combined with either `sort` value and with each other; they narrow the result set before pagination is applied. Item full content SHALL NOT be included.
 
 `sort` SHALL be one of:
 
@@ -44,6 +44,12 @@ Any other `sort` value SHALL be rejected with HTTP 400. A cursor that cannot be 
 - **GIVEN** a note carries tags `urgent` and `travel`
 - **WHEN** a client requests `GET /notes`
 - **THEN** that item's `tags` SHALL contain `urgent` and `travel`
+
+#### Scenario: Tags are sorted ascending, case-insensitively
+
+- **GIVEN** a note carries tags `Zebra`, `apple`, and `banana`
+- **WHEN** a client requests `GET /notes`
+- **THEN** that item's `tags` SHALL be `["apple", "banana", "Zebra"]`
 
 #### Scenario: sort=updated_desc orders by most recently updated first
 

@@ -1,7 +1,6 @@
-/// Matches a fenced or inline code span so its markers can be dropped
-/// while keeping the code text itself (fences first, since a fence's `` ` ``
-/// run would otherwise be consumed by the inline pattern one backtick at a
-/// time).
+/// Matches a fenced or inline code span (fences first, since a fence's
+/// `` ` `` run would otherwise be consumed by the inline pattern one
+/// backtick at a time).
 final RegExp _codeFence = RegExp(r'```([\s\S]*?)```');
 final RegExp _inlineCode = RegExp('`([^`]*)`');
 
@@ -28,6 +27,43 @@ final RegExp _inlineTagToken = RegExp(r'#[A-Za-z0-9_\-/]+');
 /// Matches any run of whitespace (including newlines).
 final RegExp _whitespaceRun = RegExp(r'\s+');
 
+/// Delimiter around a placeholder's index: U+E000 (Private Use Area), a
+/// character that never appears in ordinary note content.
+const String _placeholder = '\uE000';
+
+/// Matches one of this module's own placeholder tokens (see
+/// [_protectCodeSpans]), so a restored code span's *own* punctuation is
+/// never mistaken for a second placeholder.
+final RegExp _placeholderToken =
+    RegExp('$_placeholder' r'(\d+)' '$_placeholder');
+
+/// Replaces every code span (fenced or inline) in [content] with an
+/// opaque placeholder, so later markdown-stripping passes (emphasis,
+/// headings, tags, …) never touch code contents — `` `snake_case` `` or
+/// `` `#pragma once` `` must survive intact, underscores/hashes and all.
+/// Returns the placeholder-substituted text alongside the extracted
+/// contents, positionally indexed; [_restoreCodeSpans] reverses this. A
+/// restored span's own digits can't be mistaken for a second placeholder
+/// since restoration happens after every other pass runs.
+(String text, List<String> spans) _protectCodeSpans(String content) {
+  final spans = <String>[];
+  String extract(Match m) {
+    spans.add(m.group(1) ?? '');
+    return '$_placeholder${spans.length - 1}$_placeholder';
+  }
+
+  var text = content.replaceAllMapped(_codeFence, extract);
+  text = text.replaceAllMapped(_inlineCode, extract);
+  return (text, spans);
+}
+
+String _restoreCodeSpans(String text, List<String> spans) {
+  return text.replaceAllMapped(
+    _placeholderToken,
+    (m) => spans[int.parse(m.group(1)!)],
+  );
+}
+
 /// Computes a bounded, markdown-stripped plain-text preview of a note's
 /// [content], for use as a list-row excerpt. Never the note's full content:
 /// output is truncated to [maxLength] characters (default 140) on a word
@@ -37,9 +73,8 @@ final RegExp _whitespaceRun = RegExp(r'\s+');
 /// computation recomputed by callers on every write and index rebuild,
 /// never persisted or cached.
 String computeExcerpt(String content, {int maxLength = 140}) {
-  var text = content;
-  text = text.replaceAllMapped(_codeFence, (m) => m.group(1) ?? '');
-  text = text.replaceAllMapped(_inlineCode, (m) => m.group(1) ?? '');
+  final (protectedText, spans) = _protectCodeSpans(content);
+  var text = protectedText;
   text = text.replaceAllMapped(
     _wikiLink,
     (m) => m.group(2) ?? m.group(1) ?? '',
@@ -48,6 +83,7 @@ String computeExcerpt(String content, {int maxLength = 140}) {
   text = text.replaceAll(_listMarker, '');
   text = text.replaceAll(_emphasisMarker, '');
   text = text.replaceAll(_inlineTagToken, '');
+  text = _restoreCodeSpans(text, spans);
   text = text.replaceAll(_whitespaceRun, ' ').trim();
 
   if (text.length <= maxLength) return text;

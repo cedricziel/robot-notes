@@ -70,6 +70,35 @@ void main() {
       expect(computeExcerpt('# Heading text'), 'Heading text');
     });
 
+    test('preserves underscores inside inline code (no emphasis-stripping)',
+        () {
+      expect(
+        computeExcerpt('Rename it to `snake_case` please'),
+        'Rename it to snake_case please',
+      );
+    });
+
+    test('preserves a hash inside inline code (not treated as a tag)', () {
+      expect(
+        computeExcerpt('Add `#pragma once` at the top'),
+        'Add #pragma once at the top',
+      );
+    });
+
+    test('preserves asterisks inside inline code', () {
+      expect(
+        computeExcerpt('The glob `*.md` matches every note'),
+        'The glob *.md matches every note',
+      );
+    });
+
+    test('preserves code contents inside a fenced block', () {
+      expect(
+        computeExcerpt('Before\n```\nsnake_case #tag *star*\n```\nAfter'),
+        'Before snake_case #tag *star* After',
+      );
+    });
+
     test('truncates long content at a word boundary with an ellipsis', () {
       final content = 'word ' * 40;
       final excerpt = computeExcerpt(content, maxLength: 20);

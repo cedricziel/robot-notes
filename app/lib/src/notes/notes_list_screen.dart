@@ -277,13 +277,17 @@ class _NoteTileState extends State<_NoteTile> {
             ),
           ),
           if (path.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Text(
-                path,
-                key: Key('notes.tile.${note.id}.path'),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+            Flexible(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(
+                  path,
+                  key: Key('notes.tile.${note.id}.path'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ),
@@ -375,7 +379,10 @@ String _two(int n) => n.toString().padLeft(2, '0');
 String formatRelativeNoteTime(DateTime dt, {DateTime? now}) {
   final reference = now ?? DateTime.now();
   final diff = reference.difference(dt);
-  if (diff.inDays >= 7) return formatNoteTimestamp(dt);
+  // A negative diff (dt is ahead of reference — server/client clock skew)
+  // bypasses every threshold below and would otherwise read as "just
+  // now" no matter how far in the future dt actually is.
+  if (diff.isNegative || diff.inDays >= 7) return formatNoteTimestamp(dt);
   if (diff.inDays >= 1) {
     return '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
   }

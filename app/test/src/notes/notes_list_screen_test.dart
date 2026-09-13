@@ -397,6 +397,17 @@ void main() {
       final then = now.subtract(const Duration(days: 8));
       expect(formatRelativeNoteTime(then, now: now), formatNoteTimestamp(then));
     });
+
+    test('falls back to the absolute timestamp for a future update time', () {
+      // Clock skew between server and client can put updatedAt slightly (or
+      // not so slightly) ahead of "now" — the negative diff must not read
+      // as "just now".
+      final future = now.add(const Duration(hours: 3));
+      expect(
+        formatRelativeNoteTime(future, now: now),
+        formatNoteTimestamp(future),
+      );
+    });
   });
 
   group('note row content', () {
@@ -437,6 +448,31 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Personal/Trip'), findsOneWidget);
+    });
+
+    testWidgets('a very long path does not overflow the row', (tester) async {
+      final longPath =
+          'Personal/Trip Planning/${'Very Long Folder Name/' * 8}Sub';
+      final mock = MockClient((request) async {
+        return _page(<Object?>[
+          _metaJson(id: '01H', title: 'Weekend Trip', path: longPath),
+        ]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final pathText = tester.widget<Text>(
+        find.byKey(const Key('notes.tile.01H.path')),
+      );
+      expect(pathText.maxLines, 1);
+      expect(pathText.overflow, TextOverflow.ellipsis);
     });
 
     testWidgets('does not show a path line for a root note', (tester) async {
