@@ -15,9 +15,7 @@ void main() {
       final client = MockClient((request) async {
         captured = request;
         return http.Response(
-          jsonEncode({
-            'embedding': List<double>.generate(768, (i) => i / 768),
-          }),
+          jsonEncode({'embedding': List<double>.generate(768, (i) => i / 768)}),
           200,
           headers: {'content-type': 'application/json'},
         );
@@ -79,17 +77,42 @@ void main() {
       );
     });
 
-    test('throws EmbeddingProviderException when the request times out',
-        () async {
-      final client = MockClient((_) async {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        return http.Response(jsonEncode({'embedding': <double>[]}), 200);
-      });
+    test('dimensions throws StateError for an unknown model', () {
+      final provider = OllamaEmbeddingProvider(
+        baseUrl: 'http://localhost:11434',
+        model: 'unknown-model',
+        client: MockClient((_) async => http.Response('', 500)),
+      );
+
+      expect(() => provider.dimensions, throwsA(isA<StateError>()));
+    });
+
+    test('dimensions resolves a tagged model name via its base name', () {
+      final provider = OllamaEmbeddingProvider(
+        baseUrl: 'http://localhost:11434',
+        model: 'nomic-embed-text:v1.5',
+        client: MockClient((_) async => http.Response('', 500)),
+      );
+
+      expect(provider.dimensions, 768);
+    });
+
+    test(
+        'throws EmbeddingProviderException when the embedding array '
+        'contains a non-numeric element', () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'embedding': [0.1, null],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
       final provider = OllamaEmbeddingProvider(
         baseUrl: 'http://localhost:11434',
         model: 'nomic-embed-text',
         client: client,
-        timeout: const Duration(milliseconds: 1),
       );
 
       expect(
@@ -97,5 +120,48 @@ void main() {
         throwsA(isA<EmbeddingProviderException>()),
       );
     });
+
+    test(
+        'throws EmbeddingProviderException when the returned vector length '
+        "doesn't match the model's dimensions", () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({'embedding': List<double>.generate(10, (i) => i / 10)}),
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      final provider = OllamaEmbeddingProvider(
+        baseUrl: 'http://localhost:11434',
+        model: 'nomic-embed-text',
+        client: client,
+      );
+
+      expect(
+        () => provider.embed('hello'),
+        throwsA(isA<EmbeddingProviderException>()),
+      );
+    });
+
+    test(
+      'throws EmbeddingProviderException when the request times out',
+      () async {
+        final client = MockClient((_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return http.Response(jsonEncode({'embedding': <double>[]}), 200);
+        });
+        final provider = OllamaEmbeddingProvider(
+          baseUrl: 'http://localhost:11434',
+          model: 'nomic-embed-text',
+          client: client,
+          timeout: const Duration(milliseconds: 1),
+        );
+
+        expect(
+          () => provider.embed('hello'),
+          throwsA(isA<EmbeddingProviderException>()),
+        );
+      },
+    );
   });
 }

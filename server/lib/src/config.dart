@@ -1,5 +1,6 @@
 import 'package:args/args.dart';
 import 'package:meta/meta.dart';
+import 'package:server/src/embeddings/ollama_embedding_provider.dart';
 
 /// Thrown by [Config.fromArgs] when the inputs cannot be resolved into a
 /// valid runtime configuration.
@@ -180,6 +181,10 @@ class Config {
           env['ROBOT_NOTES_OLLAMA_MODEL'],
         ) ??
         defaultOllamaEmbeddingModel;
+
+    if (embeddingProvider == 'ollama') {
+      _validateOllamaEmbeddingModel(ollamaEmbeddingModel);
+    }
 
     return Config(
       apiKey: apiKey,
@@ -520,6 +525,23 @@ class Config {
       );
     }
     return raw;
+  }
+
+  /// Validates `--ollama-embedding-model` / `ROBOT_NOTES_OLLAMA_MODEL`
+  /// against [OllamaEmbeddingProvider.knownDimensions] (an optional
+  /// `:tag` suffix, e.g. `:v1.5`, is stripped before the check). Only
+  /// called when `--embedding-provider` resolves to `ollama`. Throws
+  /// [ConfigError] for an unknown model, so a dimension mismatch is caught
+  /// at startup rather than surfacing as a runtime vector-write failure.
+  static void _validateOllamaEmbeddingModel(String model) {
+    final base = OllamaEmbeddingProvider.baseModelName(model);
+    if (!OllamaEmbeddingProvider.knownDimensions.containsKey(base)) {
+      throw ConfigError(
+        'Unsupported --ollama-embedding-model / ROBOT_NOTES_OLLAMA_MODEL '
+        'value "$model". Supported: '
+        '${OllamaEmbeddingProvider.knownDimensions.keys.join(', ')}.',
+      );
+    }
   }
 
   static int _parseInt(

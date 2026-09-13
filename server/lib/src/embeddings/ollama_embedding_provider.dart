@@ -32,12 +32,32 @@ class OllamaEmbeddingProvider implements EmbeddingProvider {
 
   final http.Client _client;
 
-  /// Ollama's API doesn't report an embedding model's output dimension,
-  /// so this is a static value rather than a runtime probe. Only
-  /// `nomic-embed-text` (768-dim) is supported today — revisit as a
-  /// per-model lookup if/when a second model is added.
+  /// Ollama's API doesn't report an embedding model's output dimension, so
+  /// this is a static lookup rather than a runtime probe. Keyed by the
+  /// model's base name (an optional `:tag` suffix, e.g. `:v1.5`, is
+  /// stripped before lookup). `Config` validates `--ollama-embedding-model`
+  /// against this map at startup, so an unsupported model is rejected
+  /// before a provider is ever constructed.
+  static const Map<String, int> knownDimensions = {'nomic-embed-text': 768};
+
+  /// Strips an optional `:tag` suffix (e.g. `nomic-embed-text:v1.5` ->
+  /// `nomic-embed-text`) so tagged model names still resolve in
+  /// [knownDimensions].
+  static String baseModelName(String model) {
+    final colon = model.indexOf(':');
+    return colon == -1 ? model : model.substring(0, colon);
+  }
+
   @override
-  int get dimensions => 768;
+  int get dimensions {
+    final dim = knownDimensions[baseModelName(model)];
+    if (dim == null) {
+      // Config validates the model at startup, so this only fires if a
+      // provider is constructed by hand, bypassing that check.
+      throw StateError('Unknown Ollama embedding model "$model".');
+    }
+    return dim;
+  }
 
   @override
   Future<List<double>> embed(String text) async {
@@ -75,8 +95,24 @@ class OllamaEmbeddingProvider implements EmbeddingProvider {
       );
     }
 
-    return (decoded['embedding'] as List)
-        .map((e) => (e as num).toDouble())
-        .toList(growable: false);
+    final rawEmbedding = decoded['embedding'] as List;
+    if (rawEmbedding.any((e) => e is! num)) {
+      throw EmbeddingProviderException(
+        'Ollama response "embedding" array contains a non-numeric element: '
+        '${response.body}',
+      );
+    }
+
+    final embedding =
+        rawEmbedding.map((e) => (e as num).toDouble()).toList(growable: false);
+
+    if (embedding.length != dimensions) {
+      throw EmbeddingProviderException(
+        'Ollama returned a ${embedding.length}-dimension embedding for '
+        'model "$model", expected $dimensions.',
+      );
+    }
+
+    return embedding;
   }
 }

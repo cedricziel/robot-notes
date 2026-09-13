@@ -697,19 +697,42 @@ void main() {
             '--embedding-provider',
             'ollama',
             '--ollama-embedding-model',
-            'other-model',
+            'nomic-embed-text:v1.5',
           ],
           env: const {},
         );
-        expect(config.ollamaEmbeddingModel, 'other-model');
+        expect(config.ollamaEmbeddingModel, 'nomic-embed-text:v1.5');
       });
 
       test('ROBOT_NOTES_OLLAMA_MODEL overrides the default', () {
         final config = Config.fromArgs(
           const ['--api-key', 'rn_x', '--embedding-provider', 'ollama'],
-          env: const {'ROBOT_NOTES_OLLAMA_MODEL': 'other-model'},
+          env: const {'ROBOT_NOTES_OLLAMA_MODEL': 'nomic-embed-text:v1.5'},
         );
-        expect(config.ollamaEmbeddingModel, 'other-model');
+        expect(config.ollamaEmbeddingModel, 'nomic-embed-text:v1.5');
+      });
+
+      test('rejects an unknown --ollama-embedding-model', () {
+        expect(
+          () => Config.fromArgs(
+            const [
+              '--api-key',
+              'rn_x',
+              '--embedding-provider',
+              'ollama',
+              '--ollama-embedding-model',
+              'other-model',
+            ],
+            env: const {},
+          ),
+          throwsA(
+            isA<ConfigError>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('other-model'), contains('nomic-embed-text')),
+            ),
+          ),
+        );
       });
     });
   });
