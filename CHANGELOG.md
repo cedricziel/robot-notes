@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.6](https://github.com/cedricziel/robot-notes/compare/v0.2.5...v0.2.6) (2026-09-13)
+
+
+### Features
+
+* **app:** cap setup screen width, add live reachability check, tuck manual key entry behind disclosure ([#171](https://github.com/cedricziel/robot-notes/issues/171)) ([f378dee](https://github.com/cedricziel/robot-notes/commit/f378dee47d59ac442676da63d555bf2607b2b6de))
+* **app:** present search as an overlay with a Recent-notes empty state ([#170](https://github.com/cedricziel/robot-notes/issues/170)) ([9a0bf13](https://github.com/cedricziel/robot-notes/commit/9a0bf13a4c8867e0570a94c18461a1d5b2f85fec))
+* enrich OTel resource attributes on server and app ([#169](https://github.com/cedricziel/robot-notes/issues/169)) ([93b9b2c](https://github.com/cedricziel/robot-notes/commit/93b9b2c40bfc55034eff388f4b095793d4853e49))
+
+
+### Documentation
+
+* **openspec:** archive merged notes-list and note-editor-autosave changes ([#167](https://github.com/cedricziel/robot-notes/issues/167)) ([6e91df4](https://github.com/cedricziel/robot-notes/commit/6e91df404aeda40102ab7c8649efd59b04c95c9a))
+
 ## [0.2.5](https://github.com/cedricziel/robot-notes/compare/v0.2.4...v0.2.5) (2026-09-13)
 
 
