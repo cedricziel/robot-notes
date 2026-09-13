@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.5](https://github.com/cedricziel/robot-notes/compare/v0.2.4...v0.2.5) (2026-09-13)
+
+
+### Features
+
+* **app,server:** notes-list excerpt, tags, and desktop polish ([#159](https://github.com/cedricziel/robot-notes/issues/159)) ([fa39299](https://github.com/cedricziel/robot-notes/commit/fa392992439f1c01ead007e0b77ce9014bf31f36))
+* **app:** add a formatting toolbar and split live preview to edit mode ([#163](https://github.com/cedricziel/robot-notes/issues/163)) ([9be52da](https://github.com/cedricziel/robot-notes/commit/9be52daa4a7e420ca7783dd8d801f8631826417c))
+* **app:** autosave note edits, replace discard prompt with flush-on-close ([#165](https://github.com/cedricziel/robot-notes/issues/165)) ([7b15a2a](https://github.com/cedricziel/robot-notes/commit/7b15a2a7cea66cdeffdb1e0c1964ebfff6ccba16))
+* **app:** replace the narrow-layout icon row with a bottom nav ([#161](https://github.com/cedricziel/robot-notes/issues/161)) ([d386616](https://github.com/cedricziel/robot-notes/commit/d38661651fb6170ed72f175fe685fcb0ad59d6bb))
+* **app:** show note metadata, cap reading width, collapse empty backlinks ([#162](https://github.com/cedricziel/robot-notes/issues/162)) ([d92b87a](https://github.com/cedricziel/robot-notes/commit/d92b87a9f54f478120f0395c110ce987e77109ee))
+
 ## [0.2.4](https://github.com/cedricziel/robot-notes/compare/v0.2.3...v0.2.4) (2026-09-12)
 
 
