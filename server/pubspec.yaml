@@ -32,6 +32,7 @@ dependencies:
   pointycastle: ^4.0.0
   shared:
     path: ../shared
+  shelf: ^1.4.2
   sqlite3: ^3.5.2
   ulid: ^2.0.1
   unorm_dart: ^0.3.2

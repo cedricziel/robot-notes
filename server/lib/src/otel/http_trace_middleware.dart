@@ -1,6 +1,7 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:flutter_otel_api/flutter_otel_api.dart';
 import 'package:shared/shared.dart';
+import 'package:shelf/shelf.dart' show HijackException;
 
 /// Builds a Dart Frog [Middleware] that wraps every request in a
 /// server-kind span, started from [tracer].
@@ -18,7 +19,9 @@ import 'package:shared/shared.dart';
 /// see `logging_bridge.dart`. `http.method`/`http.target`/`http.route`
 /// attributes are set on start, `http.status_code` on completion (with an
 /// error status for a 5xx response), and an unhandled exception is
-/// recorded (with an error status) before being rethrown.
+/// recorded (with an error status) before being rethrown. A
+/// [HijackException] — Shelf's control-flow signal for a WebSocket upgrade —
+/// is rethrown unrecorded instead, since it isn't a request error.
 ///
 /// The span name and `http.route` attribute use [_routeTemplate] rather
 /// than the raw request path, so per-note/per-invite IDs (ULIDs, tokens)
@@ -49,6 +52,10 @@ Middleware otelHttpTraceMiddleware(Tracer tracer) {
             span.setStatus(StatusCode.error);
           }
           return response;
+        } on HijackException {
+          // Shelf throws this to unwind the middleware chain after a
+          // WebSocket upgrade hijacks the socket; it isn't a request error.
+          rethrow;
         } catch (e, stackTrace) {
           span
             ..recordException(e, stackTrace: stackTrace)
