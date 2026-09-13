@@ -1,0 +1,25 @@
+{
+  "description": "Append this session's prompts and responses to a robot-notes note under Claude/Sessions/<session_id>. No-ops unless ROBOT_NOTES_BASE_URL and ROBOT_NOTES_API_KEY are set.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/log_conversation.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/log_conversation.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
