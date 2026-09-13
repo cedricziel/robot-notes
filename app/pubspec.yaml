@@ -44,9 +44,11 @@ dependencies:
   meta: ^1.16.0
   shared:
     path: ../shared
+  tray_manager: ^0.5.0
   url_launcher: ^6.3.1
   web: ^1.1.1
   web_socket_channel: ^3.0.3
+  window_manager: ^0.5.0
 
 dev_dependencies:
   flutter_test:
@@ -58,6 +60,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/tray/
 
 flutter_launcher_icons:
   image_path: "assets/branding/icon_1024.png"

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import 'src/app_router.dart';
 import 'src/config/config_store.dart';
+import 'src/desktop/tray_controller.dart';
 import 'src/otel/otel_bootstrap.dart';
 import 'src/url_strategy.dart';
 
@@ -18,6 +19,7 @@ Future<void> main() async {
   if (kIsWeb) binding.ensureSemantics();
   configureUrlStrategy();
   await initOtel();
+  unawaited(TrayController().init());
   runApp(const RobotNotesApp());
 }
 
