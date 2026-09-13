@@ -16,12 +16,21 @@ class _MockRequest extends Mock implements Request {}
 RequestContext _ctx({
   required HttpMethod method,
   required MetaIndex metaIndex,
+  Storage? storage,
+  Object? jsonBody,
+  bool malformedJson = false,
 }) {
   final ctx = _MockRequestContext();
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
+  if (malformedJson) {
+    when(req.json).thenThrow(const FormatException('bad json'));
+  } else {
+    when(req.json).thenAnswer((_) async => jsonBody);
+  }
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<MetaIndex>()).thenReturn(metaIndex);
+  if (storage != null) when(() => ctx.read<Storage>()).thenReturn(storage);
   return ctx;
 }
 
@@ -89,10 +98,213 @@ void main() {
     expect(body['folders'], isEmpty);
   });
 
+  test('lists an explicitly created empty folder with a zero count', () async {
+    final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+    await storage.createFolder('Ideas');
+    final index = MetaIndex();
+    await index.scan(storage);
+
+    final res =
+        await route.onRequest(_ctx(method: HttpMethod.get, metaIndex: index));
+    final body = await res.json() as Map<String, dynamic>;
+    expect(body['folders'], [
+      {'path': 'Ideas', 'note_count': 0},
+    ]);
+  });
+
   test('disallowed method returns 405', () async {
     final res = await route.onRequest(
-      _ctx(method: HttpMethod.post, metaIndex: MetaIndex()),
+      _ctx(method: HttpMethod.delete, metaIndex: MetaIndex()),
     );
     expect(res.statusCode, HttpStatus.methodNotAllowed);
+  });
+
+  group('POST /notes/tree', () {
+    test('creates a new empty folder and returns 201', () async {
+      final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          jsonBody: {'path': 'Ideas'},
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.created);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body, {'path': 'Ideas', 'note_count': 0});
+      expect(
+        File('${tmp.path}/content/Ideas/$kFolderMarkerFilename').existsSync(),
+        isTrue,
+      );
+    });
+
+    test('a subsequent GET lists the newly created folder', () async {
+      final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+      final index = MetaIndex();
+      await index.scan(storage);
+      await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          jsonBody: {'path': 'Ideas'},
+        ),
+      );
+
+      final res =
+          await route.onRequest(_ctx(method: HttpMethod.get, metaIndex: index));
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['folders'], [
+        {'path': 'Ideas', 'note_count': 0},
+      ]);
+    });
+
+    test('creates missing intermediate folders for a nested path', () async {
+      final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          jsonBody: {'path': 'Projects/Gamma/Sub'},
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.created);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body, {'path': 'Projects/Gamma/Sub', 'note_count': 0});
+    });
+
+    test(
+        'a path that already has notes returns 200 with its count and no '
+        'marker', () async {
+      final storage = Storage(
+        contentDir: Directory('${tmp.path}/content'),
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      await storage.create(title: 'A', content: '', path: 'Projects/Alpha');
+      await storage.create(title: 'B', content: '', path: 'Projects/Alpha');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          jsonBody: {'path': 'Projects/Alpha'},
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body, {'path': 'Projects/Alpha', 'note_count': 2});
+      expect(
+        File(
+          '${tmp.path}/content/Projects/Alpha/$kFolderMarkerFilename',
+        ).existsSync(),
+        isFalse,
+      );
+    });
+
+    test(
+        'a path that already has a marker-only folder returns 200, no '
+        'duplicate marker or error', () async {
+      final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+      await storage.createFolder('Ideas');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          jsonBody: {'path': 'Ideas'},
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body, {'path': 'Ideas', 'note_count': 0});
+    });
+
+    test('a case-only-different path resolves to the existing folder',
+        () async {
+      final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+      await storage.createFolder('Ideas');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          jsonBody: {'path': 'ideas'},
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body, {'path': 'Ideas', 'note_count': 0});
+    });
+
+    test('an empty path is rejected with 400', () async {
+      final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          jsonBody: {'path': ''},
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.badRequest);
+    });
+
+    test('a malformed JSON body is rejected with 400', () async {
+      final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+      final index = MetaIndex();
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          malformedJson: true,
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.badRequest);
+    });
+
+    test('an invalid path segment is rejected with 400', () async {
+      final storage = Storage(contentDir: Directory('${tmp.path}/content'));
+      final index = MetaIndex();
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          metaIndex: index,
+          storage: storage,
+          jsonBody: {'path': 'Projects/../etc'},
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.badRequest);
+    });
   });
 }
