@@ -279,7 +279,11 @@ class SearchIndex {
       // "server backfills embeddings ... without blocking startup"
       // requirement. `pendingBackfill` lets tests (and anything else that
       // cares) await it explicitly instead of relying on timing.
-      index.pendingBackfill = index.backfillEmbeddings();
+      index.pendingBackfill = index.backfillEmbeddings().catchError(
+        (Object e, StackTrace st) {
+          log.warning('Embedding backfill failed', e, st);
+        },
+      );
       unawaited(index.pendingBackfill);
     }
     return index;
@@ -335,6 +339,15 @@ class SearchIndex {
         links: links,
         embedding: embedding,
       );
+      // A provider is configured but this write's embed attempt failed
+      // (or the caller never had content to embed): drop any vector left
+      // over from a previous, successful write rather than serving stale
+      // vector-search results for the note's now-changed content. Backfill
+      // (see [backfillEmbeddings]) picks the id back up on its next pass
+      // since it's now absent from `note_vectors`.
+      if (_embeddingProvider != null && embedding == null) {
+        _deleteVectorStmt.execute([id]);
+      }
       _db.execute('COMMIT');
     } catch (e) {
       _db.execute('ROLLBACK');
@@ -440,12 +453,19 @@ class SearchIndex {
           span: span,
         );
       } else {
+        // Fusion needs at least _fusionCandidateLimit candidates from each
+        // ranker to combine before truncating to the caller's limit, but a
+        // caller-requested limit larger than that must still be honored —
+        // including on the provider-failure fallback path below, which
+        // returns BM25 candidates directly rather than a fused set.
+        final candidateLimit =
+            limit > _fusionCandidateLimit ? limit : _fusionCandidateLimit;
         // Kick off the query embedding request without awaiting it yet,
         // so it's in flight while the synchronous BM25 query below runs.
         final embeddingFuture = embedOrNull(provider, query, logger: _log);
         final bm25Hits = _runFtsQueryWithFallback(
           query,
-          limit: _fusionCandidateLimit,
+          limit: candidateLimit,
           path: path,
           tag: tag,
           span: span,
@@ -454,7 +474,7 @@ class SearchIndex {
         if (queryEmbedding == null) {
           hits = bm25Hits.take(limit).toList();
         } else {
-          final vectorHits = vectorSearch(queryEmbedding);
+          final vectorHits = vectorSearch(queryEmbedding, k: candidateLimit);
           hits = _fuse(
             bm25Hits: bm25Hits,
             vectorHits: vectorHits,

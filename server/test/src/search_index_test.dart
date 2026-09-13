@@ -947,6 +947,46 @@ void main() {
 
       expect(hits.map((h) => h.id).toList(), ['in-scope']);
     });
+
+    test(
+        'a limit above the fusion candidate size still returns that many '
+        'hits when the provider is unreachable', () async {
+      const noteCount = 120;
+      const limit = 100;
+
+      final noProvider = await _open(tmp);
+      for (var i = 0; i < noteCount; i++) {
+        noProvider.upsert(
+          id: 'note-$i',
+          title: 'Note $i',
+          content: 'findable content $i',
+          updatedAt: _testStamp,
+        );
+      }
+      final baselineHits = await noProvider.search('findable', limit: limit);
+      noProvider.close();
+
+      final failingProvider = FakeEmbeddingProvider()..shouldThrow = true;
+      final withProvider = await _open(
+        tmp,
+        embeddingProvider: failingProvider,
+        forceRebuild: true,
+      );
+      addTearDown(withProvider.close);
+      for (var i = 0; i < noteCount; i++) {
+        withProvider.upsert(
+          id: 'note-$i',
+          title: 'Note $i',
+          content: 'findable content $i',
+          updatedAt: _testStamp,
+        );
+      }
+
+      final hits = await withProvider.search('findable', limit: limit);
+
+      expect(hits, hasLength(baselineHits.length));
+      expect(hits, hasLength(limit));
+    });
   });
 
   group('SearchIndex.backfillEmbeddings', () {

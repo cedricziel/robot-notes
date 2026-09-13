@@ -589,6 +589,44 @@ void main() {
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isFalse);
     });
 
+    test(
+        'update drops a stale vector when the embedding provider fails, '
+        'and backfill later regenerates it', () async {
+      final provider = FakeEmbeddingProvider();
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+      final note = await svc.create(title: 'A', content: 'v1', actor: 'a');
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
+
+      provider.shouldThrow = true;
+      await svc.update(
+        id: note.id,
+        title: 'A',
+        content: 'v2',
+        ifMatch: note.version,
+        actor: 'a',
+      );
+
+      expect(
+        vectorRowExists('${tmp.path}/search.db', note.id),
+        isFalse,
+        reason: 'a failed re-embed must drop the old vector rather than leave '
+            "the pre-update content's embedding behind",
+      );
+
+      provider.shouldThrow = false;
+      await s.search.backfillEmbeddings();
+
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
+    });
+
     test('does not call embed at all when no provider is configured', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
