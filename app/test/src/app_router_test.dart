@@ -79,6 +79,7 @@ MockClient _mockClient() => MockClient(_fakeBackend);
 Widget _harness({
   required RobotNotesClient api,
   required String initialLocation,
+  VoidCallback? onReset,
 }) {
   final ws = RobotNotesWsClient(config: _config);
   final list = NotesListController(api: api);
@@ -95,7 +96,7 @@ Widget _harness({
       list: list,
       tree: tree,
       actor: _config.actor,
-      onReset: () {},
+      onReset: onReset ?? () {},
       child: child!,
     ),
   );
@@ -134,6 +135,74 @@ void main() {
 
     expect(find.textContaining('null'), findsNothing);
     expect(find.text('Could not create note.'), findsOneWidget);
+  });
+
+  group('narrow layout bottom nav wiring', () {
+    Future<void> setNarrow(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    }
+
+    testWidgets('Search opens the search screen', (tester) async {
+      await setNarrow(tester);
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.bottomNav.search')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+    });
+
+    testWidgets('Folders opens the drawer with the folder tree', (
+      tester,
+    ) async {
+      await setNarrow(tester);
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sidebar.allNotes')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('notes.bottomNav.folders')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sidebar.allNotes')), findsOneWidget);
+    });
+
+    testWidgets('Account opens the disconnect confirmation, which resets', (
+      tester,
+    ) async {
+      await setNarrow(tester);
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+      var wasReset = false;
+
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          onReset: () => wasReset = true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.bottomNav.account')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Disconnect from server?'), findsOneWidget);
+
+      await tester.tap(find.text('Disconnect'));
+      await tester.pumpAndSettle();
+
+      expect(wasReset, isTrue);
+    });
   });
 
   testWidgets('/notes/01H deep link renders that note', (tester) async {

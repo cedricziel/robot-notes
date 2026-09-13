@@ -760,4 +760,167 @@ void main() {
       expect(created, isTrue);
     });
   });
+
+  group('narrow layout bottom navigation', () {
+    Future<void> setNarrow(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    }
+
+    testWidgets('shows Search, Folders, and Account destinations', (
+      tester,
+    ) async {
+      await setNarrow(tester);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            sidebar: const Text('SIDEBAR'),
+            onSearch: () {},
+            onAccount: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('notes.bottomNav.search')), findsOneWidget);
+      expect(find.byKey(const Key('notes.bottomNav.folders')), findsOneWidget);
+      expect(find.byKey(const Key('notes.bottomNav.account')), findsOneWidget);
+    });
+
+    testWidgets('hides the AppBar hamburger and old icon actions', (
+      tester,
+    ) async {
+      await setNarrow(tester);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            sidebar: const Text('SIDEBAR'),
+            appBarActions: [
+              IconButton(
+                key: const Key('shell.refresh'),
+                icon: const Icon(Icons.refresh),
+                onPressed: () {},
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.menu), findsNothing);
+      expect(find.byKey(const Key('shell.refresh')), findsNothing);
+    });
+
+    testWidgets('tapping Search invokes onSearch', (tester) async {
+      await setNarrow(tester);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      var searched = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            sidebar: const Text('SIDEBAR'),
+            onSearch: () => searched = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.bottomNav.search')));
+      await tester.pump();
+
+      expect(searched, isTrue);
+    });
+
+    testWidgets('tapping Account invokes onAccount', (tester) async {
+      await setNarrow(tester);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      var accountTapped = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            sidebar: const Text('SIDEBAR'),
+            onAccount: () => accountTapped = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.bottomNav.account')));
+      await tester.pump();
+
+      expect(accountTapped, isTrue);
+    });
+
+    testWidgets('tapping Folders opens the sidebar drawer', (tester) async {
+      await setNarrow(tester);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            sidebar: const Text('SIDEBAR'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('SIDEBAR'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('notes.bottomNav.folders')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('SIDEBAR'), findsOneWidget);
+    });
+
+    testWidgets('is absent on a wide layout', (tester) async {
+      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            sidebar: const Text('SIDEBAR'),
+            onSearch: () {},
+            onAccount: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('notes.bottomNav.search')), findsNothing);
+    });
+  });
 }
