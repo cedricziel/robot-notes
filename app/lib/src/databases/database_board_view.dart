@@ -123,7 +123,7 @@ class _BoardColumnWidget extends StatelessWidget {
                                 child: SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(
+                                  child: CircularProgressIndicator.adaptive(
                                     strokeWidth: 2,
                                   ),
                                 ),

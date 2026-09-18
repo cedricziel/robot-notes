@@ -204,14 +204,14 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
         if (state.definition == null) {
           return const Center(
             key: Key('database.loading'),
-            child: CircularProgressIndicator(),
+            child: CircularProgressIndicator.adaptive(),
           );
         }
         return _content(context, state, state.definition!);
       case DatabaseScreenMode.ready:
         final def = state.definition;
         if (def == null) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: CircularProgressIndicator.adaptive());
         }
         return _content(context, state, def);
     }
@@ -266,7 +266,7 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
     if (state.isLoadingFirst) {
       return const Center(
         key: Key('database.view.loading'),
-        child: CircularProgressIndicator(),
+        child: CircularProgressIndicator.adaptive(),
       );
     }
     switch (view.type) {

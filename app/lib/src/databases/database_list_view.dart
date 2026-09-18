@@ -54,7 +54,7 @@ class DatabaseListView extends StatelessWidget {
                 child: SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator.adaptive(strokeWidth: 2),
                 ),
               ),
             );

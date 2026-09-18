@@ -107,7 +107,7 @@ class DatabaseTableView extends StatelessWidget {
                                     child: SizedBox(
                                       width: 20,
                                       height: 20,
-                                      child: CircularProgressIndicator(
+                                      child: CircularProgressIndicator.adaptive(
                                         strokeWidth: 2,
                                       ),
                                     ),
