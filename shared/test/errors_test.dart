@@ -32,9 +32,27 @@ void main() {
         'auth_failed',
         'auth_timeout',
         'internal_error',
+        'validation_failed',
+        'path_conflict',
       };
       final actual = ErrorCode.values.map((c) => c.wire).toSet();
       expect(expected.difference(actual), isEmpty);
+    });
+  });
+
+  group('ErrorEnvelope round-trips validation_failed', () {
+    test('fromJson decodes validation_failed', () {
+      final json = {'error': 'validation_failed'};
+      final env = ErrorEnvelope.fromJson(json);
+      expect(env.code, ErrorCode.validationFailed);
+      expect(env.toJson(), json);
+    });
+
+    test('fromJson decodes path_conflict', () {
+      final json = {'error': 'path_conflict'};
+      final env = ErrorEnvelope.fromJson(json);
+      expect(env.code, ErrorCode.pathConflict);
+      expect(env.toJson(), json);
     });
   });
 
