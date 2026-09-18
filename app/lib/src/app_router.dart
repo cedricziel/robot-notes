@@ -1014,8 +1014,11 @@ class _NotePage extends StatelessWidget {
         context.go('/');
       },
       databases: session.databases,
-      onOpenDatabase: (id, viewName) =>
-          unawaited(context.push('/databases/$id?view=$viewName')),
+      onOpenDatabase: (id, viewName) => unawaited(
+        context.push(
+          '/databases/$id?view=${Uri.encodeQueryComponent(viewName)}',
+        ),
+      ),
     );
   }
 }
@@ -1055,7 +1058,9 @@ class _DatabasePage extends StatelessWidget {
           unawaited(context.push('/notes/$id'));
         }
       },
-      onViewChanged: (name) => context.go('/databases/$databaseId?view=$name'),
+      onViewChanged: (name) => context.go(
+        '/databases/$databaseId?view=${Uri.encodeQueryComponent(name)}',
+      ),
     );
   }
 }

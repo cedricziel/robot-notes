@@ -80,6 +80,7 @@ Future<void> _pump(
   WidgetTester tester, {
   required String title,
   String? view,
+  List<Map<String, Object?>>? views,
   http.Response Function(http.Request)? onQuery,
   List<DatabaseSummary> items = const [],
   Stream<RealtimeEvent>? events,
@@ -90,7 +91,7 @@ Future<void> _pump(
   final mock = MockClient((request) async {
     if (request.method == 'GET' && request.url.path == '/databases/db1') {
       return http.Response(
-        jsonEncode(_definitionJson(id: 'db1', title: 'Projects')),
+        jsonEncode(_definitionJson(id: 'db1', title: 'Projects', views: views)),
         200,
       );
     }
@@ -256,6 +257,13 @@ void main() {
       await _pump(
         tester,
         title: 'Projects',
+        views: [
+          <String, Object?>{
+            'name': 'Board',
+            'type': 'board',
+            'group_by': 'status',
+          },
+        ],
         items: [
           DatabaseSummary.fromJson(_summaryJson(id: 'db1', title: 'Projects')),
         ],
@@ -280,6 +288,17 @@ void main() {
           );
         },
       );
+
+      expect(
+        find.byKey(const Key('database.embed.column.todo')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('database.embed.column.done')),
+        findsOneWidget,
+      );
+      expect(find.text('Row one'), findsOneWidget);
+      expect(find.text('Row two'), findsOneWidget);
     });
 
     testWidgets(

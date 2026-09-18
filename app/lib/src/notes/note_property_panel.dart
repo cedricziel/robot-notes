@@ -62,6 +62,11 @@ class NotePropertyPanel extends StatefulWidget {
 class _NotePropertyPanelState extends State<NotePropertyPanel> {
   bool _collapsed = false;
 
+  // Set as soon as the user toggles the panel, so a slower in-flight
+  // [_loadCollapsed] read can't land afterward and stomp the toggle with
+  // the stale stored value.
+  bool _collapsedChanged = false;
+
   @override
   void initState() {
     super.initState();
@@ -70,13 +75,16 @@ class _NotePropertyPanelState extends State<NotePropertyPanel> {
 
   Future<void> _loadCollapsed() async {
     final collapsed = await widget.prefs.readCollapsed();
-    if (!mounted) return;
+    if (!mounted || _collapsedChanged) return;
     setState(() => _collapsed = collapsed);
   }
 
   void _toggle() {
     final next = !_collapsed;
-    setState(() => _collapsed = next);
+    setState(() {
+      _collapsedChanged = true;
+      _collapsed = next;
+    });
     unawaited(widget.prefs.writeCollapsed(next));
   }
 

@@ -108,9 +108,11 @@ class _DatabaseEmbedState extends State<DatabaseEmbed> {
       ? '![[${widget.title}]]'
       : '![[${widget.title}#${widget.view}]]';
 
-  Future<void> _load() async {
+  Future<void> _load({bool showLoading = true}) async {
     final gen = ++_loadGen;
-    if (mounted) setState(() => _status = _EmbedStatus.loading);
+    if (showLoading && mounted) {
+      setState(() => _status = _EmbedStatus.loading);
+    }
     final summary = widget.databases.resolveByTitle(widget.title);
     if (summary == null) {
       if (!mounted || gen != _loadGen) return;
@@ -183,7 +185,9 @@ class _DatabaseEmbedState extends State<DatabaseEmbed> {
     await scheduler(DatabaseEmbed.debounceDuration);
     if (_disposed) return;
     if (_debounceGen != gen) return;
-    await _load();
+    // A realtime refresh keeps whatever's on screen rather than flashing a
+    // spinner over already-rendered rows.
+    await _load(showLoading: false);
   }
 
   @override
