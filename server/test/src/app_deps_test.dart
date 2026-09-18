@@ -6,15 +6,33 @@ import 'package:server/src/app_deps.dart';
 import 'package:server/src/app_deps_holder.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/databases/registry.dart';
 import 'package:server/src/embeddings/ollama_embedding_provider.dart';
+import 'package:server/src/meta_index.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oidc/discovery.dart';
+import 'package:server/src/search_index.dart';
+import 'package:server/src/storage.dart';
 import 'package:shared/shared.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 Directory _tempDir() {
   return Directory.systemTemp.createTempSync('robot-notes-app-deps-test-');
+}
+
+/// A [Storage] that counts calls to [read], so a test can assert a code
+/// path performs no note file reads beyond ones it already accounted for.
+class _CountingStorage extends Storage {
+  _CountingStorage({required super.contentDir});
+
+  int readCount = 0;
+
+  @override
+  Future<StoredNote> read(NoteId id) {
+    readCount++;
+    return super.read(id);
+  }
 }
 
 Config _config(Directory tmp) => Config(
@@ -328,6 +346,103 @@ void main() {
         db.close();
         expect(tables, isNotEmpty);
       });
+    });
+  });
+
+  group('DatabaseRegistry wiring at bootstrap', () {
+    test(
+        'a vault with one valid and one invalid definition registers '
+        'exactly one and logs the other, with no extra file reads', () async {
+      final tmp = _tempDir();
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final seedClock = FixedClock.fixed(DateTime.utc(2026, 4, 25));
+
+      // Seed the vault directly on disk via `Storage` (not through a full
+      // `AppDeps.bootstrap`, whose own `search.db` would then already
+      // exist and not get rebuilt with these notes on the next bootstrap
+      // below): one valid `type: database` definition and one that fails
+      // validation (a select property declared with duplicate options).
+      final seedStorage = Storage(
+        contentDir: Directory('${tmp.path}/content'),
+        clock: seedClock,
+      );
+      await seedStorage.create(
+        title: 'Projects',
+        content: '',
+        properties: {
+          'type': 'database',
+          'properties': {
+            'status': {
+              'type': 'select',
+              'options': ['todo', 'done'],
+            },
+          },
+        },
+      );
+      await seedStorage.create(
+        title: 'Broken',
+        content: '',
+        properties: {
+          'type': 'database',
+          'properties': {
+            'status': {
+              'type': 'select',
+              'options': ['todo', 'todo'],
+            },
+          },
+        },
+      );
+
+      final logs = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(logs.add);
+      addTearDown(sub.cancel);
+      final deps = await AppDeps.bootstrap(
+        _config(tmp),
+        clock: seedClock,
+      );
+      addTearDown(deps.close);
+
+      expect(deps.registry.all, hasLength(1));
+      expect(deps.registry.all.single.title, 'Projects');
+      expect(
+        logs.any(
+          (r) =>
+              r.loggerName == 'databases.registry' &&
+              r.message.contains('duplicate option'),
+        ),
+        isTrue,
+        reason: 'the invalid definition should be logged with its violation',
+      );
+
+      // Re-derive the exact loop AppDeps.bootstrap runs to build the
+      // registry (MetaIndex.get(row.id) for each definitionsSource() row),
+      // but against a spying Storage, to confirm it performs no note file
+      // reads beyond the MetaIndex/SearchIndex scans that already happened.
+      final spyStorage = _CountingStorage(contentDir: deps.storage.contentDir);
+      final metaIndex = MetaIndex();
+      await metaIndex.scan(spyStorage);
+      final searchIndex = await SearchIndex.open(
+        dbFile: File('${tmp.path}/search-spy.db'),
+        storage: spyStorage,
+        logger: Logger('search_index_spy'),
+      );
+      addTearDown(searchIndex.close);
+      final rebuildLoop = Logger.detached('spy_registry');
+      final spyRegistry = DatabaseRegistry(logger: rebuildLoop);
+
+      final readsBeforeRebuild = spyStorage.readCount;
+      spyRegistry.rebuild([
+        for (final row in searchIndex.definitionsSource())
+          if (metaIndex.get(row.id) != null)
+            (metaIndex.get(row.id)!, row.extra),
+      ]);
+
+      expect(
+        spyStorage.readCount,
+        readsBeforeRebuild,
+        reason: 'building the registry must not read any note files',
+      );
+      expect(spyRegistry.all, hasLength(1));
     });
   });
 

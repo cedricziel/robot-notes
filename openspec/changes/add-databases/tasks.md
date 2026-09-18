@@ -68,7 +68,7 @@ Each task is a TDD step: write the failing test named in the task, make it pass,
 
 ## 7. Startup and consistency
 
-- [ ] 7.1 Wire `DatabaseRegistry` into `AppDeps.bootstrap` after `SearchIndex.open`, rebuilt from `definitionsSource()`, provided to routes and MCP; failing startup test: a vault with one valid and one invalid definition registers exactly one and logs the other, with no extra file reads (count reads via a spying storage)
+- [x] 7.1 Wire `DatabaseRegistry` into `AppDeps.bootstrap` after `SearchIndex.open`, rebuilt from `definitionsSource()`, provided to routes and MCP; failing startup test: a vault with one valid and one invalid definition registers exactly one and logs the other, with no extra file reads (count reads via a spying storage) - the wiring itself was already done as a minimal hook by group 5 (5.4's deviation note); this task adds the startup test `server/test/src/app_deps_test.dart`'s "DatabaseRegistry wiring at bootstrap" group, confirming exactly one definition registers, the invalid one is logged with its violation, and a `_CountingStorage` spy sees zero `read` calls from the registry-rebuild loop itself (the existing `metaIndex.get(row.id)` lookups are in-memory)
 - [ ] 7.2 Integration tests: moved note leaves the database on next query; source change takes effect on next query; property written via `PUT` is queryable immediately; index rebuild after schema bump restores property queries; a malformed `type: database` note is never a row
 
 ## 8. Docs and wrap-up
