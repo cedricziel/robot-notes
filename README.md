@@ -129,6 +129,54 @@ flutter build macos \
 See [`app/README.md`](app/README.md) for the app's own test/analyze
 commands, its layout breakpoints, and keyboard shortcuts.
 
+### Database views
+
+A *database* is a saved, structured view over a set of notes — the notes in
+a folder, or tagged with a given tag — with typed *properties* (text, url,
+number, checkbox, date, select, multi_select, relation) declared on top of
+their frontmatter, and one or more *views* (table, list, or board) over
+them. Definitions and rows are themselves ordinary notes, so they sync,
+search, and version like everything else.
+
+To create a database from the app: open the sidebar's **Databases**
+section and tap **New database**. Give it a title, choose its source (a
+folder, with or without subfolders, or a tag), pick where its definition
+note is stored, declare its properties, and add a first view. Saving takes
+you straight into the new database.
+
+From a database screen (`/databases/<id>`) you can:
+
+- Switch between its views with the chips under the title.
+- **Table** view: every declared property (or the view's chosen subset) as
+  a column, edited inline — a typed editor per property type, with invalid
+  values (the server's `validation_failed`) highlighted and reverted.
+- **List** view: title plus property chips, for a denser read-only-ish
+  scan.
+- **Board** view: one column per option of the view's grouped property
+  (plus a trailing "No value" column), with counts from the server and
+  drag-and-drop between columns to change a row's grouped property.
+- **New row**, which prompts for a title and opens the created note
+  straight into the editor.
+- The gear icon opens the **schema editor**: add, rename, or remove
+  properties (with their options or relation target), and add, reorder, or
+  remove views (each with its own type, filter, sort, `group_by`, and
+  visible-properties list).
+
+Any note covered by a database — its path falls under the database's
+folder source, or it carries the database's tag — shows a **property
+panel** above its body in the note view: a typed editor per declared
+property, in the order the database declares them, and any other stored
+property as a read-only key/value row. The panel is collapsible; whether
+it's collapsed is remembered on that device. Editing a property there
+saves immediately, independently of the note's title/body autosave.
+
+A line that is just `![[Database Title]]` or `![[Database Title#View
+Name]]` in a note's body embeds that database's named view (its default
+view if no `#View` is given) as a small, read-only, live-updating table or
+board, limited to the first 50 rows, with a "Show all" link to the full
+database screen and row titles that open their notes. A title (or view)
+that doesn't resolve renders as the literal text instead.
+
 ### Running the server via Docker
 
 The CI pipeline publishes a multi-arch (`linux/amd64`, `linux/arm64`)
