@@ -51,7 +51,14 @@ WORKDIR /workspace
 # pubspec_overrides.yaml carries the flutter_otel_api/
 # flutter_otel_exporter_otlp_http git-dependency pins (see that file for
 # why it's separate from pubspec.yaml) and needs no stripping itself.
-COPY pubspec.yaml pubspec_overrides.yaml ./
+#
+# pubspec.lock pins every transitive package to the versions CI tests
+# against. Without it `flutter pub get` here resolves fresh, and a newly
+# published transitive (material_ui 1.3.0 needed a `meta` newer than the
+# 3.44.0 SDK bundles) can break `flutter build web` with no change in
+# this repo. Pub treats the lock as the preferred resolution and only
+# deviates where the stripped workspace or the SDK forces it.
+COPY pubspec.yaml pubspec_overrides.yaml pubspec.lock ./
 RUN sed -i '/^  - server$/d' pubspec.yaml \
  && sed -i '/^dev_dependencies:$/,$d' pubspec.yaml \
  && sed -i '/^dart_pre_commit:$/,$d' pubspec.yaml
@@ -104,8 +111,9 @@ RUN dart pub global activate dart_frog_cli ^1.2.0
 # any `dev_dependencies` block so the builder doesn't pull the Flutter SDK.
 # pubspec_overrides.yaml carries the flutter_otel git-dependency pins
 # dart_frog build's resolver needs to see (see that file for why it's
-# separate from pubspec.yaml).
-COPY pubspec.yaml pubspec_overrides.yaml ./
+# separate from pubspec.yaml). pubspec.lock pins the resolution to what
+# CI tests, same as the web-builder stage above.
+COPY pubspec.yaml pubspec_overrides.yaml pubspec.lock ./
 RUN sed -i '/^  - app$/d' pubspec.yaml \
  && sed -i '/^dev_dependencies:$/,$d' pubspec.yaml \
  && sed -i '/^dart_pre_commit:$/,$d' pubspec.yaml
