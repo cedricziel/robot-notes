@@ -608,6 +608,41 @@ void main() {
         );
         expect(response.statusCode, HttpStatus.ok);
       });
+
+      test(
+          'a notes:read token gets 200 on POST /databases/{id}/query',
+          () async {
+        final token = await issueRestToken(scopes: {'notes:read'});
+        final ctx = _ctx(
+          path: '/databases/01ABC/query',
+          method: HttpMethod.post,
+          headers: {'Authorization': 'Bearer $token'},
+          tokenStore: tokenStore,
+        );
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+        );
+        expect(response.statusCode, HttpStatus.ok);
+      });
+
+      test(
+          'a notes:read token gets 403 on POST /databases/{id}/rows',
+          () async {
+        final token = await issueRestToken(scopes: {'notes:read'});
+        final ctx = _ctx(
+          path: '/databases/01ABC/rows',
+          method: HttpMethod.post,
+          headers: {'Authorization': 'Bearer $token'},
+          tokenStore: tokenStore,
+        );
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+        );
+        expect(response.statusCode, HttpStatus.forbidden);
+        expect(await response.json(), {'error': 'insufficient_scope'});
+      });
     });
   });
 
