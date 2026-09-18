@@ -40,7 +40,7 @@ void main() {
       expect(body['model'], 'nomic-embed-text');
       expect(body['input'], 'hello world');
       expect(body['truncate'], isTrue);
-      expect(body['options'], {'num_ctx': 8192});
+      expect(body['options'], {'num_ctx': 2048});
     });
 
     test("contextLength is the known model context, or Ollama's default", () {
@@ -55,8 +55,8 @@ void main() {
         client: MockClient((_) async => http.Response('', 500)),
       );
 
-      expect(known.contextLength, 8192);
-      expect(known.maxInputChars, 8192 * 4);
+      expect(known.contextLength, 2048);
+      expect(known.maxInputChars, 2048 * 4);
       expect(
         unknown.contextLength,
         OllamaEmbeddingProvider.defaultContextLength,
