@@ -115,6 +115,7 @@ platform (`Theme.of(context).platform`), so a widget test can pin it with
 | Glyphs           | Chevron back, horizontal-dots "more", platform spinners                                                                                                                  | Arrow back, vertical dots                         |
 | Notes list       | iOS overscroll pull-to-refresh; status-bar tap scrolls to top                                                                                                            | Material refresh indicator                        |
 | macOS menu bar   | App, File, Edit, View, Note, Window menus; items enable only while their command applies (Save while editing, Edit Note while viewing…); Cmd+W hides to the tray | No platform menu (Flutter supports macOS only) |
+| macOS window     | Transparent (unified) title bar with the title hidden and the traffic lights kept visible; the app's own chrome (the sidebar, or an app bar) extends up under it with a 28px content inset; the top strip drags the window and double-click zooms/unzooms it | Normal window chrome |
 
 The menu bar is driven by `lib/src/desktop/app_menu_actions.dart`: the shell
 and the front note register their handlers there, and
@@ -128,7 +129,7 @@ and the front note register their handlers there, and
 - `lib/src/notes/` — notes list, folder tree sidebar, note view/editor and their controllers.
 - `lib/src/search/`, `lib/src/setup/` — search overlay content and the first-run flow.
 - `lib/src/widgets/` — shared `StatusStrip`, `ErrorStrip`, `EmptyState`, `ResizablePanel`, `ConnectionBanner`, and the platform-adaptive helpers in `adaptive.dart`.
-- `lib/src/desktop/` — macOS tray controller, menu-bar registry, and the `PlatformMenuBar` tree.
+- `lib/src/desktop/` — macOS tray controller, menu-bar registry, the `PlatformMenuBar` tree, and the unified-title-bar window chrome.
 - `lib/src/theme/app_theme.dart` — the one platform-aware `ThemeData` builder and the shared Markdown stylesheet.
 - `lib/src/format/note_time.dart` — timestamp and relative-time formatting.
 

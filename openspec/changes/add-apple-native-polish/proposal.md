@@ -31,7 +31,7 @@ The client renders the same Material chrome on every platform. On an iPhone that
 
 ## Non-goals
 
-- A translucent/unified macOS title bar or sidebar vibrancy (needs visual verification on a Mac; separate change).
+- A translucent/unified macOS title bar or sidebar vibrancy — the unified title bar now ships as the follow-up change `add-macos-unified-title-bar`; sidebar vibrancy remains out of scope.
 - Replacing Material with Cupertino wholesale (navigation bars, tab bars, form styling); the app keeps one widget tree and adapts at the seams.
 - A native macOS Settings window; "Account…" (⌘,) reuses the existing account dialog.
 - Windows/Linux menu bars.
