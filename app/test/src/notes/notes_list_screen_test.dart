@@ -1006,6 +1006,40 @@ void main() {
       expect(find.text('SIDEBAR'), findsOneWidget);
     });
 
+    testWidgets('dragging from the leading edge opens the sidebar drawer', (
+      tester,
+    ) async {
+      await setNarrow(tester);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            sidebar: const Text('SIDEBAR'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('SIDEBAR'), findsNothing);
+      expect(
+        tester
+            .widget<Scaffold>(find.byType(Scaffold))
+            .drawerEnableOpenDragGesture,
+        isTrue,
+      );
+
+      // Start inside the edge-drag zone and pull toward the center.
+      await tester.dragFrom(const Offset(5, 400), const Offset(250, 0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('SIDEBAR'), findsOneWidget);
+      expect(find.byKey(const Key('notes.sidebar.drawer')), findsOneWidget);
+    });
+
     testWidgets('is absent on a wide layout', (tester) async {
       tester.view.physicalSize = const Size(800, 800);
       tester.view.devicePixelRatio = 1;
