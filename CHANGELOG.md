@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.2.13](https://github.com/cedricziel/robot-notes/compare/v0.2.12...v0.2.13) (2026-09-18)
+
+
+### Features
+
+* **app,server:** database screen routing ([#274](https://github.com/cedricziel/robot-notes/issues/274)) ([9589a76](https://github.com/cedricziel/robot-notes/commit/9589a7610e850a1703c10472e6b854d6e27276c6))
+* **app:** add database endpoints to RobotNotesClient ([#272](https://github.com/cedricziel/robot-notes/issues/272)) ([b036f94](https://github.com/cedricziel/robot-notes/commit/b036f94f328b7fdec7382e84d0e225e393efe98c))
+* **app:** add listDatabases/getDatabase/createDatabase/updateDatabase/ ([b036f94](https://github.com/cedricziel/robot-notes/commit/b036f94f328b7fdec7382e84d0e225e393efe98c))
+* **app:** database-views controllers ([#278](https://github.com/cedricziel/robot-notes/issues/278)) ([67252f4](https://github.com/cedricziel/robot-notes/commit/67252f42accd14d96b0b2a8d9f9e0febad8447a6))
+* **app:** database-views spike, error mapping, TitleSearchService ([#269](https://github.com/cedricziel/robot-notes/issues/269)) ([0324a84](https://github.com/cedricziel/robot-notes/commit/0324a8427b956ffb14b708d4910caa1d45d17d6c))
+* **app:** native iOS and macOS experience ([#267](https://github.com/cedricziel/robot-notes/issues/267)) ([692ecca](https://github.com/cedricziel/robot-notes/commit/692ecca1b2fde6676cfcfa839ad49d95d82613dd))
+* **app:** touch gestures for the notes list, note view, and search sheet ([#228](https://github.com/cedricziel/robot-notes/issues/228)) ([ddbe7c6](https://github.com/cedricziel/robot-notes/commit/ddbe7c684249b5135d6a22d7f134718c28a6e182))
+* **databases:** definition parsing, validation, and registry ([#273](https://github.com/cedricziel/robot-notes/issues/273)) ([aab1c90](https://github.com/cedricziel/robot-notes/commit/aab1c906690a62184e5d6dec45318c5900b994c1))
+* **databases:** property index in SQLite and query compiler ([#277](https://github.com/cedricziel/robot-notes/issues/277)) ([589a33c](https://github.com/cedricziel/robot-notes/commit/589a33cff78e8ccefd502372eb0b4baa5520bfdf))
+* **databases:** shared contracts, DTOs, routes, error codes ([#270](https://github.com/cedricziel/robot-notes/issues/270)) ([1bc1d33](https://github.com/cedricziel/robot-notes/commit/1bc1d337154ee142fdbf77205393bca4761a8576))
+* **hermes-plugin:** append tool, remember path, documented tool parameters ([#262](https://github.com/cedricziel/robot-notes/issues/262)) ([405d0b2](https://github.com/cedricziel/robot-notes/commit/405d0b2b66f08643bdcc9e55fc590537ba968349))
+* **hermes-plugin:** bundle a robot-notes skill with the provider ([#254](https://github.com/cedricziel/robot-notes/issues/254)) ([d49f5ba](https://github.com/cedricziel/robot-notes/commit/d49f5ba502e8709376a05ae649ff0a7f0e567e3f)), closes [#245](https://github.com/cedricziel/robot-notes/issues/245)
+* **hermes-plugin:** circuit breaker and short recall timeout ([#258](https://github.com/cedricziel/robot-notes/issues/258)) ([e0ab373](https://github.com/cedricziel/robot-notes/commit/e0ab37343748a3e664d29503f6c9470e8694d1ae))
+* **hermes-plugin:** pip entry point, manifest hooks, install docs ([#265](https://github.com/cedricziel/robot-notes/issues/265)) ([552fb9b](https://github.com/cedricziel/robot-notes/commit/552fb9b7d9ea73c9695d41f3751ecdb70c66ea42)), closes [#246](https://github.com/cedricziel/robot-notes/issues/246)
+* **hermes-plugin:** scope recall per session and query, gate trivial prompts, report recall status ([#255](https://github.com/cedricziel/robot-notes/issues/255)) ([3b030ca](https://github.com/cedricziel/robot-notes/commit/3b030ca9526b341d125221ce2e98795681519941)), closes [#242](https://github.com/cedricziel/robot-notes/issues/242)
+* **server:** add POST /notes/{id}/append ([#260](https://github.com/cedricziel/robot-notes/issues/260)) ([950dce9](https://github.com/cedricziel/robot-notes/commit/950dce9779436d0b642a16e04053a7b178ade442))
+* **server:** filter GET /notes by title ([#259](https://github.com/cedricziel/robot-notes/issues/259)) ([4b91f7b](https://github.com/cedricziel/robot-notes/commit/4b91f7b1e0724d84fde0d78f60a63223f419b2d3)), closes [#234](https://github.com/cedricziel/robot-notes/issues/234)
+
+
+### Bug Fixes
+
+* **hermes-plugin:** do not write from subagent, cron or flush contexts ([#250](https://github.com/cedricziel/robot-notes/issues/250)) ([f5f8c72](https://github.com/cedricziel/robot-notes/commit/f5f8c725228998c680eb534b87eb0dbe46167a3c)), closes [#236](https://github.com/cedricziel/robot-notes/issues/236)
+* **hermes-plugin:** file a readable bounded transcript at session end ([#256](https://github.com/cedricziel/robot-notes/issues/256)) ([1427872](https://github.com/cedricziel/robot-notes/commit/1427872c962f8fff36d9dbcb84291e17b1be2b58)), closes [#240](https://github.com/cedricziel/robot-notes/issues/240)
+* **hermes-plugin:** follow the Hermes threading and secret contracts ([#263](https://github.com/cedricziel/robot-notes/issues/263)) ([fabd011](https://github.com/cedricziel/robot-notes/commit/fabd0110103c9d114775724568b4af1af8d2156e)), closes [#241](https://github.com/cedricziel/robot-notes/issues/241)
+* **hermes-plugin:** map server error codes precisely and keep the envelope ([#253](https://github.com/cedricziel/robot-notes/issues/253)) ([175c7cf](https://github.com/cedricziel/robot-notes/commit/175c7cfa2efeae55c3f6dc1d0873c67f75eba517))
+* **hermes-plugin:** mirror memory replace/remove as entry edits ([#261](https://github.com/cedricziel/robot-notes/issues/261)) ([1cd1557](https://github.com/cedricziel/robot-notes/commit/1cd1557f4d49ff931c0e904a321df5dc83971c6e)), closes [#237](https://github.com/cedricziel/robot-notes/issues/237)
+* **hermes-plugin:** paginate find_note_by_title ([#252](https://github.com/cedricziel/robot-notes/issues/252)) ([54ff1ad](https://github.com/cedricziel/robot-notes/commit/54ff1adbf6f9b72dab27d8ad7a9aff93ca6b85ad)), closes [#239](https://github.com/cedricziel/robot-notes/issues/239)
+* **hermes-plugin:** rebind session id on on_session_switch ([#249](https://github.com/cedricziel/robot-notes/issues/249)) ([40a426b](https://github.com/cedricziel/robot-notes/commit/40a426b1f206d206dd42dab3b50f2fe684e03066)), closes [#235](https://github.com/cedricziel/robot-notes/issues/235)
+* **hermes-plugin:** sync MemoryProvider stub with upstream and add compat shim ([#251](https://github.com/cedricziel/robot-notes/issues/251)) ([fe6c80f](https://github.com/cedricziel/robot-notes/commit/fe6c80ffec1be2e74f9f85fce6f749f87dd3de5c))
+* **server:** accept content-only PUT /notes/{id} and add a live-server e2e suite ([#264](https://github.com/cedricziel/robot-notes/issues/264)) ([b55a9a9](https://github.com/cedricziel/robot-notes/commit/b55a9a9979e1717fc3a5b4bee74da501ce6d50e0))
+
+
+### Documentation
+
+* **hermes-plugin:** prepare plugin-catalog submission ([#275](https://github.com/cedricziel/robot-notes/issues/275)) ([ef14042](https://github.com/cedricziel/robot-notes/commit/ef1404200614bd7db18213bd47242a12a097a70e)), closes [#247](https://github.com/cedricziel/robot-notes/issues/247)
+* **openspec:** propose add-databases and add-database-views ([#268](https://github.com/cedricziel/robot-notes/issues/268)) ([a4d4688](https://github.com/cedricziel/robot-notes/commit/a4d46888ac25cd9de98cd3fa23e917d591c6e637))
+* **server:** document the error body shape routes actually emit ([#271](https://github.com/cedricziel/robot-notes/issues/271)) ([6320d5e](https://github.com/cedricziel/robot-notes/commit/6320d5ea4f6ca625aec0ce7ed02bf0d8ea27ea44)), closes [#257](https://github.com/cedricziel/robot-notes/issues/257)
+
 ## [0.2.12](https://github.com/cedricziel/robot-notes/compare/v0.2.11...v0.2.12) (2026-09-18)
 
 
