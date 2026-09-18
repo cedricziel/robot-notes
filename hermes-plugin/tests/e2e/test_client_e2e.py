@@ -170,13 +170,15 @@ def test_stale_version_put_is_rejected_with_current_version(e2e_client: RobotNot
     assert final["version"] == 2
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="RobotNotesClient.find_note_by_title only ever fetches the first page "
-    "(limit=200) and never follows next_cursor; "
-    "https://github.com/cedricziel/robot-notes/issues/239 fixes this",
-)
 def test_find_note_by_title_past_first_200(e2e_client: RobotNotesClient):
+    """https://github.com/cedricziel/robot-notes/issues/239 is fixed: the
+    client's `_find_note_by_title_scan` fallback now follows `next_cursor`
+    instead of only ever fetching the first page. This also exercises the
+    fast path added by #259 (a server-side `title` filter) since
+    `find_note_by_title` tries that first — the fallback scan only runs if
+    the server rejects the filter, so this test still proves the pagination
+    fix as long as an unfiltered `path` listing lands the target note past
+    the first page, whichever path the client took to find it."""
     path = f"e2e-pagination-{_uid()}"
     target_title = f"e2e-target-{_uid()}"
 

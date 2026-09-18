@@ -92,6 +92,19 @@ test-hermes-plugin-contract:
 # ROBOT_NOTES_E2E_BASE_URL/ROBOT_NOTES_E2E_API_KEY, then always stops the
 # server and removes the scratch data dir again (trap on EXIT covers a failed
 # test run too). Mirrors the `e2e` CI job in .github/workflows/ci.yml.
+#
+# `--hostname 127.0.0.1` (rather than the dart_frog dev default, which binds
+# the IPv6 wildcard address `::`) matters on any host or container without
+# IPv6 available -- GitHub-hosted Actions runners included -- where binding
+# `::` fails outright ("Address family not supported by protocol"). `CI=true`
+# silences the Flutter/Dart wrapper script's "running as root" warning on a
+# root-only runner; that warning goes to stderr, and dart_frog dev's process
+# monitor treats any unrecognized stderr line from the server subprocess
+# before hot reload comes up as fatal and kills it. `setsid` puts dart_frog
+# dev in its own process group so the trap below can `kill -- -$$SERVER_PID`
+# the whole group on exit: dart_frog dev spawns the actual server as a child
+# process, and killing just $$SERVER_PID (dart_frog dev itself) would leave
+# that child running and holding the port.
 E2E_API_KEY ?= e2e-test-key-not-a-secret
 E2E_DATA_DIR ?= $(CURDIR)/.e2e-data
 E2E_PORT ?= 8098
@@ -104,15 +117,25 @@ test-hermes-plugin-e2e:
 	  ( test -d .venv || $(HERMES_PLUGIN_PYTHON) -m venv .venv ) && \
 	  .venv/bin/pip install -q -e '.[dev]'
 	rm -rf "$(E2E_DATA_DIR)" && mkdir -p "$(E2E_DATA_DIR)"
+	# An empty *regular* file, not /dev/null: dart_frog dev's hot-reload
+	# helper calls stdin.hasTerminal to decide whether to listen for the
+	# "press R to reload" keystroke, and on Linux that check mistakes a
+	# character device (which /dev/null is) for a real terminal, then
+	# crashes trying to set raw/line mode on it ("Inappropriate ioctl for
+	# device"). A regular file (or a pipe) isn't a character device, so
+	# hasTerminal correctly comes back false and the crash doesn't happen.
+	@: > "$(CURDIR)/.e2e-server.stdin"
 	set -e; \
 	cd server && \
+	  CI=true \
 	  ROBOT_NOTES_API_KEY="$(E2E_API_KEY)" \
 	  ROBOT_NOTES_DATA_DIR="$(E2E_DATA_DIR)" \
 	  ROBOT_NOTES_PORT="$(E2E_PORT)" \
-	  dart_frog dev > "$(CURDIR)/.e2e-server.log" 2>&1 & \
+	  setsid dart_frog dev --hostname 127.0.0.1 --port "$(E2E_PORT)" \
+	    > "$(CURDIR)/.e2e-server.log" 2>&1 < "$(CURDIR)/.e2e-server.stdin" & \
 	SERVER_PID=$$!; \
 	cd "$(CURDIR)"; \
-	trap 'kill "$$SERVER_PID" 2>/dev/null || true; rm -rf "$(E2E_DATA_DIR)" "$(CURDIR)/.e2e-server.log"' EXIT; \
+	trap 'kill -- "-$$SERVER_PID" 2>/dev/null || kill "$$SERVER_PID" 2>/dev/null || true; rm -rf "$(E2E_DATA_DIR)" "$(CURDIR)/.e2e-server.log" "$(CURDIR)/.e2e-server.stdin"' EXIT; \
 	ready=0; \
 	for i in $$(seq 1 60); do \
 	  if curl -fsS "http://127.0.0.1:$(E2E_PORT)/healthz" >/dev/null 2>&1; then ready=1; break; fi; \

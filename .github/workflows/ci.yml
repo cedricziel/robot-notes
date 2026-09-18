@@ -210,7 +210,28 @@ jobs:
           # No --embedding-provider: semantic search (Ollama) stays disabled,
           # matching the default `make run-server` behavior — this job only
           # needs keyword search + the REST CRUD surface.
-          nohup dart_frog dev > "$RUNNER_TEMP/robot-notes-server.log" 2>&1 &
+          #
+          # stdin is redirected from a regular file (an empty one), not
+          # /dev/null: dart_frog dev's hot-reload helper calls
+          # stdin.hasTerminal to decide whether to listen for the "press R
+          # to reload" keystroke, and that check can mistake a character
+          # device (which /dev/null is) for a real terminal, then crash
+          # trying to set raw/line mode on it ("Inappropriate ioctl for
+          # device"). A regular file isn't a character device, so
+          # hasTerminal correctly comes back false. See the same guard in
+          # `make test-hermes-plugin-e2e` (Makefile).
+          : > "$RUNNER_TEMP/robot-notes-server.stdin"
+          # --hostname 127.0.0.1 avoids dart_frog dev's default of binding
+          # the IPv6 wildcard address (`::`): GitHub-hosted Actions runners
+          # do not support IPv6, so that bind fails outright ("Address
+          # family not supported by protocol"). See the same flag in
+          # `make test-hermes-plugin-e2e` (Makefile).
+          # setsid puts dart_frog dev in its own process group, so "Stop
+          # robot-notes server" below can kill the whole group: dart_frog
+          # dev spawns the actual server as a child process, and killing
+          # just the dart_frog dev PID would leave that child running.
+          setsid nohup dart_frog dev --hostname 127.0.0.1 --port "$ROBOT_NOTES_PORT" \
+            > "$RUNNER_TEMP/robot-notes-server.log" 2>&1 < "$RUNNER_TEMP/robot-notes-server.stdin" &
           echo $! > "$RUNNER_TEMP/robot-notes-server.pid"
 
       - name: Wait for the server to become healthy
@@ -250,7 +271,8 @@ jobs:
         if: always()
         run: |
           if [ -f "$RUNNER_TEMP/robot-notes-server.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/robot-notes-server.pid")" 2>/dev/null || true
+            PID="$(cat "$RUNNER_TEMP/robot-notes-server.pid")"
+            kill -- "-$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
           fi
 
   docker:

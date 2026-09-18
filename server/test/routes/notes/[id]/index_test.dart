@@ -230,6 +230,66 @@ void main() {
       expect(body['error'], 'bad_request');
     });
 
+    test('with title omitted keeps the current title', () async {
+      final note = await storage.create(title: 'original title', content: 'c');
+      index.upsert(note.toSummary());
+      final writes = await _writeService(tmp, storage, index);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          writes: writes,
+          headers: {'if-match': '1'},
+          body: {'content': 'new content, same title'},
+        ),
+        note.id,
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['title'], 'original title');
+      expect(body['content'], 'new content, same title');
+      expect(body['version'], 2);
+    });
+
+    test('with an empty title returns 400 bad_request', () async {
+      final note = await storage.create(title: 't', content: 'c');
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          headers: {'if-match': '1'},
+          body: {'title': '  ', 'content': ''},
+        ),
+        note.id,
+      );
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['error'], 'bad_request');
+    });
+
+    test('with title omitted on an unknown id returns 404 not_found', () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          headers: {'if-match': '1'},
+          body: {'content': 'x'},
+        ),
+        '01UNKNOWNXXXXXXXXXXXXXXXXX',
+      );
+      expect(res.statusCode, HttpStatus.notFound);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['error'], 'not_found');
+    });
+
     test('with stale If-Match returns 409 with current state', () async {
       final note = await storage.create(title: 't', content: 'c');
       await storage.update(

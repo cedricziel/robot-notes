@@ -39,6 +39,7 @@ build/
 /data/
 /.dev-data/
 /.e2e-data/
+/.e2e-server.stdin
 server/data/
 
 # Logs

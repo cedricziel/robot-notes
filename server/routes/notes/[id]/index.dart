@@ -9,7 +9,9 @@ import 'package:server/src/storage.dart';
 import 'package:server/src/tags.dart';
 
 /// `GET /notes/{id}`    — read a single note (with optional lock state).
-/// `PUT /notes/{id}`    — replace a note's title/content (If-Match required).
+/// `PUT /notes/{id}`    — update a note's title/content/path (If-Match
+///                        required; `title` and `path` default to their
+///                        current value when omitted, `content` to `''`).
 /// `DELETE /notes/{id}` — delete a note.
 Future<Response> onRequest(RequestContext context, String id) async {
   switch (context.request.method) {
@@ -123,13 +125,32 @@ Future<Response> _update(RequestContext context, String id) async {
       },
     );
   }
-  final title = raw['title'];
-  if (title is! String || title.trim().isEmpty) {
+  // `title` is optional (see API.md's `PUT /notes/{id}`: "Request (any of
+  // `title`, `content`, `path`..."). When present it must be a non-empty
+  // string; when omitted the note keeps its current title, the same
+  // "unspecified means unchanged" rule `path` already follows below —
+  // unlike `content`, which the documented contract deliberately blanks
+  // out to `''` rather than preserving when omitted.
+  final rawTitle = raw['title'];
+  final String title;
+  if (rawTitle == null) {
+    final storage = context.read<Storage>();
+    try {
+      title = (await storage.read(id)).title;
+    } on NoteNotFoundException {
+      return Response.json(
+        statusCode: HttpStatus.notFound,
+        body: const {'error': 'not_found'},
+      );
+    }
+  } else if (rawTitle is String && rawTitle.trim().isNotEmpty) {
+    title = rawTitle;
+  } else {
     return Response.json(
       statusCode: HttpStatus.badRequest,
       body: const {
         'error': 'bad_request',
-        'message': 'title is required and must be a non-empty string',
+        'message': 'title must be a non-empty string when provided',
       },
     );
   }
