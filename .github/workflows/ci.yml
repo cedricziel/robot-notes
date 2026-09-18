@@ -154,6 +154,136 @@ jobs:
           PYTHONPATH: /tmp/hermes-agent
         run: python -m pytest -v
 
+  e2e-changes:
+    name: Detect e2e-relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            changed:
+              - 'hermes-plugin/**'
+              - 'claude-plugin/hooks/**'
+              - 'server/**'
+              - 'shared/**'
+
+  e2e:
+    name: End-to-end (hermes-plugin + Claude hook vs a live server)
+    runs-on: ubuntu-latest
+    needs: e2e-changes
+    if: needs.e2e-changes.outputs.changed == 'true'
+    env:
+      ROBOT_NOTES_API_KEY: e2e-test-key-not-a-secret
+      ROBOT_NOTES_DATA_DIR: ${{ github.workspace }}/.e2e-data
+      ROBOT_NOTES_PORT: "8098"
+    steps:
+      - uses: actions/checkout@v7
+
+      # Same toolchain as the `dart` job: the server is a Dart Frog app and
+      # building it (`dart_frog build` below, what `make run-server` and the
+      # server-builder Dockerfile stage use) needs the SDK on PATH.
+      - name: Setup Flutter (provides Dart SDK)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.2"
+          channel: stable
+          cache: true
+
+      - name: Resolve workspace dependencies
+        run: dart pub get
+
+      # dart_frog_cli isn't a workspace dependency (it's a global dev tool,
+      # same as the Dockerfile's server-builder stage activates it) — pin the
+      # same major version for a reproducible renderer.
+      - name: Install dart_frog_cli
+        run: |
+          dart pub global activate dart_frog_cli ^1.2.0
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      # Build the server the way production does (see server/Dockerfile):
+      # `dart_frog build` renders the production tree, then `dart build cli`
+      # runs Dart's build hooks so package:sqlite3 (3.x) bundles a native
+      # libsqlite3.so next to the binary. Starting the server with
+      # `dart_frog dev` instead (used here previously) skips build hooks
+      # entirely — package:sqlite3 then has no bundled library and no
+      # in-process fallback on this runner ("Couldn't resolve native
+      # function 'sqlite3_initialize' ... No available native assets").
+      - name: Build robot-notes server (production build)
+        working-directory: server
+        run: |
+          dart_frog build
+          # The generated entrypoint (build/bin/server.dart) hardcodes
+          # `InternetAddress.anyIPv6`. GitHub-hosted Actions runners do not
+          # support IPv6 at all, so binding `::` fails outright ("Address
+          # family not supported by protocol"). The old
+          # `dart_frog dev --hostname 127.0.0.1` flag doesn't apply here --
+          # `--hostname` is a dev-server-only option that never reaches
+          # this generated file -- so patch the one line by hand to force
+          # IPv4 loopback instead, keeping the server bound to 127.0.0.1
+          # as before.
+          sed -i 's/InternetAddress\.anyIPv6/InternetAddress.loopbackIPv4/' build/bin/server.dart
+          cd build
+          dart pub get
+          dart build cli -o out
+
+      - name: Start robot-notes server
+        run: |
+          mkdir -p "$ROBOT_NOTES_DATA_DIR"
+          # No --embedding-provider: semantic search (Ollama) stays disabled,
+          # matching the default `make run-server` behavior — this job only
+          # needs keyword search + the REST CRUD surface.
+          #
+          # setsid puts the server in its own process group, so "Stop
+          # robot-notes server" below can kill the whole group.
+          setsid server/build/out/bundle/bin/server \
+            > "$RUNNER_TEMP/robot-notes-server.log" 2>&1 < /dev/null &
+          echo $! > "$RUNNER_TEMP/robot-notes-server.pid"
+
+      - name: Wait for the server to become healthy
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${ROBOT_NOTES_PORT}/healthz" >/dev/null 2>&1; then
+              echo "robot-notes server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "robot-notes server did not become healthy in time" >&2
+          cat "$RUNNER_TEMP/robot-notes-server.log" || true
+          exit 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install hermes-plugin dependencies
+        working-directory: hermes-plugin
+        run: pip install -e '.[dev]'
+
+      - name: Run e2e tests
+        working-directory: hermes-plugin
+        env:
+          ROBOT_NOTES_E2E_BASE_URL: http://127.0.0.1:8098
+          ROBOT_NOTES_E2E_API_KEY: ${{ env.ROBOT_NOTES_API_KEY }}
+        run: python -m pytest -m e2e -v
+
+      - name: Show server log
+        if: always()
+        run: cat "$RUNNER_TEMP/robot-notes-server.log" || true
+
+      - name: Stop robot-notes server
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/robot-notes-server.pid" ]; then
+            PID="$(cat "$RUNNER_TEMP/robot-notes-server.pid")"
+            kill -- "-$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
+          fi
+
   docker:
     name: Validate server Dockerfile
     runs-on: ubuntu-latest

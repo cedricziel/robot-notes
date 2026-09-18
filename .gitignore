@@ -38,6 +38,8 @@ build/
 # Server runtime data (created at runtime, never committed)
 /data/
 /.dev-data/
+/.e2e-data/
+/.e2e-server.stdin
 server/data/
 
 # Logs
