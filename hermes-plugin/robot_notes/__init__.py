@@ -258,18 +258,14 @@ class RobotNotesProvider(MemoryProvider):
         return json.dumps(self._client.get_note(args["id"]))
 
     def _tool_remember(self, args: Dict[str, Any]) -> str:
-        try:
-            note = self._client.create_note(
-                title=args["title"], content=args.get("content", ""), path=args.get("path", "")
-            )
-        except ClientError as exc:
-            # create_note has no version to conflict on — every 409 here is the
-            # server rejecting a duplicate title under this path.
-            if exc.version_conflict:
-                return tool_error(
-                    "a note with this title already exists under this path", code="path_conflict"
-                )
-            raise
+        # create_note has no version to conflict on, so a 409 here is always the
+        # server rejecting a duplicate title under this path (ErrorKind.PATH_CONFLICT).
+        # Left to propagate: handle_tool_call's ClientError handler already turns that
+        # into a path_conflict tool_error steering the model to search/append instead
+        # (see _tool_error_payload's _PATH_CONFLICT_REMEMBER_MESSAGE case).
+        note = self._client.create_note(
+            title=args["title"], content=args.get("content", ""), path=args.get("path", "")
+        )
         return json.dumps(note)
 
     def _tool_append(self, args: Dict[str, Any]) -> str:
