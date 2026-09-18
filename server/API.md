@@ -103,8 +103,9 @@ Query parameters:
 | `sort`  | string | `id`    | `id` (ascending, backward-compatible) or `updated_desc` (most-recently-updated first).            |
 | `path`  | string | —       | Restrict to notes whose `path` equals or is nested under this folder, e.g. `path=Projects/Alpha`. |
 | `tag`   | string | —       | Restrict to notes carrying this tag (case-insensitive).                                           |
+| `title` | string | —       | Restrict to the note whose title exactly matches (Unicode-NFC and case-insensitive — the same normalization the path-conflict check uses). |
 
-`path` and `tag` compose with each other and with either `sort`.
+`path`, `tag` and `title` compose with each other and with either `sort`.
 
 Response:
 
@@ -735,7 +736,7 @@ the consent page falls back to the paste-the-key form as before.
 
 | Tool              | What it does                                                                                                                  |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `list_notes`      | Paginated note metadata (id, title, path, version, timestamps); `path`/`tag` params — mirrors `GET /notes`.                   |
+| `list_notes`      | Paginated note metadata (id, title, path, version, timestamps); `path`/`tag`/`title` params — mirrors `GET /notes`.           |
 | `get_note`        | Full content of one note by id, including lock status — mirrors `GET /notes/{id}`.                                            |
 | `search_notes`    | Full-text search with `<mark>` snippets; `path`/`tag` params — mirrors `GET /search`.                                         |
 | `create_note`     | Create a note; accepts `path` — mirrors `POST /notes`.                                                                        |

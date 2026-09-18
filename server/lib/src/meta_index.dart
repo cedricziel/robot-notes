@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
+import 'package:server/src/note_path.dart';
 import 'package:server/src/storage.dart';
 
 /// Default page size for cursor-based listings. Matches `notes-api`
@@ -241,12 +242,20 @@ class MetaIndex {
   /// matching `tags.dart`'s `computeTags` matching rule) — the identical
   /// pre-filter mechanism as [pathPrefix], composable with it and with
   /// either [sort].
+  ///
+  /// [title], when non-null, narrows the result to notes whose title
+  /// exactly matches — compared via `note_path.dart`'s [collisionKey]
+  /// (Unicode-NFC-normalized, then case-folded), the same normalization
+  /// the create/update path-conflict check applies, so a title this
+  /// filter finds is exactly one that would collide with it. Composable
+  /// with [pathPrefix], [tag] and either [sort].
   MetaIndexPage page({
     String? after,
     int limit = kDefaultPageSize,
     String sort = kSortId,
     String? pathPrefix,
     String? tag,
+    String? title,
   }) {
     final effectiveLimit = limit.clamp(1, kMaxPageSize);
     switch (sort) {
@@ -256,6 +265,7 @@ class MetaIndex {
           limit: effectiveLimit,
           pathPrefix: pathPrefix,
           tag: tag,
+          title: title,
         );
       case kSortUpdatedDesc:
         return _pageByUpdated(
@@ -263,6 +273,7 @@ class MetaIndex {
           limit: effectiveLimit,
           pathPrefix: pathPrefix,
           tag: tag,
+          title: title,
         );
       default:
         throw ArgumentError.value(sort, 'sort', 'unsupported sort');
@@ -281,8 +292,20 @@ class MetaIndex {
     return summary.tags.any((t) => t.toLowerCase() == lower);
   }
 
-  bool _matchesFilters(NoteSummary summary, String? pathPrefix, String? tag) {
-    return _matchesPathPrefix(summary, pathPrefix) && _matchesTag(summary, tag);
+  bool _matchesTitle(NoteSummary summary, String? title) {
+    if (title == null) return true;
+    return collisionKey(summary.title) == collisionKey(title);
+  }
+
+  bool _matchesFilters(
+    NoteSummary summary,
+    String? pathPrefix,
+    String? tag,
+    String? title,
+  ) {
+    return _matchesPathPrefix(summary, pathPrefix) &&
+        _matchesTag(summary, tag) &&
+        _matchesTitle(summary, title);
   }
 
   MetaIndexPage _pageById({
@@ -290,12 +313,13 @@ class MetaIndex {
     required int limit,
     String? pathPrefix,
     String? tag,
+    String? title,
   }) {
-    final candidates = pathPrefix == null && tag == null
+    final candidates = pathPrefix == null && tag == null && title == null
         ? _sortedIds
         : [
             for (final id in _sortedIds)
-              if (_matchesFilters(_byId[id]!, pathPrefix, tag)) id,
+              if (_matchesFilters(_byId[id]!, pathPrefix, tag, title)) id,
           ];
     int startIdx;
     if (after == null) {
@@ -319,12 +343,13 @@ class MetaIndex {
     required int limit,
     String? pathPrefix,
     String? tag,
+    String? title,
   }) {
-    final candidates = pathPrefix == null && tag == null
+    final candidates = pathPrefix == null && tag == null && title == null
         ? _sortedByUpdated
         : [
             for (final id in _sortedByUpdated)
-              if (_matchesFilters(_byId[id]!, pathPrefix, tag)) id,
+              if (_matchesFilters(_byId[id]!, pathPrefix, tag, title)) id,
           ];
     int startIdx;
     if (after == null) {

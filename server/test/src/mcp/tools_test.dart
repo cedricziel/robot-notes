@@ -283,6 +283,38 @@ void main() {
           .cast<Map<String, Object?>>();
       expect(items.map((i) => i['title']), ['Tagged']);
     });
+
+    test('title filter narrows results to the exact title', () async {
+      await deps.noteWriteService.create(
+        title: 'Project Alpha',
+        content: '',
+        actor: 'x',
+      );
+      await deps.noteWriteService.create(
+        title: 'Project Beta',
+        content: '',
+        actor: 'x',
+      );
+
+      final result = await call('list_notes', {'title': 'Project Alpha'});
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.map((i) => i['title']), ['Project Alpha']);
+    });
+
+    test('title filter matching is case- and NFC-insensitive', () async {
+      await deps.noteWriteService.create(
+        title: 'caf${String.fromCharCode(0x00e9)}',
+        content: '',
+        actor: 'x',
+      );
+
+      final decomposedQuery = 'CAF${String.fromCharCodes([0x65, 0x0301])}';
+      final result = await call('list_notes', {'title': decomposedQuery});
+      final items = (_structured(result)['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items, hasLength(1));
+    });
   });
 
   group('get_note', () {
@@ -1441,6 +1473,13 @@ void main() {
           .firstWhere((t) => t.name == 'create_note')
           .inputSchema['properties']! as Map<String, Object?>;
       expect(createProps.containsKey('path'), isTrue);
+    });
+
+    test('list_notes declares a title param', () {
+      final props = registry.tools
+          .firstWhere((t) => t.name == 'list_notes')
+          .inputSchema['properties']! as Map<String, Object?>;
+      expect(props.containsKey('title'), isTrue);
     });
 
     test('unknown tool name throws McpUnknownToolException', () async {

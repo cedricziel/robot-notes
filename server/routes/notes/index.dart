@@ -44,6 +44,7 @@ Response _list(RequestContext context) {
   final sort = query['sort'] ?? kSortId;
   final pathPrefix = query['path'];
   final tag = query['tag'];
+  final title = query['title'];
 
   if (!kSupportedSorts.contains(sort)) {
     return Response.json(
@@ -79,6 +80,7 @@ Response _list(RequestContext context) {
       sort: sort,
       pathPrefix: pathPrefix,
       tag: tag,
+      title: title,
     );
   } on InvalidCursorException {
     return Response.json(
