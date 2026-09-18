@@ -370,31 +370,133 @@ def test_on_memory_write_user_target_uses_separate_note(provider):
     assert body["title"] == "User"
 
 
-@respx.mock
-def test_on_memory_write_replace_rewrites_existing_note(provider):
+def _mock_existing_memory_note(content: str):
+    """Common fixture wiring: an existing Memory note with the given content, plus
+    routes for the list lookup, a content read, and a PUT (returning the response)."""
     respx.get("https://notes.example.com/notes").mock(
         return_value=httpx.Response(
             200, json={"items": [{"id": "01MEM", "title": "Memory", "path": "Hermes", "version": 3}]}
         )
     )
-    update_route = respx.put("https://notes.example.com/notes/01MEM").mock(
+    respx.get("https://notes.example.com/notes/01MEM").mock(
+        return_value=httpx.Response(200, json={"id": "01MEM", "version": 3, "content": content})
+    )
+    return respx.put("https://notes.example.com/notes/01MEM").mock(
         return_value=httpx.Response(200, json={"id": "01MEM", "version": 4})
     )
 
-    provider.on_memory_write("replace", "memory", "new fact")
+
+@respx.mock
+def test_on_memory_write_add_appends_to_existing_multi_entry_note(provider):
+    update_route = _mock_existing_memory_note("likes coffee\nworks remotely")
+
+    provider.on_memory_write("add", "memory", "prefers dark mode")
 
     body = json.loads(update_route.calls.last.request.content)
-    assert body["content"] == "new fact"
+    assert body["content"] == "likes coffee\nworks remotely\nprefers dark mode"
+
+
+@respx.mock
+def test_on_memory_write_add_dedupes_existing_entry(provider):
+    respx.get("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "01MEM", "title": "Memory", "path": "Hermes", "version": 3}]}
+        )
+    )
+    respx.get("https://notes.example.com/notes/01MEM").mock(
+        return_value=httpx.Response(200, json={"id": "01MEM", "version": 3, "content": "likes coffee "})
+    )
+    update_route = respx.put("https://notes.example.com/notes/01MEM")
+
+    provider.on_memory_write("add", "memory", "likes coffee")
+
+    assert not update_route.called
+
+
+@respx.mock
+def test_on_memory_write_remove_deletes_only_matching_entry(provider):
+    update_route = _mock_existing_memory_note("likes coffee\nworks remotely\nprefers dark mode")
+
+    provider.on_memory_write("remove", "memory", "", metadata={"old_text": "works remotely"})
+
+    body = json.loads(update_route.calls.last.request.content)
+    assert body["content"] == "likes coffee\nprefers dark mode"
+
+
+@respx.mock
+def test_on_memory_write_remove_matches_old_text_as_substring(provider):
+    """Upstream's old_text is documented as a short unique substring of the entry,
+    not the whole line — the mirror must still find and remove it."""
+    update_route = _mock_existing_memory_note("likes coffee\nworks remotely from Berlin")
+
+    provider.on_memory_write("remove", "memory", "", metadata={"old_text": "remotely"})
+
+    body = json.loads(update_route.calls.last.request.content)
+    assert body["content"] == "likes coffee"
+
+
+@respx.mock
+def test_on_memory_write_remove_of_unknown_entry_leaves_note_untouched(provider):
+    update_route = _mock_existing_memory_note("likes coffee\nworks remotely")
+
+    provider.on_memory_write("remove", "memory", "", metadata={"old_text": "owns a spaceship"})
+
+    assert not update_route.called
+
+
+@respx.mock
+def test_on_memory_write_remove_ambiguous_substring_leaves_note_untouched(provider):
+    """Two distinct entries contain the identifier — never guess which to delete."""
+    update_route = _mock_existing_memory_note("likes coffee a lot\nlikes coffee occasionally")
+
+    provider.on_memory_write("remove", "memory", "", metadata={"old_text": "likes coffee"})
+
+    assert not update_route.called
 
 
 @respx.mock
 def test_on_memory_write_remove_on_missing_note_is_a_noop(provider):
     respx.get("https://notes.example.com/notes").mock(return_value=httpx.Response(200, json={"items": []}))
     create_route = respx.post("https://notes.example.com/notes")
+    get_route = respx.get("https://notes.example.com/notes/01MEM")
 
-    provider.on_memory_write("remove", "memory", "")
+    provider.on_memory_write("remove", "memory", "", metadata={"old_text": "anything"})
 
     assert not create_route.called
+    assert not get_route.called
+
+
+@respx.mock
+def test_on_memory_write_remove_falls_back_to_content_without_metadata(provider):
+    """Direct/legacy callers with no metadata pass the entry to remove as content."""
+    update_route = _mock_existing_memory_note("likes coffee\nworks remotely")
+
+    provider.on_memory_write("remove", "memory", "works remotely")
+
+    body = json.loads(update_route.calls.last.request.content)
+    assert body["content"] == "likes coffee"
+
+
+@respx.mock
+def test_on_memory_write_replace_edits_entry_in_place(provider):
+    update_route = _mock_existing_memory_note("likes coffee\nworks remotely\nprefers dark mode")
+
+    provider.on_memory_write("replace", "memory", "works from the office", metadata={"old_text": "works remotely"})
+
+    body = json.loads(update_route.calls.last.request.content)
+    assert body["content"] == "likes coffee\nworks from the office\nprefers dark mode"
+
+
+@respx.mock
+def test_on_memory_write_replace_without_identifiable_old_falls_back_to_append(provider):
+    """No old_text in metadata: the old entry can't be identified, so the new fact is
+    appended and unrelated entries are left alone (never a blind whole-note rewrite)."""
+    update_route = _mock_existing_memory_note("likes coffee\nworks remotely")
+
+    provider.on_memory_write("replace", "memory", "new fact")
+
+    body = json.loads(update_route.calls.last.request.content)
+    assert body["content"] == "likes coffee\nworks remotely\nnew fact"
 
 
 def test_get_config_schema_declares_fields():

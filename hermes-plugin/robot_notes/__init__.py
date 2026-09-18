@@ -307,23 +307,42 @@ class RobotNotesProvider(MemoryProvider):
     def on_memory_write(
         self, action: str, target: str, content: str, metadata: Optional[Dict[str, Any]] = None
     ) -> None:
+        """Mirror one built-in-memory write onto the matching note as an entry-level
+        edit — never a blind overwrite of the whole note.
+
+        Hermes' built-in memory tool (``tools/memory_tool.py``) identifies the entry a
+        ``replace``/``remove`` targets by ``old_text``: "a short unique substring of
+        the entry", not necessarily the whole line, and matched with plain substring
+        containment (``tools/memory_tool_store.py::_find_unique_match``). The bridge
+        (``MemoryManager.notify_memory_tool_write``) forwards that as
+        ``metadata["old_text"]`` and puts the *new* text in ``content`` — so for
+        ``remove``, ``content`` is normally empty and the entry to delete is named by
+        ``metadata["old_text"]`` alone.
+        """
         if not self._client or not self._can_write():
             return
         note = USER_NOTE if target == "user" else MEMORY_NOTE
+        old_text = str((metadata or {}).get("old_text") or "").strip()
         try:
             if action == "add":
                 self._append_note(title=note["title"], path=note["path"], addition=content)
             elif action == "remove":
-                self._overwrite_note(title=note["title"], path=note["path"], content="", create_if_missing=False)
+                # Some callers (direct/legacy on_memory_write invocations with no
+                # metadata) pass the entry to remove as `content` instead.
+                self._remove_note_entry(title=note["title"], path=note["path"], identifier=old_text or content)
             else:  # replace
-                self._overwrite_note(title=note["title"], path=note["path"], content=content)
+                self._replace_note_entry(
+                    title=note["title"], path=note["path"], identifier=old_text, new_entry=content
+                )
         except ClientError:
             logger.warning("robot_notes: failed to mirror memory write (target=%s action=%s)", target, action)
 
     def _overwrite_note(self, *, title: str, path: str, content: str, create_if_missing: bool = True) -> None:
         """Create-or-blind-overwrite a fixed note by title, swallowing failures with a
         logged warning — these are best-effort side writes, never allowed to raise out
-        of a MemoryProvider hook and take the host session down with them."""
+        of a MemoryProvider hook and take the host session down with them. Used only
+        for whole-note content (session summaries); memory-write mirroring never
+        overwrites a whole note — see ``_read_edit_write``."""
         try:
             existing = self._client.find_note_by_title(title, path=path)
             if existing is None:
@@ -335,12 +354,83 @@ class RobotNotesProvider(MemoryProvider):
             logger.warning("robot_notes: failed to write note %r under %r", title, path)
 
     def _append_note(self, *, title: str, path: str, addition: str) -> None:
-        build_content: Callable[[str], str] = lambda current: f"{current.rstrip(chr(10))}\n{addition}" if current else addition
+        """Append ``addition`` as a new entry, skipping it if an identical entry
+        (compared line-for-line after ``strip()``) is already present."""
+
+        def edit(current: str) -> Optional[str]:
+            entries = current.split("\n") if current else []
+            if any(entry.strip() == addition.strip() for entry in entries):
+                return None  # duplicate entry — nothing to add
+            return f"{current.rstrip(chr(10))}\n{addition}" if current else addition
+
+        self._read_edit_write(title=title, path=path, edit=edit, create_content_if_missing=addition)
+
+    def _remove_note_entry(self, *, title: str, path: str, identifier: str) -> None:
+        """Delete only the entry matching ``identifier`` (see ``_find_entry_index``).
+        No match, an ambiguous match, or a missing note all leave the note exactly as
+        it was — a single entry removal must never blank or rewrite the whole note."""
+
+        def edit(current: str) -> Optional[str]:
+            entries = current.split("\n") if current else []
+            index = _find_entry_index(entries, identifier)
+            if index is None:
+                return None  # nothing safe to remove — leave the note untouched
+            del entries[index]
+            return "\n".join(entries)
+
+        self._read_edit_write(title=title, path=path, edit=edit)
+
+    def _replace_note_entry(self, *, title: str, path: str, identifier: str, new_entry: str) -> None:
+        """Replace the entry matching ``identifier`` with ``new_entry`` in place. When
+        the old entry can't be identified (no usable ``identifier``, no match, or an
+        ambiguous match) this falls back to appending ``new_entry`` instead — the new
+        fact is never dropped, and unrelated entries are never touched."""
+
+        def edit(current: str) -> Optional[str]:
+            entries = current.split("\n") if current else []
+            index = _find_entry_index(entries, identifier) if identifier else None
+            if index is None:
+                if any(entry.strip() == new_entry.strip() for entry in entries):
+                    return None  # already present verbatim
+                return f"{current.rstrip(chr(10))}\n{new_entry}" if current else new_entry
+            entries[index] = new_entry
+            return "\n".join(entries)
+
+        self._read_edit_write(title=title, path=path, edit=edit, create_content_if_missing=new_entry)
+
+    def _read_edit_write(
+        self,
+        *,
+        title: str,
+        path: str,
+        edit: Callable[[str], Optional[str]],
+        create_content_if_missing: Optional[str] = None,
+        max_attempts: int = 3,
+    ) -> None:
+        """Read-edit-write a note without ever blanking or overwriting the parts an
+        edit doesn't touch: ``edit(current_content)`` returns the full new content, or
+        ``None`` to make no change at all (in which case nothing is written — the
+        note is left exactly as it was). Retries on a lost version race, mirroring
+        ``RobotNotesClient.append_note_with_retry``'s read-modify-write-retry shape.
+        When the note doesn't exist yet, ``create_content_if_missing`` (if given)
+        creates it with that content instead of running ``edit``."""
         existing = self._client.find_note_by_title(title, path=path)
         if existing is None:
-            self._client.create_note(title=title, content=addition, path=path)
+            if create_content_if_missing is not None:
+                self._client.create_note(title=title, content=create_content_if_missing, path=path)
             return
-        self._client.append_note_with_retry(existing["id"], build_content=build_content)
+        for attempt in range(max_attempts):
+            note = self._client.get_note(existing["id"])
+            current = note.get("content", "")
+            new_content = edit(current)
+            if new_content is None or new_content == current:
+                return
+            try:
+                self._client.update_note(existing["id"], version=note["version"], content=new_content)
+                return
+            except ClientError as exc:
+                if not exc.version_conflict or attempt == max_attempts - 1:
+                    raise
 
     # -- Setup wizard -------------------------------------------------------
 
@@ -367,3 +457,25 @@ class RobotNotesProvider(MemoryProvider):
         RobotNotesConfig.create(base_url=str(values.get("base_url", "")), actor=str(values.get("actor") or "")).save(
             hermes_home
         )
+
+
+def _find_entry_index(entries: List[str], identifier: str) -> Optional[int]:
+    """Locate the entry ``identifier`` names, mirroring how Hermes' built-in memory
+    tool matches ``old_text``: an exact match against the entry's stripped text
+    first, else the unique entry containing ``identifier`` as a substring (``old_text``
+    is documented as "a short unique substring of the entry", not always the whole
+    line). Returns ``None`` when nothing matches, or when the substring appears in
+    more than one *distinct* entry — an ambiguous identifier must never cause a
+    guess at which entry to touch."""
+    identifier = (identifier or "").strip()
+    if not identifier:
+        return None
+    exact = [i for i, entry in enumerate(entries) if entry.strip() == identifier]
+    if exact:
+        return exact[0]
+    contains = [i for i, entry in enumerate(entries) if identifier in entry]
+    if not contains:
+        return None
+    if len({entries[i].strip() for i in contains}) > 1:
+        return None
+    return contains[0]
