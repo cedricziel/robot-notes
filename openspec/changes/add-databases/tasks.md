@@ -6,9 +6,9 @@ Each task is a TDD step: write the failing test named in the task, make it pass,
 
 - [x] 1.1 Add `validationFailed('validation_failed')` and `pathConflict('path_conflict')` to `ErrorCode` in `shared/lib/src/errors.dart` and make `server/lib/src/mcp/tool_results.dart` use them; failing test: `ErrorEnvelope.fromJson({'error':'validation_failed'})` round-trips
 - [x] 1.2 Add `Routes.databases`, `Routes.database(id)`, `Routes.databaseQuery(id)`, `Routes.databaseRows(id)`, `Routes.noteProperties(id)` to `shared/lib/src/routes.dart`; failing `shared` test asserting the literal paths
-- [ ] 1.3 Add DTOs in `shared/lib/src/dtos.dart`: `PropertyType` enum, `PropertyDefinition`, `DatabaseSource`, `SortSpec`, `Filter` (sealed: `Condition`, `And`, `Or`), `ViewDefinition`, `DatabaseDefinition`, `DatabaseSummary`, `DatabaseRow`, `DatabaseQueryPage`, `GroupCount`, `PropertyPatch`; failing round-trip `toJson`/`fromJson` tests including nested filters
-- [ ] 1.4 Add `properties` (and optional `type`) to the shared full-note DTO; failing test decoding a note with properties; existing DTO tests still pass
-- [ ] 1.5 Add `coveringDatabases(path, tags, definitions)` to `shared` (folder prefix with `include_subfolders`, tag membership, never the definition itself); failing tests for each rule
+- [x] 1.3 Add DTOs in `shared/lib/src/dtos.dart`: `PropertyType` enum, `PropertyDefinition`, `DatabaseSource`, `SortSpec`, `Filter` (sealed: `Condition`, `And`, `Or`), `ViewDefinition`, `DatabaseDefinition`, `DatabaseSummary`, `DatabaseRow`, `DatabaseQueryPage`, `GroupCount`, `PropertyPatch`; failing round-trip `toJson`/`fromJson` tests including nested filters — tests live in `shared/test/database_dtos_test.dart` rather than being folded into `dtos_test.dart`, for size; `coveringDatabases` (1.5) lives in the same file since it operates on `DatabaseDefinition`
+- [x] 1.4 Add `properties` (and optional `type`) to the shared full-note DTO; failing test decoding a note with properties; existing DTO tests still pass
+- [x] 1.5 Add `coveringDatabases(path, tags, definitions)` to `shared` (folder prefix with `include_subfolders`, tag membership, never the definition itself); failing tests for each rule
 
 ## 2. Definition parsing and validation (server, pure)
 
