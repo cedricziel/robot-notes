@@ -571,8 +571,7 @@ McpTool _updateNoteTool(
       },
     );
 
-McpTool _appendToNoteTool(NoteWriteService writes) =>
-    McpTool(
+McpTool _appendToNoteTool(NoteWriteService writes) => McpTool(
       name: 'append_to_note',
       description:
           'Append text to the end of an existing note as a safe server-side '
