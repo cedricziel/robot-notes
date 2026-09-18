@@ -615,6 +615,52 @@ void main() {
       expect(index.length, 1);
     });
 
+    test('properties are written to frontmatter', () async {
+      final storage = _storage(tmp);
+      final index = MetaIndex();
+      final writes = await _writeService(tmp, storage, index);
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          storage: storage,
+          metaIndex: index,
+          writes: writes,
+          body: {
+            'title': 'Hello',
+            'properties': {'status': 'Idea'},
+          },
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.created);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['properties'], {'status': 'Idea'});
+      final onDisk = await storage.read(body['id'] as String);
+      expect(onDisk.extra['status'], 'Idea');
+    });
+
+    test('reserved property key is rejected', () async {
+      final storage = _storage(tmp);
+      final index = MetaIndex();
+      final writes = await _writeService(tmp, storage, index);
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          storage: storage,
+          metaIndex: index,
+          writes: writes,
+          body: {
+            'title': 'Hello',
+            'properties': {'version': 9},
+          },
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.badRequest);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['error'], 'validation_failed');
+    });
+
     test('persists into the meta index so the next list sees the row',
         () async {
       final storage = _storage(tmp);

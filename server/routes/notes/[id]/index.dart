@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor.dart';
+import 'package:server/src/databases/definition.dart';
+import 'package:server/src/databases/note_properties.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/storage.dart';
@@ -50,6 +52,8 @@ Future<Response> _read(RequestContext context, String id) async {
         'updated_at': note.updatedAt.toUtc().toIso8601String(),
         'tags': computeTags(extra: note.extra, content: note.content).toList()
           ..sort(),
+        'properties': propertiesOf(note.extra),
+        if (isDatabaseDefinitionExtra(note.extra)) 'type': 'database',
         'lock': lock == null
             ? null
             : {
@@ -176,6 +180,18 @@ Future<Response> _update(RequestContext context, String id) async {
     );
   }
   final path = pathRaw as String?;
+  final propertiesRaw = raw['properties'];
+  if (propertiesRaw != null && propertiesRaw is! Map) {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: const {
+        'error': 'bad_request',
+        'message': 'properties must be an object when provided',
+      },
+    );
+  }
+  final properties =
+      (propertiesRaw as Map<String, dynamic>?)?.cast<String, Object?>();
 
   final writes = context.read<NoteWriteService>();
 
@@ -187,6 +203,7 @@ Future<Response> _update(RequestContext context, String id) async {
       ifMatch: ifMatch,
       actor: actor.name,
       path: path,
+      properties: properties,
     );
     return Response.json(
       body: {
@@ -200,6 +217,16 @@ Future<Response> _update(RequestContext context, String id) async {
         'tags':
             computeTags(extra: updated.extra, content: updated.content).toList()
               ..sort(),
+        'properties': propertiesOf(updated.extra),
+        if (isDatabaseDefinitionExtra(updated.extra)) 'type': 'database',
+      },
+    );
+  } on PropertyValidationException catch (e) {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: {
+        'error': 'validation_failed',
+        'message': e.violations.join('; '),
       },
     );
   } on NoteNotFoundException {

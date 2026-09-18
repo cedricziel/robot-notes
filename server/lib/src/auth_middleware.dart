@@ -51,8 +51,7 @@ Middleware bearerAuth({required String configuredKey}) {
       if (record == null || record.resource != restResource) {
         return _unauthorized();
       }
-      final requiredScope =
-          _isSafeMethod(request.method) ? 'notes:read' : 'notes:write';
+      final requiredScope = _requiredScope(request);
       if (!record.scopes.contains(requiredScope)) {
         return _insufficientScope();
       }
@@ -72,6 +71,26 @@ bool _isSafeMethod(HttpMethod method) =>
     method == HttpMethod.get ||
     method == HttpMethod.head ||
     method == HttpMethod.options;
+
+/// Matches `POST /databases/{id}/query` — the one route whose scope
+/// requirement doesn't follow from its HTTP method (a `POST` that only
+/// reads, per the `add-databases` design's "Auth scope" decision).
+final RegExp _databaseQueryPath = RegExp(r'^/databases/[^/]+/query$');
+
+/// The OAuth scope [request] requires: `notes:read` for every safe method
+/// plus the `POST /databases/{id}/query` override, `notes:write`
+/// otherwise. A small per-route override table, per the `add-databases`
+/// design's "Auth scope" decision — kept here rather than as a generic
+/// mechanism since this is (so far) the only route whose scope doesn't
+/// follow from its method.
+String _requiredScope(Request request) {
+  if (_isSafeMethod(request.method)) return 'notes:read';
+  if (request.method == HttpMethod.post &&
+      _databaseQueryPath.hasMatch(request.uri.path)) {
+    return 'notes:read';
+  }
+  return 'notes:write';
+}
 
 /// Paths exempt from the static bearer key, by method:
 ///

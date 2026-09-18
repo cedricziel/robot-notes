@@ -49,14 +49,14 @@ Each task is a TDD step: write the failing test named in the task, make it pass,
 
 ## 5. REST routes
 
-- [ ] 5.1 Auth: per-route scope override so `POST /databases/{id}/query` needs `notes:read`; failing tests: read token gets 200 on query and 403 on `POST /databases/{id}/rows`; implement
-- [ ] 5.2 `GET /notes/{id}` returns `properties` and `type` for definitions; `POST /notes` and `PUT /notes/{id}` accept `properties` with `validation_failed` on violations; failing route tests per `notes-api` delta scenarios; implement
-- [ ] 5.3 `PATCH /notes/{id}/properties` in `server/routes/notes/[id]/properties.dart`; failing route tests for 200 shape, 400 on empty or reserved, 404, no `If-Match` needed, lock ignored, broadcast observed; implement
-- [ ] 5.4 `GET /databases` (with `row_count`) and `POST /databases`; failing tests for list shape, 201 and file on disk, 400 per validation error class, 409 `path_conflict`; implement `server/routes/databases/index.dart`
-- [ ] 5.5 `GET /databases/{id}` and `PUT /databases/{id}`; failing tests for 404 on non-database note, 428 without `If-Match`, 409 on stale, wholesale replacement of supplied sections, property removal keeps row values, 404 after the definition is deleted; implement `server/routes/databases/[id]/index.dart`
-- [ ] 5.6 `POST /databases/{id}/query`; failing tests for saved view, request overrides, groups, pagination, unknown view 400, limit bounds, tag source, item shape without `content`; implement `server/routes/databases/[id]/query.dart`
-- [ ] 5.7 `POST /databases/{id}/rows`; failing tests for default path, tag added, path outside source rejected, validation failure writes nothing, 201 shape; implement `server/routes/databases/[id]/rows.dart`
-- [ ] 5.8 Unauthenticated requests to each new route return 401; verify with route tests
+- [x] 5.1 Auth: per-route scope override so `POST /databases/{id}/query` needs `notes:read`; failing tests: read token gets 200 on query and 403 on `POST /databases/{id}/rows`; implement
+- [x] 5.2 `GET /notes/{id}` returns `properties` and `type` for definitions; `POST /notes` and `PUT /notes/{id}` accept `properties` with `validation_failed` on violations; failing route tests per `notes-api` delta scenarios; implement
+- [x] 5.3 `PATCH /notes/{id}/properties` in `server/routes/notes/[id]/properties.dart`; failing route tests for 200 shape, 400 on empty or reserved, 404, no `If-Match` needed, lock ignored, broadcast observed; implement
+- [x] 5.4 `GET /databases` (with `row_count`) and `POST /databases`; failing tests for list shape, 201 and file on disk, 400 per validation error class, 409 `path_conflict`; implement `server/routes/databases/index.dart` - deviation: added a minimal `DatabaseRegistry` field to `AppDeps` (wired into `NoteWriteService` and rebuilt from `SearchIndex.definitionsSource()` at `bootstrap`, provided via `routes/_middleware.dart`) since these routes need it and group 7's full startup-consistency test coverage for it hadn't landed yet; group 7 builds on this instead of introducing it
+- [x] 5.5 `GET /databases/{id}` and `PUT /databases/{id}`; failing tests for 404 on non-database note, 428 without `If-Match`, 409 on stale, wholesale replacement of supplied sections, property removal keeps row values, 404 after the definition is deleted; implement `server/routes/databases/[id]/index.dart`
+- [x] 5.6 `POST /databases/{id}/query`; failing tests for saved view, request overrides, groups, pagination, unknown view 400, limit bounds, tag source, item shape without `content`; implement `server/routes/databases/[id]/query.dart`
+- [x] 5.7 `POST /databases/{id}/rows`; failing tests for default path, tag added, path outside source rejected, validation failure writes nothing, 201 shape; implement `server/routes/databases/[id]/rows.dart`
+- [x] 5.8 Unauthenticated requests to each new route return 401; verify with route tests
 
 ## 6. MCP tools
 
