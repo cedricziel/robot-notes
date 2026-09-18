@@ -1,8 +1,10 @@
+import 'package:flutter/cupertino.dart' show CupertinoSliverRefreshControl;
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
 import '../format/note_time.dart';
+import '../widgets/adaptive.dart';
 import 'property_editor.dart';
 import 'property_value_view.dart';
 import 'title_search_service.dart';
@@ -32,6 +34,7 @@ class DatabaseTableView extends StatelessWidget {
     required this.onCommit,
     this.api,
     this.onOpenRow,
+    this.onRefresh,
     super.key,
   });
 
@@ -59,6 +62,10 @@ class DatabaseTableView extends StatelessWidget {
   /// still render, but the picker has no suggestions).
   final RobotNotesClient? api;
   final ValueChanged<String>? onOpenRow;
+
+  /// Pulled from the top of the row list, in the platform's own idiom —
+  /// see [DatabaseListView.onRefresh]. `null` disables pull-to-refresh.
+  final Future<void> Function()? onRefresh;
 
   List<String> get _keys =>
       view.properties ?? definition.properties.keys.toList();
@@ -96,42 +103,73 @@ class DatabaseTableView extends StatelessWidget {
                   Expanded(
                     child: rows.isEmpty
                         ? const Center(child: Text('No rows'))
-                        : ListView.builder(
-                            key: const Key('database.table.list'),
-                            itemCount: rows.length + (isLoadingMore ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              if (index >= rows.length) {
-                                return const Padding(
-                                  padding: EdgeInsets.all(16),
-                                  child: Center(
-                                    child: SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator.adaptive(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }
-                              final row = rows[index];
-                              return _RowWidget(
-                                key: ValueKey<String>(row.id),
-                                row: row,
-                                keys: keys,
-                                definition: definition,
-                                api: api,
-                                onCommit: onCommit,
-                                onOpenRow: onOpenRow,
-                              );
-                            },
-                          ),
+                        : _rowList(context, keys),
                   ),
                 ],
               ),
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _rowList(BuildContext context, List<String> keys) {
+    final refresh = onRefresh;
+    final sliver = SliverList.builder(
+      itemCount: rows.length + (isLoadingMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index >= rows.length) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator.adaptive(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+        final row = rows[index];
+        return _RowWidget(
+          key: ValueKey<String>(row.id),
+          row: row,
+          keys: keys,
+          definition: definition,
+          api: api,
+          onCommit: onCommit,
+          onOpenRow: onOpenRow,
+        );
+      },
+    );
+    if (refresh == null) {
+      return CustomScrollView(
+        key: const Key('database.table.list'),
+        slivers: [sliver],
+      );
+    }
+    if (useCupertino(context)) {
+      return CustomScrollView(
+        key: const Key('database.table.list'),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        slivers: [
+          CupertinoSliverRefreshControl(
+            key: const Key('database.table.refresh.cupertino'),
+            onRefresh: refresh,
+          ),
+          sliver,
+        ],
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: refresh,
+      child: CustomScrollView(
+        key: const Key('database.table.list'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [sliver],
       ),
     );
   }

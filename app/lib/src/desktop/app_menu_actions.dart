@@ -44,6 +44,18 @@ class NoteMenuHandlers {
   final VoidCallback? delete;
 }
 
+/// Commands on the database view currently in front: what the Database
+/// menu calls into. `null` handlers render disabled, so New Row/Edit
+/// Schema grey out once no database screen is showing.
+@immutable
+class DatabaseMenuHandlers {
+  const DatabaseMenuHandlers({this.newRow, this.editSchema, this.close});
+
+  final VoidCallback? newRow;
+  final VoidCallback? editSchema;
+  final VoidCallback? close;
+}
+
 /// The live set of handlers behind the native menu bar. Screens register
 /// their handlers while they are the ones in front and withdraw them when
 /// they leave; the menu bar listens and rebuilds itself.
@@ -61,13 +73,16 @@ class NoteMenuHandlers {
 class AppMenuActions extends ChangeNotifier {
   ShellMenuHandlers _shell = const ShellMenuHandlers();
   NoteMenuHandlers _note = const NoteMenuHandlers();
+  DatabaseMenuHandlers _database = const DatabaseMenuHandlers();
   Object? _shellOwner;
   Object? _noteOwner;
+  Object? _databaseOwner;
   bool _notifyScheduled = false;
   bool _disposed = false;
 
   ShellMenuHandlers get shell => _shell;
   NoteMenuHandlers get note => _note;
+  DatabaseMenuHandlers get database => _database;
 
   /// Installs [handlers] as the shell's, on behalf of [owner].
   void setShell(Object owner, ShellMenuHandlers handlers) {
@@ -98,6 +113,23 @@ class AppMenuActions extends ChangeNotifier {
     if (_noteOwner != owner) return;
     _noteOwner = null;
     _note = const NoteMenuHandlers();
+    _changed();
+  }
+
+  /// Installs [handlers] as the front database screen's, on behalf of
+  /// [owner].
+  void setDatabase(Object owner, DatabaseMenuHandlers handlers) {
+    _databaseOwner = owner;
+    _database = handlers;
+    _changed();
+  }
+
+  /// Withdraws the database handlers, but only if [owner] is still the one
+  /// that installed them.
+  void clearDatabase(Object owner) {
+    if (_databaseOwner != owner) return;
+    _databaseOwner = null;
+    _database = const DatabaseMenuHandlers();
     _changed();
   }
 

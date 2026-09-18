@@ -5,6 +5,7 @@ import 'package:app/src/config/app_config.dart';
 import 'package:app/src/databases/database_controller.dart';
 import 'package:app/src/databases/database_screen.dart';
 import 'package:app/src/databases/databases_controller.dart';
+import 'package:app/src/desktop/app_menu_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -84,6 +85,8 @@ class _Harness {
     Map<String, Object?>? definition,
     Future<http.Response> Function(http.Request)? query,
     void Function(String noteId)? onOpenRow,
+    AppMenuActions? menuActions,
+    VoidCallback? onOpenSchemaEditor,
   }) : definitionJson = definition ?? _definitionJson() {
     api = RobotNotesClient(
       config: _config,
@@ -142,12 +145,16 @@ class _Harness {
       databaseId: '01A',
     );
     lastOpenedRow = null;
-    screen = MaterialApp(
+    final materialApp = MaterialApp(
       home: DatabaseScreen(
         controller: controller,
         onOpenRow: onOpenRow ?? (id) => lastOpenedRow = id,
+        onOpenSchemaEditor: onOpenSchemaEditor,
       ),
     );
+    screen = menuActions == null
+        ? materialApp
+        : AppMenuActionsScope(actions: menuActions, child: materialApp);
   }
 
   final Map<String, Object?> definitionJson;
@@ -523,5 +530,32 @@ void main() {
 
       expect(find.text('Retry'), findsOneWidget);
     });
+
+    testWidgets(
+      'registers New Row/Edit Schema on the macOS menu bar while shown, '
+      'withdraws them on dispose',
+      (tester) async {
+        final actions = AppMenuActions();
+        addTearDown(actions.dispose);
+        var schemaEditorOpened = false;
+        final h = _Harness(
+          menuActions: actions,
+          onOpenSchemaEditor: () => schemaEditorOpened = true,
+        );
+        addTearDown(h.dispose);
+
+        await tester.pumpWidget(h.screen);
+        await tester.pumpAndSettle();
+
+        expect(actions.database.newRow, isNotNull);
+        expect(actions.database.editSchema, isNotNull);
+        actions.database.editSchema!();
+        expect(schemaEditorOpened, isTrue);
+
+        await tester.pumpWidget(const SizedBox());
+        expect(actions.database.newRow, isNull);
+        expect(actions.database.editSchema, isNull);
+      },
+    );
   });
 }

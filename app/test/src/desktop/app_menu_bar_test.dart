@@ -52,6 +52,7 @@ void main() {
         'Edit',
         'View',
         'Note',
+        'Database',
         'Window',
       ]);
     });
@@ -64,6 +65,8 @@ void main() {
       expect(_item(menus, 'New Note').onSelected, isNull);
       expect(_item(menus, 'Save').onSelected, isNull);
       expect(_item(menus, 'Edit Note').onSelected, isNull);
+      expect(_item(menus, 'New Row').onSelected, isNull);
+      expect(_item(menus, 'Edit Schema…').onSelected, isNull);
 
       var created = false;
       actions.setShell(
@@ -71,12 +74,20 @@ void main() {
         ShellMenuHandlers(newNote: () => created = true),
       );
       actions.setNote(Object(), NoteMenuHandlers(save: () {}));
+      var newRowTapped = false;
+      actions.setDatabase(
+        Object(),
+        DatabaseMenuHandlers(newRow: () => newRowTapped = true),
+      );
 
       menus = buildAppMenus(actions);
       _item(menus, 'New Note').onSelected!();
       expect(created, isTrue);
       expect(_item(menus, 'Save').onSelected, isNotNull);
       expect(_item(menus, 'Edit Note').onSelected, isNull);
+      _item(menus, 'New Row').onSelected!();
+      expect(newRowTapped, isTrue);
+      expect(_item(menus, 'Edit Schema…').onSelected, isNull);
     });
 
     test('shows the app\'s keyboard shortcuts on the matching items', () {
