@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
+import 'package:app/src/databases/databases_controller.dart';
 import 'package:app/src/notes/note_controller.dart';
 import 'package:app/src/notes/note_screen.dart';
 import 'package:app/src/realtime/ws_client.dart';
@@ -514,6 +515,215 @@ void main() {
       ).textTheme.headlineSmall;
       expect(title.style?.fontSize, headline?.fontSize);
     });
+  });
+
+  group('property panel', () {
+    testWidgets(
+      'editing a property in the panel patches it without disturbing the '
+      'body buffer, and the next save uses the returned version',
+      (tester) async {
+        var propertiesPatched = 0;
+        http.Request? lastPut;
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                ..._noteJson(),
+                'properties': <String, Object?>{'status': 'todo'},
+              }),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.method == 'PATCH' &&
+              request.url.path == '/notes/01H/properties') {
+            propertiesPatched += 1;
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                ..._noteJson(version: 2),
+                'properties': <String, Object?>{'status': 'done'},
+              }),
+              200,
+            );
+          }
+          if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+            lastPut = request;
+            return http.Response(jsonEncode(_noteJson(version: 3)), 200);
+          }
+          if (request.method == 'GET' &&
+              request.url.path == '/notes/01H/backlinks') {
+            return http.Response(
+              jsonEncode(<String, Object?>{'items': <Object?>[]}),
+              200,
+            );
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+          autosaveScheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+
+        await tester.pumpWidget(
+          MaterialApp(home: NoteScreen(controller: ctrl)),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('note.edit')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('note.propertyPanel.undeclared.status')),
+          findsOneWidget,
+        );
+
+        await tester.enterText(find.byKey(_contentField), 'edited body');
+
+        // `status` here is undeclared (no covering definition), so it
+        // renders read-only in the panel — the property editor widgets
+        // that drive a real commit are covered by
+        // note_property_panel_test.dart. This asserts the screen's wiring
+        // of `NoteController.patchProperty` (design.md's queue) leaves the
+        // body buffer untouched and the next save uses the patch's
+        // returned version.
+        await ctrl.patchProperty(set: {'status': 'done'});
+        await tester.pumpAndSettle();
+
+        expect(propertiesPatched, 1);
+        expect(_fieldController(tester, _contentField).text, 'edited body');
+        expect(ctrl.value.mode, NoteMode.editing);
+
+        await tester.tap(find.byKey(const Key('note.save')));
+        await tester.pumpAndSettle();
+
+        expect(lastPut, isNotNull);
+        expect(lastPut!.headers['If-Match'], '2');
+      },
+    );
+  });
+
+  group('database embeds', () {
+    testWidgets(
+      'a resolvable ![[Title]] renders the embedded view in view mode, and '
+      'the raw text stays in the edit field while the preview renders it',
+      (tester) async {
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(
+              jsonEncode(_noteJson(content: '![[Projects]]')),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.method == 'GET' && request.url.path == '/databases/db1') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'id': 'db1',
+                'title': 'Projects',
+                'path': '',
+                'version': 1,
+                'source': <String, Object?>{
+                  'folder': '',
+                  'include_subfolders': true,
+                },
+                'properties': <String, Object?>{},
+                'views': <Object?>[
+                  <String, Object?>{'name': 'All', 'type': 'table'},
+                ],
+                'created_at': _now,
+                'updated_at': _now,
+              }),
+              200,
+            );
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/databases/db1/query') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'items': <Object?>[
+                  <String, Object?>{
+                    'id': 'row1',
+                    'title': 'Ship it',
+                    'path': '',
+                    'version': 1,
+                    'created_at': _now,
+                    'updated_at': _now,
+                    'tags': <String>[],
+                    'properties': <String, Object?>{},
+                    'invalid': <String>[],
+                  },
+                ],
+                'next_cursor': null,
+              }),
+              200,
+            );
+          }
+          if (request.method == 'GET' &&
+              request.url.path == '/notes/01H/backlinks') {
+            return http.Response(
+              jsonEncode(<String, Object?>{'items': <Object?>[]}),
+              200,
+            );
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final databases = DatabasesController(api: api);
+        databases.value = databases.value.copyWith(
+          items: [
+            DatabaseSummary.fromJson(const <String, Object?>{
+              'id': 'db1',
+              'title': 'Projects',
+              'path': '',
+              'source': <String, Object?>{
+                'folder': '',
+                'include_subfolders': true,
+              },
+              'row_count': 1,
+            }),
+          ],
+        );
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+          autosaveScheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: NoteScreen(controller: ctrl, databases: databases),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // View mode: the embed renders instead of the literal text.
+        expect(find.byKey(const Key('database.embed.title')), findsOneWidget);
+        expect(find.text('Ship it'), findsOneWidget);
+        expect(find.textContaining('![[Projects]]'), findsNothing);
+
+        // Edit mode: the raw field holds the literal source...
+        await tester.tap(find.byKey(const Key('note.edit')));
+        await tester.pumpAndSettle();
+        expect(_fieldController(tester, _contentField).text, '![[Projects]]');
+        // ...while the preview pane (shown by default at this window size)
+        // renders the embed.
+        expect(find.byKey(const Key('note.editor.preview')), findsOneWidget);
+        expect(find.byKey(const Key('database.embed.title')), findsOneWidget);
+      },
+    );
   });
 
   group('preview toggle', () {

@@ -7,16 +7,21 @@ import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import '../databases/database_embed.dart';
+import '../databases/database_embed_syntax.dart';
+import '../databases/databases_controller.dart';
 import '../desktop/app_menu_actions.dart';
 import '../desktop/app_menu_bar.dart';
 import '../format/note_time.dart';
 import '../layout/breakpoints.dart';
+import '../realtime/ws_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/adaptive.dart';
 import '../widgets/status_strip.dart';
 import 'link_autocomplete.dart';
 import 'markdown_toolbar.dart';
 import 'note_controller.dart';
+import 'note_property_panel.dart';
 import 'save_shortcut.dart';
 
 /// How a [NoteScreen] is being shown, which decides what its leading
@@ -42,6 +47,9 @@ class NoteScreen extends StatefulWidget {
     this.onClose,
     this.onOpenNote,
     this.onTagTap,
+    this.databases,
+    this.events,
+    this.onOpenDatabase,
     this.startEditing = false,
     this.presentation = NotePresentation.page,
     @visibleForTesting this.installSaveShortcut = installWebSaveShortcut,
@@ -53,12 +61,27 @@ class NoteScreen extends StatefulWidget {
   final VoidCallback? onClose;
 
   /// Called when the user taps a backlink entry, with the referencing
-  /// note's id. `null` renders the backlinks panel non-interactive.
+  /// note's id. `null` renders the backlinks panel non-interactive. Also
+  /// used by a `![[Title]]` embed's row titles (task 7.2).
   final ValueChanged<String>? onOpenNote;
 
   /// Called when the user taps a tag chip, with that tag. `null` renders
   /// the chips non-interactive.
   final ValueChanged<String>? onTagTap;
+
+  /// The shared database cache (design.md: "the client-side rule"), used to
+  /// resolve `![[Title]]` embeds in the body. `null` disables embed
+  /// rendering — the literal `![[...]]` text renders instead, same as an
+  /// unresolved title.
+  final DatabasesController? databases;
+
+  /// The realtime event stream, so an open embed refreshes (debounced) on
+  /// a `changed` event — same cadence as the database screen.
+  final Stream<RealtimeEvent>? events;
+
+  /// Called with `(databaseId, viewName)` when an embed's "Show all" link
+  /// is tapped.
+  final void Function(String databaseId, String viewName)? onOpenDatabase;
 
   /// Open straight into the editor with the title selected, so typing
   /// replaces a placeholder title.
@@ -182,6 +205,23 @@ class _NoteScreenState extends State<NoteScreen> {
   Future<void> _save() async {
     await widget.controller.save();
     _announceOutcome(failed: 'Could not save', succeeded: 'Saved');
+  }
+
+  /// Wired to [NotePropertyPanel.onCommit]. Delegates to
+  /// [NoteController.patchProperty], which never touches the title/content
+  /// edit buffers (design.md), and reports success by comparing the note's
+  /// version before and after — the controller's own [NoteState.error]
+  /// field is not cleared on a successful patch, so it can't be read
+  /// directly here without risking a stale error from an earlier,
+  /// unrelated failure.
+  Future<String?> _onPropertyCommit(String key, PropertyPatch patch) async {
+    final before = widget.controller.value.note?.version;
+    await widget.controller.patchProperty(set: patch.set, unset: patch.unset);
+    if (!mounted) return null;
+    final after = widget.controller.value;
+    if (after.note?.version != before) return null;
+    final error = after.error;
+    return error == null ? null : _describe(error);
   }
 
   Future<void> _keepMine() async {
@@ -308,6 +348,29 @@ class _NoteScreenState extends State<NoteScreen> {
 
   void _setPreviewShown(bool shown) {
     setState(() => _previewOverride = shown);
+  }
+
+  /// Builds a `DatabaseEmbedBuilder` bound to this screen's database cache
+  /// and realtime stream, or `null` when no [NoteScreen.databases] was
+  /// given (the placeholder spike rendering never leaks into production —
+  /// this is `null` only in tests that don't exercise embeds). Used for
+  /// both the view-mode `MarkdownBody` and the edit-mode preview
+  /// `Markdown`, per "the split-view preview pane ... shall render embeds
+  /// like view mode"; the raw edit-mode `TextField` never sees this.
+  DatabaseEmbedBuilder? _embedBuilder() {
+    final databases = widget.databases;
+    if (databases == null) return null;
+    return DatabaseEmbedBuilder(
+      embedBuilder: (context, title, view) => DatabaseEmbed(
+        title: title,
+        view: view,
+        databases: databases,
+        api: widget.controller.api,
+        events: widget.events,
+        onOpenNote: widget.onOpenNote,
+        onShowAll: widget.onOpenDatabase,
+      ),
+    );
   }
 
   @override
@@ -578,6 +641,23 @@ class _NoteScreenState extends State<NoteScreen> {
     return Column(
       children: [
         ...banners,
+        if (state.properties.isNotEmpty || state.coveringDefinitions.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: PaneSizes.readingColumn,
+                ),
+                child: NotePropertyPanel(
+                  properties: state.properties,
+                  coveringDefinitions: state.coveringDefinitions,
+                  api: widget.controller.api,
+                  onCommit: _onPropertyCommit,
+                ),
+              ),
+            ),
+          ),
         Expanded(
           child: editing
               ? _Editor(
@@ -591,6 +671,7 @@ class _NoteScreenState extends State<NoteScreen> {
                   onSelectLink: _insertLink,
                   previewOverride: _previewOverride,
                   onPreviewShown: _setPreviewShown,
+                  embedBuilder: _embedBuilder(),
                 )
               : _ReadingView(
                   note: note,
@@ -600,6 +681,7 @@ class _NoteScreenState extends State<NoteScreen> {
                   onTagTap: widget.onTagTap,
                   onEdit: state.mode == NoteMode.viewing ? _edit : null,
                   onRefresh: _refresh,
+                  embedBuilder: _embedBuilder(),
                 ),
         ),
       ],
@@ -626,6 +708,7 @@ class _ReadingView extends StatelessWidget {
     this.onTagTap,
     this.onEdit,
     required this.onRefresh,
+    this.embedBuilder,
   });
 
   final Note note;
@@ -633,6 +716,12 @@ class _ReadingView extends StatelessWidget {
   final bool backlinksLoading;
   final ValueChanged<String>? onOpenNote;
   final ValueChanged<String>? onTagTap;
+
+  /// Resolves `![[Title]]` embeds for the view-mode body. `null` leaves
+  /// them rendered by the bare spike placeholder (or, with no builder at
+  /// all registered — see below — the literal text, since [MarkdownBody]
+  /// would then have no block syntax for the tag in the first place).
+  final DatabaseEmbedBuilder? embedBuilder;
 
   /// Double-tapping the body starts editing. `null` while the screen is
   /// busy (acquiring the lock, moving, deleting).
@@ -681,6 +770,12 @@ class _ReadingView extends StatelessWidget {
                         // to whoever wrote it.
                         imageBuilder: (uri, title, alt) =>
                             Text(alt ?? uri.toString()),
+                        blockSyntaxes: embedBuilder == null
+                            ? const []
+                            : const [DatabaseEmbedSyntax()],
+                        builders: embedBuilder == null
+                            ? const {}
+                            : {databaseEmbedTag: embedBuilder!},
                       ),
                     ),
                   ),
@@ -743,6 +838,7 @@ class _Editor extends StatelessWidget {
     required this.onSelectLink,
     required this.previewOverride,
     required this.onPreviewShown,
+    this.embedBuilder,
   });
 
   final TextEditingController title;
@@ -757,6 +853,12 @@ class _Editor extends StatelessWidget {
   /// See `_NoteScreenState._previewOverride`.
   final bool? previewOverride;
   final ValueChanged<bool> onPreviewShown;
+
+  /// Resolves `![[Title]]` embeds in the preview pane — "the split-view
+  /// preview pane, being a rendering surface, shall render embeds like view
+  /// mode". Never applied to [content]'s own `TextField`, which always
+  /// shows the literal source.
+  final DatabaseEmbedBuilder? embedBuilder;
 
   /// Applies [transform] to [content]'s current value and reports the
   /// result the same way typing does, so undo/dirty-tracking/autocomplete
@@ -817,6 +919,12 @@ class _Editor extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 12),
               styleSheet: AppTheme.markdown(context),
               imageBuilder: (uri, title, alt) => Text(alt ?? uri.toString()),
+              blockSyntaxes: embedBuilder == null
+                  ? const []
+                  : const [DatabaseEmbedSyntax()],
+              builders: embedBuilder == null
+                  ? const {}
+                  : {databaseEmbedTag: embedBuilder!},
             ),
           );
           workspace = sideBySide
