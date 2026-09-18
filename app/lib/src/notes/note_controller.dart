@@ -213,6 +213,27 @@ class NoteController extends ValueNotifier<NoteState> {
     }
   }
 
+  /// Re-fetches the note and its backlinks (pull-to-refresh) without
+  /// re-subscribing to its realtime events. Only meaningful while viewing:
+  /// in any other mode the edit buffers or an in-flight lock acquisition
+  /// own the note, so this is a no-op — including when the user enters
+  /// edit mode while the fetch is still in flight. A failure lands in
+  /// [NoteState.error] and leaves the already-loaded note on screen.
+  Future<void> reload() async {
+    if (_disposed) return;
+    if (value.mode != NoteMode.viewing) return;
+    value = value.copyWith(error: null);
+    try {
+      final note = await _api.getNote(_noteId);
+      if (_disposed || value.mode != NoteMode.viewing) return;
+      value = value.copyWith(note: note, lock: note.lock);
+      unawaited(_loadBacklinks());
+    } on ApiException catch (e) {
+      if (_disposed) return;
+      value = value.copyWith(error: e);
+    }
+  }
+
   /// Loads notes that link to this one for the backlinks panel. Best-effort:
   /// a failure just leaves the list empty (the panel's empty state and an
   /// error state look the same to the user — there's nothing actionable to

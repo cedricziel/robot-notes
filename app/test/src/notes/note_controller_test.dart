@@ -1092,5 +1092,132 @@ void main() {
         },
       );
     });
+
+    group('reload()', () {
+      test(
+        're-fetches the note and backlinks without re-subscribing',
+        () async {
+          var noteGets = 0;
+          var backlinkGets = 0;
+          final mock = MockClient((request) async {
+            if (request.method == 'GET' && request.url.path == '/notes/01H') {
+              noteGets += 1;
+              return http.Response(
+                jsonEncode(_noteJson(version: noteGets, title: 'v$noteGets')),
+                200,
+              );
+            }
+            if (request.method == 'GET' &&
+                request.url.path == '/notes/01H/backlinks') {
+              backlinkGets += 1;
+              return http.Response(
+                jsonEncode(<String, Object?>{'items': <Object?>[]}),
+                200,
+              );
+            }
+            return http.Response('unexpected', 500);
+          });
+          final api = RobotNotesClient(config: _config, httpClient: mock);
+          final subscribed = <String>[];
+          final ctrl = NoteController(
+            api: api,
+            noteId: '01H',
+            actor: 'cedric',
+            onSubscribe: subscribed.add,
+          );
+          addTearDown(ctrl.dispose);
+          await ctrl.open();
+          // Let the best-effort backlinks fetch from open() land.
+          await Future<void>.delayed(Duration.zero);
+          expect(noteGets, 1);
+          expect(backlinkGets, 1);
+
+          await ctrl.reload();
+          await Future<void>.delayed(Duration.zero);
+
+          expect(noteGets, 2);
+          expect(backlinkGets, 2);
+          expect(subscribed, <String>['01H'], reason: 'no second subscribe');
+          expect(ctrl.value.mode, NoteMode.viewing);
+          expect(ctrl.value.note?.version, 2);
+          expect(ctrl.value.note?.title, 'v2');
+        },
+      );
+
+      test('is a no-op while editing', () async {
+        var noteGets = 0;
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            noteGets += 1;
+            return http.Response(jsonEncode(_noteJson()), 200);
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.url.path == '/notes/01H/backlinks') {
+            return http.Response(
+              jsonEncode(<String, Object?>{'items': <Object?>[]}),
+              200,
+            );
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+          autosaveScheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+        await ctrl.open();
+        await ctrl.enterEditMode();
+        expect(ctrl.value.mode, NoteMode.editing);
+        final getsBefore = noteGets;
+
+        await ctrl.reload();
+
+        expect(noteGets, getsBefore);
+        expect(ctrl.value.mode, NoteMode.editing);
+      });
+
+      test('a failed re-fetch sets error and keeps the loaded note', () async {
+        var noteGets = 0;
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            noteGets += 1;
+            if (noteGets == 1) {
+              return http.Response(jsonEncode(_noteJson(title: 'kept')), 200);
+            }
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'error': 'internal',
+                'message': 'boom',
+              }),
+              500,
+            );
+          }
+          if (request.url.path == '/notes/01H/backlinks') {
+            return http.Response(
+              jsonEncode(<String, Object?>{'items': <Object?>[]}),
+              200,
+            );
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+        addTearDown(ctrl.dispose);
+        await ctrl.open();
+
+        await ctrl.reload();
+
+        expect(ctrl.value.error, isA<ApiException>());
+        expect(ctrl.value.mode, NoteMode.viewing);
+        expect(ctrl.value.note?.title, 'kept');
+      });
+    });
   });
 }
