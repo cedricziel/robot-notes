@@ -81,10 +81,30 @@ def _request(
 
 
 def find_note_by_title(base_url: str, api_key: str, actor: str, title: str, path: str) -> Optional[Dict[str, Any]]:
+    """Looks up a note by exact title within path. Tries the server's dedicated
+    title filter first (a single request); an older server that doesn't
+    support it answers with HTTP 400, which is treated as "unsupported" and
+    falls back to a full cursor scan of the folder instead of being raised.
+    Any other error from the filter attempt (network failure, 5xx, etc.) is
+    not swallowed."""
+    query = urllib.parse.urlencode({"path": path, "title": title, "limit": 1})
+    try:
+        result = _request(base_url, api_key, actor, "GET", f"/notes?{query}")
+    except urllib.error.HTTPError as exc:
+        if exc.code != 400:
+            raise
+    else:
+        items = result.get("items", [])
+        return items[0] if items else None
+    return _find_note_by_title_scan(base_url, api_key, actor, title, path)
+
+
+def _find_note_by_title_scan(base_url: str, api_key: str, actor: str, title: str, path: str) -> Optional[Dict[str, Any]]:
     """Scans every page of path's notes for title — the session's note can land
     past the first 200 once a folder holds more, and missing it here would send
     append_line down the create path straight into a path conflict with the
-    note that's actually already there."""
+    note that's actually already there. Used only when the server has no
+    title filter to lean on (find_note_by_title's 400 fallback)."""
     cursor: Optional[str] = None
     while True:
         params = {"path": path, "limit": 200}
@@ -121,17 +141,44 @@ def update_note(base_url: str, api_key: str, actor: str, note_id: str, version: 
         raise
 
 
+def append_note(base_url: str, api_key: str, actor: str, note_id: str, content: str) -> Dict[str, Any]:
+    return _request(base_url, api_key, actor, "POST", f"/notes/{note_id}/append", {"content": content})
+
+
+def _join_with_separator(current: str, addition: str) -> str:
+    """Joins current+addition the same way the server's
+    POST /notes/{id}/append does (NoteWriteService.append): empty current
+    becomes exactly addition; otherwise a single "\\n" separator is inserted
+    only when current doesn't already end with one, so a note ending on a
+    blank line doesn't grow an extra one on every append."""
+    if not current:
+        return addition
+    return current + ("" if current.endswith("\n") else "\n") + addition
+
+
 def append_line(base_url: str, api_key: str, actor: str, title: str, path: str, line: str) -> None:
     note = find_note_by_title(base_url, api_key, actor, title, path)
     if note is None:
         create_note(base_url, api_key, actor, title, line, path)
         return
+    try:
+        append_note(base_url, api_key, actor, note["id"], line)
+        return
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (404, 405):
+            raise
+    # The server predates POST /notes/{id}/append (404/405 on the route);
+    # fall back to a client-side read-modify-write retry loop.
+    _append_line_fallback(base_url, api_key, actor, note["id"], line)
+
+
+def _append_line_fallback(base_url: str, api_key: str, actor: str, note_id: str, line: str) -> None:
     for _ in range(MAX_RETRIES):
-        current = _request(base_url, api_key, actor, "GET", f"/notes/{note['id']}")
+        current = _request(base_url, api_key, actor, "GET", f"/notes/{note_id}")
         existing = current.get("content", "")
-        content = f"{existing.rstrip(chr(10))}\n\n{line}" if existing else line
+        content = _join_with_separator(existing, line)
         try:
-            update_note(base_url, api_key, actor, note["id"], current["version"], content)
+            update_note(base_url, api_key, actor, note_id, current["version"], content)
             return
         except VersionConflict:
             continue

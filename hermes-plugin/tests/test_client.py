@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -134,6 +136,33 @@ def test_update_note_sends_if_match_header(client):
     client.update_note("01XYZ", version=1, content="new content")
 
     assert route.calls.last.request.headers["if-match"] == "1"
+
+
+@respx.mock
+def test_append_note_posts_content_to_the_append_endpoint(client):
+    route = respx.post("https://notes.example.com/notes/01XYZ/append").mock(
+        return_value=httpx.Response(200, json={"id": "01XYZ", "version": 2, "content": "line one\nline two"})
+    )
+
+    result = client.append_note("01XYZ", "line two")
+
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"content": "line two"}
+    assert result["version"] == 2
+    assert result["content"] == "line one\nline two"
+
+
+@respx.mock
+def test_append_note_not_found_raises_client_error(client):
+    respx.post("https://notes.example.com/notes/missing/append").mock(
+        return_value=httpx.Response(404, json={"error": "not_found"})
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.append_note("missing", "x")
+
+    assert exc_info.value.not_found is True
+    assert exc_info.value.status == 404
 
 
 @respx.mock

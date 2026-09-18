@@ -43,12 +43,18 @@ WRITE_TOOL_NAMES = frozenset({"robotnotes_remember", "robotnotes_append", "robot
 
 
 def _append_line(current: str, addition: str) -> str:
-    """Appends ``addition`` to ``current`` on its own new line; ``current`` empty
-    (new or blanked note) means the addition becomes the whole content. Used by
-    ``_tool_append`` (via ``append_note_with_retry``); the memory mirror's own
-    append path uses ``_append_note``/``_read_edit_write`` instead, since it also
-    needs duplicate-entry detection."""
-    return f"{current.rstrip(chr(10))}\n{addition}" if current else addition
+    """Appends ``addition`` to ``current`` the same way the server's
+    ``POST /notes/{id}/append`` does (``NoteWriteService.append``): ``current``
+    empty means the addition becomes the whole content; otherwise a single
+    ``\\n`` separator is inserted only when ``current`` doesn't already end
+    with one (so a note that already ends on a blank line doesn't grow an
+    extra one). Used only by ``_tool_append``'s fallback path
+    (``append_note_with_retry``, for a server predating the append endpoint);
+    the memory mirror's own append path uses ``_append_note``/``_read_edit_write``
+    instead, since it also needs duplicate-entry detection."""
+    if not current:
+        return addition
+    return current + ("" if current.endswith("\n") else "\n") + addition
 
 # Fallback error codes for ``handle_tool_call``, used only when the server's
 # response didn't carry an explicit ``code`` of its own (e.g. a network
@@ -272,8 +278,21 @@ class RobotNotesProvider(MemoryProvider):
         return json.dumps(note)
 
     def _tool_append(self, args: Dict[str, Any]) -> str:
+        note_id = args["id"]
         addition = args["content"]
-        note = self._client.append_note_with_retry(args["id"], build_content=lambda current: _append_line(current, addition))
+        try:
+            note = self._client.append_note(note_id, addition)
+        except ClientError as exc:
+            # A 404/405 here means this server predates POST /notes/{id}/append
+            # (older deployment); fall back to the client-side read-modify-write.
+            # A note that genuinely doesn't exist 404s the same way from the
+            # fallback's own first read, so the caller sees an identical
+            # not_found error either way.
+            if exc.status not in (404, 405):
+                raise
+            note = self._client.append_note_with_retry(
+                note_id, build_content=lambda current: _append_line(current, addition)
+            )
         return json.dumps(note)
 
     def _tool_forget(self, args: Dict[str, Any]) -> str:

@@ -159,6 +159,40 @@ def test_stale_version_put_is_rejected_with_current_version(e2e_client: RobotNot
     assert final["version"] == 2
 
 
+def test_append_note_uses_the_dedicated_endpoint(e2e_client: RobotNotesClient):
+    """`append_note` (#248) hits `POST /notes/{id}/append` directly — no local
+    read, no `If-Match` — and the server's own read-modify-write lands the
+    text with a single `\\n` separator (`NoteWriteService.append`), the same
+    join `_append_line`/`_join_with_separator` fall back to for an older
+    server."""
+    path = f"e2e-append-{_uid()}"
+    created = e2e_client.create_note(title=f"e2e-{_uid()}", content="line one", path=path)
+
+    updated = e2e_client.append_note(created["id"], "line two")
+
+    assert updated["content"] == "line one\nline two"
+    assert updated["version"] == created["version"] + 1
+
+    fetched = e2e_client.get_note(created["id"])
+    assert fetched["content"] == "line one\nline two"
+    assert fetched["version"] == updated["version"]
+
+
+def test_append_note_on_empty_note_does_not_prefix_a_blank_line(e2e_client: RobotNotesClient):
+    path = f"e2e-append-{_uid()}"
+    created = e2e_client.create_note(title=f"e2e-{_uid()}", content="", path=path)
+
+    updated = e2e_client.append_note(created["id"], "first line")
+
+    assert updated["content"] == "first line"
+
+
+def test_append_note_missing_note_raises_not_found(e2e_client: RobotNotesClient):
+    with pytest.raises(ClientError) as exc_info:
+        e2e_client.append_note("01DOESNOTEXIST", "x")
+    assert exc_info.value.not_found is True
+
+
 def test_find_note_by_title_past_first_200(e2e_client: RobotNotesClient):
     """https://github.com/cedricziel/robot-notes/issues/239 is fixed: the
     client's `_find_note_by_title_scan` fallback now follows `next_cursor`

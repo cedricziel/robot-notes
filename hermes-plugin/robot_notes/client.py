@@ -318,6 +318,19 @@ class RobotNotesClient:
                     current_version = self.get_note(note_id)["version"]
         raise last_error
 
+    def append_note(self, note_id: str, content: str) -> Dict[str, Any]:
+        """Appends ``content`` to note ``note_id`` via the server's own
+        ``POST /notes/{id}/append`` (see ``server/API.md`` and
+        ``NoteWriteService.append``): a single request, no local read, no
+        ``If-Match`` — the server does the read-modify-write and the version
+        retry itself. This is the primary path for ``_tool_append``;
+        ``append_note_with_retry`` below stays only as a client-side fallback
+        for a server that predates this route (a 404/405 response). The
+        Claude hook (``claude-plugin/hooks/log_conversation.py``) is
+        stdlib-only and doesn't use this client, but calls the same server
+        route via its own ``append_note`` for the identical reason."""
+        return self._request("POST", f"/notes/{note_id}/append", json={"content": content}).json()
+
     def append_note_with_retry(
         self, note_id: str, *, build_content: Callable[[str], str], max_attempts: int = 3
     ) -> Dict[str, Any]:
@@ -327,7 +340,10 @@ class RobotNotesClient:
         any other kind is raised straight through instead, since re-reading and
         rewriting can't fix those. Use this only when ``build_content`` needs the
         note's current content — callers that overwrite with fixed content should use
-        ``write_note_with_retry`` instead and skip the read entirely."""
+        ``write_note_with_retry`` instead and skip the read entirely. Kept as the
+        fallback for a server that answers 404/405 to ``POST /notes/{id}/append``
+        (see ``append_note``); a genuinely missing note surfaces identically either
+        way, since the first read here also 404s."""
         last_error: Optional[ClientError] = None
         for _ in range(max_attempts):
             note = self.get_note(note_id)
