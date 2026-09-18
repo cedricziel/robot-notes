@@ -1016,6 +1016,32 @@ void main() {
       expect(count.single['c'], 2);
     });
 
+    test("embeds each note's title together with its content", () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'Melanie', content: 'Met at the conference.');
+      await storage.create(title: 'Blank body', content: '');
+      final provider = FakeEmbeddingProvider();
+      final index = await _open(
+        tmp,
+        storage: storage,
+        embeddingProvider: provider,
+        autoBackfill: false,
+      );
+      addTearDown(index.close);
+
+      await index.backfillEmbeddings(sleep: (_) async {});
+
+      expect(
+        provider.inputs,
+        unorderedEquals(['Melanie\n\nMet at the conference.', 'Blank body']),
+      );
+      final db = sqlite3.open(_dbFile(tmp).path);
+      final count = db.select('SELECT COUNT(*) AS c FROM note_vectors;');
+      db.close();
+      // The blank-bodied note still gets a vector, from its title.
+      expect(count.single['c'], 2);
+    });
+
     test('processes ids in batches, sleeping between (not within) batches',
         () async {
       final storage = _storage(tmp);

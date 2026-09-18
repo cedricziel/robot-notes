@@ -37,12 +37,18 @@ class EmbeddingProviderException implements Exception {
 /// without a vector"), while still distinguishing them internally — a
 /// failure is logged, an absent provider is not, since there's nothing
 /// wrong to report.
+///
+/// Blank [text] (empty or whitespace-only) short-circuits to `null` without
+/// calling the provider at all: there is nothing to embed, and asking a
+/// model anyway yields a degenerate (often zero-length) vector that would
+/// only be reported as a failure.
 Future<List<double>?> embedOrNull(
   EmbeddingProvider? provider,
   String text, {
   Logger? logger,
 }) async {
   if (provider == null) return null;
+  if (text.trim().isEmpty) return null;
   try {
     return await provider.embed(text);
   } on EmbeddingProviderException catch (e) {
@@ -51,4 +57,18 @@ Future<List<double>?> embedOrNull(
     );
     return null;
   }
+}
+
+/// The text a note is embedded from: its [title] followed by its [content],
+/// separated by a blank line, with surrounding whitespace trimmed. Titles
+/// carry meaning of their own (a note titled "Melanie" with an empty body
+/// should still be findable by a semantic query), and a note whose body is
+/// blank would otherwise have nothing to embed at all. Shared by the write
+/// path and the backfill so both produce comparable vectors.
+String embeddingInputFor({required String title, required String content}) {
+  final t = title.trim();
+  final c = content.trim();
+  if (t.isEmpty) return c;
+  if (c.isEmpty) return t;
+  return '$t\n\n$c';
 }

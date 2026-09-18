@@ -24,9 +24,14 @@ class FakeEmbeddingProvider implements EmbeddingProvider {
 
   int callCount = 0;
 
+  /// Every text passed to [embed], in call order, so tests can assert on
+  /// what the caller chose to embed (e.g. title + content).
+  final List<String> inputs = [];
+
   @override
   Future<List<double>> embed(String text) async {
     callCount++;
+    inputs.add(text);
     if (delay > Duration.zero) await Future<void>.delayed(delay);
     if (shouldThrow) {
       throw const EmbeddingProviderException('fake provider failure');
