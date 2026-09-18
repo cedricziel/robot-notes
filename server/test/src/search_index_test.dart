@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
@@ -53,6 +54,44 @@ List<Row> _linkEdges(Directory tmp, String sourceId) {
 /// Arbitrary fixed instant for tests that don't care about the actual
 /// value of `updatedAt`, only that one was supplied.
 final _testStamp = DateTime.utc(2026);
+
+/// Reads a `note_meta` row directly, bypassing [SearchIndex]'s public API
+/// — mirrors [_linkEdges]'s approach of opening a second connection to
+/// inspect a derived table.
+Map<String, Object?> _noteMeta(Directory tmp, String noteId) {
+  final row = _noteMetaOrNull(tmp, noteId);
+  if (row == null) {
+    throw StateError('no note_meta row for $noteId');
+  }
+  return row;
+}
+
+Map<String, Object?>? _noteMetaOrNull(Directory tmp, String noteId) {
+  final db = sqlite3.open(_dbFile(tmp).path);
+  try {
+    final rows = db.select(
+      'SELECT * FROM note_meta WHERE note_id = ?;',
+      [noteId],
+    );
+    if (rows.isEmpty) return null;
+    return rows.first;
+  } finally {
+    db.close();
+  }
+}
+
+/// Reads every `note_properties` row for [noteId]/[key] directly.
+List<Row> _noteProperties(Directory tmp, String noteId, String key) {
+  final db = sqlite3.open(_dbFile(tmp).path);
+  try {
+    return db.select(
+      'SELECT * FROM note_properties WHERE note_id = ? AND key = ?;',
+      [noteId, key],
+    );
+  } finally {
+    db.close();
+  }
+}
 
 Future<SearchIndex> _open(
   Directory tmp, {
@@ -212,6 +251,55 @@ void main() {
       expect(logged.any((l) => l.contains('schema_version mismatch')), isTrue);
       expect(await index.search('tokenized'), hasLength(1));
     });
+
+    test(
+      'a schema-4 db is rebuilt on open and the new tables and indexes '
+      'exist',
+      () async {
+        final storage = _storage(tmp);
+        await storage.create(title: 'Legacy', content: 'kept searchable');
+
+        final initial = await _open(tmp, storage: storage);
+        initial.close();
+
+        // Simulate a pre-databases search.db: schema_version 4, the
+        // version this constant held before note_meta/note_properties.
+        sqlite3.open(_dbFile(tmp).path)
+          ..execute("UPDATE meta SET value = '4' WHERE key = 'schema_version';")
+          ..close();
+
+        final index = await _open(tmp, storage: storage);
+        addTearDown(index.close);
+
+        final db = sqlite3.open(_dbFile(tmp).path);
+        addTearDown(db.close);
+        final tables = db
+            .select(
+              "SELECT name FROM sqlite_master WHERE type='table';",
+            )
+            .map((r) => r['name'] as String)
+            .toSet();
+        expect(tables, containsAll(['note_meta', 'note_properties']));
+        final indexes = db
+            .select(
+              "SELECT name FROM sqlite_master WHERE type='index';",
+            )
+            .map((r) => r['name'] as String)
+            .toSet();
+        expect(
+          indexes,
+          containsAll([
+            'note_meta_path_idx',
+            'note_meta_updated_at_idx',
+            'note_meta_created_at_idx',
+            'note_properties_key_text_idx',
+            'note_properties_key_num_idx',
+            'note_properties_key_date_idx',
+            'note_properties_note_id_key_idx',
+          ]),
+        );
+      },
+    );
 
     test('rebuild logs the count of indexed notes', () async {
       final storage = _storage(tmp);
@@ -561,6 +649,309 @@ void main() {
 
       expect(await index.search('hello'), hasLength(1));
       expect(vectorRowExists(_dbFile(tmp).path, 'a'), isFalse);
+    });
+
+    test(
+      'upsert writes note_meta with created_at/updated_at/is_definition '
+      'and frontmatter_json',
+      () async {
+        final index = await _open(tmp);
+        addTearDown(index.close);
+
+        index.upsert(
+          id: 'n1',
+          title: 'Projects',
+          content: 'a database of projects',
+          updatedAt: DateTime.utc(2026, 2),
+          createdAt: DateTime.utc(2026, 1),
+          isDefinition: true,
+          extra: const {
+            'type': 'database',
+            'source': {'folder': 'Projects'},
+          },
+        );
+
+        final row = _noteMeta(tmp, 'n1');
+        expect(row['created_at'], '2026-01-01T00:00:00.000Z');
+        expect(row['updated_at'], '2026-02-01T00:00:00.000Z');
+        expect(row['is_definition'], 1);
+        final decoded = jsonDecode(row['frontmatter_json'] as String) as Map;
+        expect(decoded['type'], 'database');
+        expect(decoded['source'], {'folder': 'Projects'});
+      },
+    );
+
+    test('createdAt defaults to updatedAt and isDefinition defaults false',
+        () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'n1',
+        title: 'Plain',
+        content: 'plain note',
+        updatedAt: _testStamp,
+      );
+
+      final row = _noteMeta(tmp, 'n1');
+      expect(row['created_at'], _testStamp.toIso8601String());
+      expect(row['is_definition'], 0);
+      expect(
+          jsonDecode(row['frontmatter_json'] as String), <String, Object?>{});
+    });
+
+    test('upsert writes a text property row for a string value', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'n1',
+        title: 'Row',
+        content: '',
+        updatedAt: _testStamp,
+        extra: const {'status': 'Active'},
+      );
+
+      final rows = _noteProperties(tmp, 'n1', 'status');
+      expect(rows, hasLength(1));
+      expect(rows.single['text_value'], 'Active');
+      expect(rows.single['num_value'], isNull);
+    });
+
+    test('upsert writes a number property to num_value', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'n1',
+        title: 'Row',
+        content: '',
+        updatedAt: _testStamp,
+        extra: const {'budget': 42},
+      );
+
+      final rows = _noteProperties(tmp, 'n1', 'budget');
+      expect(rows.single['num_value'], 42.0);
+    });
+
+    test('upsert writes a checkbox property to bool_value', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'n1',
+        title: 'Row',
+        content: '',
+        updatedAt: _testStamp,
+        extra: const {'done': true},
+      );
+
+      final rows = _noteProperties(tmp, 'n1', 'done');
+      expect(rows.single['bool_value'], 1);
+    });
+
+    test(
+      'upsert normalises a day-only date string to date_value/day_value',
+      () async {
+        final index = await _open(tmp);
+        addTearDown(index.close);
+
+        index.upsert(
+          id: 'n1',
+          title: 'Row',
+          content: '',
+          updatedAt: _testStamp,
+          extra: const {'due': '2026-10-01'},
+        );
+
+        final rows = _noteProperties(tmp, 'n1', 'due');
+        expect(rows.single['text_value'], '2026-10-01');
+        expect(rows.single['day_value'], '2026-10-01');
+        expect(rows.single['date_value'], '2026-10-01T00:00:00.000Z');
+      },
+    );
+
+    test(
+      'upsert normalises a full ISO timestamp to date_value/day_value',
+      () async {
+        final index = await _open(tmp);
+        addTearDown(index.close);
+
+        index.upsert(
+          id: 'n1',
+          title: 'Row',
+          content: '',
+          updatedAt: _testStamp,
+          extra: const {'due': '2026-10-01T09:00:00Z'},
+        );
+
+        final rows = _noteProperties(tmp, 'n1', 'due');
+        expect(rows.single['day_value'], '2026-10-01');
+        expect(rows.single['date_value'], '2026-10-01T09:00:00.000Z');
+      },
+    );
+
+    test('upsert accepts a YAML DateTime object for a date property', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'n1',
+        title: 'Row',
+        content: '',
+        updatedAt: _testStamp,
+        extra: {'due': DateTime.utc(2026, 10, 1, 9)},
+      );
+
+      final rows = _noteProperties(tmp, 'n1', 'due');
+      expect(rows.single['day_value'], '2026-10-01');
+      expect(rows.single['date_value'], '2026-10-01T09:00:00.000Z');
+    });
+
+    test('upsert expands a list-valued property with ordinals', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'n1',
+        title: 'Row',
+        content: '',
+        updatedAt: _testStamp,
+        extra: const {
+          'labels': ['[[A]]', '[[B]]'],
+        },
+      );
+
+      final rows = _noteProperties(tmp, 'n1', 'labels').toList()
+        ..sort((a, b) => (a['ordinal'] as int).compareTo(b['ordinal'] as int));
+      expect(rows.map((r) => r['text_value']), ['[[A]]', '[[B]]']);
+      expect(rows.map((r) => r['ordinal']), [0, 1]);
+    });
+
+    test('upsert writes computed tags under the synthetic key "tags"',
+        () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'n1',
+        title: 'Row',
+        content: '',
+        updatedAt: _testStamp,
+        tags: {'urgent', 'work'},
+      );
+
+      final rows = _noteProperties(tmp, 'n1', 'tags');
+      expect(
+        rows.map((r) => r['text_value']).toSet(),
+        {'urgent', 'work'},
+      );
+    });
+
+    test('upsert excludes server-interpreted keys from note_properties',
+        () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index.upsert(
+        id: 'n1',
+        title: 'Projects',
+        content: '',
+        updatedAt: _testStamp,
+        isDefinition: true,
+        extra: const {
+          'type': 'database',
+          'source': {'folder': 'Projects'},
+          'properties': {
+            'status': {'type': 'select'},
+          },
+          'views': [
+            {'name': 'All', 'type': 'table'},
+          ],
+        },
+      );
+
+      expect(_noteProperties(tmp, 'n1', 'type'), isEmpty);
+      expect(_noteProperties(tmp, 'n1', 'source'), isEmpty);
+      expect(_noteProperties(tmp, 'n1', 'properties'), isEmpty);
+      expect(_noteProperties(tmp, 'n1', 'views'), isEmpty);
+    });
+
+    test('upsert replaces note_properties rows on a second call', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index
+        ..upsert(
+          id: 'n1',
+          title: 'Row',
+          content: '',
+          updatedAt: _testStamp,
+          extra: const {'status': 'Idea'},
+        )
+        ..upsert(
+          id: 'n1',
+          title: 'Row',
+          content: '',
+          updatedAt: _testStamp,
+          extra: const {'status': 'Active'},
+        );
+
+      final rows = _noteProperties(tmp, 'n1', 'status');
+      expect(rows, hasLength(1));
+      expect(rows.single['text_value'], 'Active');
+    });
+
+    test('delete removes note_meta and note_properties rows', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index
+        ..upsert(
+          id: 'n1',
+          title: 'Row',
+          content: '',
+          updatedAt: _testStamp,
+          extra: const {'status': 'Idea'},
+        )
+        ..delete('n1');
+
+      expect(_noteMetaOrNull(tmp, 'n1'), isNull);
+      expect(_noteProperties(tmp, 'n1', 'status'), isEmpty);
+    });
+
+    test('definitionsSource returns every is_definition row', () async {
+      final index = await _open(tmp);
+      addTearDown(index.close);
+
+      index
+        ..upsert(
+          id: 'def1',
+          title: 'Projects',
+          content: '',
+          updatedAt: DateTime.utc(2026, 2),
+          createdAt: DateTime.utc(2026, 1),
+          isDefinition: true,
+          extra: const {
+            'type': 'database',
+            'source': {'folder': 'Projects'},
+          },
+        )
+        ..upsert(
+          id: 'row1',
+          title: 'Rewrite',
+          content: '',
+          updatedAt: _testStamp,
+          extra: const {'status': 'Idea'},
+        );
+
+      final defs = index.definitionsSource();
+      expect(defs, hasLength(1));
+      final def = defs.single;
+      expect(def.id, 'def1');
+      expect(def.title, 'Projects');
+      expect(def.extra['type'], 'database');
+      expect(def.extra['source'], {'folder': 'Projects'});
     });
 
     test('delete removes the embedding row alongside FTS and link edges',

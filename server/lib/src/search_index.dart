@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
@@ -19,7 +20,26 @@ import 'package:sqlite_vector/sqlite_vector.dart';
 /// pre-existing `search.db` reports schema_version 3 and is therefore
 /// treated as mismatched and rebuilt, per the "old schema triggers a
 /// rebuild" requirement.
-const int kSearchSchemaVersion = 4;
+///
+/// Bumped to 5 for the `note_meta` and `note_properties` tables (database
+/// property index, see `add-databases` design's "Property values live in
+/// SQLite" decision): a pre-existing `search.db` at schema 4 is rebuilt so
+/// the new tables get populated for every note.
+const int kSearchSchemaVersion = 5;
+
+/// Frontmatter keys that are server-interpreted rather than caller-owned
+/// property values, per the `add-databases` design's "Frontmatter
+/// serialization keeps key order" decision. Excluded from `note_meta`'s
+/// `frontmatter_json` and from the `note_properties` EAV rows built from
+/// `extra` — they describe the note's role as a database definition, not a
+/// row's property values.
+const Set<String> kServerInterpretedKeys = {
+  'type',
+  'tags',
+  'source',
+  'properties',
+  'views',
+};
 
 /// Guards [SearchIndex._ensureVectorExtensionLoaded] so
 /// `sqlite3.loadSqliteVectorExtension()` — a process-global registration,
@@ -140,6 +160,48 @@ class SearchLinkEdge {
   bool get resolved => targetId != null;
 }
 
+/// One `note_meta` row flagged `is_definition = 1`, as returned by
+/// [SearchIndex.definitionsSource] — enough for `DatabaseRegistry.rebuild`
+/// (see the `databases` package, not part of this file) to reparse every
+/// candidate definition without re-reading files from [Storage]. Not a full
+/// [NoteSummary]: `note_meta` doesn't carry `version`, tag set, or excerpt,
+/// so a caller that needs those looks them up separately (e.g. via
+/// `MetaIndex`).
+@immutable
+class DefinitionSourceRow {
+  /// Creates a definition candidate row.
+  const DefinitionSourceRow({
+    required this.id,
+    required this.title,
+    required this.path,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.extra,
+  });
+
+  /// Note id (ULID).
+  final String id;
+
+  /// Note title at index time.
+  final String title;
+
+  /// Folder the note lives in at index time.
+  final String path;
+
+  /// First write time, in UTC.
+  final DateTime createdAt;
+
+  /// Most recent write time, in UTC.
+  final DateTime updatedAt;
+
+  /// The note's full frontmatter `extra` map, decoded from
+  /// `note_meta.frontmatter_json` — including the server-interpreted keys
+  /// (`type`, `source`, `properties`, `views`; not `tags`, which is
+  /// indexed separately) a definition note needs to reparse. See
+  /// [SearchIndex.upsert]'s `extra` parameter for what's written here.
+  final Map<String, Object?> extra;
+}
+
 /// Thrown by [SearchIndex.search] when the supplied query string is not a
 /// valid FTS5 expression. The HTTP layer maps this to a 400 with code
 /// `invalid_query`.
@@ -176,6 +238,16 @@ class SearchIndex {
   final Logger _log;
   final Tracer _tracer;
 
+  /// The raw `search.db` connection, exposed so `databases/query.dart`'s
+  /// `DatabaseQuery` can run its own SQL directly against the property
+  /// index tables ([kSearchSchemaVersion] 5's `note_meta`/
+  /// `note_properties`) without [SearchIndex] growing query-compilation
+  /// methods of its own — see the `add-databases` design's "Query
+  /// compilation" decision, which lives in `databases/query.dart` instead.
+  /// Callers must not close it directly; [SearchIndex.close] owns its
+  /// lifecycle.
+  Database get rawDb => _db;
+
   /// When non-null, hybrid ranking is active: [search] fuses BM25 with
   /// vector similarity, and [upsert] computes and stores an embedding per
   /// note. `null` (the default) means search behaves exactly as it did
@@ -206,6 +278,23 @@ class SearchIndex {
   );
   late final PreparedStatement _deleteVectorStmt = _db.prepare(
     'DELETE FROM note_vectors WHERE id = ?;',
+  );
+
+  late final PreparedStatement _upsertNoteMetaStmt = _db.prepare(
+    'INSERT OR REPLACE INTO note_meta '
+    '(note_id, title, path, created_at, updated_at, is_definition, '
+    'frontmatter_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);',
+  );
+  late final PreparedStatement _deleteNoteMetaStmt = _db.prepare(
+    'DELETE FROM note_meta WHERE note_id = ?1;',
+  );
+  late final PreparedStatement _deletePropertiesStmt = _db.prepare(
+    'DELETE FROM note_properties WHERE note_id = ?1;',
+  );
+  late final PreparedStatement _insertPropertyStmt = _db.prepare(
+    'INSERT INTO note_properties '
+    '(note_id, key, ordinal, text_value, num_value, bool_value, '
+    'date_value, day_value) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);',
   );
 
   /// The backfill [open] kicks off automatically when a provider is
@@ -317,6 +406,14 @@ class SearchIndex {
   /// about embeddings (most existing call sites) are unaffected. Omitting
   /// [embedding] (no provider, or the caller's embed attempt failed) leaves
   /// `note_vectors` untouched; the write still commits.
+  ///
+  /// [extra], [createdAt], and [isDefinition] feed the database property
+  /// index (`note_meta` / `note_properties`, see the `add-databases`
+  /// design's "Property values live in SQLite" decision). All three are
+  /// optional so every pre-existing call site (which doesn't know about
+  /// properties) keeps compiling and indexing unchanged: [extra] defaults
+  /// to empty (no property rows, an empty `frontmatter_json`), [createdAt]
+  /// defaults to [updatedAt], and [isDefinition] defaults to `false`.
   void upsert({
     required String id,
     required String title,
@@ -326,6 +423,9 @@ class SearchIndex {
     Set<String> tags = const {},
     List<SearchLinkEdge> links = const [],
     List<double>? embedding,
+    Map<String, Object?> extra = const {},
+    DateTime? createdAt,
+    bool isDefinition = false,
   }) {
     _db.execute('BEGIN');
     try {
@@ -338,6 +438,9 @@ class SearchIndex {
         tags: tags,
         links: links,
         embedding: embedding,
+        extra: extra,
+        createdAt: createdAt,
+        isDefinition: isDefinition,
       );
       // A provider is configured but this write's embed attempt failed
       // (or the caller never had content to embed): drop any vector left
@@ -368,6 +471,9 @@ class SearchIndex {
     required Set<String> tags,
     required List<SearchLinkEdge> links,
     List<double>? embedding,
+    Map<String, Object?> extra = const {},
+    DateTime? createdAt,
+    bool isDefinition = false,
   }) {
     _upsertStmt.execute([
       id,
@@ -390,16 +496,179 @@ class SearchIndex {
     if (_embeddingProvider != null && embedding != null) {
       _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
     }
+    _upsertPropertyIndex(
+      id: id,
+      title: title,
+      path: path,
+      createdAt: createdAt ?? updatedAt,
+      updatedAt: updatedAt,
+      tags: tags,
+      extra: extra,
+      isDefinition: isDefinition,
+    );
   }
 
-  /// Removes the row for [id], its outgoing `link_edges` rows, and (when an
-  /// embedding provider is configured) its `note_vectors` row. Idempotent:
-  /// removing a missing row succeeds silently.
+  /// Writes [id]'s `note_meta` row (`frontmatter_json` holding the note's
+  /// full `extra` map, including server-interpreted keys, so
+  /// [definitionsSource] can hand a definition note's `source`/
+  /// `properties`/`views` back to `DatabaseRegistry.rebuild` without a file
+  /// read) and rebuilds its `note_properties` EAV rows from [extra] (with
+  /// [kServerInterpretedKeys] excluded — those are structured objects, not
+  /// scalar property values) plus [tags] under the synthetic key `tags` —
+  /// see the `add-databases` design's "Property values live in SQLite"
+  /// decision. Called from inside [upsert]/[_upsertNoTx]'s transaction, so
+  /// it never opens its own.
+  void _upsertPropertyIndex({
+    required String id,
+    required String title,
+    required String path,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    required Set<String> tags,
+    required Map<String, Object?> extra,
+    required bool isDefinition,
+  }) {
+    _upsertNoteMetaStmt.execute([
+      id,
+      title,
+      path,
+      createdAt.toUtc().toIso8601String(),
+      updatedAt.toUtc().toIso8601String(),
+      isDefinition ? 1 : 0,
+      jsonEncode(
+        extra,
+        toEncodable: (o) => o is DateTime ? o.toUtc().toIso8601String() : o,
+      ),
+    ]);
+    _deletePropertiesStmt.execute([id]);
+    for (final entry in extra.entries) {
+      if (kServerInterpretedKeys.contains(entry.key)) continue;
+      _writeProperty(id, entry.key, entry.value);
+    }
+    if (tags.isNotEmpty) {
+      var ordinal = 0;
+      for (final tag in tags) {
+        _insertPropertyStmt.execute([
+          id,
+          'tags',
+          ordinal,
+          tag,
+          null,
+          null,
+          null,
+          null,
+        ]);
+        ordinal++;
+      }
+    }
+  }
+
+  /// Writes one or more `note_properties` rows for [key]/[value]: a `List`
+  /// expands to one row per element (with a 0-based `ordinal`); any other
+  /// value writes a single row at ordinal 0. `null` (unset) and unsupported
+  /// nested `Map` values write nothing — they carry no scalar to index.
+  void _writeProperty(String noteId, String key, Object? value) {
+    if (value == null) return;
+    if (value is List) {
+      for (var i = 0; i < value.length; i++) {
+        _writeScalarProperty(noteId, key, i, value[i]);
+      }
+      return;
+    }
+    _writeScalarProperty(noteId, key, 0, value);
+  }
+
+  void _writeScalarProperty(
+    String noteId,
+    String key,
+    int ordinal,
+    Object? value,
+  ) {
+    if (value == null) return;
+    String? text;
+    double? numValue;
+    int? boolValue;
+    String? date;
+    String? day;
+    if (value is bool) {
+      boolValue = value ? 1 : 0;
+    } else if (value is num) {
+      numValue = value.toDouble();
+    } else if (value is DateTime) {
+      final utc = value.toUtc();
+      text = utc.toIso8601String();
+      date = text;
+      day = _dayOf(utc);
+    } else if (value is String) {
+      text = value;
+      final parsed = _parseDateShaped(value);
+      if (parsed != null) {
+        date = parsed.instant;
+        day = parsed.day;
+      }
+    } else {
+      // Nested Map or another unsupported shape: not indexed as a scalar,
+      // but still visible via `note_meta.frontmatter_json`.
+      return;
+    }
+    _insertPropertyStmt.execute([
+      noteId,
+      key,
+      ordinal,
+      text,
+      numValue,
+      boolValue,
+      date,
+      day,
+    ]);
+  }
+
+  /// Day-only frontmatter pattern (`YYYY-MM-DD`), per the "date semantics"
+  /// requirement.
+  static final RegExp _dayPattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+
+  /// Full ISO 8601 timestamp pattern, deliberately narrower than
+  /// [DateTime.tryParse] accepts so an arbitrary text value never gets
+  /// mistaken for a date.
+  static final RegExp _timestampPattern = RegExp(
+    r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$',
+  );
+
+  /// Normalises a date-shaped [value] — a bare `YYYY-MM-DD` or a full ISO
+  /// 8601 timestamp — to a UTC instant plus its calendar day, per the
+  /// `databases` spec's "Every `date` value SHALL be normalised to a UTC
+  /// instant plus its calendar day" requirement. Returns `null` when
+  /// [value] isn't shaped like a date at all, so it's indexed as plain
+  /// text only.
+  static ({String instant, String day})? _parseDateShaped(String value) {
+    if (_dayPattern.hasMatch(value)) {
+      return (instant: '${value}T00:00:00.000Z', day: value);
+    }
+    if (_timestampPattern.hasMatch(value)) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed == null) return null;
+      final utc = parsed.toUtc();
+      return (instant: utc.toIso8601String(), day: _dayOf(utc));
+    }
+    return null;
+  }
+
+  static String _dayOf(DateTime utc) =>
+      '${utc.year.toString().padLeft(4, '0')}-'
+      '${utc.month.toString().padLeft(2, '0')}-'
+      '${utc.day.toString().padLeft(2, '0')}';
+
+  /// Removes the row for [id], its outgoing `link_edges` rows, its
+  /// `note_meta`/`note_properties` rows, and (when an embedding provider
+  /// is configured) its `note_vectors` row. Idempotent: removing a missing
+  /// row succeeds silently.
   void delete(String id) {
     _db.execute('BEGIN');
     try {
       _deleteStmt.execute([id]);
       _deleteLinkEdgesStmt.execute([id]);
+      _deleteNoteMetaStmt.execute([id]);
+      _deletePropertiesStmt.execute([id]);
       if (_embeddingProvider != null) {
         _deleteVectorStmt.execute([id]);
       }
@@ -817,6 +1086,32 @@ class SearchIndex {
           ? query.replaceAll(_ftsUnsafeChars, ' ').trim()
           : query;
 
+  /// Returns every note flagged `is_definition = 1` in `note_meta` — every
+  /// note whose frontmatter carried `type: database` at its last
+  /// [upsert], valid or not — so `DatabaseRegistry.rebuild` can reparse
+  /// every candidate definition on startup without a separate file scan
+  /// (see the `add-databases` design's "Definition notes are parsed into
+  /// an in-memory `DatabaseRegistry`, rebuilt on startup from the
+  /// `note_meta` table" decision).
+  List<DefinitionSourceRow> definitionsSource() {
+    final rows = _db.select(
+      'SELECT note_id, title, path, created_at, updated_at, '
+      'frontmatter_json FROM note_meta WHERE is_definition = 1;',
+    );
+    return [
+      for (final row in rows)
+        DefinitionSourceRow(
+          id: row['note_id'] as String,
+          title: row['title'] as String,
+          path: row['path'] as String,
+          createdAt: DateTime.parse(row['created_at'] as String).toUtc(),
+          updatedAt: DateTime.parse(row['updated_at'] as String).toUtc(),
+          extra: (jsonDecode(row['frontmatter_json'] as String) as Map)
+              .cast<String, Object?>(),
+        ),
+    ];
+  }
+
   /// Closes the database file. After calling this method the index must
   /// not be used again.
   void close() {
@@ -824,6 +1119,10 @@ class SearchIndex {
     _deleteStmt.close();
     _deleteLinkEdgesStmt.close();
     _insertLinkEdgeStmt.close();
+    _upsertNoteMetaStmt.close();
+    _deleteNoteMetaStmt.close();
+    _deletePropertiesStmt.close();
+    _insertPropertyStmt.close();
     // Only touched when a provider is configured — accessing these getters
     // when `note_vectors` doesn't exist would prepare a statement against a
     // missing table and throw.
@@ -881,6 +1180,9 @@ class SearchIndex {
           updatedAt: note.updatedAt,
           tags: summary.tags,
           links: links,
+          extra: note.extra,
+          createdAt: note.createdAt,
+          isDefinition: note.extra['type'] == 'database',
         );
         count++;
       }
@@ -965,6 +1267,64 @@ class SearchIndex {
       ..execute('''
         CREATE INDEX IF NOT EXISTS link_edges_source_idx
           ON link_edges(source_id);
+      ''')
+      ..execute('''
+        CREATE TABLE IF NOT EXISTS note_meta (
+          note_id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          path TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          is_definition INTEGER NOT NULL DEFAULT 0,
+          frontmatter_json TEXT NOT NULL DEFAULT '{}'
+        );
+      ''')
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS note_meta_path_idx ON note_meta(path);
+      ''')
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS note_meta_updated_at_idx
+          ON note_meta(updated_at);
+      ''')
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS note_meta_created_at_idx
+          ON note_meta(created_at);
+      ''')
+      ..execute('''
+        CREATE TABLE IF NOT EXISTS note_properties (
+          note_id TEXT NOT NULL,
+          key TEXT NOT NULL,
+          ordinal INTEGER NOT NULL DEFAULT 0,
+          text_value TEXT,
+          num_value REAL,
+          bool_value INTEGER,
+          date_value TEXT,
+          day_value TEXT
+        );
+      ''')
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS note_properties_note_id_idx
+          ON note_properties(note_id);
+      ''')
+      // Covers every correlated-by-note_id-then-key lookup the query
+      // compiler issues (EXISTS conditions, sort/group_by value
+      // subqueries, tag hydration) — without it those degrade to a table
+      // scan per outer row, per the 3.11 benchmark's original 7s+ runtime.
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS note_properties_note_id_key_idx
+          ON note_properties(note_id, key);
+      ''')
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS note_properties_key_text_idx
+          ON note_properties(key, text_value);
+      ''')
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS note_properties_key_num_idx
+          ON note_properties(key, num_value);
+      ''')
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS note_properties_key_date_idx
+          ON note_properties(key, date_value);
       ''');
     if (dimensions != null) {
       db
