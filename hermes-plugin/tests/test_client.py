@@ -5,6 +5,17 @@ import respx
 from robot_notes.client import ClientError, ErrorKind, RobotNotesClient
 
 
+class FakeClock:
+    def __init__(self, now: float = 0.0):
+        self._now = now
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
 @pytest.fixture
 def client():
     return RobotNotesClient(base_url="https://notes.example.com", api_key="secret-key", actor="hermes-bot")
@@ -551,3 +562,153 @@ def test_delete_note(client):
 
     assert route.called
     assert result["deleted"] is True
+
+
+# -- Circuit breaker --------------------------------------------------------
+
+
+@respx.mock
+def test_search_passes_recall_timeout_not_the_client_default():
+    client = RobotNotesClient(
+        base_url="https://notes.example.com",
+        api_key="secret-key",
+        actor="hermes-bot",
+        recall_timeout=3.0,
+        write_timeout=10.0,
+    )
+    respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": []}))
+
+    client.search("budget")
+
+    sent_timeout = respx.calls.last.request.extensions["timeout"]
+    assert sent_timeout["connect"] == pytest.approx(3.0)
+
+
+@respx.mock
+def test_five_consecutive_network_errors_open_the_breaker():
+    clock = FakeClock()
+    client = RobotNotesClient(
+        base_url="https://notes.example.com", api_key="secret-key", actor="hermes-bot", clock=clock
+    )
+    respx.get("https://notes.example.com/search").mock(side_effect=httpx.ConnectError("boom"))
+
+    for _ in range(5):
+        with pytest.raises(ClientError):
+            client.search("budget")
+
+    with pytest.raises(ClientError) as exc_info:
+        client.search("budget")
+
+    assert exc_info.value.kind is ErrorKind.CIRCUIT_OPEN
+    assert exc_info.value.circuit_open is True
+
+
+@respx.mock
+def test_five_consecutive_5xx_responses_open_the_breaker():
+    clock = FakeClock()
+    client = RobotNotesClient(
+        base_url="https://notes.example.com", api_key="secret-key", actor="hermes-bot", clock=clock
+    )
+    respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(503))
+
+    for _ in range(5):
+        with pytest.raises(ClientError):
+            client.search("budget")
+
+    with pytest.raises(ClientError) as exc_info:
+        client.search("budget")
+
+    assert exc_info.value.kind is ErrorKind.CIRCUIT_OPEN
+
+
+@respx.mock
+def test_open_breaker_short_circuits_without_making_a_request():
+    clock = FakeClock()
+    client = RobotNotesClient(
+        base_url="https://notes.example.com", api_key="secret-key", actor="hermes-bot", clock=clock
+    )
+    route = respx.get("https://notes.example.com/search").mock(side_effect=httpx.ConnectError("boom"))
+
+    for _ in range(5):
+        with pytest.raises(ClientError):
+            client.search("budget")
+    assert route.call_count == 5
+
+    with pytest.raises(ClientError):
+        client.search("budget")
+
+    # the 6th call never reached the transport
+    assert route.call_count == 5
+
+
+@respx.mock
+def test_404_and_409_do_not_count_toward_the_breaker():
+    clock = FakeClock()
+    client = RobotNotesClient(
+        base_url="https://notes.example.com", api_key="secret-key", actor="hermes-bot", clock=clock
+    )
+    respx.get("https://notes.example.com/notes/missing").mock(return_value=httpx.Response(404))
+    respx.put("https://notes.example.com/notes/01XYZ").mock(return_value=httpx.Response(409))
+
+    for _ in range(10):
+        with pytest.raises(ClientError):
+            client.get_note("missing")
+        with pytest.raises(ClientError):
+            client.update_note("01XYZ", version=1, content="x")
+
+    respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": []}))
+    # breaker never tripped, so a normal call still goes through
+    assert client.search("budget") == []
+
+
+@respx.mock
+def test_breaker_closes_again_after_the_cooldown_elapses():
+    clock = FakeClock()
+    client = RobotNotesClient(
+        base_url="https://notes.example.com", api_key="secret-key", actor="hermes-bot", clock=clock
+    )
+    route = respx.get("https://notes.example.com/search").mock(side_effect=httpx.ConnectError("boom"))
+
+    for _ in range(5):
+        with pytest.raises(ClientError):
+            client.search("budget")
+    with pytest.raises(ClientError) as exc_info:
+        client.search("budget")
+    assert exc_info.value.kind is ErrorKind.CIRCUIT_OPEN
+
+    clock.advance(60.0)
+    route.side_effect = None
+    route.return_value = httpx.Response(200, json={"items": []})
+
+    assert client.search("budget") == []
+
+
+@respx.mock
+def test_a_success_after_some_failures_resets_the_breaker():
+    clock = FakeClock()
+    client = RobotNotesClient(
+        base_url="https://notes.example.com", api_key="secret-key", actor="hermes-bot", clock=clock
+    )
+    respx.get("https://notes.example.com/search").mock(
+        side_effect=[
+            httpx.ConnectError("boom"),
+            httpx.ConnectError("boom"),
+            httpx.ConnectError("boom"),
+            httpx.ConnectError("boom"),
+            httpx.Response(200, json={"items": []}),
+            httpx.ConnectError("boom"),
+            httpx.ConnectError("boom"),
+            httpx.ConnectError("boom"),
+            httpx.ConnectError("boom"),
+        ]
+    )
+
+    for _ in range(4):
+        with pytest.raises(ClientError):
+            client.search("budget")
+    assert client.search("budget") == []  # success resets the consecutive-failure count
+    for _ in range(4):
+        with pytest.raises(ClientError) as exc_info:
+            client.search("budget")
+    # still below threshold again (4 failures since the reset), so still a network error
+    assert exc_info.value.kind is ErrorKind.NETWORK_ERROR

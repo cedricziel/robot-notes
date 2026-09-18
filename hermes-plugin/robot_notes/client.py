@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
+from .breaker import CircuitBreaker
+
 
 class ErrorKind(Enum):
     NOT_FOUND = auto()
@@ -16,6 +18,7 @@ class ErrorKind(Enum):
     LOCKED = auto()
     AUTH = auto()
     NETWORK_ERROR = auto()
+    CIRCUIT_OPEN = auto()
     OTHER = auto()
 
 
@@ -72,6 +75,10 @@ class ClientError(Exception):
         return self.kind is ErrorKind.NETWORK_ERROR
 
     @property
+    def circuit_open(self) -> bool:
+        return self.kind is ErrorKind.CIRCUIT_OPEN
+
+    @property
     def current_version(self) -> Optional[int]:
         """The version the server says is current, from either envelope shape
         (``details.current_version`` or the flat route's ``details.current.version``)
@@ -117,9 +124,20 @@ _CONFLICT_CODE_KINDS: Dict[str, ErrorKind] = {
 
 
 class RobotNotesClient:
-    def __init__(self, *, base_url: str, api_key: str, actor: str, timeout: float = 10.0):
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        actor: str,
+        recall_timeout: float = 3.0,
+        write_timeout: float = 10.0,
+        clock: Optional[Callable[[], float]] = None,
+    ):
         headers = {"Authorization": f"Bearer {api_key}", "X-Actor": actor}
-        self._http = httpx.Client(base_url=base_url.rstrip("/"), headers=headers, timeout=timeout)
+        self._http = httpx.Client(base_url=base_url.rstrip("/"), headers=headers, timeout=write_timeout)
+        self._recall_timeout = recall_timeout
+        self._breaker = CircuitBreaker() if clock is None else CircuitBreaker(clock=clock)
 
     def close(self) -> None:
         self._http.close()
@@ -151,15 +169,25 @@ class RobotNotesClient:
         return None, None, {}
 
     def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        if self._breaker.is_open():
+            raise ClientError(
+                f"{method} {path}: robot-notes is unreachable (circuit breaker open); "
+                f"retrying automatically in up to {int(self._breaker.cooldown_seconds)}s",
+                kind=ErrorKind.CIRCUIT_OPEN,
+            )
         try:
             response = self._http.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
+            self._breaker.record_failure()
             raise ClientError(f"{method} {path} failed: {exc}", kind=ErrorKind.NETWORK_ERROR) from exc
 
         if response.status_code < 400:
+            self._breaker.record_success()
             return response
 
         status = response.status_code
+        if status >= 500:
+            self._breaker.record_failure()
         code, server_message, details = self._parse_error_body(response)
 
         if status == 409 and code in _CONFLICT_CODE_KINDS:
@@ -181,7 +209,7 @@ class RobotNotesClient:
         params: Dict[str, Any] = {"q": query, "limit": limit}
         if path is not None:
             params["path"] = path
-        response = self._request("GET", "/search", params=params)
+        response = self._request("GET", "/search", params=params, timeout=self._recall_timeout)
         return response.json().get("items", [])
 
     def list_notes(
