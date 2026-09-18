@@ -20,6 +20,7 @@ The `add-databases` change gives the server typed properties, database definitio
 ### Modified Capabilities
 
 - `flutter-client`: new requirements for the database screen and its three view types, the property panel, the sidebar databases section and creation flow, the schema editor, embed rendering, and routing for `/databases/{id}`.
+- `auth`: `GET /databases/{id}` joins the dual-use paths that serve the web app to a browser navigation.
 
 ## Impact
 
