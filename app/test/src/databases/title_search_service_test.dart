@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-final _config = AppConfig(
+const _config = AppConfig(
   baseUrl: 'https://notes.example.com',
   apiKey: 'test-key',
   actor: 'cedric',

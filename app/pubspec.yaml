@@ -20,6 +20,7 @@ dependencies:
   device_info_plus: ^13.2.0
   file_picker: ^12.3.0
   flutter_markdown_plus: ^1.0.12
+  markdown: ^7.3.1
   flutter_otel:
     git:
       url: https://github.com/cedricziel/flutter-otel
