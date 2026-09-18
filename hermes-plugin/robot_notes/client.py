@@ -181,7 +181,7 @@ class RobotNotesClient:
             self._breaker.record_failure()
             raise ClientError(f"{method} {path} failed: {exc}", kind=ErrorKind.NETWORK_ERROR) from exc
 
-        if response.status_code < 400:
+        if 200 <= response.status_code < 300:
             self._breaker.record_success()
             return response
 
