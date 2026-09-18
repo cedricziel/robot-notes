@@ -144,13 +144,17 @@ or flush context — see Write behavior below for the exact rule.
 
 ## Tools
 
-| Tool                  | Description                                                                          |
-| --------------------- | ------------------------------------------------------------------------------------- |
-| `robotnotes_search`   | Keyword search the shared workspace — not a wildcard; no query means "everything"    |
-| `robotnotes_list`     | Paginated metadata for every note, optionally under a `path` — use this to enumerate |
-| `robotnotes_note`     | Fetch a note by id                                                                    |
-| `robotnotes_remember` | Store a durable fact as a new note                                                    |
-| `robotnotes_forget`   | Delete a note by id                                                                   |
+Every tool parameter carries its own description in the schema handed to the
+model; the table below is a quick reference.
+
+| Tool                  | Parameters                          | Description                                                                          |
+| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------- |
+| `robotnotes_search`   | `query`, `path?`, `limit?`           | Keyword search the shared workspace — not a wildcard; no query means "everything"    |
+| `robotnotes_list`     | `path?`, `after?`, `limit?`          | Paginated metadata for every note, optionally under a `path` — use this to enumerate |
+| `robotnotes_note`     | `id`                                 | Fetch a note by id                                                                    |
+| `robotnotes_remember` | `title`, `content`, `path?`          | Store a durable fact as a *new* note; a duplicate title under `path` returns `path_conflict` — search then `robotnotes_append` instead |
+| `robotnotes_append`   | `id`, `content`                      | Append content to an existing note on a new line, instead of duplicating it          |
+| `robotnotes_forget`   | `id`                                 | Delete a note by id                                                                   |
 
 ## Skill
 
@@ -191,8 +195,9 @@ conversation turn:
   - total size is bounded to 32 KB; a longer session keeps the head and
     tail of the conversation and marks what was cut with an elision
     marker in between.
-- **Explicit tool calls** (`robotnotes_remember`, `robotnotes_forget`) let
-  the model manage notes directly.
+- **Explicit tool calls** (`robotnotes_remember`, `robotnotes_append`,
+  `robotnotes_forget`) let the model manage notes directly — search before
+  creating, and append rather than duplicate a note on the same topic.
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
   are mirrored one-directionally into `Hermes/Memory.md` and
   `Hermes/User.md` in the workspace.
@@ -200,7 +205,7 @@ conversation turn:
 `initialize()` also honors the host's `agent_context` kwarg
 (`"primary"` | `"subagent"` | `"cron"` | `"flush"`): every write path above
 — session-end summaries, the memory mirror, and the `robotnotes_remember` /
-`robotnotes_forget` tools — is skipped whenever `agent_context` is
+`robotnotes_append` / `robotnotes_forget` tools — is skipped whenever `agent_context` is
 `"subagent"`, `"cron"`, or `"flush"`, so a spawned subagent or a scheduled
 cron/flush tick never files its own conversation note or mutates shared
 memory. Reads (`robotnotes_search`, `robotnotes_list`, `robotnotes_note`,

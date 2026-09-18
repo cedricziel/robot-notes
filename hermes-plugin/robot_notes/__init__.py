@@ -18,6 +18,7 @@ from ._hermes_compat import MemoryProvider, spawn_context_thread, tool_error
 from .client import ClientError, ErrorKind, RobotNotesClient
 from .config import DEFAULT_ACTOR, RobotNotesConfig
 from .recall import RecallCache, RecallStatus, is_trivial_prompt
+from .tools import TOOL_HANDLERS, TOOL_SCHEMAS
 from .transcript import build_transcript
 
 logger = logging.getLogger(__name__)
@@ -34,19 +35,20 @@ SKILL_DESCRIPTION = (
     "robotnotes_* tools backing this shared notes workspace."
 )
 
-SYSTEM_PROMPT_BLOCK = (
-    "A shared robot-notes workspace is connected as external memory. Call "
-    "robotnotes_search before creating a new note, and robotnotes_remember "
-    "to store a fact worth keeping across sessions. robotnotes_search is "
-    "keyword search only — to browse or list every note in the workspace, "
-    "use robotnotes_list instead."
-)
-
 _MARK_RE = re.compile(r"</?mark>")
 
 # Tool calls that write to the workspace; gated on _write_enabled. robotnotes_search,
 # robotnotes_list and robotnotes_note stay available in every agent context.
-WRITE_TOOL_NAMES = frozenset({"robotnotes_remember", "robotnotes_forget"})
+WRITE_TOOL_NAMES = frozenset({"robotnotes_remember", "robotnotes_append", "robotnotes_forget"})
+
+
+def _append_line(current: str, addition: str) -> str:
+    """Appends ``addition`` to ``current`` on its own new line; ``current`` empty
+    (new or blanked note) means the addition becomes the whole content. Used by
+    ``_tool_append`` (via ``append_note_with_retry``); the memory mirror's own
+    append path uses ``_append_note``/``_read_edit_write`` instead, since it also
+    needs duplicate-entry detection."""
+    return f"{current.rstrip(chr(10))}\n{addition}" if current else addition
 
 # Fallback error codes for ``handle_tool_call``, used only when the server's
 # response didn't carry an explicit ``code`` of its own (e.g. a network
@@ -105,72 +107,6 @@ class RobotNotesProvider(MemoryProvider):
         self._platform: str = ""
         self._agent_identity: str = ""
         self._recall_cache = RecallCache()
-        self._tools = [
-            {
-                "name": "robotnotes_search",
-                "description": "Search the shared robot-notes workspace. This is keyword "
-                "full-text search, not a wildcard — there is no query that means "
-                "\"every note\" (a query like '*' is rejected, and a generic term "
-                "like 'notes' only matches notes that literally contain that word). "
-                "To enumerate everything in the workspace, use robotnotes_list "
-                "instead.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"query": {"type": "string"}},
-                    "required": ["query"],
-                },
-                "handler": self._tool_search,
-            },
-            {
-                "name": "robotnotes_list",
-                "description": "List every note's metadata (id, title, path, version, "
-                "timestamps — no content) from the shared robot-notes workspace, "
-                "optionally narrowed to a folder with 'path'. Paginated: call again "
-                "with 'after' set to the previous response's next_cursor until it "
-                "comes back null to see the whole workspace. Use this instead of "
-                "robotnotes_search to browse or enumerate everything.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string"},
-                        "after": {"type": "string"},
-                        "limit": {"type": "integer"},
-                    },
-                    "required": [],
-                },
-                "handler": self._tool_list,
-            },
-            {
-                "name": "robotnotes_note",
-                "description": "Fetch a note from the shared robot-notes workspace by id.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"id": {"type": "string"}},
-                    "required": ["id"],
-                },
-                "handler": self._tool_note,
-            },
-            {
-                "name": "robotnotes_remember",
-                "description": "Store a durable fact as a new note in the shared robot-notes workspace.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"title": {"type": "string"}, "content": {"type": "string"}},
-                    "required": ["title", "content"],
-                },
-                "handler": self._tool_remember,
-            },
-            {
-                "name": "robotnotes_forget",
-                "description": "Delete a note this agent created from the shared robot-notes workspace.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"id": {"type": "string"}},
-                    "required": ["id"],
-                },
-                "handler": self._tool_forget,
-            },
-        ]
 
     @property
     def name(self) -> str:
@@ -203,7 +139,34 @@ class RobotNotesProvider(MemoryProvider):
             self._client.close()
 
     def system_prompt_block(self) -> str:
-        return SYSTEM_PROMPT_BLOCK
+        convo_path = self._conversations_path() if self._config else f"{CONVERSATIONS_ROOT}/<actor>"
+        return (
+            "A shared robot-notes workspace is connected as external memory — notes are "
+            "shared between humans and agents in this workspace, so writes here are "
+            "visible to others too. Tools:\n"
+            "- robotnotes_search(query, path?, limit?): keyword full-text search, not a "
+            "wildcard — there is no query that means \"every note\".\n"
+            "- robotnotes_list(path?, after?, limit?): paginated metadata (no content) "
+            "for every note; use this instead of search to browse or enumerate "
+            "everything.\n"
+            "- robotnotes_note(id): fetch one note's full content by id.\n"
+            "- robotnotes_remember(title, content, path?): file a new, durable fact as "
+            "its own note.\n"
+            "- robotnotes_append(id, content): add a line to a note that already "
+            "exists, instead of duplicating it.\n"
+            "- robotnotes_forget(id): delete a note this agent created.\n"
+            "Search before creating: call robotnotes_search or robotnotes_list before "
+            "robotnotes_remember, and prefer robotnotes_append over a new note when one "
+            "on the topic already exists. robotnotes_remember rejects a title that "
+            "already exists under 'path' with a path_conflict error — on that error, "
+            "search for the existing note and append to it rather than retrying under a "
+            "different title.\n"
+            f"This session's own transcripts are filed one note per session under "
+            f"{convo_path}. The built-in memory and user notes are mirrored "
+            f"one-directionally into {MEMORY_NOTE['path']}/{MEMORY_NOTE['title']} and "
+            f"{USER_NOTE['path']}/{USER_NOTE['title']} in the workspace — the workspace "
+            "copy is the shared, authoritative one that other agents and humans read."
+        )
 
     def backup_paths(self) -> List[str]:
         return []
@@ -264,24 +227,25 @@ class RobotNotesProvider(MemoryProvider):
     # -- Explicit tools ---------------------------------------------------
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        return [{"name": t["name"], "description": t["description"], "parameters": t["parameters"]} for t in self._tools]
+        return [dict(schema) for schema in TOOL_SCHEMAS]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         if not self._client:
             return tool_error("robot_notes provider is unavailable", code="unavailable")
         if tool_name in WRITE_TOOL_NAMES and not self._can_write():
             return _write_disabled_error()
-        tool = next((t for t in self._tools if t["name"] == tool_name), None)
-        if tool is None:
+        handler_name = TOOL_HANDLERS.get(tool_name)
+        if handler_name is None:
             return tool_error(f"robot_notes does not handle tool {tool_name}", code="unknown_tool")
         try:
-            return tool["handler"](args)
+            return getattr(self, handler_name)(args)
         except ClientError as exc:
             payload = _tool_error_payload(exc, tool_name)
             return tool_error(payload["message"], code=payload["error"], details=payload["details"])
 
     def _tool_search(self, args: Dict[str, Any]) -> str:
-        return json.dumps({"items": self._client.search(args["query"])})
+        items = self._client.search(args["query"], path=args.get("path"), limit=args.get("limit", 20))
+        return json.dumps({"items": items})
 
     def _tool_list(self, args: Dict[str, Any]) -> str:
         return json.dumps(
@@ -294,7 +258,20 @@ class RobotNotesProvider(MemoryProvider):
         return json.dumps(self._client.get_note(args["id"]))
 
     def _tool_remember(self, args: Dict[str, Any]) -> str:
-        return json.dumps(self._client.create_note(title=args["title"], content=args.get("content", "")))
+        # create_note has no version to conflict on, so a 409 here is always the
+        # server rejecting a duplicate title under this path (ErrorKind.PATH_CONFLICT).
+        # Left to propagate: handle_tool_call's ClientError handler already turns that
+        # into a path_conflict tool_error steering the model to search/append instead
+        # (see _tool_error_payload's _PATH_CONFLICT_REMEMBER_MESSAGE case).
+        note = self._client.create_note(
+            title=args["title"], content=args.get("content", ""), path=args.get("path", "")
+        )
+        return json.dumps(note)
+
+    def _tool_append(self, args: Dict[str, Any]) -> str:
+        addition = args["content"]
+        note = self._client.append_note_with_retry(args["id"], build_content=lambda current: _append_line(current, addition))
+        return json.dumps(note)
 
     def _tool_forget(self, args: Dict[str, Any]) -> str:
         return json.dumps(self._client.delete_note(args["id"]))
