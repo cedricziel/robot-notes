@@ -65,6 +65,34 @@ class _PropertyEditorState extends State<PropertyEditor> {
   String? _localError;
   bool _committing = false;
 
+  // Bumped at the start of every [_commit] call. A commit's completion
+  // (success, rejection, or exception) only applies if it is still the
+  // most recent one in flight — otherwise an overlapping later commit has
+  // already superseded it, and applying a stale result (e.g. a slow
+  // rejection rolling back over a fast, already-applied success) would
+  // silently discard the user's later edit.
+  int _commitGen = 0;
+
+  late final _textController = TextEditingController(text: _textOf(_value));
+  late final _numberController = TextEditingController(
+    text: _numberTextOf(_value),
+  );
+
+  String _textOf(Object? value) => value is String ? value : '';
+  String _numberTextOf(Object? value) => value == null ? '' : '$value';
+
+  /// Safely coerces a stored property value to a list of strings: `null`,
+  /// any non-list value, or a list containing a non-string element (all
+  /// possible for a value flagged `invalid` by the server) become an empty
+  /// list rather than throwing during build.
+  List<String> _stringListOf(Object? value) {
+    if (value is! List) return const [];
+    return [
+      for (final e in value)
+        if (e is String) e,
+    ];
+  }
+
   @override
   void didUpdateWidget(covariant PropertyEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -73,24 +101,57 @@ class _PropertyEditorState extends State<PropertyEditor> {
     // keeps its own optimistic value until it resolves.
     if (!_committing && oldWidget.value != widget.value) {
       _value = widget.value;
+      _syncControllers();
     }
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _numberController.dispose();
+    super.dispose();
+  }
+
+  /// Rewrites the persistent text controllers to match [_value], preserving
+  /// the caret at the end. Called only when [_value] changes from outside a
+  /// user keystroke (external update or a commit rollback) — never on every
+  /// build, so an in-progress edit's cursor and unsubmitted text survive
+  /// unrelated rebuilds.
+  void _syncControllers() {
+    final text = _textOf(_value);
+    _textController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    final numberText = _numberTextOf(_value);
+    _numberController.value = TextEditingValue(
+      text: numberText,
+      selection: TextSelection.collapsed(offset: numberText.length),
+    );
   }
 
   Future<void> _commit(PropertyPatch patch, Object? optimistic) async {
     final previous = _value;
+    final gen = ++_commitGen;
     setState(() {
       _value = optimistic;
       _error = null;
       _localError = null;
       _committing = true;
     });
-    final message = await widget.onCommit(patch);
-    if (!mounted) return;
+    String? message;
+    try {
+      message = await widget.onCommit(patch);
+    } catch (_) {
+      message = 'Failed to save. Please try again.';
+    }
+    if (!mounted || gen != _commitGen) return;
     setState(() {
       _committing = false;
       if (message != null) {
         _value = previous;
         _error = message;
+        _syncControllers();
       } else {
         _error = null;
       }
@@ -149,13 +210,11 @@ class _PropertyEditorState extends State<PropertyEditor> {
   // -- text / url --------------------------------------------------------
 
   Widget _buildText({required bool isUrl}) {
-    final text = (_value as String?) ?? '';
     return TextField(
       key: Key(
         isUrl ? 'property_editor.url.field' : 'property_editor.text.field',
       ),
-      controller: TextEditingController(text: text)
-        ..selection = TextSelection.collapsed(offset: text.length),
+      controller: _textController,
       keyboardType: isUrl ? TextInputType.url : TextInputType.text,
       decoration: const InputDecoration(
         isDense: true,
@@ -177,11 +236,9 @@ class _PropertyEditorState extends State<PropertyEditor> {
   // -- number --------------------------------------------------------------
 
   Widget _buildNumber() {
-    final text = _value == null ? '' : '$_value';
     return TextField(
       key: const Key('property_editor.number.field'),
-      controller: TextEditingController(text: text)
-        ..selection = TextSelection.collapsed(offset: text.length),
+      controller: _numberController,
       keyboardType: const TextInputType.numberWithOptions(
         decimal: true,
         signed: true,
@@ -227,7 +284,7 @@ class _PropertyEditorState extends State<PropertyEditor> {
   // -- date --------------------------------------------------------------
 
   Widget _buildDate(BuildContext context) {
-    final raw = _value as String?;
+    final raw = _value is String ? _value as String : null;
     final label = raw ?? 'No date';
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -269,7 +326,7 @@ class _PropertyEditorState extends State<PropertyEditor> {
 
   Widget _buildSelect() {
     final options = widget.definition.options ?? const <String>[];
-    final raw = _value as String?;
+    final raw = _value is String ? _value as String : null;
     // An out-of-vocabulary value (an already-invalid cell) can't be
     // selected in the dropdown itself — DropdownButton requires `value` to
     // match exactly one item or be null — so it shows as unset there; the
@@ -297,9 +354,7 @@ class _PropertyEditorState extends State<PropertyEditor> {
   // -- multi_select --------------------------------------------------------
 
   Widget _buildMultiSelect() {
-    final selected = ((_value as List?) ?? const <Object?>[])
-        .map((e) => e as String)
-        .toSet();
+    final selected = _stringListOf(_value).toSet();
     final options = widget.definition.options ?? const <String>[];
     return Wrap(
       spacing: 4,
@@ -336,9 +391,7 @@ class _PropertyEditorState extends State<PropertyEditor> {
   // -- relation --------------------------------------------------------------
 
   Widget _buildRelation() {
-    final selected = ((_value as List?) ?? const <Object?>[])
-        .map((e) => e as String)
-        .toList();
+    final selected = _stringListOf(_value);
     return _RelationEditor(
       selected: selected,
       titleSearchService: widget.titleSearchService,

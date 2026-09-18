@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/databases/property_editor.dart';
@@ -492,5 +494,173 @@ void main() {
         isTrue,
       );
     });
+  });
+
+  group('PropertyEditor commit robustness', () {
+    testWidgets(
+      'onCommit throwing resets committing state and shows an error',
+      (tester) async {
+        await _pump(
+          tester,
+          propertyKey: 'summary',
+          definition: const PropertyDefinition(type: PropertyType.text),
+          value: 'old',
+          onCommit: (p) async => throw StateError('boom'),
+        );
+
+        await tester.enterText(
+          find.byKey(const Key('property_editor.text.field')),
+          'new',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pumpAndSettle();
+
+        // The field reverted to the previous value and an error is shown,
+        // rather than staying stuck with the optimistic value and a
+        // permanently-disabled commit path.
+        expect(find.text('old'), findsOneWidget);
+        expect(find.byKey(const Key('property_editor.error')), findsOneWidget);
+
+        // A subsequent commit still works — proof `_committing` was reset.
+        await tester.enterText(
+          find.byKey(const Key('property_editor.text.field')),
+          'retry',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets(
+      'a stale rejection does not roll back a faster successful commit',
+      (tester) async {
+        final completers = <Completer<String?>>[];
+        await _pump(
+          tester,
+          propertyKey: 'summary',
+          definition: const PropertyDefinition(type: PropertyType.text),
+          value: 'old',
+          onCommit: (p) {
+            final c = Completer<String?>();
+            completers.add(c);
+            return c.future;
+          },
+        );
+
+        // First commit (will be rejected, but resolves second).
+        await tester.enterText(
+          find.byKey(const Key('property_editor.text.field')),
+          'first',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+
+        // Second, overlapping commit (will succeed, and resolves first).
+        await tester.enterText(
+          find.byKey(const Key('property_editor.text.field')),
+          'second',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+
+        expect(completers, hasLength(2));
+        // The second (later) commit succeeds first.
+        completers[1].complete(null);
+        await tester.pump();
+        // The first (earlier) commit's rejection arrives after — it must
+        // not roll the field back over the second commit's success.
+        completers[0].complete('rejected');
+        await tester.pumpAndSettle();
+
+        expect(find.text('second'), findsOneWidget);
+        expect(find.byKey(const Key('property_editor.error')), findsNothing);
+      },
+    );
+
+    testWidgets('a malformed select value does not throw during build', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        propertyKey: 'status',
+        definition: const PropertyDefinition(
+          type: PropertyType.select,
+          options: ['Idea'],
+        ),
+        value: {'not': 'a string'},
+        onCommit: (p) async => null,
+        invalid: true,
+      );
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a malformed multi_select value does not throw during build', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        propertyKey: 'labels',
+        definition: const PropertyDefinition(
+          type: PropertyType.multiSelect,
+          options: ['a', 'b'],
+        ),
+        value: 'not a list',
+        onCommit: (p) async => null,
+        invalid: true,
+      );
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'editing does not lose the caret position across an unrelated rebuild',
+      (tester) async {
+        var rebuildCount = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  rebuildCount++;
+                  return Column(
+                    children: [
+                      PropertyEditor(
+                        propertyKey: 'summary',
+                        definition: const PropertyDefinition(
+                          type: PropertyType.text,
+                        ),
+                        value: null,
+                        onCommit: (p) async => null,
+                      ),
+                      ElevatedButton(
+                        onPressed: () => setState(() {}),
+                        child: const Text('rebuild'),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const Key('property_editor.text.field')),
+          'unsubmitted',
+        );
+        await tester.pump();
+
+        // Trigger a parent rebuild that does not change PropertyEditor's
+        // external `value` — the user's unsubmitted text must survive it,
+        // which it cannot if the TextField's controller is reconstructed
+        // fresh on every build.
+        await tester.tap(find.text('rebuild'));
+        await tester.pump();
+
+        expect(rebuildCount, greaterThan(1));
+        expect(find.text('unsubmitted'), findsOneWidget);
+      },
+    );
   });
 }
