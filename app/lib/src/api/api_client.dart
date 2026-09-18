@@ -127,6 +127,14 @@ class SearchHit {
   );
 }
 
+/// `GET /databases` response: every registered database, listing-shaped.
+@immutable
+class DatabaseList {
+  const DatabaseList({required this.items});
+
+  final List<DatabaseSummary> items;
+}
+
 /// HTTP client for the robot-notes v1 API.
 ///
 /// Stamped with bearer auth + `X-Actor` on every request, surfaces typed
@@ -342,6 +350,157 @@ class RobotNotesClient {
         .cast<Map<String, dynamic>>()
         .map(SearchHit.fromJson)
         .toList(growable: false);
+  }
+
+  /// `GET /databases` — every registered database.
+  Future<DatabaseList> listDatabases() async {
+    final res = await _http.get(_uri(Routes.databases), headers: _baseHeaders);
+    final body = _ok(res);
+    final items = (body['items'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(DatabaseSummary.fromJson)
+        .toList(growable: false);
+    return DatabaseList(items: items);
+  }
+
+  /// `GET /databases/{id}` — the full definition.
+  Future<DatabaseDefinition> getDatabase(String id) async {
+    final res = await _http.get(
+      _uri(Routes.database(id)),
+      headers: _baseHeaders,
+    );
+    return DatabaseDefinition.fromJson(_ok(res));
+  }
+
+  /// `POST /databases` — creates a definition note. No `If-Match` is
+  /// needed; there is nothing to conflict with yet.
+  Future<DatabaseDefinition> createDatabase({
+    required String title,
+    String? path,
+    DatabaseSource? source,
+    required Map<String, PropertyDefinition> properties,
+    required List<ViewDefinition> views,
+    String? content,
+  }) async {
+    final res = await _http.post(
+      _uri(Routes.databases),
+      headers: <String, String>{
+        ..._baseHeaders,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(<String, Object?>{
+        'title': title,
+        'path': ?path,
+        if (source != null) 'source': source.toJson(),
+        'properties': {
+          for (final entry in properties.entries)
+            entry.key: entry.value.toJson(),
+        },
+        'views': views.map((v) => v.toJson()).toList(),
+        'content': ?content,
+      }),
+    );
+    return DatabaseDefinition.fromJson(_ok(res));
+  }
+
+  /// `PUT /databases/{id}` — wholesale-replaces the supplied sections.
+  /// Requires `If-Match` equal to the definition's current version.
+  Future<DatabaseDefinition> updateDatabase({
+    required String id,
+    required int ifMatch,
+    DatabaseSource? source,
+    Map<String, PropertyDefinition>? properties,
+    List<ViewDefinition>? views,
+  }) async {
+    final res = await _http.put(
+      _uri(Routes.database(id)),
+      headers: <String, String>{
+        ..._baseHeaders,
+        'Content-Type': 'application/json',
+        'If-Match': '$ifMatch',
+      },
+      body: jsonEncode(<String, Object?>{
+        if (source != null) 'source': source.toJson(),
+        if (properties != null)
+          'properties': {
+            for (final entry in properties.entries)
+              entry.key: entry.value.toJson(),
+          },
+        if (views != null) 'views': views.map((v) => v.toJson()).toList(),
+      }),
+    );
+    return DatabaseDefinition.fromJson(_ok(res));
+  }
+
+  /// `POST /databases/{id}/query` — a page of rows.
+  Future<DatabaseQueryPage> queryDatabase(
+    String id, {
+    String? view,
+    Filter? filter,
+    List<SortSpec>? sort,
+    String? groupBy,
+    int? limit,
+    String? after,
+  }) async {
+    final res = await _http.post(
+      _uri(Routes.databaseQuery(id)),
+      headers: <String, String>{
+        ..._baseHeaders,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(<String, Object?>{
+        'view': ?view,
+        if (filter != null) 'filter': filter.toJson(),
+        if (sort != null) 'sort': sort.map((s) => s.toJson()).toList(),
+        'group_by': ?groupBy,
+        if (limit != null) 'limit': limit,
+        'after': ?after,
+      }),
+    );
+    return DatabaseQueryPage.fromJson(_ok(res));
+  }
+
+  /// `POST /databases/{id}/rows` — creates a row note with validated
+  /// properties.
+  Future<Note> createRow(
+    String id, {
+    required String title,
+    Map<String, Object?>? properties,
+    String? content,
+    String? path,
+  }) async {
+    final res = await _http.post(
+      _uri(Routes.databaseRows(id)),
+      headers: <String, String>{
+        ..._baseHeaders,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(<String, Object?>{
+        'title': title,
+        if (properties != null) 'properties': properties,
+        'content': ?content,
+        'path': ?path,
+      }),
+    );
+    return Note.fromJson(_ok(res));
+  }
+
+  /// `PATCH /notes/{id}/properties` — merges [set] and removes [unset]
+  /// keys. No `If-Match` is required.
+  Future<Note> patchProperties(
+    String id, {
+    Map<String, Object?>? set,
+    List<String>? unset,
+  }) async {
+    final res = await _http.patch(
+      _uri(Routes.noteProperties(id)),
+      headers: <String, String>{
+        ..._baseHeaders,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(PropertyPatch(set: set, unset: unset).toJson()),
+    );
+    return Note.fromJson(_ok(res));
   }
 
   /// Decodes a 2xx JSON body, or throws the appropriate typed exception.

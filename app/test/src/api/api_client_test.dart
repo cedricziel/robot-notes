@@ -32,6 +32,28 @@ Map<String, Object?> _noteJson({
   'lock': ?lock,
 };
 
+Map<String, Object?> _databaseJson({
+  String id = '01H',
+  int version = 1,
+}) => <String, Object?>{
+  'id': id,
+  'title': 'Projects',
+  'path': 'Projects',
+  'version': version,
+  'source': <String, Object?>{'folder': 'Projects', 'include_subfolders': true},
+  'properties': <String, Object?>{
+    'status': <String, Object?>{
+      'type': 'select',
+      'options': ['Idea', 'Active', 'Done'],
+    },
+  },
+  'views': <Object?>[
+    <String, Object?>{'name': 'All', 'type': 'table'},
+  ],
+  'created_at': _now,
+  'updated_at': _now,
+};
+
 void main() {
   group('RobotNotesClient', () {
     test('every request carries Authorization and X-Actor headers', () async {
@@ -718,5 +740,256 @@ void main() {
         throwsA(isA<NotFoundException>()),
       );
     });
+
+    test('listDatabases GETs /databases and parses summaries', () async {
+      final mock = MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path, '/databases');
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[
+              <String, Object?>{
+                'id': '01H',
+                'title': 'Projects',
+                'path': 'Projects',
+                'source': <String, Object?>{
+                  'folder': 'Projects',
+                  'include_subfolders': true,
+                },
+                'row_count': 3,
+              },
+            ],
+          }),
+          200,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      final result = await client.listDatabases();
+
+      expect(result.items, hasLength(1));
+      expect(result.items.single.id, '01H');
+      expect(result.items.single.title, 'Projects');
+      expect(result.items.single.rowCount, 3);
+    });
+
+    test(
+      'getDatabase GETs /databases/{id} and parses the definition',
+      () async {
+        final mock = MockClient((request) async {
+          expect(request.method, 'GET');
+          expect(request.url.path, '/databases/01H');
+          return http.Response(jsonEncode(_databaseJson()), 200);
+        });
+
+        final client = RobotNotesClient(config: _config, httpClient: mock);
+        final def = await client.getDatabase('01H');
+
+        expect(def.id, '01H');
+        expect(def.title, 'Projects');
+        expect(def.properties['status']!.type, PropertyType.select);
+      },
+    );
+
+    test('createDatabase POSTs /databases with the definition body', () async {
+      Map<String, dynamic>? body;
+      final mock = MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/databases');
+        expect(request.headers['content-type'], contains('application/json'));
+        body = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(jsonEncode(_databaseJson()), 201);
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      final def = await client.createDatabase(
+        title: 'Projects',
+        source: const DatabaseSource.folder('Projects'),
+        properties: {
+          'status': const PropertyDefinition(
+            type: PropertyType.select,
+            options: ['Idea', 'Active', 'Done'],
+          ),
+        },
+        views: const [ViewDefinition(name: 'All', type: ViewType.table)],
+      );
+
+      expect(def.id, '01H');
+      expect(body?['title'], 'Projects');
+      expect(body?['source'], <String, Object?>{
+        'folder': 'Projects',
+        'include_subfolders': true,
+      });
+      expect((body?['properties'] as Map)['status'], <String, Object?>{
+        'type': 'select',
+        'options': ['Idea', 'Active', 'Done'],
+      });
+      expect((body?['views'] as List).single, <String, Object?>{
+        'name': 'All',
+        'type': 'table',
+      });
+    });
+
+    test('updateDatabase PUTs /databases/{id} with If-Match and the supplied '
+        'sections', () async {
+      Map<String, dynamic>? body;
+      Map<String, String>? headers;
+      final mock = MockClient((request) async {
+        expect(request.method, 'PUT');
+        expect(request.url.path, '/databases/01H');
+        headers = request.headers;
+        body = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(jsonEncode(_databaseJson(version: 3)), 200);
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      final def = await client.updateDatabase(
+        id: '01H',
+        ifMatch: 2,
+        views: const [ViewDefinition(name: 'All', type: ViewType.table)],
+      );
+
+      expect(def.version, 3);
+      expect(headers?['if-match'], '2');
+      expect(body, <String, Object?>{
+        'views': [
+          <String, Object?>{'name': 'All', 'type': 'table'},
+        ],
+      });
+    });
+
+    test('updateDatabase without If-Match surfaces version conflict', () async {
+      final mock = MockClient((request) async {
+        return http.Response(
+          jsonEncode(<String, Object?>{'error': 'version_conflict'}),
+          409,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+
+      await expectLater(
+        client.updateDatabase(id: '01H', ifMatch: 1),
+        throwsA(isA<VersionConflictException>()),
+      );
+    });
+
+    test('queryDatabase POSTs /databases/{id}/query with view, filter, sort, '
+        'group_by, limit, after', () async {
+      Map<String, dynamic>? body;
+      final mock = MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/databases/01H/query');
+        body = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'items': <Object?>[
+              <String, Object?>{
+                'id': '02H',
+                'title': 'Rewrite',
+                'path': 'Projects',
+                'version': 1,
+                'created_at': _now,
+                'updated_at': _now,
+                'tags': <String>[],
+                'properties': <String, Object?>{'status': 'Idea'},
+                'invalid': <String>[],
+              },
+            ],
+            'next_cursor': null,
+            'groups': <Object?>[
+              <String, Object?>{'value': 'Idea', 'count': 1},
+            ],
+          }),
+          200,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      final page = await client.queryDatabase(
+        '01H',
+        view: 'Active',
+        filter: const Condition(
+          property: 'status',
+          op: FilterOp.eq,
+          value: 'Idea',
+        ),
+        sort: const [SortSpec(property: 'due', direction: SortDirection.asc)],
+        groupBy: 'status',
+        limit: 50,
+        after: 'cursor1',
+      );
+
+      expect(page.items, hasLength(1));
+      expect(page.items.single.properties['status'], 'Idea');
+      expect(page.groups, hasLength(1));
+      expect(body, <String, Object?>{
+        'view': 'Active',
+        'filter': <String, Object?>{
+          'property': 'status',
+          'op': 'eq',
+          'value': 'Idea',
+        },
+        'sort': [
+          <String, Object?>{'property': 'due', 'direction': 'asc'},
+        ],
+        'group_by': 'status',
+        'limit': 50,
+        'after': 'cursor1',
+      });
+    });
+
+    test('createRow POSTs /databases/{id}/rows and returns the note', () async {
+      Map<String, dynamic>? body;
+      final mock = MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/databases/01H/rows');
+        body = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(
+          jsonEncode(_noteJson(id: '02H', title: 'Rewrite')),
+          201,
+        );
+      });
+
+      final client = RobotNotesClient(config: _config, httpClient: mock);
+      final note = await client.createRow(
+        '01H',
+        title: 'Rewrite',
+        properties: <String, Object?>{'status': 'Idea'},
+      );
+
+      expect(note.id, '02H');
+      expect(body?['title'], 'Rewrite');
+      expect(body?['properties'], <String, Object?>{'status': 'Idea'});
+    });
+
+    test(
+      'patchProperties PATCHes /notes/{id}/properties without If-Match',
+      () async {
+        Map<String, dynamic>? body;
+        Map<String, String>? headers;
+        final mock = MockClient((request) async {
+          expect(request.method, 'PATCH');
+          expect(request.url.path, '/notes/01H/properties');
+          headers = request.headers;
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(jsonEncode(_noteJson(version: 4)), 200);
+        });
+
+        final client = RobotNotesClient(config: _config, httpClient: mock);
+        final note = await client.patchProperties(
+          '01H',
+          set: <String, Object?>{'status': 'Active'},
+          unset: ['mood'],
+        );
+
+        expect(note.version, 4);
+        expect(headers?.containsKey('if-match'), isFalse);
+        expect(body, <String, Object?>{
+          'set': <String, Object?>{'status': 'Active'},
+          'unset': ['mood'],
+        });
+      },
+    );
   });
 }
