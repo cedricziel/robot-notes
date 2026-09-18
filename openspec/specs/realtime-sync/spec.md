@@ -102,7 +102,7 @@ On every lock acquire, heartbeat, release, or first-observed expiry (per `lock-m
 
 ### Requirement: Server emits `changed` events on note writes
 
-On every successful create, update, move, or delete of a note (per `notes-api`), the server SHALL emit a `changed` event to all current subscribers of that note (including wildcard subscribers). The event SHALL have shape `{"type":"changed","note_id":"<id>","version":<int>|null,"by":"<actor>","action":"created|updated|moved|deleted"}`. The event SHALL NOT include note content or path; clients SHALL fetch via HTTP to retrieve the new state.
+On every successful create, update, property patch, move, or delete of a note (per `notes-api` and `databases`), the server SHALL emit a `changed` event to all current subscribers of that note (including wildcard subscribers). The event SHALL have shape `{"type":"changed","note_id":"<id>","version":<int>|null,"by":"<actor>","action":"created|updated|moved|deleted"}`. The event SHALL NOT include note content or path; clients SHALL fetch via HTTP to retrieve the new state.
 
 #### Scenario: Update emits changed event with new version
 
@@ -131,6 +131,12 @@ On every successful create, update, move, or delete of a note (per `notes-api`),
 - **GIVEN** note B links to note A and subscribers exist for note B
 - **WHEN** note A is renamed, causing the server to rewrite note B's content (per `links`)
 - **THEN** subscribers of note B SHALL receive a `changed` event for note B with `action: "updated"`
+
+#### Scenario: Property patch emits an updated action
+
+- **GIVEN** subscribers exist for note X at version 3
+- **WHEN** actor `bob` successfully patches a property on note X
+- **THEN** subscribers SHALL receive `{"type":"changed","note_id":"X","version":4,"by":"bob","action":"updated"}`
 
 ### Requirement: Events are JSON over text frames; binary frames are rejected
 
