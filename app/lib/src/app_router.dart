@@ -551,15 +551,34 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
             alignment: Alignment.topCenter,
             child: FractionallySizedBox(
               heightFactor: 0.92,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  bottom: Radius.circular(16),
-                ),
-                child: SearchScreen(
-                  controller: controller,
-                  recentNotes: session.list.value.items,
-                  onResultTap: (id) => openResult(ctx, id),
-                  onClose: () => Navigator.of(ctx).pop(),
+              // Swiping the sheet up (over its header or the grab handle;
+              // the results list keeps vertical drags over itself) pops
+              // it through the same route pop the close button uses. No
+              // resize animation: the route's own exit transition removes
+              // the sheet, and a collapse would trip Dismissible's
+              // "still in the tree" check while it plays.
+              child: Dismissible(
+                key: const Key('search.sheet'),
+                direction: DismissDirection.up,
+                resizeDuration: null,
+                onDismissed: (_) => Navigator.of(ctx).pop(),
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(16),
+                  ),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: SearchScreen(
+                          controller: controller,
+                          recentNotes: session.list.value.items,
+                          onResultTap: (id) => openResult(ctx, id),
+                          onClose: () => Navigator.of(ctx).pop(),
+                        ),
+                      ),
+                      const _SheetGrabHandle(key: Key('search.sheet.handle')),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -578,6 +597,37 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
     );
   } finally {
     controller.dispose();
+  }
+}
+
+/// The pill along the bottom edge of the compact search sheet: the visible
+/// affordance for swiping the sheet away, painted on the same surface as
+/// [SearchScreen] so it reads as part of the sheet rather than a footer.
+class _SheetGrabHandle extends StatelessWidget {
+  const _SheetGrabHandle({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface,
+      child: Semantics(
+        label: 'Swipe up to close search',
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.onSurfaceVariant,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

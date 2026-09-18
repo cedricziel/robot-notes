@@ -921,6 +921,83 @@ void main() {
         expect(listFetches, 1, reason: 'closing search should not refetch');
       },
     );
+
+    testWidgets(
+      'on a compact window the sheet has a grab handle; swiping it up '
+      'dismisses without a fresh fetch',
+      (tester) async {
+        _setWindow(tester, const Size(400, 800));
+        var listFetches = 0;
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes') {
+            listFetches += 1;
+          }
+          return _fakeBackend(request);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        addTearDown(api.close);
+
+        await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+        await tester.pumpAndSettle();
+        expect(listFetches, 1);
+
+        await tester.tap(find.byKey(const Key('notes.bottomNav.search')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('search.input')), findsOneWidget);
+        final handle = find.byKey(const Key('search.sheet.handle'));
+        expect(handle, findsOneWidget);
+        // The handle sits directly under the search content, along the
+        // sheet's bottom edge (0.92 of the 800px window).
+        expect(
+          tester.getTopLeft(handle).dy,
+          moreOrLessEquals(tester.getBottomLeft(find.byType(SearchScreen)).dy),
+        );
+        expect(tester.getBottomLeft(handle).dy, moreOrLessEquals(0.92 * 800));
+
+        // Well past the 40% dismiss threshold of a 0.92 * 800 sheet.
+        await tester.drag(handle, const Offset(0, -450));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('search.input')), findsNothing);
+        expect(find.text('Notes'), findsOneWidget);
+        expect(listFetches, 1, reason: 'closing search should not refetch');
+      },
+    );
+
+    testWidgets('a short drag on the handle springs the sheet back', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(400, 800));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.bottomNav.search')));
+      await tester.pumpAndSettle();
+      final handle = find.byKey(const Key('search.sheet.handle'));
+      final restingTop = tester.getTopLeft(find.byType(SearchScreen)).dy;
+
+      await tester.drag(handle, const Offset(0, -60));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+      expect(tester.getTopLeft(find.byType(SearchScreen)).dy, restingTop);
+    });
+
+    testWidgets('the wide palette has no grab handle', (tester) async {
+      _setWindow(tester, const Size(800, 600));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('shell.search')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(find.byKey(const Key('search.sheet.handle')), findsNothing);
+    });
   });
 
   testWidgets('pushing to a note updates the reported URL', (tester) async {
