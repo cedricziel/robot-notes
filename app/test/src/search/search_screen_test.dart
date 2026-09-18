@@ -470,6 +470,102 @@ void main() {
     expect(find.byKey(const Key('search.hint')), findsNothing);
   });
 
+  group('overlay chrome', () {
+    testWidgets('renders no Scaffold or AppBar of its own', (tester) async {
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async => http.Response('', 500)),
+      );
+      final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Dialog(
+            child: SearchScreen(controller: ctrl, onClose: () {}),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.byType(Scaffold), findsNothing);
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+    });
+
+    testWidgets('the close button is absent without onClose', (tester) async {
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async => http.Response('', 500)),
+      );
+      final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: SearchScreen(controller: ctrl)),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const Key('search.close')), findsNothing);
+    });
+
+    testWidgets('the close button is present with onClose and invokes it', (
+      tester,
+    ) async {
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async => http.Response('', 500)),
+      );
+      final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+      addTearDown(ctrl.dispose);
+      var closed = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SearchScreen(controller: ctrl, onClose: () => closed += 1),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const Key('search.close')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('search.close')));
+      await tester.pump();
+      expect(closed, 1);
+    });
+
+    testWidgets('fills a constrained parent without overflowing', (
+      tester,
+    ) async {
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async => http.Response('', 500)),
+      );
+      final ctrl = NotesSearchController(api: api, scheduler: (_) async {});
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: SizedBox(
+              width: 320,
+              height: 400,
+              child: SearchScreen(
+                controller: ctrl,
+                onClose: () {},
+                recentNotes: [_recentNote(id: '01H', title: 'Weekend Trip')],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(tester.getSize(find.byType(SearchScreen)), const Size(320, 400));
+      expect(find.text('Weekend Trip'), findsOneWidget);
+    });
+  });
+
   testWidgets('a hit tile shows the note\'s formatted updated time', (
     tester,
   ) async {

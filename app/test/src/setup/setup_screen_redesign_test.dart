@@ -50,6 +50,37 @@ void main() {
         expect(size.width, lessThanOrEqualTo(420));
       },
     );
+
+    testWidgets('shows the product name and tagline above the card', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SetupScreen(
+            controller: setupController(),
+            onConfigured: (_) {},
+          ),
+        ),
+      );
+
+      expect(find.byKey(const Key('setup.productName')), findsOneWidget);
+      expect(find.text('robot-notes'), findsOneWidget);
+      expect(
+        find.text('Notes shared between you and your agents'),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('Connect'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getTopLeft(find.byKey(const Key('setup.productName'))).dy,
+        lessThan(tester.getTopLeft(find.byKey(const Key('setup.card'))).dy),
+      );
+    });
   });
 
   group('live reachability check', () {
@@ -114,6 +145,42 @@ void main() {
 
       expect(find.byKey(const Key('setup.reachability.ok')), findsOneWidget);
       expect(find.byKey(const Key('setup.reachability.error')), findsNothing);
+    });
+
+    testWidgets('the ok indicator uses the scheme primary colour', (
+      tester,
+    ) async {
+      final client = MockClient(
+        (_) async => http.Response('{"status":"ok"}', 200),
+      );
+      final theme = ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.purple),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: SetupScreen(
+            controller: setupController(),
+            onConfigured: (_) {},
+            capabilitiesClientFactory: () => client,
+            capabilitiesDebounce: const Duration(milliseconds: 10),
+          ),
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('setup.baseUrl')),
+        'https://notes.example',
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      await tester.pumpAndSettle();
+
+      final icon = tester.widget<Icon>(
+        find.byKey(const Key('setup.reachability.ok')),
+      );
+      expect(icon.color, theme.colorScheme.primary);
+      expect(icon.color, isNot(Colors.green));
     });
 
     testWidgets('shows an error indicator when the server cannot be reached', (
