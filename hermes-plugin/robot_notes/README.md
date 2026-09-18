@@ -71,6 +71,14 @@ For a per-repo install, drop the same directory under `./.hermes/plugins/robot_n
 in the project and set `HERMES_ENABLE_PROJECT_PLUGINS=1`; Hermes discovers it
 the same way as the user directory, just scoped to that working tree.
 
+### Plugin catalog (planned)
+
+A future release of this plugin will be submittable to the
+[Hermes plugin catalog](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog)
+so it can be installed by name (`hermes plugins install robot_notes`) instead
+of a Git URL/subdirectory. See [`../catalog/README.md`](../catalog/README.md)
+for the draft entry and the submission checklist.
+
 ## Setup
 
 ```bash

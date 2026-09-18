@@ -1,0 +1,43 @@
+# Draft entry for the Hermes plugin-catalog (NousResearch/hermes-agent's
+# `plugin-catalog/robot-notes.yaml`). Do NOT copy this file into the upstream
+# repo as-is: `sha` below is a placeholder. See ../catalog/README.md for the
+# submission checklist and the exact commit that must replace it.
+#
+# Schema: https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/README.md
+
+name: robot_notes
+repo: https://github.com/cedricziel/robot-notes
+# PLACEHOLDER — not a real commit. Replace with the full 40-hex commit SHA
+# that the release tag (e.g. vX.Y.Z) points at, then re-run
+# `hermes plugins validate hermes-plugin/robot_notes` at that checkout before
+# opening the upstream PR.
+sha: "0000000000000000000000000000000000000000"
+subdir: hermes-plugin/robot_notes
+description: >-
+  robot-notes — shared notes workspace as external memory for Hermes Agent
+  (REST, static API key). Notes stay shared, human-readable memory between
+  people and agents rather than a private vector store.
+maintainer: cedricziel
+tier: community
+category: memory
+docs_url: https://github.com/cedricziel/robot-notes/blob/main/hermes-plugin/robot_notes/README.md
+# Bump this alongside `sha` in the submission PR so it matches
+# hermes-plugin/robot_notes/plugin.yaml's `version` at the pinned commit.
+version: "0.2.12"
+capabilities:
+  provides_tools:
+    - robotnotes_search
+    - robotnotes_list
+    - robotnotes_note
+    - robotnotes_remember
+    - robotnotes_append
+    - robotnotes_forget
+  provides_hooks:
+    - on_session_end
+    - on_session_switch
+    - on_memory_write
+    - queue_prefetch
+    - prefetch
+  provides_middleware: []
+  requires_env:
+    - ROBOT_NOTES_API_KEY
