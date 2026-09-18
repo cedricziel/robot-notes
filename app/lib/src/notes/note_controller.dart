@@ -56,6 +56,8 @@ class NoteState {
     this.lockedByOtherBanner,
     this.backlinks = const <BacklinkHit>[],
     this.backlinksLoading = false,
+    this.properties = const <String, Object?>{},
+    this.coveringDefinitions = const <DatabaseDefinition>[],
   });
 
   static const initial = NoteState();
@@ -89,6 +91,20 @@ class NoteState {
   final List<BacklinkHit> backlinks;
   final bool backlinksLoading;
 
+  /// The note's declared properties, for the property panel (design.md:
+  /// "Property panel lives in NoteController"). Kept in sync with
+  /// [note]'s `properties` on every load, save, and property patch, and
+  /// refreshed independently — without touching [note]'s `version` or the
+  /// edit buffers — when a `changed` event arrives while editing.
+  final Map<String, Object?> properties;
+
+  /// The [DatabaseDefinition]s (from the shared cache) whose source covers
+  /// this note, in the order `coveringDatabases` returns them — the
+  /// property panel uses these to pick a typed editor per declared
+  /// property. Empty until the async lookup (triggered by [open] and
+  /// [reload]) resolves, or when no definitions loader was supplied.
+  final List<DatabaseDefinition> coveringDefinitions;
+
   /// True while the edit buffers differ from the loaded note.
   bool get isDirty {
     final note = this.note;
@@ -109,6 +125,8 @@ class NoteState {
     Object? lockedByOtherBanner = _sentinel,
     List<BacklinkHit>? backlinks,
     bool? backlinksLoading,
+    Map<String, Object?>? properties,
+    List<DatabaseDefinition>? coveringDefinitions,
   }) {
     return NoteState(
       mode: mode ?? this.mode,
@@ -130,6 +148,8 @@ class NoteState {
       lockedByOtherBanner: identical(lockedByOtherBanner, _sentinel)
           ? this.lockedByOtherBanner
           : lockedByOtherBanner as String?,
+      properties: properties ?? this.properties,
+      coveringDefinitions: coveringDefinitions ?? this.coveringDefinitions,
     );
   }
 }
@@ -156,6 +176,7 @@ class NoteController extends ValueNotifier<NoteState> {
     Future<void> Function(Duration)? scheduler,
     Future<void> Function(Duration)? autosaveScheduler,
     TitleSearchService? titleSearchService,
+    Future<List<DatabaseDefinition>> Function()? allDatabaseDefinitions,
   }) : _api = api,
        _noteId = noteId,
        _actor = actor,
@@ -166,6 +187,7 @@ class NoteController extends ValueNotifier<NoteState> {
        _scheduler = scheduler ?? Future<void>.delayed,
        _autosaveScheduler = autosaveScheduler ?? Future<void>.delayed,
        _titleSearch = titleSearchService ?? TitleSearchService(api: api),
+       _allDatabaseDefinitions = allDatabaseDefinitions,
        super(NoteState.initial) {
     if (events != null) {
       _sub = events.listen(_onEvent);
@@ -192,10 +214,26 @@ class NoteController extends ValueNotifier<NoteState> {
   final Future<void> Function(Duration) _scheduler;
   final Future<void> Function(Duration) _autosaveScheduler;
 
+  /// Supplies every registered database's full definition, for the
+  /// client-side `coveringDatabases` check. `null` when the caller has no
+  /// database-aware context (e.g. a screen that never shows the property
+  /// panel) — [coveringDefinitions] then stays empty.
+  final Future<List<DatabaseDefinition>> Function()? _allDatabaseDefinitions;
+
   StreamSubscription<RealtimeEvent>? _sub;
   bool _disposed = false;
   int _heartbeatGen = 0;
   int _autosaveGen = 0;
+
+  /// Bumped for every covering-definitions lookup, so a response that lands
+  /// after a newer one started (or after the note changed identity, which
+  /// can't happen for this controller, or after dispose) is dropped.
+  int _coveringDefsGen = 0;
+
+  /// Completed while a `save()` call's HTTP request is in flight; `null`
+  /// otherwise. [patchProperty] awaits this so a property patch never races
+  /// a body save — see "serialized with autosave" in design.md.
+  Completer<void>? _saveInFlight;
 
   /// Bumped for every note fetch after the initial [open] ([reload] and
   /// the realtime-triggered refetch), so a response that lands after a
@@ -225,8 +263,10 @@ class NoteController extends ValueNotifier<NoteState> {
         mode: NoteMode.viewing,
         note: note,
         lock: note.lock,
+        properties: note.properties,
       );
       unawaited(_loadBacklinks());
+      unawaited(_loadCoveringDefinitions(note));
     } on ApiException catch (e) {
       if (_disposed) return;
       value = value.copyWith(error: e);
@@ -250,6 +290,7 @@ class NoteController extends ValueNotifier<NoteState> {
       if (!_canCommitNoteFetch(gen)) return;
       _commitFetchedNote(note, lockGen: lockGen);
       unawaited(_loadBacklinks());
+      unawaited(_loadCoveringDefinitions(note));
     } on ApiException catch (e) {
       // A failure from a fetch that has since been superseded (or that
       // finished after the user entered edit mode) is not this reload's
@@ -273,7 +314,36 @@ class NoteController extends ValueNotifier<NoteState> {
     value = value.copyWith(
       note: note,
       lock: lockGen == _lockGen ? note.lock : value.lock,
+      properties: note.properties,
     );
+  }
+
+  /// Looks up the registered databases whose source covers this note (see
+  /// the shared `coveringDatabases` helper) via [_allDatabaseDefinitions],
+  /// and stores the result. Best-effort, like [_loadBacklinks]: a missing
+  /// loader or a failed fetch just leaves [NoteState.coveringDefinitions]
+  /// empty rather than surfacing via [NoteState.error] — there's nothing
+  /// actionable for the property panel to do with that failure beyond
+  /// falling back to undeclared/read-only rows.
+  Future<void> _loadCoveringDefinitions(Note note) async {
+    final loader = _allDatabaseDefinitions;
+    if (loader == null) return;
+    if (_disposed) return;
+    final gen = ++_coveringDefsGen;
+    try {
+      final defs = await loader();
+      if (_disposed || gen != _coveringDefsGen) return;
+      final covering = coveringDatabases(
+        note.path,
+        note.tags,
+        defs,
+        noteId: note.id,
+        isDefinition: note.type == 'database',
+      );
+      value = value.copyWith(coveringDefinitions: covering);
+    } catch (_) {
+      // Best-effort; see doc comment above.
+    }
   }
 
   /// Loads notes that link to this one for the backlinks panel. Best-effort:
@@ -343,6 +413,7 @@ class NoteController extends ValueNotifier<NoteState> {
       editTitle: note.title,
       editContent: note.content,
       lockedByOtherBanner: null,
+      properties: note.properties,
     );
     _scheduleHeartbeat(acquired);
   }
@@ -403,6 +474,8 @@ class NoteController extends ValueNotifier<NoteState> {
     final title = value.editTitle ?? note.title;
     final content = value.editContent ?? note.content;
     value = value.copyWith(mode: NoteMode.saving, error: null);
+    final inFlight = Completer<void>();
+    _saveInFlight = inFlight;
     try {
       final updated = await _api.updateNote(
         id: _noteId,
@@ -420,6 +493,7 @@ class NoteController extends ValueNotifier<NoteState> {
         editTitle: updated.title,
         editContent: updated.content,
         conflictCurrent: null,
+        properties: updated.properties,
       );
     } on VersionConflictException catch (e) {
       if (_disposed) return;
@@ -443,6 +517,9 @@ class NoteController extends ValueNotifier<NoteState> {
     } on ApiException catch (e) {
       if (_disposed) return;
       value = value.copyWith(mode: NoteMode.editing, error: e);
+    } finally {
+      if (identical(_saveInFlight, inFlight)) _saveInFlight = null;
+      inFlight.complete();
     }
   }
 
@@ -583,15 +660,41 @@ class NoteController extends ValueNotifier<NoteState> {
       value = value.copyWith(lock: newLock);
     } else if (msg is ChangedEvent) {
       if (msg.noteId != _noteId) return;
-      // Don't disturb the user mid-edit; the next save will surface a 409
-      // if they're working on a stale version.
-      if (value.mode == NoteMode.editing ||
-          value.mode == NoteMode.saving ||
-          value.mode == NoteMode.conflict) {
+      if (value.mode == NoteMode.editing) {
+        // Don't disturb the title/content buffers or the `If-Match`
+        // baseline mid-edit — the next save still surfaces a 409 for any
+        // remote body edit, per design.md. Only the property panel, which
+        // reads a value the buffers don't own, refreshes live.
+        unawaited(_refreshPropertiesFromServer());
+        return;
+      }
+      if (value.mode == NoteMode.saving || value.mode == NoteMode.conflict) {
         return;
       }
       // Refresh the read-only view in the background.
       unawaited(_refreshNoteFromServer());
+    }
+  }
+
+  /// Refetches the note while editing and copies only its `properties`
+  /// into state — never `version`, `title`, or `content` — so the panel
+  /// shows a remote property edit live while the body buffers and the
+  /// `If-Match` baseline stay exactly as the user last saw them (design.md:
+  /// "the app SHALL refetch ... and refresh the panel's displayed
+  /// properties only"). Best-effort like [_refreshNoteFromServer]: a
+  /// failure just leaves the panel showing its last-known values.
+  Future<void> _refreshPropertiesFromServer() async {
+    if (_disposed) return;
+    if (value.mode != NoteMode.editing) return;
+    try {
+      final fresh = await _api.getNote(_noteId);
+      if (_disposed) return;
+      if (value.mode != NoteMode.editing) return;
+      value = value.copyWith(properties: fresh.properties);
+      unawaited(_loadCoveringDefinitions(fresh));
+    } on ApiException {
+      // Ignore — the panel keeps its last-known values; a future event or
+      // an explicit reload will reconcile.
     }
   }
 
@@ -669,13 +772,60 @@ class NoteController extends ValueNotifier<NoteState> {
         path: path,
       );
       if (_disposed) return;
-      value = value.copyWith(mode: NoteMode.viewing, note: updated);
+      value = value.copyWith(
+        mode: NoteMode.viewing,
+        note: updated,
+        properties: updated.properties,
+      );
+      unawaited(_loadCoveringDefinitions(updated));
     } on LockedException catch (e) {
       if (_disposed) return;
       value = value.copyWith(mode: NoteMode.viewing, lock: e.lock, error: e);
     } on ApiException catch (e) {
       if (_disposed) return;
       value = value.copyWith(mode: NoteMode.viewing, error: e);
+    }
+  }
+
+  /// Applies a property patch, serialized with body saves through one
+  /// queue (design.md: "Property panel lives in `NoteController`"). An
+  /// armed autosave is cancelled first, and if a body save is already in
+  /// flight this waits for it before sending, so the patch and a save can
+  /// never race each other's `If-Match`. The edit buffers
+  /// ([NoteState.editTitle], [NoteState.editContent]) are left untouched;
+  /// on success the returned `version` becomes the new `If-Match`
+  /// baseline (it is the only source [NoteState.note] adopts a version
+  /// from here), and the cancelled autosave is re-armed — it no-ops if the
+  /// buffers are no longer dirty when it fires. A `validation_failed`
+  /// (400) or other [ApiException] is left on [NoteState.error]; the panel
+  /// keeps whatever it was showing.
+  Future<void> patchProperty({
+    Map<String, Object?>? set,
+    List<String>? unset,
+  }) async {
+    if (_disposed) return;
+    final wasEditing = value.mode == NoteMode.editing;
+    if (wasEditing) cancelPendingAutosave();
+    final inFlight = _saveInFlight?.future;
+    if (inFlight != null) await inFlight;
+    if (_disposed) return;
+    final note = value.note;
+    if (note == null) return;
+    try {
+      final updated = await _api.patchProperties(
+        note.id,
+        set: set,
+        unset: unset,
+      );
+      if (_disposed) return;
+      value = value.copyWith(note: updated, properties: updated.properties);
+    } on ApiException catch (e) {
+      if (_disposed) return;
+      value = value.copyWith(error: e);
+    } finally {
+      if (!_disposed && wasEditing && value.mode == NoteMode.editing) {
+        _scheduleAutosave();
+      }
     }
   }
 }
