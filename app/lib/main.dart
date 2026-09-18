@@ -8,7 +8,9 @@ import 'src/app_router.dart';
 import 'src/config/config_store.dart';
 import 'src/desktop/app_menu_actions.dart';
 import 'src/desktop/app_menu_bar.dart';
+import 'src/desktop/mac_window_chrome.dart';
 import 'src/desktop/tray_controller.dart';
+import 'src/desktop/window_chrome.dart';
 import 'src/otel/otel_bootstrap.dart';
 import 'src/theme/app_theme.dart';
 import 'src/url_strategy.dart';
@@ -24,6 +26,7 @@ Future<void> main() async {
   await initOtel();
   final tray = TrayController();
   unawaited(tray.init());
+  unawaited(WindowChromeController().init());
   runApp(RobotNotesApp(onCloseWindow: tray.hideWindow));
 }
 
@@ -87,7 +90,9 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
         onCloseWindow: widget.onCloseWindow,
         child: AppMenuActionsScope(
           actions: _menuActions,
-          child: AppRouterShell(configHolder: _configHolder, child: child),
+          child: MacWindowChrome(
+            child: AppRouterShell(configHolder: _configHolder, child: child),
+          ),
         ),
       ),
     );
