@@ -418,9 +418,9 @@ def test_handle_tool_call_remember_path_conflict_tells_model_to_search_instead(p
         provider.handle_tool_call("robotnotes_remember", {"title": "Fact", "content": "the sky is blue"})
     )
 
-    assert result["error"] == "path_conflict"
-    assert "search" in result["message"].lower()
-    assert "robotnotes_search" in result["message"] or "robotnotes_list" in result["message"]
+    assert result["code"] == "path_conflict"
+    assert "search" in result["error"].lower()
+    assert "robotnotes_search" in result["error"] or "robotnotes_list" in result["error"]
 
 
 @respx.mock
@@ -433,7 +433,7 @@ def test_handle_tool_call_note_locked_surfaces_holder_in_details(provider):
 
     result = json.loads(provider.handle_tool_call("robotnotes_note", {"id": "01XYZ"}))
 
-    assert result["error"] == "locked"
+    assert result["code"] == "locked"
     assert result["details"]["lock"]["holder"] == "alice"
 
 
@@ -454,8 +454,8 @@ def test_handle_tool_call_surfaces_server_message_and_code(provider):
 
     result = json.loads(provider.handle_tool_call("robotnotes_note", {"id": "01XYZ"}))
 
-    assert result["error"] == "insufficient_scope"
-    assert result["message"] == "This token lacks notes:read."
+    assert result["code"] == "insufficient_scope"
+    assert result["error"] == "This token lacks notes:read."
 
 
 def test_conversations_path_scoped_by_actor(provider):
