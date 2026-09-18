@@ -10,10 +10,9 @@ import 'package:server/src/embeddings/embedding_provider.dart';
 /// operator runs themselves.
 ///
 /// Requests ask Ollama to `truncate` input that exceeds the model's context
-/// and pass `num_ctx` explicitly (see [contextLength]): Ollama loads
-/// embedding models with a 2048-token context by default and the legacy
-/// `/api/embeddings` endpoint rejects longer input outright, so a long note
-/// would otherwise never get a vector.
+/// and pass `num_ctx` explicitly (see [contextLength]): the legacy
+/// `/api/embeddings` endpoint rejects input longer than the context
+/// outright, so a long note would otherwise never get a vector.
 @immutable
 class OllamaEmbeddingProvider implements EmbeddingProvider {
   /// Creates a provider targeting [baseUrl] (no trailing slash) using
@@ -46,11 +45,17 @@ class OllamaEmbeddingProvider implements EmbeddingProvider {
   /// before a provider is ever constructed.
   static const Map<String, int> knownDimensions = {'nomic-embed-text': 768};
 
-  /// Maximum input context (in tokens) each known model supports, sent to
-  /// Ollama as `options.num_ctx` so it doesn't fall back to its 2048-token
-  /// default. Same keying rules as [knownDimensions].
+  /// Maximum input context (in tokens) Ollama will actually run each known
+  /// model with, sent as `options.num_ctx`. Same keying rules as
+  /// [knownDimensions].
+  ///
+  /// nomic-embed-text v1.5 was trained for 8192 tokens, but the GGUF Ollama
+  /// ships declares `n_ctx_train = 2048` and Ollama clamps `num_ctx` to the
+  /// model's trained context, so asking for more is silently ignored (seen
+  /// in the runner log as `n_ctx_slot = 2048`). Input beyond this is
+  /// truncated server-side (see `truncate: true` in [embed]).
   static const Map<String, int> knownContextLengths = {
-    'nomic-embed-text': 8192,
+    'nomic-embed-text': 2048,
   };
 
   /// Context length assumed for a model missing from [knownContextLengths]
