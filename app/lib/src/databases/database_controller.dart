@@ -643,6 +643,18 @@ class DatabaseController extends ValueNotifier<DatabaseScreenState> {
     }
   }
 
+  /// The database id this controller is open on, for callers building the
+  /// "New row" flow (task 5.5) that need it for navigation or display.
+  String get databaseId => _databaseId;
+
+  /// `POST /databases/{id}/rows` with just a title — the "New row" flow
+  /// (task 5.5). The caller navigates to the created note; this controller
+  /// doesn't add it to [DatabaseScreenState.rows]/[columns] itself, since
+  /// the next `changed`-triggered re-query (or the view re-query on
+  /// return) picks it up the same way any other row would.
+  Future<Note> createRow(String title) =>
+      _api.createRow(_databaseId, title: title);
+
   /// Clears the current "left the view" notice, e.g. once its undo action
   /// has been taken or the user dismissed it.
   void dismissLeftViewNotice() {

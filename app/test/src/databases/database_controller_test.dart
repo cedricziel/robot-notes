@@ -633,5 +633,42 @@ void main() {
 
       expect(queries, 2);
     });
+
+    test('createRow() posts the title to /databases/{id}/rows', () async {
+      final databases = await _seededDatabases(_definitionJson());
+      http.Request? captured;
+      final mock = MockClient((request) async {
+        captured = request;
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'id': '01N',
+            'title': 'New row',
+            'content': '',
+            'version': 1,
+            'created_at': _now,
+            'updated_at': _now,
+          }),
+          201,
+        );
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = DatabaseController(
+        api: api,
+        databases: databases,
+        databaseId: '01A',
+      );
+      addTearDown(ctrl.dispose);
+
+      final note = await ctrl.createRow('New row');
+
+      expect(note.id, '01N');
+      expect(captured?.method, 'POST');
+      expect(captured?.url.path, '/databases/01A/rows');
+      expect(
+        jsonDecode(captured!.body) as Map<String, Object?>,
+        containsPair('title', 'New row'),
+      );
+      expect(ctrl.databaseId, '01A');
+    });
   });
 }
