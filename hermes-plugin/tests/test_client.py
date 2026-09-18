@@ -222,6 +222,8 @@ def test_find_note_by_title_filter_miss_does_not_fall_back_to_scan(client):
 
     assert result is None
 
+
+@respx.mock
 def test_create_note_path_conflict_raises_path_conflict_not_version_conflict(client):
     """A 409 from `POST /notes` is a title/path collision, per API.md — it must
     not be lumped in with the version-race 409 from `PUT /notes/{id}`."""
@@ -469,6 +471,8 @@ def test_find_note_by_title_propagates_non_400_errors_from_filter_attempt(client
     with pytest.raises(ClientError):
         client.find_note_by_title("Session X", path="conversations/agent")
 
+
+@respx.mock
 def test_write_note_with_retry_does_not_retry_locked(client):
     route = respx.put("https://notes.example.com/notes/01XYZ").mock(
         return_value=httpx.Response(423, json={"error": "locked", "lock": {"holder": "alice"}})

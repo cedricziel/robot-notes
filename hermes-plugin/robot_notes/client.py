@@ -213,7 +213,7 @@ class RobotNotesClient:
         try:
             response = self._request("GET", "/notes", params={"path": path, "title": title, "limit": 1})
         except ClientError as exc:
-            if "HTTP 400" not in str(exc):
+            if exc.status != 400:
                 raise
         else:
             items = response.json().get("items", [])
