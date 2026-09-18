@@ -14,6 +14,8 @@ import 'auth/oidc_session_refresher.dart';
 import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
+import 'desktop/app_menu_actions.dart';
+import 'desktop/app_menu_bar.dart';
 import 'files/picked_file.dart';
 import 'layout/breakpoints.dart';
 import 'notes/folder_prompt.dart';
@@ -30,6 +32,7 @@ import 'search/search_controller.dart';
 import 'search/search_screen.dart';
 import 'setup/setup_controller.dart';
 import 'setup/setup_screen.dart';
+import 'widgets/adaptive.dart';
 import 'widgets/connection_banner.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/error_strip.dart';
@@ -278,9 +281,21 @@ class OpenSearchIntent extends Intent {
   const OpenSearchIntent();
 }
 
+/// Re-fetches the notes list (Cmd+R, F5).
+class RefreshNotesIntent extends Intent {
+  const RefreshNotesIntent();
+}
+
+/// Opens the account surface (Cmd/Ctrl+,).
+class OpenAccountIntent extends Intent {
+  const OpenAccountIntent();
+}
+
 /// App-level keyboard shortcuts, active anywhere inside the shell. Both
 /// the macOS (meta) and Windows/Linux (control) chords are registered so
-/// the map doesn't need to know the platform.
+/// the map doesn't need to know the platform. On the macOS desktop build
+/// the native menu bar owns the ⌘ chords it displays, so the shell
+/// registers this map through [withoutMenuOwnedShortcuts].
 const Map<ShortcutActivator, Intent> appShortcuts = {
   SingleActivator(LogicalKeyboardKey.keyN, meta: true): NewNoteIntent(),
   SingleActivator(LogicalKeyboardKey.keyN, control: true): NewNoteIntent(),
@@ -290,6 +305,10 @@ const Map<ShortcutActivator, Intent> appShortcuts = {
       OpenSearchIntent(),
   SingleActivator(LogicalKeyboardKey.keyF, control: true, shift: true):
       OpenSearchIntent(),
+  SingleActivator(LogicalKeyboardKey.keyR, meta: true): RefreshNotesIntent(),
+  SingleActivator(LogicalKeyboardKey.f5): RefreshNotesIntent(),
+  SingleActivator(LogicalKeyboardKey.comma, meta: true): OpenAccountIntent(),
+  SingleActivator(LogicalKeyboardKey.comma, control: true): OpenAccountIntent(),
 };
 
 /// The [ShellRoute] chrome around `/` and `/notes/:id`: keyboard
@@ -313,30 +332,96 @@ class _AppShell extends StatefulWidget {
 
 class _AppShellState extends State<_AppShell> {
   double _sidebarWidth = PaneSizes.sidebarDefault;
+  AppMenuActions? _menuActions;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The macOS menu bar's File and View items call these; there is no
+    // registry (and nothing to do) anywhere the app runs without one.
+    _menuActions = AppMenuActionsScope.maybeOf(context);
+    _menuActions?.setShell(
+      this,
+      ShellMenuHandlers(
+        newNote: _newNoteInSelectedFolder,
+        newFolder: _newFolderInSelectedFolder,
+        uploadFile: _uploadToSelectedFolder,
+        search: () => unawaited(_openSearch(context, AppSession.of(context))),
+        refresh: () => unawaited(AppSession.of(context).list.refresh()),
+        account: () => unawaited(_showAccount(context, AppSession.of(context))),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _menuActions?.clearShell(this);
+    super.dispose();
+  }
+
+  void _newNoteInSelectedFolder() {
+    final session = AppSession.of(context);
+    unawaited(
+      _createNote(
+        context,
+        session,
+        path: session.list.value.selectedPath ?? '',
+      ),
+    );
+  }
+
+  void _newFolderInSelectedFolder() {
+    final session = AppSession.of(context);
+    unawaited(
+      _createFolder(
+        context,
+        session,
+        initialPath: session.list.value.selectedPath,
+      ),
+    );
+  }
+
+  void _uploadToSelectedFolder() {
+    final session = AppSession.of(context);
+    unawaited(
+      _uploadFile(
+        context,
+        session,
+        pickFile: widget.pickFile,
+        path: session.list.value.selectedPath ?? '',
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final session = AppSession.of(context);
     final large = _isLarge(context);
     return Shortcuts(
-      shortcuts: appShortcuts,
+      shortcuts: withoutMenuOwnedShortcuts(appShortcuts),
       child: Actions(
         actions: <Type, Action<Intent>>{
           NewNoteIntent: CallbackAction<NewNoteIntent>(
             onInvoke: (_) {
-              unawaited(
-                _createNote(
-                  context,
-                  session,
-                  path: session.list.value.selectedPath ?? '',
-                ),
-              );
+              _newNoteInSelectedFolder();
               return null;
             },
           ),
           OpenSearchIntent: CallbackAction<OpenSearchIntent>(
             onInvoke: (_) {
               unawaited(_openSearch(context, session));
+              return null;
+            },
+          ),
+          RefreshNotesIntent: CallbackAction<RefreshNotesIntent>(
+            onInvoke: (_) {
+              unawaited(session.list.refresh());
+              return null;
+            },
+          ),
+          OpenAccountIntent: CallbackAction<OpenAccountIntent>(
+            onInvoke: (_) {
+              unawaited(_showAccount(context, session));
               return null;
             },
           ),
@@ -741,19 +826,23 @@ class _AccountSheet extends StatelessWidget {
 Future<void> _confirmReset(BuildContext context, AppSession session) async {
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
+    builder: (ctx) => AlertDialog.adaptive(
       title: const Text('Disconnect from server?'),
       content: const Text(
         'This clears the saved server URL, API key, and display name. '
         "You'll be asked to reconnect next time.",
       ),
       actions: [
-        TextButton(
+        adaptiveDialogAction(
+          ctx,
           onPressed: () => Navigator.of(ctx).pop(false),
           child: const Text('Cancel'),
         ),
-        FilledButton.tonal(
+        adaptiveDialogAction(
+          ctx,
           key: const Key('account.disconnect.confirm'),
+          primary: true,
+          destructive: true,
           onPressed: () => Navigator.of(ctx).pop(true),
           child: const Text('Disconnect'),
         ),
@@ -1161,6 +1250,8 @@ class _Splash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator.adaptive()),
+    );
   }
 }

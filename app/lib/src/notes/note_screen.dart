@@ -7,9 +7,12 @@ import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import '../desktop/app_menu_actions.dart';
+import '../desktop/app_menu_bar.dart';
 import '../format/note_time.dart';
 import '../layout/breakpoints.dart';
 import '../theme/app_theme.dart';
+import '../widgets/adaptive.dart';
 import '../widgets/status_strip.dart';
 import 'link_autocomplete.dart';
 import 'markdown_toolbar.dart';
@@ -104,6 +107,9 @@ class _NoteScreenState extends State<NoteScreen> {
 
   late final VoidCallback _uninstallWebSaveShortcut;
 
+  /// The macOS menu bar's Note menu registry, when hosted under one.
+  AppMenuActions? _menuActions;
+
   @override
   void initState() {
     super.initState();
@@ -119,7 +125,18 @@ class _NoteScreenState extends State<NoteScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _menuActions = AppMenuActionsScope.maybeOf(context);
+    // Re-runs when this route stops or resumes being the current one, so
+    // a note pushed over this one takes the Note menu with it and hands it
+    // back on pop.
+    _syncMenuActions();
+  }
+
+  @override
   void dispose() {
+    _menuActions?.clearNote(this);
     widget.controller.removeListener(_syncBuffersFromState);
     _uninstallWebSaveShortcut();
     _title.dispose();
@@ -221,6 +238,35 @@ class _NoteScreenState extends State<NoteScreen> {
     _syncField(_title, s.editTitle);
     _syncField(_content, s.editContent);
     if (mounted) setState(() {});
+    _syncMenuActions();
+  }
+
+  /// Publishes this note's commands to the macOS menu bar while this
+  /// screen is the one in front, mirroring the app bar: Edit while
+  /// viewing, Save while editing, Move/Delete only while viewing, Close
+  /// whenever a note is loaded. Withdraws them while another route covers
+  /// this one.
+  void _syncMenuActions() {
+    final actions = _menuActions;
+    if (actions == null || !mounted) return;
+    if (ModalRoute.of(context)?.isCurrent == false) {
+      actions.clearNote(this);
+      return;
+    }
+    final state = widget.controller.value;
+    final loaded = state.note != null;
+    final viewing = state.mode == NoteMode.viewing && loaded;
+    final editing = state.mode == NoteMode.editing;
+    actions.setNote(
+      this,
+      NoteMenuHandlers(
+        edit: viewing ? _edit : null,
+        save: editing ? _save : null,
+        close: loaded ? _close : null,
+        move: viewing ? _confirmMove : null,
+        delete: viewing ? _confirmDelete : null,
+      ),
+    );
   }
 
   static void _syncField(TextEditingController field, String? buffer) {
@@ -273,7 +319,8 @@ class _NoteScreenState extends State<NoteScreen> {
       IconData leadingIcon,
       String leadingTooltip,
     ) = switch (widget.presentation) {
-      NotePresentation.page => (Icons.arrow_back, 'Back'),
+      // A chevron on iOS/macOS, an arrow elsewhere.
+      NotePresentation.page => (adaptiveBackIcon(context), 'Back'),
       NotePresentation.pane => (Icons.close, 'Close'),
     };
     return PopScope(
@@ -315,25 +362,30 @@ class _NoteScreenState extends State<NoteScreen> {
                 child: const Text('Save'),
               ),
             if (viewing)
-              PopupMenuButton<void>(
+              AdaptiveMoreMenu(
                 key: const Key('note.menu'),
-                itemBuilder: (_) => [
-                  PopupMenuItem<void>(
+                tooltip: 'More',
+                entries: [
+                  AdaptiveMenuEntry(
                     key: const Key('note.move'),
-                    onTap: _confirmMove,
-                    child: const Text('Move to folder…'),
+                    label: 'Move to folder…',
+                    onSelected: _confirmMove,
                   ),
-                  PopupMenuItem<void>(
+                  AdaptiveMenuEntry(
                     key: const Key('note.delete'),
-                    onTap: _confirmDelete,
-                    child: const Text('Delete note'),
+                    label: 'Delete note',
+                    destructive: true,
+                    onSelected: _confirmDelete,
                   ),
                 ],
               ),
           ],
         ),
+        // On the macOS desktop build the native menu bar owns ⌘S and ⌘E
+        // (see [withoutMenuOwnedShortcuts]); the Ctrl chords and Escape
+        // stay here everywhere.
         body: CallbackShortcuts(
-          bindings: <ShortcutActivator, VoidCallback>{
+          bindings: withoutMenuOwnedShortcuts(<ShortcutActivator, VoidCallback>{
             if (state.mode == NoteMode.editing) ...{
               const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
               const SingleActivator(LogicalKeyboardKey.keyS, control: true):
@@ -345,7 +397,7 @@ class _NoteScreenState extends State<NoteScreen> {
                   _edit,
             },
             const SingleActivator(LogicalKeyboardKey.escape): _close,
-          },
+          }),
           child: _buildBody(context, state),
         ),
       ),
@@ -358,32 +410,31 @@ class _NoteScreenState extends State<NoteScreen> {
   Future<void> _confirmMove() async {
     final note = widget.controller.value.note;
     if (note == null) return;
-    // A `TextFormField` (rather than a `TextField` + an explicit
-    // `TextEditingController`) owns and disposes its own internal
-    // controller, so there's nothing to clean up once the dialog closes.
+    // The field owns its own controller, so there's nothing to clean up
+    // once the dialog closes.
     var draft = note.path;
     final target = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AlertDialog.adaptive(
         title: const Text('Move to folder'),
-        content: TextFormField(
+        content: AdaptiveDialogTextField(
           key: const Key('note.move.input'),
           initialValue: note.path,
-          autofocus: true,
+          label: 'Folder path',
+          hint: 'e.g. Projects/Alpha (blank for the vault root)',
           onChanged: (v) => draft = v,
-          decoration: const InputDecoration(
-            labelText: 'Folder path',
-            hintText: 'e.g. Projects/Alpha (blank for the vault root)',
-          ),
         ),
         actions: [
-          TextButton(
+          adaptiveDialogAction(
+            ctx,
             key: const Key('note.move.cancel'),
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          adaptiveDialogAction(
+            ctx,
             key: const Key('note.move.confirm'),
+            primary: true,
             onPressed: () => Navigator.of(ctx).pop(draft),
             child: const Text('Move'),
           ),
@@ -413,17 +464,21 @@ class _NoteScreenState extends State<NoteScreen> {
   Future<void> _confirmDelete() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AlertDialog.adaptive(
         title: const Text('Delete this note?'),
         content: const Text("This can't be undone."),
         actions: [
-          TextButton(
+          adaptiveDialogAction(
+            ctx,
             key: const Key('note.delete.cancel'),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          adaptiveDialogAction(
+            ctx,
             key: const Key('note.delete.confirm'),
+            primary: true,
+            destructive: true,
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Delete'),
           ),
@@ -459,7 +514,7 @@ class _NoteScreenState extends State<NoteScreen> {
         );
       }
       if (state.mode == NoteMode.loading) {
-        return const Center(child: CircularProgressIndicator());
+        return const Center(child: CircularProgressIndicator.adaptive());
       }
       return const Center(child: Text('Note unavailable'));
     }
@@ -984,7 +1039,7 @@ class _BacklinksPanel extends StatelessWidget {
             ? const SizedBox(
                 width: 16,
                 height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: CircularProgressIndicator.adaptive(strokeWidth: 2),
               )
             : const Chip(
                 key: Key('note.backlinks.empty'),

@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 
 import 'src/app_router.dart';
 import 'src/config/config_store.dart';
+import 'src/desktop/app_menu_actions.dart';
+import 'src/desktop/app_menu_bar.dart';
 import 'src/desktop/tray_controller.dart';
 import 'src/otel/otel_bootstrap.dart';
 import 'src/theme/app_theme.dart';
@@ -20,15 +22,21 @@ Future<void> main() async {
   if (kIsWeb) binding.ensureSemantics();
   configureUrlStrategy();
   await initOtel();
-  unawaited(TrayController().init());
-  runApp(const RobotNotesApp());
+  final tray = TrayController();
+  unawaited(tray.init());
+  runApp(RobotNotesApp(onCloseWindow: tray.hideWindow));
 }
 
 /// Root widget for the robot-notes Flutter client. Owns the [GoRouter] and
 /// the [ConfigHolder] that drives its first-run redirect for the app's
-/// entire lifetime.
+/// entire lifetime, plus the [AppMenuActions] registry behind the macOS
+/// menu bar.
 class RobotNotesApp extends StatefulWidget {
-  const RobotNotesApp({super.key});
+  const RobotNotesApp({this.onCloseWindow, super.key});
+
+  /// Backs the macOS menu bar's Window › Close Window (⌘W). `null` omits
+  /// the item.
+  final VoidCallback? onCloseWindow;
 
   @override
   State<RobotNotesApp> createState() => _RobotNotesAppState();
@@ -38,6 +46,7 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
   final ConfigStore _store = SecureConfigStore();
   late final ConfigHolder _configHolder = ConfigHolder(_store);
   late final GoRouter _router = buildAppRouter(configHolder: _configHolder);
+  final AppMenuActions _menuActions = AppMenuActions();
 
   // Tracks which server's OTel config is currently loaded so a ConfigHolder
   // notification that doesn't change the base URL (unrelated field edits;
@@ -62,6 +71,7 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
     _configHolder.removeListener(_syncOtel);
     _configHolder.dispose();
     _router.dispose();
+    _menuActions.dispose();
     super.dispose();
   }
 
@@ -72,8 +82,14 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       routerConfig: _router,
-      builder: (context, child) =>
-          AppRouterShell(configHolder: _configHolder, child: child),
+      builder: (context, child) => AppMenuBar(
+        actions: _menuActions,
+        onCloseWindow: widget.onCloseWindow,
+        child: AppMenuActionsScope(
+          actions: _menuActions,
+          child: AppRouterShell(configHolder: _configHolder, child: child),
+        ),
+      ),
     );
   }
 }

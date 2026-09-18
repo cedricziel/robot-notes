@@ -5,4 +5,6 @@
 /// into the Web build.
 class TrayController {
   Future<void> init() async {}
+
+  Future<void> hideWindow() async {}
 }
