@@ -3,7 +3,16 @@ version: 0.2.12 # x-release-please-version
 description: "robot-notes — shared notes workspace as external memory (REST, static API key)."
 pip_dependencies:
   - httpx
+# Hooks this provider implements, per the memory-provider-plugin developer guide.
+hooks:
+  - on_session_end
+  - on_session_switch
+  - on_memory_write
+  - queue_prefetch
+  - prefetch
+# Informational only for `hermes memory setup`: that wizard is driven entirely by
+# get_config_schema()/save_config() below, which do not read this list. It IS read
+# by the general `hermes plugins install` flow, which prompts for any of these that
+# are unset after cloning the plugin.
 requires_env:
   - ROBOT_NOTES_API_KEY
-hooks:
-  - on_session_switch
