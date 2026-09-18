@@ -257,3 +257,27 @@ The test suite (`make test-hermes-plugin` from the repo root, or directly:
   enough. CI runs contract mode against the pin on every `hermes-plugin/`
   change (job `hermes-plugin-contract`) and, separately, weekly against
   hermes-agent's default branch as a non-blocking drift check.
+
+## Testing
+
+`python -m pytest` (from `hermes-plugin/`, or `make test-hermes-plugin` from
+the repo root) mocks robot-notes' HTTP API with `respx` — fast, but it can't
+catch a mismatch with the real server's behavior.
+
+`tests/e2e/` covers `RobotNotesClient`, `RobotNotesProvider`, and the Claude
+Code hook (`claude-plugin/hooks/log_conversation.py`) against an actual
+running robot-notes server: real 201/404/409/423 status codes, the real
+error envelope shape, and optimistic-concurrency (`If-Match`) behavior. These
+are marked `@pytest.mark.e2e`, skipped by default, and only run when both
+`ROBOT_NOTES_E2E_BASE_URL` and `ROBOT_NOTES_E2E_API_KEY` point at a live
+server:
+
+```bash
+# One-shot: starts a server, runs the e2e suite, stops the server.
+make test-hermes-plugin-e2e
+
+# Or manually, against a server you already have running:
+export ROBOT_NOTES_E2E_BASE_URL=http://127.0.0.1:8080
+export ROBOT_NOTES_E2E_API_KEY=dev-secret-do-not-ship
+cd hermes-plugin && .venv/bin/python -m pytest -m e2e
+```

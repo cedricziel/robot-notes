@@ -1,4 +1,4 @@
-.PHONY: help install hooks fmt format lint analyze test test-shared test-server test-app test-hermes-plugin test-hermes-plugin-contract run-server run-app web-build outdated upgrade clean docker-build
+.PHONY: help install hooks fmt format lint analyze test test-shared test-server test-app test-hermes-plugin test-hermes-plugin-contract test-hermes-plugin-e2e run-server run-app web-build outdated upgrade clean docker-build
 
 # Default target prints the help table
 help:
@@ -14,6 +14,7 @@ help:
 	@printf "  test-app       run app/ Flutter tests only\n"
 	@printf "  test-hermes-plugin  run the Python hermes-plugin/ test suite (not part of \`test\`)\n"
 	@printf "  test-hermes-plugin-contract  same, plus a pinned hermes-agent checkout on PYTHONPATH\n"
+	@printf "  test-hermes-plugin-e2e  start a real server, run the hermes-plugin + Claude hook e2e suite against it, then stop it\n"
 	@printf "  run-server     start the Dart Frog dev server (with dev defaults)\n"
 	@printf "  run-app        start the Flutter app on the default device\n"
 	@printf "  web-build      build the Flutter web bundle into app/build/web\n"
@@ -85,6 +86,47 @@ test-hermes-plugin-contract:
 	  ( test -d .venv || $(HERMES_PLUGIN_PYTHON) -m venv .venv ) && \
 	  .venv/bin/pip install -q -e '.[dev]' && \
 	  PYTHONPATH="$(HERMES_AGENT_CHECKOUT)" .venv/bin/python -m pytest -v
+
+# Starts a real robot-notes server (dart_frog dev, same as `run-server`) on a
+# scratch port/data dir, points the hermes-plugin e2e suite at it via
+# ROBOT_NOTES_E2E_BASE_URL/ROBOT_NOTES_E2E_API_KEY, then always stops the
+# server and removes the scratch data dir again (trap on EXIT covers a failed
+# test run too). Mirrors the `e2e` CI job in .github/workflows/ci.yml.
+E2E_API_KEY ?= e2e-test-key-not-a-secret
+E2E_DATA_DIR ?= $(CURDIR)/.e2e-data
+E2E_PORT ?= 8098
+
+test-hermes-plugin-e2e:
+	@$(HERMES_PLUGIN_PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || \
+	  { echo "error: $(HERMES_PLUGIN_PYTHON) is older than the Python >=3.10 hermes-plugin/pyproject.toml requires; install python3.10+ (e.g. via Homebrew)"; exit 1; }
+	@command -v dart_frog >/dev/null 2>&1 || dart pub global activate dart_frog_cli
+	cd hermes-plugin && \
+	  ( test -d .venv || $(HERMES_PLUGIN_PYTHON) -m venv .venv ) && \
+	  .venv/bin/pip install -q -e '.[dev]'
+	rm -rf "$(E2E_DATA_DIR)" && mkdir -p "$(E2E_DATA_DIR)"
+	set -e; \
+	cd server && \
+	  ROBOT_NOTES_API_KEY="$(E2E_API_KEY)" \
+	  ROBOT_NOTES_DATA_DIR="$(E2E_DATA_DIR)" \
+	  ROBOT_NOTES_PORT="$(E2E_PORT)" \
+	  dart_frog dev > "$(CURDIR)/.e2e-server.log" 2>&1 & \
+	SERVER_PID=$$!; \
+	cd "$(CURDIR)"; \
+	trap 'kill "$$SERVER_PID" 2>/dev/null || true; rm -rf "$(E2E_DATA_DIR)" "$(CURDIR)/.e2e-server.log"' EXIT; \
+	ready=0; \
+	for i in $$(seq 1 60); do \
+	  if curl -fsS "http://127.0.0.1:$(E2E_PORT)/healthz" >/dev/null 2>&1; then ready=1; break; fi; \
+	  sleep 1; \
+	done; \
+	if [ "$$ready" != "1" ]; then \
+	  echo "robot-notes server did not become healthy in time" >&2; \
+	  cat "$(CURDIR)/.e2e-server.log" 2>/dev/null || true; \
+	  exit 1; \
+	fi; \
+	cd hermes-plugin && \
+	  ROBOT_NOTES_E2E_BASE_URL="http://127.0.0.1:$(E2E_PORT)" \
+	  ROBOT_NOTES_E2E_API_KEY="$(E2E_API_KEY)" \
+	  .venv/bin/python -m pytest -m e2e
 
 # `make run-server` boots the Dart Frog dev server with dev defaults.
 # Override any of these on the command line (e.g.

@@ -23,3 +23,6 @@ robot_notes = ["skills/**/SKILL.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "e2e: talks to a real robot-notes server; needs ROBOT_NOTES_E2E_BASE_URL / ROBOT_NOTES_E2E_API_KEY, select with -m e2e",
+]

@@ -712,3 +712,14 @@ def test_a_success_after_some_failures_resets_the_breaker():
             client.search("budget")
     # still below threshold again (4 failures since the reset), so still a network error
     assert exc_info.value.kind is ErrorKind.NETWORK_ERROR
+
+
+@respx.mock
+def test_delete_note_handles_empty_204_body(client):
+    """The real server responds 204 No Content with no body (see
+    server/API.md); this must not raise trying to decode JSON from it."""
+    respx.delete("https://notes.example.com/notes/01XYZ").mock(return_value=httpx.Response(204))
+
+    result = client.delete_note("01XYZ")
+
+    assert result == {}

@@ -287,7 +287,11 @@ class RobotNotesClient:
         return response.json()
 
     def delete_note(self, note_id: str) -> Dict[str, Any]:
-        return self._request("DELETE", f"/notes/{note_id}").json()
+        # The real server responds 204 No Content (empty body) per server/API.md;
+        # only decode a body when the response actually carries one, so this
+        # doesn't raise on the real server's empty response.
+        response = self._request("DELETE", f"/notes/{note_id}")
+        return response.json() if response.content else {}
 
     def write_note_with_retry(
         self, note_id: str, *, version: int, content: str, max_attempts: int = 3
