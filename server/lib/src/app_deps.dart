@@ -5,6 +5,7 @@ import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/databases/registry.dart';
 import 'package:server/src/embeddings/embedding_provider_factory.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/legacy_migration.dart';
@@ -59,6 +60,7 @@ class AppDeps {
     required Clock clock,
     LinkIndex? linkIndex,
     NoteWriteService? noteWriteService,
+    DatabaseRegistry? registry,
     OidcDiscoveryDocument? oidcDiscovery,
     JwksCache? oidcJwks,
     PendingLoginStore? pendingLoginStore,
@@ -67,6 +69,7 @@ class AppDeps {
     int maxUploadSizeBytes = Config.defaultMaxUploadSizeBytes,
   }) {
     final resolvedLinkIndex = linkIndex ?? LinkIndex();
+    final resolvedRegistry = registry ?? DatabaseRegistry();
     final resolvedWriteService = noteWriteService ??
         NoteWriteService(
           storage: storage,
@@ -75,6 +78,7 @@ class AppDeps {
           broadcaster: broadcaster,
           linkIndex: resolvedLinkIndex,
           lockManager: lockManager,
+          registry: resolvedRegistry,
         );
     return AppDeps._(
       storage: storage,
@@ -91,6 +95,7 @@ class AppDeps {
       clock: clock,
       linkIndex: resolvedLinkIndex,
       noteWriteService: resolvedWriteService,
+      registry: resolvedRegistry,
       oidcDiscovery: oidcDiscovery,
       oidcJwks: oidcJwks,
       pendingLoginStore: pendingLoginStore,
@@ -124,6 +129,7 @@ class AppDeps {
     required this.clock,
     required this.linkIndex,
     required this.noteWriteService,
+    required this.registry,
     required this.fileStore,
     required this.uploadSessions,
     required this.maxUploadSizeBytes,
@@ -193,6 +199,14 @@ class AppDeps {
       tracer: tracer,
       embeddingProvider: embeddingProvider,
     );
+    final registry = DatabaseRegistry(logger: Logger('databases.registry'));
+    registry.rebuild([
+      for (final row in searchIndex.definitionsSource())
+        if (metaIndex.get(row.id) != null)
+          (metaIndex.get(row.id)!, row.extra),
+    ]);
+    log.info('Bootstrapped DatabaseRegistry with ${registry.all.length} '
+        'definition(s)');
     final inviteStore = InviteStore(
       inviteDir: Directory('${config.dataDir}/invites'),
       clock: clock,
@@ -243,6 +257,7 @@ class AppDeps {
       lockManager: lockManager,
       tracer: tracer,
       embeddingProvider: embeddingProvider,
+      registry: registry,
     );
 
     return AppDeps(
@@ -260,6 +275,7 @@ class AppDeps {
       clock: clock,
       linkIndex: linkIndex,
       noteWriteService: noteWriteService,
+      registry: registry,
       oidcDiscovery: oidcDiscovery,
       oidcJwks: oidcJwks,
       pendingLoginStore: PendingLoginStore(clock: clock),
@@ -340,6 +356,13 @@ class AppDeps {
   /// Orchestrates filesystem + search + meta + broadcast on every note
   /// write, so the routes don't have to remember the dependency order.
   final NoteWriteService noteWriteService;
+
+  /// In-memory database-definition registry — see the `add-databases`
+  /// design's "Definition notes are parsed into an in-memory
+  /// `DatabaseRegistry`" decision. Kept current on every write by
+  /// [noteWriteService] (constructed sharing this same instance); rebuilt
+  /// from [searchIndex]'s `definitionsSource()` scan at [bootstrap].
+  final DatabaseRegistry registry;
 
   StreamSubscription<LockEvent>? _lockSub;
 
