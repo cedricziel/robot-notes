@@ -7,7 +7,7 @@ TDD throughout: each task names its failing widget or unit test first. Conventio
 - [ ] 1.1 Spike: confirm flutter_markdown_plus custom `BlockSyntax` plus `MarkdownElementBuilder` can claim a whole line `![[...]]` without affecting inline text; record the outcome in design.md; if unsupported, switch the design to the segment pre-pass before any other task starts
 - [ ] 1.2 Extend `Note` with `properties` and `type`; add `listDatabases`, `getDatabase`, `createDatabase`, `updateDatabase`, `queryDatabase`, `createRow`, `patchProperties` to `RobotNotesClient` using the shared DTOs and `Routes`; failing tests with a mock HTTP client asserting method, path, headers (`If-Match` on update), and body per endpoint; implement
 - [x] 1.3 Map 409 `version_conflict` without `current` to `VersionConflictException` with a null `current`; regression test that 400 `validation_failed` still yields `BadRequestException` with the message; implement
-- [ ] 1.4 Extract title search from `NoteController.searchLinkTitles` into a standalone `TitleSearchService` usable without a note, with an optional database restriction via `queryDatabase`; failing tests; implement and re-point `NoteController`
+- [x] 1.4 Extract title search from `NoteController.searchLinkTitles` into a standalone `TitleSearchService` usable without a note, with an optional database restriction via `queryDatabase`; failing tests; implement and re-point `NoteController` — `queryDatabase` doesn't exist yet (blocked on 1.2, out of scope for this agent), so `databaseRestriction` is a plain `Future<List<String>> Function(String query)?` hook for now; callers can wire it to `queryDatabase` once it lands
 
 ## 2. Routing and server shell fallback
 

@@ -5,6 +5,7 @@ import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import '../databases/title_search_service.dart';
 import '../realtime/ws_client.dart';
 
 /// High-level state of a single open note.
@@ -154,6 +155,7 @@ class NoteController extends ValueNotifier<NoteState> {
     Duration Function(Lock lock, DateTime now)? heartbeatInterval,
     Future<void> Function(Duration)? scheduler,
     Future<void> Function(Duration)? autosaveScheduler,
+    TitleSearchService? titleSearchService,
   }) : _api = api,
        _noteId = noteId,
        _actor = actor,
@@ -163,6 +165,7 @@ class NoteController extends ValueNotifier<NoteState> {
        _heartbeatInterval = heartbeatInterval ?? _defaultHeartbeatInterval,
        _scheduler = scheduler ?? Future<void>.delayed,
        _autosaveScheduler = autosaveScheduler ?? Future<void>.delayed,
+       _titleSearch = titleSearchService ?? TitleSearchService(api: api),
        super(NoteState.initial) {
     if (events != null) {
       _sub = events.listen(_onEvent);
@@ -179,6 +182,7 @@ class NoteController extends ValueNotifier<NoteState> {
   static const Duration autosaveDebounce = Duration(seconds: 2);
 
   final RobotNotesClient _api;
+  final TitleSearchService _titleSearch;
   final String _noteId;
   final String _actor;
   final void Function(String)? _onSubscribe;
@@ -293,19 +297,11 @@ class NoteController extends ValueNotifier<NoteState> {
     }
   }
 
-  /// Looks up note titles matching [query] for the `[[`-link autocomplete,
-  /// via `GET /search`. Returns no titles (and issues no request) for a
-  /// blank query, and swallows request failures — autocomplete has nothing
-  /// useful to show for an error beyond "no matches".
-  Future<List<String>> searchLinkTitles(String query) async {
-    if (query.trim().isEmpty) return const <String>[];
-    try {
-      final hits = await _api.search(q: query);
-      return <String>{for (final h in hits) h.title}.toList();
-    } on ApiException {
-      return const <String>[];
-    }
-  }
+  /// Looks up note titles matching [query] for the `[[`-link autocomplete.
+  /// Delegates to [TitleSearchService]; see it for the empty-query and
+  /// error-swallowing behavior.
+  Future<List<String>> searchLinkTitles(String query) =>
+      _titleSearch.search(query);
 
   /// Asks the server for the editor lock. On success re-fetches the note so
   /// the edit buffers start from the state as it exists under the lock, then
