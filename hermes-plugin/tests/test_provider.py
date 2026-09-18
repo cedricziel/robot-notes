@@ -7,6 +7,7 @@ import respx
 
 import robot_notes
 from robot_notes import SKILL_NAME, SKILL_PATH, RobotNotesConfig, RobotNotesProvider, register
+from robot_notes.breaker import CircuitBreaker
 
 
 @pytest.fixture
@@ -1077,3 +1078,71 @@ class _RegisterCtxSpy:
 
     def register_memory_provider(self, provider) -> None:
         self.provider = provider
+
+
+# -- Circuit breaker ---------------------------------------------------------
+
+
+def _open_breaker(provider):
+    """Trips the client's breaker directly — equivalent to 5 real consecutive
+    network/5xx failures, without wiring up that many respx side effects."""
+    breaker: CircuitBreaker = provider._client._breaker
+    for _ in range(5):
+        breaker.record_failure()
+    assert breaker.is_open() is True
+
+
+@respx.mock
+def test_prefetch_returns_empty_and_makes_no_request_when_breaker_open(provider):
+    route = respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": []}))
+    _open_breaker(provider)
+
+    result = provider.prefetch("budget", session_id="session-1")
+
+    assert result == ""
+    assert not route.called
+
+
+@respx.mock
+def test_prefetch_logs_at_debug_not_warning_when_breaker_open(provider, caplog):
+    respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": []}))
+    _open_breaker(provider)
+
+    with caplog.at_level("DEBUG", logger="robot_notes"):
+        provider.prefetch("budget", session_id="session-1")
+
+    assert any(record.levelname == "DEBUG" for record in caplog.records)
+    assert not any(record.levelname == "WARNING" for record in caplog.records)
+
+
+@respx.mock
+def test_handle_tool_call_returns_circuit_open_error_when_breaker_open(provider):
+    route = respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": []}))
+    _open_breaker(provider)
+
+    result = json.loads(provider.handle_tool_call("robotnotes_search", {"query": "budget"}))
+
+    assert result["error"] == "circuit_open"
+    assert "60s" in result["message"] or "cooldown" in result["message"].lower() or "unavailable" in result["message"].lower()
+    assert not route.called
+
+
+@respx.mock
+def test_on_memory_write_logs_at_debug_not_warning_when_breaker_open(provider, caplog):
+    _open_breaker(provider)
+
+    with caplog.at_level("DEBUG", logger="robot_notes"):
+        provider.on_memory_write("add", "memory", "the user prefers dark mode")
+
+    assert any(record.levelname == "DEBUG" for record in caplog.records)
+    assert not any(record.levelname == "WARNING" for record in caplog.records)
+
+
+@respx.mock
+def test_on_memory_write_still_warns_on_a_regular_failure(provider, caplog):
+    respx.get("https://notes.example.com/notes").mock(return_value=httpx.Response(500))
+
+    with caplog.at_level("DEBUG", logger="robot_notes"):
+        provider.on_memory_write("add", "memory", "the user prefers dark mode")
+
+    assert any(record.levelname == "WARNING" for record in caplog.records)

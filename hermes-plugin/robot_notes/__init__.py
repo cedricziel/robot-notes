@@ -60,6 +60,7 @@ _FALLBACK_ERROR_CODES: Dict[ErrorKind, str] = {
     ErrorKind.LOCKED: "locked",
     ErrorKind.AUTH: "unauthorized",
     ErrorKind.NETWORK_ERROR: "network_error",
+    ErrorKind.CIRCUIT_OPEN: "circuit_open",
     ErrorKind.OTHER: "error",
 }
 
@@ -212,7 +213,9 @@ class RobotNotesProvider(MemoryProvider):
             return "", 0
         try:
             items = self._client.search(query, limit=5)
-        except ClientError:
+        except ClientError as exc:
+            if exc.kind is ErrorKind.CIRCUIT_OPEN:
+                logger.debug("robot_notes: skipping search, %s", exc)
             return "", 0
         if not items:
             return "", 0
@@ -338,8 +341,9 @@ class RobotNotesProvider(MemoryProvider):
                 self._replace_note_entry(
                     title=note["title"], path=note["path"], identifier=old_text, new_entry=content
                 )
-        except ClientError:
-            logger.warning("robot_notes: failed to mirror memory write (target=%s action=%s)", target, action)
+        except ClientError as exc:
+            log = logger.debug if exc.kind is ErrorKind.CIRCUIT_OPEN else logger.warning
+            log("robot_notes: failed to mirror memory write (target=%s action=%s): %s", target, action, exc)
 
     def _overwrite_note(self, *, title: str, path: str, content: str, create_if_missing: bool = True) -> None:
         """Create-or-blind-overwrite a fixed note by title, swallowing failures with a
@@ -354,8 +358,9 @@ class RobotNotesProvider(MemoryProvider):
                     self._client.create_note(title=title, content=content, path=path)
                 return
             self._client.write_note_with_retry(existing["id"], version=existing["version"], content=content)
-        except ClientError:
-            logger.warning("robot_notes: failed to write note %r under %r", title, path)
+        except ClientError as exc:
+            log = logger.debug if exc.kind is ErrorKind.CIRCUIT_OPEN else logger.warning
+            log("robot_notes: failed to write note %r under %r: %s", title, path, exc)
 
     def _append_note(self, *, title: str, path: str, addition: str) -> None:
         """Append ``addition`` as a new entry, skipping it if an identical entry
