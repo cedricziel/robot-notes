@@ -47,5 +47,21 @@ void main() {
       expect(Routes.oauthOidcLogin, '/oauth/oidc/login');
       expect(Routes.oauthOidcCallback, '/oauth/oidc/callback');
     });
+
+    test('exposes the databases paths', () {
+      expect(Routes.databases, '/databases');
+    });
+
+    test('builds database-scoped paths from an id', () {
+      const id = '01HXY00000000000000000000B';
+      expect(Routes.database(id), '/databases/$id');
+      expect(Routes.databaseQuery(id), '/databases/$id/query');
+      expect(Routes.databaseRows(id), '/databases/$id/rows');
+    });
+
+    test('builds the note-properties path from an id', () {
+      const id = '01HXY00000000000000000000A';
+      expect(Routes.noteProperties(id), '/notes/$id/properties');
+    });
   });
 }
