@@ -824,6 +824,130 @@ void main() {
     await tester.pump(const Duration(days: 365 * 100));
   });
 
+  group('/databases/:id route', () {
+    testWidgets(
+      '/databases/01D?view=Kanban deep link renders the stub screen with '
+      'the parsed id and view',
+      (tester) async {
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: _mockClient(),
+        );
+        addTearDown(api.close);
+
+        await tester.pumpWidget(
+          _harness(api: api, initialLocation: '/databases/01D?view=Kanban'),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('database.id')), findsOneWidget);
+        expect(find.text('Database 01D'), findsOneWidget);
+        expect(find.text('View: Kanban'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '/databases/01D with no view query param shows the default-view '
+      'placeholder',
+      (tester) async {
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: _mockClient(),
+        );
+        addTearDown(api.close);
+
+        await tester.pumpWidget(
+          _harness(api: api, initialLocation: '/databases/01D'),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('View: (default)'), findsOneWidget);
+      },
+    );
+
+    testWidgets('the setup redirect applies to a database deep link too', (
+      tester,
+    ) async {
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+      final router = buildAppRouter(
+        configHolder: ConfigHolder.seeded(null),
+        initialLocation: '/databases/01D',
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/databases/01D', router: router),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        router.routeInformationProvider.value.uri.toString(),
+        '/setup?from=%2Fdatabases%2F01D',
+      );
+    });
+
+    testWidgets(
+      'closing a deep-linked database (no history) lands on the notes list',
+      (tester) async {
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: _mockClient(),
+        );
+        addTearDown(api.close);
+
+        await tester.pumpWidget(
+          _harness(api: api, initialLocation: '/databases/01D'),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('database.id')), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('database.close')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('database.id')), findsNothing);
+        expect(find.text('Notes'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'in the three-pane shell, closing goes back to "/" with the list '
+      'pane still mounted (list-pane scoping to the source folder is a '
+      'TODO — see the deviation note on task 2.1 in tasks.md — so the '
+      'list pane shows its normal, unscoped selection for now)',
+      (tester) async {
+        _setWindow(tester, const Size(1400, 900));
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: MockClient(_backendWithOneNote),
+        );
+        addTearDown(api.close);
+        final router = buildAppRouter(
+          configHolder: ConfigHolder.seeded(_config),
+          initialLocation: '/databases/01D',
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _harness(api: api, initialLocation: '/databases/01D', router: router),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('shell.sidebar')), findsOneWidget);
+        expect(find.byType(NotesListScreen), findsOneWidget);
+        expect(_listRow(), findsOneWidget);
+        expect(find.byKey(const Key('database.id')), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('database.close')));
+        await tester.pumpAndSettle();
+
+        expect(router.routeInformationProvider.value.uri.toString(), '/');
+        expect(find.byKey(const Key('database.id')), findsNothing);
+        expect(find.byType(NotesListScreen), findsOneWidget);
+      },
+    );
+  });
+
   group('search overlay', () {
     testWidgets('opens above the list rather than replacing it', (
       tester,

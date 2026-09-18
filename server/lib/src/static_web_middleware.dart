@@ -51,8 +51,9 @@ const _mimeTypes = <String, String>{
 ///   1. If [webDir] is `null` or does not exist on disk → no-op pass-through.
 ///   2. If the path matches a known API prefix → pass-through (the auth +
 ///      route pipeline takes over, so a missing/malformed/mismatched key
-///      still gets the documented 401). `/notes/{id}` and `/search` count
-///      as the app's own client-side routes — not API paths — only when the
+///      still gets the documented 401). `/notes/{id}`, `/search`, and
+///      `/databases/{id}` count as the app's own client-side routes — not
+///      API paths — only when the
 ///      request has no `Authorization` header *and* its `Accept` header
 ///      names `text/html`, the signature of a plain browser navigation
 ///      (reload, bookmark, shared link). Any other request to those paths,
@@ -133,21 +134,23 @@ bool _isApiPath(Request request) {
       return true;
     }
   }
-  // Bare `GET /notes` (the list endpoint) isn't one of the app's routes, so
-  // it stays API-only regardless of `Authorization`.
-  if (path == Routes.notes) return true;
+  // Bare `GET /notes` and `GET /databases` (the list endpoints) aren't
+  // themselves app routes, so they stay API-only regardless of
+  // `Authorization`.
+  if (path == Routes.notes || path == Routes.databases) return true;
 
-  // `/notes/{id}` and `/search` are *also* client-side routes in the
-  // Flutter app (the note view and the search screen), reached by a plain
-  // browser navigation — reload, bookmark, or a shared link — at the same
-  // path as the API call of the same name. Treat a request here as that
-  // browser navigation, rather than an API call, only when it has neither
-  // signal an API client sends: no `Authorization` header *and* an `Accept`
-  // header naming `text/html` (what a browser sends on navigation; the
-  // app's own HTTP client, curl, and MCP/agent clients don't ask for
-  // `text/html`). Anything else — including a request with no
-  // `Authorization` at all but an `Accept` the app wouldn't send — stays on
-  // the API pipeline and gets the documented 401, not HTML.
+  // `/notes/{id}`, `/search`, and `/databases/{id}` are *also* client-side
+  // routes in the Flutter app (the note view, the search screen, and the
+  // database screen), reached by a plain browser navigation — reload,
+  // bookmark, or a shared link — at the same path as the API call of the
+  // same name. Treat a request here as that browser navigation, rather than
+  // an API call, only when it has neither signal an API client sends: no
+  // `Authorization` header *and* an `Accept` header naming `text/html`
+  // (what a browser sends on navigation; the app's own HTTP client, curl,
+  // and MCP/agent clients don't ask for `text/html`). Anything else —
+  // including a request with no `Authorization` at all but an `Accept` the
+  // app wouldn't send — stays on the API pipeline and gets the documented
+  // 401, not HTML.
   if (_isDualUsePath(path)) {
     final hasBearerAuth =
         extractBearerToken(request.headers['authorization']) != null;
@@ -157,10 +160,13 @@ bool _isApiPath(Request request) {
   return false;
 }
 
-/// `/notes/{id}` and `/search` — not bare `/notes` — serve both the SPA and
-/// the JSON API at the same URL; see [_isApiPath].
+/// `/notes/{id}`, `/search`, and `/databases/{id}` — not bare `/notes` or
+/// `/databases` — serve both the SPA and the JSON API at the same URL; see
+/// [_isApiPath].
 bool _isDualUsePath(String path) =>
-    path == Routes.search || path.startsWith('${Routes.notes}/');
+    path == Routes.search ||
+    path.startsWith('${Routes.notes}/') ||
+    path.startsWith('${Routes.databases}/');
 
 bool _acceptsHtml(Request request) {
   final accept = request.headers['accept'];

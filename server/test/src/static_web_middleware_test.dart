@@ -319,6 +319,72 @@ void main() {
     });
 
     test(
+        'falls back to index.html for GET /databases/{id} with no '
+        'Authorization and an html Accept header — a browser reload of the '
+        'database screen, not an API call', () async {
+      final dir = _scratchWeb();
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      final ctx = _ctx(
+        path: '/databases/01ABC',
+        headers: const {
+          'accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+        },
+      );
+      final response = await _run(
+        staticWebMiddleware(webDir: dir.path),
+        ctx,
+      );
+      expect(response.statusCode, HttpStatus.ok);
+      expect(await response.body(), '<html>app</html>');
+      expect(response.headers['vary'], contains('Accept'));
+      expect(response.headers['vary'], contains('Authorization'));
+      expect(response.headers['cache-control'], 'no-cache');
+    });
+
+    test(
+        'stays on the API pipeline for GET /databases/{id} with no '
+        'Authorization when Accept does not ask for html', () async {
+      final dir = _scratchWeb();
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      for (final headers in const [
+        <String, String>{},
+        <String, String>{'accept': 'application/json'},
+      ]) {
+        final ctx = _ctx(path: '/databases/01ABC', headers: headers);
+        final response = await _run(
+          staticWebMiddleware(webDir: dir.path),
+          ctx,
+          handler: () => Response(body: 'api'),
+        );
+        expect(await response.body(), 'api', reason: 'headers=$headers');
+        expect(response.headers['vary'], contains('Accept'));
+        expect(response.headers['cache-control'], 'no-store');
+      }
+    });
+
+    test(
+        'bare GET /databases with text/html Accept and no Authorization '
+        'still 401s (API-only, not a client-side route)', () async {
+      final dir = _scratchWeb();
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      final ctx = _ctx(
+        path: '/databases',
+        headers: const {'accept': 'text/html'},
+      );
+      final response = await _run(
+        staticWebMiddleware(webDir: dir.path),
+        ctx,
+        handler: () => Response(body: 'api'),
+      );
+      expect(await response.body(), 'api');
+      expect(response.headers['vary'], isNull);
+      expect(response.headers['cache-control'], isNull);
+    });
+
+    test(
         'passes through to handler for /healthz, /mcp, /oauth, '
         '/.well-known, /tags', () async {
       final dir = _scratchWeb();
