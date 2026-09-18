@@ -96,6 +96,9 @@ Widget _harness({
   GoRouter? router,
   ValueNotifier<ConnectionStatus>? connection,
   AppMenuActions? menuActions,
+  // Wraps the routed content inside [AppSession], e.g. to pin an ambient
+  // MediaQuery (a macOS unified-title-bar inset) around the shell.
+  Widget Function(Widget)? wrapContent,
 }) {
   final ws = RobotNotesWsClient(config: _config);
   final list = NotesListController(api: api);
@@ -118,7 +121,7 @@ Widget _harness({
       baseUrl: _config.baseUrl,
       connection: connection ?? ValueNotifier(ConnectionStatus.connected),
       onReset: onReset ?? () {},
-      child: child!,
+      child: wrapContent == null ? child! : wrapContent(child!),
     ),
   );
   if (menuActions == null) return app;
@@ -1153,6 +1156,51 @@ void main() {
         expect(find.byType(NotesListScreen), findsOneWidget);
       },
     );
+
+    testWidgets('honours a macOS unified-title-bar inset from the ambient '
+        'MediaQuery: the sidebar Material still starts at the top, but its '
+        "'Folders' header and the notes list's app bar inset below it", (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(1400, 900));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(_backendWithOneNote),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          wrapContent: (child) => Builder(
+            builder: (context) {
+              final media = MediaQuery.of(context);
+              return MediaQuery(
+                data: media.copyWith(padding: media.padding.copyWith(top: 28)),
+                child: child,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The sidebar's background still paints all the way up (under a
+      // unified title bar's traffic lights)...
+      expect(tester.getTopLeft(find.byKey(const Key('shell.sidebar'))).dy, 0);
+      // ...but its content insets below the title-bar inset.
+      expect(
+        tester.getTopLeft(find.text('Folders')).dy,
+        greaterThanOrEqualTo(28),
+      );
+      // The notes list pane's own AppBar (a Scaffold-hosted AppBar
+      // already honours MediaQuery.padding.top) insets the same way.
+      expect(
+        tester.getTopLeft(find.byKey(const Key('notes.title'))).dy,
+        greaterThanOrEqualTo(28),
+      );
+    });
 
     testWidgets('a deep-linked note renders beside the list', (tester) async {
       _setWindow(tester, const Size(1400, 900));

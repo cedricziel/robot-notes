@@ -456,12 +456,23 @@ class _AppShellState extends State<_AppShell> {
               child: Material(
                 key: const Key('shell.sidebar'),
                 color: scheme.surfaceContainerLow,
-                child: FolderTreeSidebar(
-                  controller: session.tree,
-                  selectedPath: selectedPath,
-                  onSelect: session.list.selectFolder,
-                  onCreateFolder: () => unawaited(
-                    _createFolder(context, session, initialPath: selectedPath),
+                // The Material itself paints all the way up under a macOS
+                // unified title bar (so the sidebar's background extends
+                // behind the traffic lights); only its content — starting
+                // with the "Folders" header — insets below it.
+                child: SafeArea(
+                  bottom: false,
+                  child: FolderTreeSidebar(
+                    controller: session.tree,
+                    selectedPath: selectedPath,
+                    onSelect: session.list.selectFolder,
+                    onCreateFolder: () => unawaited(
+                      _createFolder(
+                        context,
+                        session,
+                        initialPath: selectedPath,
+                      ),
+                    ),
                   ),
                 ),
               ),
