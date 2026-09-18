@@ -116,9 +116,15 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
     }
   }
 
-  void _onCellCommit(String noteId, String key, PropertyPatch patch) {
-    widget.controller.patchProperty(noteId, set: patch.set, unset: patch.unset);
-  }
+  Future<String?> _onCellCommit(
+    String noteId,
+    String key,
+    PropertyPatch patch,
+  ) => widget.controller.patchProperty(
+    noteId,
+    set: patch.set,
+    unset: patch.unset,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -277,6 +283,7 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
           isLoadingMore: state.isLoadingMore,
           onLoadMore: widget.controller.loadMore,
           onCommit: _onCellCommit,
+          api: widget.controller.api,
           onOpenRow: widget.onOpenRow,
         );
       case ViewType.list:

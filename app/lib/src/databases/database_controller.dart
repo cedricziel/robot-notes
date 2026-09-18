@@ -6,6 +6,7 @@ import 'package:shared/shared.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
 import '../realtime/ws_client.dart';
+import '../widgets/error_strip.dart';
 import 'databases_controller.dart';
 
 /// High-level state of an open database screen.
@@ -231,6 +232,11 @@ class DatabaseController extends ValueNotifier<DatabaseScreenState> {
   }
 
   static const Duration debounceDuration = Duration(seconds: 1);
+
+  /// The API client this controller was built with, for callers (a
+  /// [PropertyEditor]'s relation picker) that need to build their own
+  /// requests, such as a [TitleSearchService].
+  RobotNotesClient get api => _api;
 
   final RobotNotesClient _api;
   final DatabasesController _databases;
@@ -529,15 +535,17 @@ class DatabaseController extends ValueNotifier<DatabaseScreenState> {
   /// the next re-query notices and removes it). On a `validation_failed`
   /// (400) the local value is reverted and the error is left on
   /// [DatabaseScreenState.error] for the caller to surface next to the
-  /// cell.
-  Future<void> patchProperty(
+  /// cell. Returns `null` on success, or the server's message (falling
+  /// back to a generic one) on failure, matching [PropertyCommitCallback]
+  /// so a [PropertyEditor] can be handed a thin wrapper around this call.
+  Future<String?> patchProperty(
     String noteId, {
     Map<String, Object?>? set,
     List<String>? unset,
   }) async {
-    if (_disposed) return;
+    if (_disposed) return null;
     final previous = _currentPropertiesOf(noteId);
-    if (previous == null) return;
+    if (previous == null) return null;
     final title = _currentTitleOf(noteId) ?? '';
     _prePatchValues[noteId] = previous;
     _applyLocalPatch(noteId, set: set, unset: unset);
@@ -547,8 +555,9 @@ class DatabaseController extends ValueNotifier<DatabaseScreenState> {
       // decided by the next re-query, per design.md. Remember the
       // pre-patch value in case it did, so an undo can restore it.
       _rememberForUndo(noteId, title, previous, set);
+      return null;
     } on ApiException catch (e) {
-      if (_disposed) return;
+      if (_disposed) return null;
       _applyLocalPatch(
         noteId,
         set: previous,
@@ -557,6 +566,7 @@ class DatabaseController extends ValueNotifier<DatabaseScreenState> {
             .toList(),
       );
       value = value.copyWith(error: e);
+      return describeError(e, fallback: 'Could not save.');
     } finally {
       _prePatchValues.remove(noteId);
     }
