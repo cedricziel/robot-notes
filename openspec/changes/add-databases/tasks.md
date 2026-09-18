@@ -60,11 +60,11 @@ Each task is a TDD step: write the failing test named in the task, make it pass,
 
 ## 6. MCP tools
 
-- [ ] 6.1 Extend `_validateArgs` with `object`, `array`, `boolean`, `number` cases raising invalid params; failing tests per type; implement
-- [ ] 6.2 `get_note` returns `properties`; `create_note`/`update_note` accept `properties` (update with only `properties` is valid); failing tool tests; implement
-- [ ] 6.3 Add `list_databases`, `get_database`, `create_database`, `update_database`; failing tests for catalog names and `required` arrays, structured content parity with REST, `not_found`, `version_conflict`, `path_conflict`, write-scope gating; implement
-- [ ] 6.4 Add `query_database`, `create_row`, `update_properties`; failing tests for parity with REST including `validation_failed` on bad option, `groups` present when grouped, lock ignored, `changed` broadcast on patch, read scope allowed on query; implement
-- [ ] 6.5 Update the `tools/list` catalog test to the nineteen names with the exact `required` arrays and verify tool descriptions contain the filter grammar and the per-type encoding table (string-contains assertions)
+- [x] 6.1 Extend `_validateArgs` with `object`, `array`, `boolean`, `number` cases raising invalid params; failing tests per type; implement
+- [x] 6.2 `get_note` returns `properties`; `create_note`/`update_note` accept `properties` (update with only `properties` is valid); failing tool tests; implement
+- [x] 6.3 Add `list_databases`, `get_database`, `create_database`, `update_database`; failing tests for catalog names and `required` arrays, structured content parity with REST, `not_found`, `version_conflict`, `path_conflict`, write-scope gating; implement - REST routes (group 5) aren't merged yet, so these tools call `NoteWriteService`/`DatabaseRegistry`/`DatabaseQuery` directly rather than mirroring a route; `AppDeps.bootstrap` doesn't wire a `DatabaseRegistry` into `NoteWriteService` yet either (that's task 7.1), so these tests build their own `AppDeps` by hand (`server/test/src/mcp/database_tools_test.dart`) the same way `note_write_service_databases_test.dart` does — production wiring is unaffected until 7.1 lands, at which point `McpToolRegistry.forDeps` picks up the real registry automatically via `deps.noteWriteService.registry`
+- [x] 6.4 Add `query_database`, `create_row`, `update_properties`; failing tests for parity with REST including `validation_failed` on bad option, `groups` present when grouped, lock ignored, `changed` broadcast on patch, read scope allowed on query; implement - `query_database`'s row hydration (which declared properties are present/invalid per row) and filter-applicability validation are implemented directly in `tools.dart` (`_hydrateRow`, `_validateQueryFilter`) since no shared/REST helper for that exists yet
+- [x] 6.5 Update the `tools/list` catalog test to the nineteen names with the exact `required` arrays and verify tool descriptions contain the filter grammar and the per-type encoding table (string-contains assertions) - also updated the two other places that asserted the old catalog size (`mcp_handler_test.dart`, `mcp_flow_test.dart`)
 
 ## 7. Startup and consistency
 
