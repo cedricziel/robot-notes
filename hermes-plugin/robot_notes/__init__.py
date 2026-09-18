@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ._memory_provider_base import MemoryProvider
 from .client import ClientError, RobotNotesClient
 from .config import DEFAULT_ACTOR, RobotNotesConfig
+from .transcript import build_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +278,8 @@ class RobotNotesProvider(MemoryProvider):
         if not self._client or not self._can_write():
             return
         title = self._session_id or "unknown-session"
-        self._overwrite_note(title=title, path=self._conversations_path(), content=_summarize(messages))
+        content = build_transcript(messages, session_id=title, actor=self._config.actor)
+        self._overwrite_note(title=title, path=self._conversations_path(), content=content)
 
     def on_session_switch(
         self,
@@ -365,14 +367,3 @@ class RobotNotesProvider(MemoryProvider):
         RobotNotesConfig.create(base_url=str(values.get("base_url", "")), actor=str(values.get("actor") or "")).save(
             hermes_home
         )
-
-
-def _summarize(messages: List[Dict[str, Any]]) -> str:
-    lines = []
-    for message in messages:
-        role = message.get("role", "?")
-        content = message.get("content", "")
-        if isinstance(content, list):
-            content = " ".join(str(part) for part in content)
-        lines.append(f"**{role}**: {content}")
-    return "\n\n".join(lines) if lines else "(empty session)"
