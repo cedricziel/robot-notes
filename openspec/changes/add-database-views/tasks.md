@@ -22,9 +22,9 @@ TDD throughout: each task names its failing widget or unit test first. Conventio
 
 ## 4. Property editors
 
-- [ ] 4.1 `PropertyEditor` widget family for text, url, number, checkbox, date, select, multi_select, relation (multi-value list via `TitleSearchService`, restricted by `database` when declared); failing widget tests per type that committing yields the right `PropertyPatch` and clearing yields `unset`; implement
-- [ ] 4.2 Read-only renderers for built-ins (`tags` chips, relative dates, path text) and for values the editor cannot represent; widget tests; implement
-- [ ] 4.3 Invalid-value styling and inline error display; widget test that a `validation_failed` result reverts and shows the message; implement
+- [x] 4.1 `PropertyEditor` widget family for text, url, number, checkbox, date, select, multi_select, relation (multi-value list via `TitleSearchService`, restricted by `database` when declared); failing widget tests per type that committing yields the right `PropertyPatch` and clearing yields `unset`; implement — added at `app/lib/src/databases/property_editor.dart`; the widget takes an explicit `propertyKey` (not in the design.md sketch's `PropertyEditor(type, value, onCommit)`) since it must build the `{key: value}` map itself; `onCommit` is `Future<String?> Function(PropertyPatch)` (message or null) rather than a bare callback, so 4.3's revert-and-show-message behavior can live in the same widget instead of the caller
+- [x] 4.2 Read-only renderers for built-ins (`tags` chips, relative dates, path text) and for values the editor cannot represent; widget tests; implement — added `app/lib/src/databases/property_value_view.dart` (`PropertyValueView.tags/.relativeTime/.path/.unrepresentable`), reusing the existing `formatRelativeNoteTime`/`formatNoteTimestamp` from `app/lib/src/format/note_time.dart`
+- [x] 4.3 Invalid-value styling and inline error display; widget test that a `validation_failed` result reverts and shows the message; implement — folded into `PropertyEditor` (see 4.1): an `invalid` flag styles a server-flagged value up front, and any `onCommit` rejection reverts the optimistic value and shows the message via a `Key('property_editor.error')` `Text`
 
 ## 5. Database screen
 
