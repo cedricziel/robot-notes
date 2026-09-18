@@ -68,3 +68,14 @@ conversation turn:
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
   are mirrored one-directionally into `Hermes/Memory.md` and
   `Hermes/User.md` in the workspace.
+
+`initialize()` also honors the host's `agent_context` kwarg
+(`"primary"` | `"subagent"` | `"cron"` | `"flush"`): every write path above
+— session-end summaries, the memory mirror, and the `robotnotes_remember` /
+`robotnotes_forget` tools — is skipped whenever `agent_context` is
+`"subagent"`, `"cron"`, or `"flush"`, so a spawned subagent or a scheduled
+cron/flush tick never files its own conversation note or mutates shared
+memory. Reads (`robotnotes_search`, `robotnotes_list`, `robotnotes_note`,
+and recall/prefetch) stay available in every context. A gated write tool
+call returns a `read_only` tool error instead of silently no-oping. A
+missing `agent_context` (older hosts) defaults to writes enabled.

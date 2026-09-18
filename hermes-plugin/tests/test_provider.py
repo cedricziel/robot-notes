@@ -405,6 +405,135 @@ def test_get_config_schema_declares_fields():
     assert api_key_field["secret"] is True
 
 
+@pytest.fixture
+def subagent_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize("session-1", hermes_home=str(tmp_path), agent_context="subagent")
+    return p
+
+
+@pytest.fixture
+def cron_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize("session-1", hermes_home=str(tmp_path), agent_context="cron")
+    return p
+
+
+def test_initialize_defaults_write_enabled_when_agent_context_missing(provider):
+    assert provider._can_write() is True
+
+
+@pytest.mark.parametrize("agent_context", ["subagent", "cron", "flush"])
+def test_initialize_disables_writes_for_non_primary_contexts(tmp_path, monkeypatch, agent_context):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize("session-1", hermes_home=str(tmp_path), agent_context=agent_context)
+
+    assert p._can_write() is False
+
+
+def test_initialize_enables_writes_for_primary_context(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize("session-1", hermes_home=str(tmp_path), agent_context="primary")
+
+    assert p._can_write() is True
+
+
+def test_initialize_records_hermes_home_platform_and_agent_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize(
+        "session-1",
+        hermes_home=str(tmp_path),
+        platform="cli",
+        agent_identity="research-bot",
+    )
+
+    assert p._hermes_home == str(tmp_path)
+    assert p._platform == "cli"
+    assert p._agent_identity == "research-bot"
+
+
+@respx.mock
+@pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
+def test_on_session_end_skipped_for_non_primary_context(request, ctx_provider):
+    create_route = respx.post("https://notes.example.com/notes")
+    provider = request.getfixturevalue(ctx_provider)
+
+    provider.on_session_end([{"role": "user", "content": "hi"}])
+
+    assert not create_route.called
+
+
+@respx.mock
+@pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
+def test_on_memory_write_skipped_for_non_primary_context(request, ctx_provider):
+    create_route = respx.post("https://notes.example.com/notes")
+    provider = request.getfixturevalue(ctx_provider)
+
+    provider.on_memory_write("add", "memory", "the user prefers dark mode")
+
+    assert not create_route.called
+
+
+@pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
+def test_handle_tool_call_remember_gated_for_non_primary_context(request, ctx_provider):
+    provider = request.getfixturevalue(ctx_provider)
+
+    result = json.loads(provider.handle_tool_call("robotnotes_remember", {"title": "Fact", "content": "x"}))
+
+    assert result["error"] == "read_only"
+
+
+@pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
+def test_handle_tool_call_forget_gated_for_non_primary_context(request, ctx_provider):
+    provider = request.getfixturevalue(ctx_provider)
+
+    result = json.loads(provider.handle_tool_call("robotnotes_forget", {"id": "01NEW"}))
+
+    assert result["error"] == "read_only"
+
+
+@respx.mock
+def test_handle_tool_call_search_still_works_for_subagent_context(subagent_provider):
+    respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(200, json={"items": [{"id": "1", "title": "Budget"}]})
+    )
+
+    result = json.loads(subagent_provider.handle_tool_call("robotnotes_search", {"query": "budget"}))
+
+    assert result["items"][0]["id"] == "1"
+
+
+@respx.mock
+def test_prefetch_still_works_for_subagent_context(subagent_provider):
+    respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "1", "title": "Budget", "snippet": "budget plan"}]}
+        )
+    )
+
+    assert "Budget" in subagent_provider.prefetch("budget", session_id="session-1")
+
+
 def test_save_config_does_not_persist_api_key(tmp_path):
     RobotNotesProvider().save_config(
         {"base_url": "https://notes.example.com", "actor": "hermes-bot", "api_key": "secret-key"}, str(tmp_path)
