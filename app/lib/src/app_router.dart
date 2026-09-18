@@ -966,17 +966,18 @@ class _NotePage extends StatelessWidget {
   }
 }
 
-/// The `/databases/:id` route. A routing stub around [DatabaseScreen] (see
-/// that class's doc comment): it just wires the parsed `id`/`view` and the
-/// shell's close behavior, which is otherwise identical to [_NotePage]'s —
-/// group 5 replaces [DatabaseScreen]'s body without touching this shell.
+/// The `/databases/:id` route. Wires the parsed `id`/`view`, the session's
+/// [RobotNotesClient]/[RobotNotesWsClient], and the shell's close behavior
+/// into a [DatabaseRoute], which owns the [DatabaseController] and
+/// [DatabasesController] and renders the real [DatabaseScreen] (group 5).
 ///
 /// TODO(add-database-views task 5.1+): scope the list pane's notes list to
 /// the database's source folder when the source is a folder, per the
 /// `flutter-client` spec's routing requirement. That needs the cached full
-/// definition from `GET /databases/{id}` (`DatabasesController`, group 3),
-/// which doesn't exist yet; until then the list pane shows its normal,
-/// unscoped selection exactly as the `/` and `/notes/:id` routes do.
+/// definition, which is now available via `DatabasesController.definition`,
+/// but wiring it into the list pane's selection is left for a follow-up —
+/// until then the list pane shows its normal, unscoped selection exactly
+/// as the `/` and `/notes/:id` routes do.
 class _DatabasePage extends StatelessWidget {
   const _DatabasePage({required this.databaseId, required this.viewName});
 
@@ -985,16 +986,28 @@ class _DatabasePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DatabaseScreen(
-      id: databaseId,
+    final session = AppSession.of(context);
+    return DatabaseRoute(
+      key: ValueKey<String>(databaseId),
+      api: session.api,
+      ws: session.ws,
+      databaseId: databaseId,
       viewName: viewName,
       onClose: () => _handleDatabaseClosed(context),
+      onOpenNote: (id) {
+        if (_isLarge(context)) {
+          context.go('/notes/$id');
+        } else {
+          unawaited(context.push('/notes/$id'));
+        }
+      },
+      onViewChanged: (name) => context.go('/databases/$databaseId?view=$name'),
     );
   }
 }
 
 /// Mirrors [_handleNoteClosed] without the "was it saved" refresh — the
-/// stub screen never mutates anything yet.
+/// database screen doesn't mutate note-list-relevant state on close.
 void _handleDatabaseClosed(BuildContext context) {
   if (_isLarge(context)) {
     context.go('/');

@@ -28,11 +28,11 @@ TDD throughout: each task names its failing widget or unit test first. Conventio
 
 ## 5. Database screen
 
-- [ ] 5.1 Screen scaffold with title, view switcher updating the URL (including unknown-view fallback), New row, schema editor action, loading, empty, error, and not-found states; widget tests; implement
-- [ ] 5.2 Table view with title column plus view keys (properties and built-ins), inline cell editing through `PropertyEditor`, invalid highlighting, infinite scroll paging, left-the-view notice with undo; widget tests; implement
-- [ ] 5.3 List view with title and property chips; widget test; implement
-- [ ] 5.4 Board view with option-ordered columns, counts, No value column, per-column paging with Load more, drag-and-drop patching with optimistic move and revert; widget tests; implement
-- [ ] 5.5 New row flow: title prompt, `createRow`, navigate to `/notes/{id}?edit=1`; widget test; implement
+- [x] 5.1 Screen scaffold with title, view switcher updating the URL (including unknown-view fallback), New row, schema editor action, loading, empty, error, and not-found states; widget tests; implement — group 4 (`PropertyEditor`) was not merged yet, so table cells (5.2) use a placeholder `DatabaseCellEditor` (see its note below) instead; the router's `_DatabasePage` stub was replaced with a `DatabaseRoute` widget (in `database_screen.dart`) that owns the `DatabasesController`/`DatabaseController` pair and wires the URL rewrite via `onViewChanged`
+- [x] 5.2 Table view with title column plus view keys (properties and built-ins), inline cell editing through `PropertyEditor`, invalid highlighting, infinite scroll paging, left-the-view notice with undo; widget tests; implement — **follow-up for group 4**: cell editing goes through `DatabaseCellEditor` (`app/lib/src/databases/database_cell_editor.dart`), a placeholder that opens a single free-text field and commits `PropertyPatchCommit = void Function(String propertyKey, PropertyPatch patch)`, exactly the signature the real typed `PropertyEditor(type, value, onCommit)` should expose once task 4.1 lands — swapping it in is a one-widget change inside `_RowWidget` in `database_table_view.dart`
+- [x] 5.3 List view with title and property chips; widget test; implement
+- [x] 5.4 Board view with option-ordered columns, counts, No value column, per-column paging with Load more, drag-and-drop patching with optimistic move and revert; widget tests; implement — uses `LongPressDraggable`/`DragTarget` per design.md; a column's emptiness for the screen's overall "no rows yet" state is judged by `count == 0` across all columns rather than by loaded `items`, so a column whose first page hasn't arrived yet doesn't wrongly read as empty
+- [x] 5.5 New row flow: title prompt, `createRow`, navigate to `/notes/{id}?edit=1`; widget test; implement — added `DatabaseController.createRow` (small addition to the group-3 controller, task 3.2, kept minimal) so the write stays behind the controller like every other mutation it makes
 
 ## 6. Schema editor and creation form
 
