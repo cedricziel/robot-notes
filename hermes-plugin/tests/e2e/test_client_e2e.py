@@ -80,12 +80,10 @@ def test_search_finds_created_note(e2e_client: RobotNotesClient):
 def test_create_with_colliding_title_returns_409_path_conflict(
     e2e_client: RobotNotesClient, e2e_base_url, e2e_api_key
 ):
-    """The server does reject the collision with a distinct 409 today — the bug
-    (tracked by #238) is only that RobotNotesClient folds that 409 into the same
-    ``version_conflict`` bucket as a stale PUT. This asserts the real server
-    envelope via a raw request (RobotNotesClient discards the body); see
-    test_create_colliding_title_is_distinct_path_conflict below for the desired,
-    still-unimplemented client-level distinction."""
+    """The server rejects the collision with a distinct 409. This asserts the
+    real server envelope via a raw request (RobotNotesClient discards the
+    body); see test_create_colliding_title_is_distinct_path_conflict below for
+    the client-level distinction."""
     title = f"e2e-collide-{_uid()}"
     path = f"e2e-collide-{_uid()}"
 
@@ -93,7 +91,7 @@ def test_create_with_colliding_title_returns_409_path_conflict(
 
     with pytest.raises(ClientError) as exc_info:
         e2e_client.create_note(title=title, content="second", path=path)
-    assert exc_info.value.kind is ErrorKind.VERSION_CONFLICT  # today's (mis)mapping
+    assert exc_info.value.kind is ErrorKind.PATH_CONFLICT
 
     response = httpx.post(
         f"{e2e_base_url}/notes",
@@ -104,19 +102,11 @@ def test_create_with_colliding_title_returns_409_path_conflict(
     assert response.json() == {"error": "path_conflict"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="RobotNotesClient maps every 409 to ErrorKind.VERSION_CONFLICT, including a "
-    "path collision on create; https://github.com/cedricziel/robot-notes/issues/238 "
-    "fixes this by surfacing the server's error envelope",
-)
 def test_create_colliding_title_is_distinct_path_conflict(e2e_client: RobotNotesClient):
-    """Desired behaviour once #238 lands: a colliding-title create must raise a
-    ClientError distinguishable from a genuine version conflict, e.g. via a
-    dedicated ErrorKind.PATH_CONFLICT (mirroring the server's
-    ``{"error": "path_conflict"}``), not the same VERSION_CONFLICT a stale PUT
-    raises. This flips to an unexpected pass (and thus a hard failure, since it
-    is `strict=True`) the day the client learns to tell the two apart."""
+    """A colliding-title create raises a ClientError distinguishable from a
+    genuine version conflict, via a dedicated ErrorKind.PATH_CONFLICT
+    (mirroring the server's ``{"error": "path_conflict"}``), not the same
+    VERSION_CONFLICT a stale PUT raises (fixed by #253, tracked in #238)."""
     title = f"e2e-collide-{_uid()}"
     path = f"e2e-collide-{_uid()}"
 
@@ -133,9 +123,8 @@ def test_create_colliding_title_is_distinct_path_conflict(e2e_client: RobotNotes
 
 def test_stale_version_put_is_rejected_with_current_version(e2e_client: RobotNotesClient, e2e_base_url, e2e_api_key):
     """Exercises the client's own version-conflict mapping (already correct for a
-    genuine stale write) *and* the raw server envelope, since
-    ``ClientError`` currently discards the response body entirely (also part of
-    #238) and so cannot itself assert on ``current`` version details."""
+    genuine stale write) *and* the raw server envelope, cross-checking the
+    ``current`` version details against ``ClientError.current_version``."""
     path = f"e2e-stale-{_uid()}"
     created = e2e_client.create_note(title=f"e2e-{_uid()}", content="v1", path=path)
     note_id = created["id"]
@@ -147,10 +136,10 @@ def test_stale_version_put_is_rejected_with_current_version(e2e_client: RobotNot
     with pytest.raises(ClientError) as exc_info:
         e2e_client.update_note(note_id, version=stale_version, content="v3-should-not-land")
     assert exc_info.value.version_conflict is True
+    assert exc_info.value.current_version == 2
 
-    # Confirm the real server envelope: a raw request (not through
-    # RobotNotesClient, which discards the body) so the test still passes
-    # before #238 teaches the client to expose these details itself.
+    # Cross-check against the real server envelope via a raw request (not
+    # through RobotNotesClient, which normalizes the body into `details`).
     response = httpx.put(
         f"{e2e_base_url}/notes/{note_id}",
         headers={
