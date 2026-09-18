@@ -1,0 +1,11 @@
+# Pinned NousResearch/hermes-agent commit that `make test-hermes-plugin-contract` and
+# the `hermes-plugin-contract` CI job check out onto PYTHONPATH to run
+# tests/test_stub_parity.py and tests/test_memory_manager_contract.py for real (both
+# are skipped otherwise). Lines starting with `#` and blank lines are ignored; the
+# first remaining line must be the full 40-character commit SHA.
+#
+# To bump: grab the latest commit on hermes-agent's default branch --
+#   git ls-remote https://github.com/NousResearch/hermes-agent refs/heads/main
+# -- replace the SHA below with it, then run `make test-hermes-plugin-contract`
+# locally to confirm the plugin still passes against it before committing.
+8503ee4459316ce092b5d69b7d396c27aa03d0be

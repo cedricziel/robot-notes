@@ -1,4 +1,4 @@
-.PHONY: help install hooks fmt format lint analyze test test-shared test-server test-app test-hermes-plugin run-server run-app web-build outdated upgrade clean docker-build
+.PHONY: help install hooks fmt format lint analyze test test-shared test-server test-app test-hermes-plugin test-hermes-plugin-contract run-server run-app web-build outdated upgrade clean docker-build
 
 # Default target prints the help table
 help:
@@ -13,6 +13,7 @@ help:
 	@printf "  test-server    run server/ tests only\n"
 	@printf "  test-app       run app/ Flutter tests only\n"
 	@printf "  test-hermes-plugin  run the Python hermes-plugin/ test suite (not part of \`test\`)\n"
+	@printf "  test-hermes-plugin-contract  same, plus a pinned hermes-agent checkout on PYTHONPATH\n"
 	@printf "  run-server     start the Dart Frog dev server (with dev defaults)\n"
 	@printf "  run-app        start the Flutter app on the default device\n"
 	@printf "  web-build      build the Flutter web bundle into app/build/web\n"
@@ -59,6 +60,31 @@ test-hermes-plugin:
 	  ( test -d .venv || $(HERMES_PLUGIN_PYTHON) -m venv .venv ) && \
 	  .venv/bin/pip install -q -e '.[dev]' && \
 	  .venv/bin/python -m pytest
+
+# Runs the same suite as `test-hermes-plugin`, but with a pinned hermes-agent checkout
+# (see hermes-plugin/HERMES_AGENT_SHA) on PYTHONPATH, so tests/test_stub_parity.py and
+# tests/test_memory_manager_contract.py exercise the real hermes-agent MemoryProvider
+# ABC / MemoryManager instead of being skipped. Bare PYTHONPATH is enough — no extra
+# pip install of hermes-agent's own dependencies is needed (see those tests' docstrings
+# for why). Not part of `test` or `test-hermes-plugin`: it clones an external repo.
+HERMES_AGENT_CHECKOUT ?= $(CURDIR)/hermes-plugin/.hermes-agent-checkout
+
+test-hermes-plugin-contract:
+	@$(HERMES_PLUGIN_PYTHON) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || \
+	  { echo "error: $(HERMES_PLUGIN_PYTHON) is older than the Python >=3.10 hermes-plugin/pyproject.toml requires; install python3.10+ (e.g. via Homebrew)"; exit 1; }
+	@sha=$$(grep -vE '^[[:space:]]*(#|$$)' hermes-plugin/HERMES_AGENT_SHA | tr -d '[:space:]'); \
+	  if [ -z "$$sha" ]; then echo "error: hermes-plugin/HERMES_AGENT_SHA has no pinned commit"; exit 1; fi; \
+	  if [ ! -d "$(HERMES_AGENT_CHECKOUT)/.git" ]; then \
+	    git init --quiet "$(HERMES_AGENT_CHECKOUT)"; \
+	    git -C "$(HERMES_AGENT_CHECKOUT)" remote add origin https://github.com/NousResearch/hermes-agent; \
+	  fi; \
+	  echo "==> checking out hermes-agent @ $$sha"; \
+	  git -C "$(HERMES_AGENT_CHECKOUT)" fetch --quiet --depth 1 origin "$$sha" && \
+	  git -C "$(HERMES_AGENT_CHECKOUT)" checkout --quiet FETCH_HEAD
+	cd hermes-plugin && \
+	  ( test -d .venv || $(HERMES_PLUGIN_PYTHON) -m venv .venv ) && \
+	  .venv/bin/pip install -q -e '.[dev]' && \
+	  PYTHONPATH="$(HERMES_AGENT_CHECKOUT)" .venv/bin/python -m pytest -v
 
 # `make run-server` boots the Dart Frog dev server with dev defaults.
 # Override any of these on the command line (e.g.

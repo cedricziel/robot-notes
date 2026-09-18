@@ -207,3 +207,40 @@ memory. Reads (`robotnotes_search`, `robotnotes_list`, `robotnotes_note`,
 and recall/prefetch) stay available in every context. A gated write tool
 call returns a `read_only` tool error instead of silently no-oping. A
 missing `agent_context` (older hosts) defaults to writes enabled.
+
+## Development
+
+The test suite (`make test-hermes-plugin` from the repo root, or directly:
+`cd hermes-plugin && python3 -m venv .venv && .venv/bin/pip install -q -e
+'.[dev]' && .venv/bin/python -m pytest`) runs in two modes:
+
+- **Stub mode** (default, no extra setup): `agent.memory_provider` isn't on
+  `PYTHONPATH`, so `MemoryProvider` resolves to this package's own
+  `_LocalMemoryProvider` stub. `tests/test_stub_parity.py` and
+  `tests/test_memory_manager_contract.py` are skipped in this mode — there's
+  no real hermes-agent ABC or `MemoryManager` to check them against.
+- **Contract mode**: a real [hermes-agent](https://github.com/NousResearch/hermes-agent)
+  checkout is put on `PYTHONPATH`, pinned to the commit in
+  [`HERMES_AGENT_SHA`](../HERMES_AGENT_SHA) so results are reproducible. This
+  un-skips the parity test (stub vs. the real `MemoryProvider` ABC) and the
+  contract test (this provider driven through the real `MemoryManager`:
+  `add_provider`, `initialize_all`, `prefetch_all`, `handle_tool_call`,
+  `on_memory_write`, `on_session_end`, `shutdown_all`). Run it with:
+
+  ```bash
+  make test-hermes-plugin-contract   # from the repo root; clones the pin and runs pytest
+  ```
+
+  or manually:
+
+  ```bash
+  git clone --depth 1 https://github.com/NousResearch/hermes-agent /tmp/hermes-agent
+  cd hermes-plugin
+  PYTHONPATH=/tmp/hermes-agent .venv/bin/python -m pytest -v
+  ```
+
+  No extra `pip install` of hermes-agent's own dependencies is needed for
+  either test — see their docstrings for why a bare `PYTHONPATH` checkout is
+  enough. CI runs contract mode against the pin on every `hermes-plugin/`
+  change (job `hermes-plugin-contract`) and, separately, weekly against
+  hermes-agent's default branch as a non-blocking drift check.
