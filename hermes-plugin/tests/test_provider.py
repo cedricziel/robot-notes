@@ -408,6 +408,56 @@ def test_handle_tool_call_forget_deletes_note(provider):
     assert result["deleted"] is True
 
 
+@respx.mock
+def test_handle_tool_call_remember_path_conflict_tells_model_to_search_instead(provider):
+    respx.post("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(409, json={"error": "path_conflict"})
+    )
+
+    result = json.loads(
+        provider.handle_tool_call("robotnotes_remember", {"title": "Fact", "content": "the sky is blue"})
+    )
+
+    assert result["code"] == "path_conflict"
+    assert "search" in result["error"].lower()
+    assert "robotnotes_search" in result["error"] or "robotnotes_list" in result["error"]
+
+
+@respx.mock
+def test_handle_tool_call_note_locked_surfaces_holder_in_details(provider):
+    respx.get("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(
+            423, json={"error": "locked", "lock": {"holder": "alice", "expires_at": "2026-04-25T10:15:23Z"}}
+        )
+    )
+
+    result = json.loads(provider.handle_tool_call("robotnotes_note", {"id": "01XYZ"}))
+
+    assert result["code"] == "locked"
+    assert result["details"]["lock"]["holder"] == "alice"
+
+
+@respx.mock
+def test_handle_tool_call_surfaces_server_message_and_code(provider):
+    respx.get("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(
+            403,
+            json={
+                "error": {
+                    "code": "insufficient_scope",
+                    "message": "This token lacks notes:read.",
+                    "details": {},
+                }
+            },
+        )
+    )
+
+    result = json.loads(provider.handle_tool_call("robotnotes_note", {"id": "01XYZ"}))
+
+    assert result["code"] == "insufficient_scope"
+    assert result["error"] == "This token lacks notes:read."
+
+
 def test_conversations_path_scoped_by_actor(provider):
     assert provider._conversations_path() == "conversations/hermes-bot"
 
