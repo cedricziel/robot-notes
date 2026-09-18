@@ -14,6 +14,7 @@ import 'auth/oidc_session_refresher.dart';
 import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
+import 'databases/database_screen.dart';
 import 'desktop/app_menu_actions.dart';
 import 'desktop/app_menu_bar.dart';
 import 'files/picked_file.dart';
@@ -243,6 +244,13 @@ GoRouter buildAppRouter({
             builder: (context, state) => _NotePage(
               noteId: state.pathParameters['id']!,
               startEditing: state.uri.queryParameters['edit'] == '1',
+            ),
+          ),
+          GoRoute(
+            path: '/databases/:id',
+            builder: (context, state) => _DatabasePage(
+              databaseId: state.pathParameters['id']!,
+              viewName: state.uri.queryParameters['view'],
             ),
           ),
         ],
@@ -955,6 +963,45 @@ class _NotePage extends StatelessWidget {
         context.go('/');
       },
     );
+  }
+}
+
+/// The `/databases/:id` route. A routing stub around [DatabaseScreen] (see
+/// that class's doc comment): it just wires the parsed `id`/`view` and the
+/// shell's close behavior, which is otherwise identical to [_NotePage]'s —
+/// group 5 replaces [DatabaseScreen]'s body without touching this shell.
+///
+/// TODO(add-database-views task 5.1+): scope the list pane's notes list to
+/// the database's source folder when the source is a folder, per the
+/// `flutter-client` spec's routing requirement. That needs the cached full
+/// definition from `GET /databases/{id}` (`DatabasesController`, group 3),
+/// which doesn't exist yet; until then the list pane shows its normal,
+/// unscoped selection exactly as the `/` and `/notes/:id` routes do.
+class _DatabasePage extends StatelessWidget {
+  const _DatabasePage({required this.databaseId, required this.viewName});
+
+  final String databaseId;
+  final String? viewName;
+
+  @override
+  Widget build(BuildContext context) {
+    return DatabaseScreen(
+      id: databaseId,
+      viewName: viewName,
+      onClose: () => _handleDatabaseClosed(context),
+    );
+  }
+}
+
+/// Mirrors [_handleNoteClosed] without the "was it saved" refresh — the
+/// stub screen never mutates anything yet.
+void _handleDatabaseClosed(BuildContext context) {
+  if (_isLarge(context)) {
+    context.go('/');
+  } else if (context.canPop()) {
+    context.pop();
+  } else {
+    context.go('/');
   }
 }
 
