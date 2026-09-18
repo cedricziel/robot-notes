@@ -53,6 +53,16 @@ the API key.
 | `robotnotes_remember` | Store a durable fact as a new note                                                    |
 | `robotnotes_forget`   | Delete a note by id                                                                   |
 
+## Skill
+
+`register(ctx)` also calls `ctx.register_skill("robot-notes", ...)` when the
+host supports it (`hasattr(ctx, "register_skill")`), bundling
+[`skills/robot-notes/SKILL.md`](skills/robot-notes/SKILL.md) —
+the search-before-create / append-not-duplicate discipline for the
+`robotnotes_*` tools above, addressed as `robot_notes:robot-notes`. On a
+host without skill support, registration of the memory provider itself is
+unaffected.
+
 ## Write behavior
 
 Writes are deliberately sparse — this plugin never writes a note per

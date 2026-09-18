@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import threading
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ._memory_provider_base import MemoryProvider
@@ -22,6 +23,14 @@ logger = logging.getLogger(__name__)
 CONVERSATIONS_ROOT = "conversations"
 MEMORY_NOTE = {"title": "Memory", "path": "Hermes"}
 USER_NOTE = {"title": "User", "path": "Hermes"}
+
+SKILLS_DIR = Path(__file__).parent / "skills"
+SKILL_NAME = "robot-notes"
+SKILL_PATH = SKILLS_DIR / SKILL_NAME / "SKILL.md"
+SKILL_DESCRIPTION = (
+    "Search-before-create and append-not-duplicate discipline for the "
+    "robotnotes_* tools backing this shared notes workspace."
+)
 
 SYSTEM_PROMPT_BLOCK = (
     "A shared robot-notes workspace is connected as external memory. Call "
@@ -45,6 +54,8 @@ def _sanitize_actor(actor: str) -> str:
 
 def register(ctx) -> None:
     ctx.register_memory_provider(RobotNotesProvider())
+    if hasattr(ctx, "register_skill"):
+        ctx.register_skill(SKILL_NAME, SKILL_PATH, SKILL_DESCRIPTION)
 
 
 class RobotNotesProvider(MemoryProvider):
