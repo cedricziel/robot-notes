@@ -13,7 +13,7 @@ import re
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
-from ._memory_provider_base import MemoryProvider
+from ._hermes_compat import MemoryProvider
 from .client import ClientError, RobotNotesClient
 from .config import DEFAULT_ACTOR, RobotNotesConfig
 
