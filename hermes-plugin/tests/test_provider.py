@@ -5,7 +5,7 @@ import httpx
 import pytest
 import respx
 
-from robot_notes import RobotNotesConfig, RobotNotesProvider
+from robot_notes import SKILL_NAME, SKILL_PATH, RobotNotesConfig, RobotNotesProvider, register
 
 
 @pytest.fixture
@@ -541,3 +541,52 @@ def test_save_config_does_not_persist_api_key(tmp_path):
 
     saved = json.loads((tmp_path / "robot_notes.json").read_text(encoding="utf-8"))
     assert saved == {"base_url": "https://notes.example.com", "actor": "hermes-bot"}
+
+
+class _FakeCtxWithSkills:
+    def __init__(self):
+        self.provider = None
+        self.skills = []
+
+    def register_memory_provider(self, provider):
+        self.provider = provider
+
+    def register_skill(self, name, path, description=""):
+        self.skills.append((name, path, description))
+
+
+class _FakeCtxWithoutSkills:
+    """No register_skill attribute at all, like an older Hermes host."""
+
+    def __init__(self):
+        self.provider = None
+
+    def register_memory_provider(self, provider):
+        self.provider = provider
+
+
+def test_register_registers_provider_and_skill_when_ctx_supports_it():
+    ctx = _FakeCtxWithSkills()
+
+    register(ctx)
+
+    assert isinstance(ctx.provider, RobotNotesProvider)
+    assert len(ctx.skills) == 1
+    name, path, description = ctx.skills[0]
+    assert name == SKILL_NAME
+    assert path == SKILL_PATH
+    assert description
+
+
+def test_register_skill_path_points_at_a_shipped_skill_md():
+    assert SKILL_PATH.name == "SKILL.md"
+    assert SKILL_PATH.is_file()
+
+
+def test_register_registers_provider_only_when_ctx_lacks_register_skill():
+    ctx = _FakeCtxWithoutSkills()
+
+    register(ctx)
+
+    assert isinstance(ctx.provider, RobotNotesProvider)
+    assert not hasattr(ctx, "register_skill")
