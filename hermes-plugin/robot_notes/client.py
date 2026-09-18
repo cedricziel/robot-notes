@@ -177,8 +177,11 @@ class RobotNotesClient:
             status=status,
         )
 
-    def search(self, query: str, *, limit: int = 20) -> List[Dict[str, Any]]:
-        response = self._request("GET", "/search", params={"q": query, "limit": limit})
+    def search(self, query: str, *, limit: int = 20, path: Optional[str] = None) -> List[Dict[str, Any]]:
+        params: Dict[str, Any] = {"q": query, "limit": limit}
+        if path is not None:
+            params["path"] = path
+        response = self._request("GET", "/search", params=params)
         return response.json().get("items", [])
 
     def list_notes(

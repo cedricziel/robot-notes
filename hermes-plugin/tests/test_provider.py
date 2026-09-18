@@ -51,6 +51,26 @@ def test_system_prompt_block_mentions_shared_workspace(provider):
     assert "robot-notes" in provider.system_prompt_block()
 
 
+def test_system_prompt_block_mentions_every_tool_by_name(provider):
+    block = provider.system_prompt_block()
+    for tool_name in {schema["name"] for schema in provider.get_tool_schemas()}:
+        assert tool_name in block
+
+
+def test_system_prompt_block_documents_conversations_and_mirror(provider):
+    block = provider.system_prompt_block()
+    assert "conversations/hermes-bot" in block
+    assert "Hermes/Memory" in block
+    assert "Hermes/User" in block
+    assert "authoritative" in block
+
+
+def test_system_prompt_block_states_search_before_create_rule(provider):
+    block = provider.system_prompt_block()
+    assert "path_conflict" in block
+    assert "append" in block.lower()
+
+
 def test_backup_paths_is_empty(provider):
     assert provider.backup_paths() == []
 
@@ -312,8 +332,15 @@ def test_get_tool_schemas_lists_expected_tools(provider):
         "robotnotes_list",
         "robotnotes_note",
         "robotnotes_remember",
+        "robotnotes_append",
         "robotnotes_forget",
     }
+
+
+def test_get_tool_schemas_every_parameter_has_a_description(provider):
+    for schema in provider.get_tool_schemas():
+        for param_name, param in schema["parameters"]["properties"].items():
+            assert param.get("description"), f"{schema['name']}.{param_name} has no description"
 
 
 @respx.mock
@@ -325,6 +352,20 @@ def test_handle_tool_call_search(provider):
     result = json.loads(provider.handle_tool_call("robotnotes_search", {"query": "budget"}))
 
     assert result["items"][0]["id"] == "1"
+
+
+@respx.mock
+def test_handle_tool_call_search_forwards_path_and_limit(provider):
+    route = respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+
+    provider.handle_tool_call("robotnotes_search", {"query": "budget", "path": "Hermes", "limit": 5})
+
+    sent = route.calls.last.request
+    assert sent.url.params["q"] == "budget"
+    assert sent.url.params["path"] == "Hermes"
+    assert sent.url.params["limit"] == "5"
 
 
 @respx.mock
@@ -395,6 +436,73 @@ def test_handle_tool_call_remember_creates_note(provider):
     )
 
     assert result["id"] == "01NEW"
+
+
+@respx.mock
+def test_handle_tool_call_remember_forwards_path(provider):
+    route = respx.post("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(201, json={"id": "01NEW", "title": "Fact", "path": "Hermes"})
+    )
+
+    provider.handle_tool_call("robotnotes_remember", {"title": "Fact", "content": "the sky is blue", "path": "Hermes"})
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["path"] == "Hermes"
+
+
+@respx.mock
+def test_handle_tool_call_remember_title_collision_is_path_conflict(provider):
+    respx.post("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(409, json={"error": "path_conflict"})
+    )
+
+    result = json.loads(
+        provider.handle_tool_call("robotnotes_remember", {"title": "Fact", "content": "dup"})
+    )
+
+    assert result["error"] == "path_conflict"
+
+
+@respx.mock
+def test_handle_tool_call_append_adds_a_new_line_to_existing_content(provider):
+    respx.get("https://notes.example.com/notes/01SESSION").mock(
+        return_value=httpx.Response(200, json={"id": "01SESSION", "version": 1, "content": "line one"})
+    )
+    update_route = respx.put("https://notes.example.com/notes/01SESSION").mock(
+        return_value=httpx.Response(200, json={"id": "01SESSION", "version": 2})
+    )
+
+    result = json.loads(
+        provider.handle_tool_call("robotnotes_append", {"id": "01SESSION", "content": "line two"})
+    )
+
+    body = json.loads(update_route.calls.last.request.content)
+    assert body["content"] == "line one\nline two"
+    assert result["version"] == 2
+
+
+@respx.mock
+def test_handle_tool_call_append_on_empty_note_does_not_prefix_a_blank_line(provider):
+    respx.get("https://notes.example.com/notes/01EMPTY").mock(
+        return_value=httpx.Response(200, json={"id": "01EMPTY", "version": 1, "content": ""})
+    )
+    update_route = respx.put("https://notes.example.com/notes/01EMPTY").mock(
+        return_value=httpx.Response(200, json={"id": "01EMPTY", "version": 2})
+    )
+
+    provider.handle_tool_call("robotnotes_append", {"id": "01EMPTY", "content": "first line"})
+
+    body = json.loads(update_route.calls.last.request.content)
+    assert body["content"] == "first line"
+
+
+@respx.mock
+def test_handle_tool_call_append_not_found_is_tool_error(provider):
+    respx.get("https://notes.example.com/notes/missing").mock(return_value=httpx.Response(404))
+
+    result = json.loads(provider.handle_tool_call("robotnotes_append", {"id": "missing", "content": "x"}))
+
+    assert result["error"] == "not_found"
 
 
 @respx.mock

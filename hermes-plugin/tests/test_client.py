@@ -41,6 +41,30 @@ def test_search_returns_items(client):
 
 
 @respx.mock
+def test_search_forwards_path_when_given(client):
+    route = respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+
+    client.search("budget", path="Hermes", limit=5)
+
+    sent = route.calls.last.request
+    assert sent.url.params["path"] == "Hermes"
+    assert sent.url.params["limit"] == "5"
+
+
+@respx.mock
+def test_search_omits_path_param_when_not_given(client):
+    route = respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+
+    client.search("budget")
+
+    assert "path" not in route.calls.last.request.url.params
+
+
+@respx.mock
 def test_list_notes_returns_items_and_next_cursor(client):
     respx.get("https://notes.example.com/notes").mock(
         return_value=httpx.Response(
