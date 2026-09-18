@@ -690,4 +690,109 @@ void main() {
       },
     );
   });
+
+  group('NoteWriteService relations', () {
+    Future<({NoteWriteService svc, _Stack s, StoredNote def})>
+        setupRelationDb() async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        linkIndex: s.link,
+        registry: s.registry,
+      );
+      final def = await makeDatabase(
+        svc,
+        properties: {
+          'related': {'type': 'relation'},
+        },
+      );
+      s.registry.upsert(def.toSummary(), def.extra);
+      return (svc: svc, s: s, def: def);
+    }
+
+    test(
+      'a wikilink in a declared relation property feeds the link index '
+      '(backlink appears)',
+      () async {
+        final ctx = await setupRelationDb();
+        await ctx.svc.create(title: 'Target Note', content: '', actor: 'a');
+        final row = await ctx.svc.create(
+          title: 'Task R',
+          content: '',
+          actor: 'a',
+          path: 'Projects',
+          properties: {
+            'related': ['[[Target Note]]'],
+          },
+        );
+
+        expect(
+          ctx.s.link.sourcesLinkingToTitle('Target Note'),
+          contains(row.id),
+        );
+      },
+    );
+
+    test(
+      'an undeclared frontmatter wikilink does not become a backlink',
+      () async {
+        final ctx = await setupRelationDb();
+        // `notes` is not a declared property of the covering database at
+        // all, so a wikilink-shaped value under that key must never feed
+        // the link index, even though its shape matches a relation value.
+        final row = await ctx.svc.create(
+          title: 'Task S',
+          content: '',
+          actor: 'a',
+          path: 'Projects',
+          properties: {
+            'status': 'todo',
+            'notes': ['[[Some Other Note]]'],
+          },
+        );
+        expect(
+          ctx.s.link.sourcesLinkingToTitle('Some Other Note'),
+          isNot(contains(row.id)),
+        );
+      },
+    );
+
+    test(
+      'rename propagation rewrites relation values in frontmatter, bumping '
+      'the row version',
+      () async {
+        final ctx = await setupRelationDb();
+        final target = await ctx.svc.create(
+          title: 'Old Target',
+          content: '',
+          actor: 'a',
+        );
+        final row = await ctx.svc.create(
+          title: 'Task T',
+          content: 'no body link here',
+          actor: 'a',
+          path: 'Projects',
+          properties: {
+            'related': ['[[Old Target]]'],
+          },
+        );
+
+        await ctx.svc.update(
+          id: target.id,
+          title: 'New Target',
+          content: target.content,
+          ifMatch: target.version,
+          actor: 'a',
+        );
+
+        final reread = await ctx.s.storage.read(row.id);
+        expect(reread.extra['related'], ['[[New Target]]']);
+        expect(reread.version, row.version + 1);
+      },
+    );
+  });
 }
