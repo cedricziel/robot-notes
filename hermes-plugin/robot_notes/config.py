@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ._hermes_compat import get_secret
+
 CONFIG_FILENAME = "robot_notes.json"
 API_KEY_ENV_VAR = "ROBOT_NOTES_API_KEY"
 DEFAULT_ACTOR = "hermes"
@@ -56,7 +58,7 @@ class RobotNotesConfig:
         return cls.create(
             base_url=str(data.get("base_url", "")),
             actor=str(data.get("actor") or ""),
-            api_key=os.environ.get(API_KEY_ENV_VAR, ""),
+            api_key=get_secret(API_KEY_ENV_VAR, ""),
         )
 
     def save(self, hermes_home: str) -> None:
