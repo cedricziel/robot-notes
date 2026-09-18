@@ -8,6 +8,9 @@ dependencies = ["httpx>=0.27"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "respx>=0.21"]
 
+[project.entry-points."hermes_agent.memory_providers"]
+robot_notes = "robot_notes:register"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

@@ -345,15 +345,13 @@ class RobotNotesProvider(MemoryProvider):
     # -- Setup wizard -------------------------------------------------------
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
+        """Kept minimal per the memory-provider-plugin guide: every field here is
+        prompted during `hermes memory setup`. `actor` is optional (defaults to
+        "hermes") and rarely needs changing, so it is documented in
+        robot_notes.json's reference table in the README instead of prompted for
+        here; set it by hand in robot_notes.json when the default is not right."""
         return [
             {"key": "base_url", "description": "robot-notes server base URL", "required": True, "type": "text"},
-            {
-                "key": "actor",
-                "description": "Actor name attributed to this agent's writes",
-                "required": False,
-                "default": "hermes",
-                "type": "text",
-            },
             {
                 "key": "api_key",
                 "description": "robot-notes API key",

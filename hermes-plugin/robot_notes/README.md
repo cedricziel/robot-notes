@@ -13,11 +13,63 @@ client, no separate database.
 
 ## Install
 
-Copy or symlink this directory into `$HERMES_HOME/plugins/robot_notes/`:
+Hermes discovers memory providers from four sources ([developer guide](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/developer-guide/memory-provider-plugin.md#installation-layouts)); this plugin supports the three that apply outside the bundled-with-Hermes case. Pick one:
+
+### User plugin directory (symlink or copy)
+
+Copy or symlink `hermes-plugin/robot_notes/` into `$HERMES_HOME/plugins/robot_notes/`:
 
 ```bash
 ln -s "$(pwd)/hermes-plugin/robot_notes" "$HERMES_HOME/plugins/robot_notes"
 ```
+
+### `hermes plugins install` (same layout, fetched for you)
+
+`hermes plugins install` accepts a Git identifier with a subdirectory, and this
+repo's `plugin.yaml` lives in `hermes-plugin/robot_notes/`, not the repo root —
+name that subdirectory explicitly:
+
+```bash
+hermes plugins install cedricziel/robot-notes/hermes-plugin/robot_notes
+```
+
+This clones the repo and installs the `hermes-plugin/robot_notes/` subtree into
+`$HERMES_HOME/plugins/robot_notes/`, same as the symlink above. Plain
+`hermes plugins install cedricziel/robot-notes` (no subdirectory) will **not**
+work — it looks for `plugin.yaml` at the repository root, and this repo keeps
+several components (`server/`, `app/`, `claude-plugin/`, `hermes-plugin/`) side
+by side.
+
+### `pip install` (packaged provider, entry point)
+
+No copy under `$HERMES_HOME/plugins/` is needed; Hermes discovers the provider
+through a `hermes_agent.memory_providers` entry point once the package is
+installed into the same Python environment Hermes runs in:
+
+```bash
+pip install "git+https://github.com/cedricziel/robot-notes@main#subdirectory=hermes-plugin"
+```
+
+`pip`'s `#subdirectory=` fragment builds only `hermes-plugin/` from the
+monorepo checkout, using its own `pyproject.toml`
+(`[project.entry-points."hermes_agent.memory_providers"] robot_notes =
+"robot_notes:register"`). Verify the entry point landed in the environment
+Hermes uses:
+
+```bash
+python -c 'import importlib.metadata as m; print([e.name for e in m.entry_points(group="hermes_agent.memory_providers")])'
+# -> ['robot_notes']
+```
+
+A package entry point still gets `config_schema.py`/`cli.py` support and the
+setup wizard below — this plugin does not currently ship either file, so it is
+equivalent to the directory installs for now.
+
+### Project-local plugin (opt-in)
+
+For a per-repo install, drop the same directory under `./.hermes/plugins/robot_notes/`
+in the project and set `HERMES_ENABLE_PROJECT_PLUGINS=1`; Hermes discovers it
+the same way as the user directory, just scoped to that working tree.
 
 ## Setup
 
@@ -34,14 +86,61 @@ echo "ROBOT_NOTES_API_KEY=rn_your_secret" >> ~/.hermes/.env
 
 ## Config
 
-| Key        | Where                               | Description                                  |
-| ---------- | ----------------------------------- | -------------------------------------------- |
-| `base_url` | `robot_notes.json`                  | robot-notes server base URL                  |
-| `actor`    | `robot_notes.json`                  | Actor name attributed to this agent's writes |
-| `api_key`  | `ROBOT_NOTES_API_KEY` (env, secret) | Bearer credential for every request          |
+`hermes memory setup` only prompts for `base_url` and the API key — the
+schema is kept minimal per the developer guide, and `actor` is optional with
+a sane default. Set it by hand in `robot_notes.json` (see below) if the
+default is not right for your setup.
 
-`robot_notes.json` lives at `$HERMES_HOME/robot_notes.json` and never contains
-the API key.
+| Key        | Where                                | Description                          |
+| ---------- | ------------------------------------- | ------------------------------------ |
+| `base_url` | `robot_notes.json`                    | robot-notes server base URL          |
+| `api_key`  | `ROBOT_NOTES_API_KEY` (env, secret)   | Bearer credential for every request  |
+
+## `robot_notes.json` reference
+
+Non-secret config lives at `$HERMES_HOME/robot_notes.json` and never contains
+the API key:
+
+| Key        | Required | Default   | Description                                                        |
+| ---------- | -------- | --------- | -------------------------------------------------------------------- |
+| `base_url` | Yes      | —         | robot-notes server base URL, e.g. `https://notes.example.com`      |
+| `actor`    | No       | `hermes`  | Actor name attributed to this agent's writes (sent as `X-Actor`); also scopes the per-session summary note under `conversations/<actor>/` |
+
+```json
+{
+  "base_url": "https://notes.example.com",
+  "actor": "hermes"
+}
+```
+
+## Data sent to the server
+
+Everything this plugin sends to robot-notes goes over the plain REST API
+above (bearer key + `X-Actor` header, no additional client). Nothing is sent
+to any service other than the `base_url` configured above.
+
+- **Recall queries** — `prefetch`/`queue_prefetch` send the query text for
+  the current turn to `GET /search`. robot-notes returns matching note
+  titles and snippets only; the response is injected as context, nothing is
+  written back.
+- **Session transcripts** — `on_session_end` sends the session's messages as
+  the content of one summary note per session, under
+  `conversations/<actor>/<session id>`. This currently includes the raw
+  role/content of every message in the session, so treat the robot-notes
+  workspace as within the conversation's trust boundary.
+- **Built-in memory mirror** — content written to Hermes' own
+  `MEMORY.md`/`USER.md` is mirrored one-directionally into
+  `Hermes/Memory.md`/`Hermes/User.md` notes (see Write behavior below);
+  whatever text lands in those files is sent to the server.
+- **Explicit tool writes** — `robotnotes_remember` sends the model-authored
+  `title`/`content` as a new note; `robotnotes_forget` sends a note id to
+  delete. `robotnotes_note`/`robotnotes_list` are read-only and only fetch
+  data, they send no new content.
+
+Recall (`prefetch`/`queue_prefetch`) and the read tools stay available in
+every `agent_context`; the writes above (session transcripts, memory mirror,
+`robotnotes_remember`/`robotnotes_forget`) are skipped for a subagent, cron,
+or flush context — see Write behavior below for the exact rule.
 
 ## Tools
 

@@ -400,7 +400,7 @@ def test_on_memory_write_remove_on_missing_note_is_a_noop(provider):
 def test_get_config_schema_declares_fields():
     schema = RobotNotesProvider().get_config_schema()
     keys = {field["key"] for field in schema}
-    assert keys == {"base_url", "actor", "api_key"}
+    assert keys == {"base_url", "api_key"}
     api_key_field = next(f for f in schema if f["key"] == "api_key")
     assert api_key_field["secret"] is True
 
@@ -534,6 +534,13 @@ def test_prefetch_still_works_for_subagent_context(subagent_provider):
     assert "Budget" in subagent_provider.prefetch("budget", session_id="session-1")
 
 
+def test_get_config_schema_omits_actor():
+    # actor is optional (defaults to "hermes") and documented in the README's
+    # robot_notes.json reference table instead of prompted for during setup.
+    schema = RobotNotesProvider().get_config_schema()
+    assert "actor" not in {field["key"] for field in schema}
+
+
 def test_save_config_does_not_persist_api_key(tmp_path):
     RobotNotesProvider().save_config(
         {"base_url": "https://notes.example.com", "actor": "hermes-bot", "api_key": "secret-key"}, str(tmp_path)
@@ -590,3 +597,36 @@ def test_register_registers_provider_only_when_ctx_lacks_register_skill():
 
     assert isinstance(ctx.provider, RobotNotesProvider)
     assert not hasattr(ctx, "register_skill")
+
+
+def test_pip_entry_point_resolves_to_register():
+    """The packaged install path (`pip install`) discovers this provider entirely
+    through the `hermes_agent.memory_providers` entry point declared in
+    pyproject.toml — no directory copy needed. This asserts the entry point is
+    actually installed (not just declared) and resolves to a callable named
+    `register`, matching what `plugins/memory/__init__.py`'s
+    `_load_provider_from_entry_point()` expects."""
+    import importlib.metadata
+
+    eps = importlib.metadata.entry_points(group="hermes_agent.memory_providers")
+    matches = [ep for ep in eps if ep.name == "robot_notes"]
+    assert len(matches) == 1, "robot_notes entry point missing from hermes_agent.memory_providers group"
+
+    loaded = matches[0].load()
+    assert callable(loaded)
+    assert loaded.__name__ == "register"
+
+    ctx = _RegisterCtxSpy()
+    loaded(ctx)
+    assert isinstance(ctx.provider, RobotNotesProvider)
+
+
+class _RegisterCtxSpy:
+    """Minimal stand-in for Hermes' plugin context, capturing what `register(ctx)`
+    hands to `register_memory_provider`."""
+
+    def __init__(self) -> None:
+        self.provider = None
+
+    def register_memory_provider(self, provider) -> None:
+        self.provider = provider
