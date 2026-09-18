@@ -1122,8 +1122,10 @@ def test_handle_tool_call_returns_circuit_open_error_when_breaker_open(provider)
 
     result = json.loads(provider.handle_tool_call("robotnotes_search", {"query": "budget"}))
 
-    assert result["error"] == "circuit_open"
-    assert "60s" in result["message"] or "cooldown" in result["message"].lower() or "unavailable" in result["message"].lower()
+    # tool_error's shape: "error" carries the human-readable message, "code" the
+    # machine-readable category (see test_handle_tool_call_note_not_found_is_tool_error).
+    assert result["code"] == "circuit_open"
+    assert "60s" in result["error"] or "cooldown" in result["error"].lower() or "unavailable" in result["error"].lower()
     assert not route.called
 
 
