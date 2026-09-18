@@ -66,6 +66,17 @@ except ImportError:
         def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
             return None
 
+        def on_session_switch(
+            self,
+            new_session_id: str,
+            *,
+            parent_session_id: str = "",
+            reset: bool = False,
+            rewound: bool = False,
+            **kwargs,
+        ) -> None:
+            return None
+
         def on_memory_write(
             self, action: str, target: str, content: str, metadata: Optional[Dict[str, Any]] = None
         ) -> None:

@@ -237,6 +237,26 @@ class RobotNotesProvider(MemoryProvider):
         title = self._session_id or "unknown-session"
         self._overwrite_note(title=title, path=self._conversations_path(), content=_summarize(messages))
 
+    def on_session_switch(
+        self,
+        new_session_id: str,
+        *,
+        parent_session_id: str = "",
+        reset: bool = False,
+        rewound: bool = False,
+        **kwargs,
+    ) -> None:
+        """session_id reassigned mid-process (/new, /resume, /branch, /reset, compression)
+        without a matching initialize(): rebind so the *next* on_session_end writes to a
+        note named after the new session instead of overwriting the previous session's note
+        under it. A blank new_session_id is ignored (some callers reassign a rewind in place).
+        Also bumps the prefetch generation and drops any cached prefetch so a recall queued
+        for the old session cannot be injected into the new one."""
+        self._session_id = str(new_session_id or "").strip() or self._session_id
+        self._prefetch_generation += 1
+        with self._prefetch_lock:
+            self._prefetch_cache = ""
+
     def _conversations_path(self) -> str:
         return f"{CONVERSATIONS_ROOT}/{_sanitize_actor(self._config.actor)}"
 
