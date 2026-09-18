@@ -538,6 +538,32 @@ void main() {
       );
 
       expect(provider.callCount, 1);
+      expect(
+        provider.inputs.single,
+        'Auth notes\n\nswitching to OAuth for third-party login',
+      );
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
+    });
+
+    test('create embeds a note with an empty body from its title', () async {
+      final provider = FakeEmbeddingProvider();
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+
+      final note = await svc.create(
+        title: '2026-09-18 Untitled',
+        content: '',
+        actor: 'a',
+      );
+
+      expect(provider.inputs.single, '2026-09-18 Untitled');
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
 

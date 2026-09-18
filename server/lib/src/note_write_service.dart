@@ -106,7 +106,9 @@ class NoteWriteService {
       );
       span.setAttribute('note.id', note.id);
       final summary = note.toSummary();
-      final embedding = await _embed(note.content);
+      final embedding = await _embed(
+        embeddingInputFor(title: note.title, content: note.content),
+      );
       // metaIndex is upserted before the search index reads from it below,
       // so link resolution (including a self-referential link) sees this
       // note.
@@ -161,7 +163,9 @@ class NoteWriteService {
           path: path,
         );
         final summary = updated.toSummary();
-        final embedding = await _embed(updated.content);
+        final embedding = await _embed(
+          embeddingInputFor(title: updated.title, content: updated.content),
+        );
         metaIndex.upsert(summary);
         linkIndex.upsert(updated.id, updated.content);
         searchIndex.upsert(
@@ -307,10 +311,12 @@ class NoteWriteService {
           ),
       ];
 
-  /// Computes [content]'s embedding via [embeddingProvider], or `null`
-  /// when unconfigured or on failure — see [embedOrNull].
-  Future<List<double>?> _embed(String content) =>
-      embedOrNull(embeddingProvider, content, logger: _log);
+  /// Computes the embedding for [text] (a note's title + content, see
+  /// [embeddingInputFor]) via [embeddingProvider], or `null` when
+  /// unconfigured, on failure, or when there is nothing to embed — see
+  /// [embedOrNull].
+  Future<List<double>?> _embed(String text) =>
+      embedOrNull(embeddingProvider, text, logger: _log);
 
   void _safeBroadcast(ChangedEvent event) {
     try {

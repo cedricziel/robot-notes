@@ -4,10 +4,16 @@ import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 import 'package:server/src/embeddings/embedding_provider.dart';
 
-/// [EmbeddingProvider] backed by a local Ollama instance's
-/// `/api/embeddings` endpoint. Self-hosted and CPU-friendly, in keeping
-/// with the project's "no cloud dependency" default — the only network
-/// hop is to a server the operator runs themselves.
+/// [EmbeddingProvider] backed by a local Ollama instance's `/api/embed`
+/// endpoint. Self-hosted and CPU-friendly, in keeping with the project's
+/// "no cloud dependency" default — the only network hop is to a server the
+/// operator runs themselves.
+///
+/// Requests ask Ollama to `truncate` input that exceeds the model's context
+/// and pass `num_ctx` explicitly (see [contextLength]): Ollama loads
+/// embedding models with a 2048-token context by default and the legacy
+/// `/api/embeddings` endpoint rejects longer input outright, so a long note
+/// would otherwise never get a vector.
 @immutable
 class OllamaEmbeddingProvider implements EmbeddingProvider {
   /// Creates a provider targeting [baseUrl] (no trailing slash) using
@@ -40,6 +46,22 @@ class OllamaEmbeddingProvider implements EmbeddingProvider {
   /// before a provider is ever constructed.
   static const Map<String, int> knownDimensions = {'nomic-embed-text': 768};
 
+  /// Maximum input context (in tokens) each known model supports, sent to
+  /// Ollama as `options.num_ctx` so it doesn't fall back to its 2048-token
+  /// default. Same keying rules as [knownDimensions].
+  static const Map<String, int> knownContextLengths = {
+    'nomic-embed-text': 8192,
+  };
+
+  /// Context length assumed for a model missing from [knownContextLengths]
+  /// (Ollama's own default).
+  static const int defaultContextLength = 2048;
+
+  /// Rough upper bound on characters per token for prose and markdown;
+  /// used to cap the request body client-side so a very large note isn't
+  /// shipped in full only for Ollama to discard most of it.
+  static const int _charsPerToken = 4;
+
   /// Strips an optional `:tag` suffix (e.g. `nomic-embed-text:v1.5` ->
   /// `nomic-embed-text`) so tagged model names still resolve in
   /// [knownDimensions].
@@ -59,15 +81,38 @@ class OllamaEmbeddingProvider implements EmbeddingProvider {
     return dim;
   }
 
+  /// Token context the model is loaded with for this provider's requests.
+  int get contextLength =>
+      knownContextLengths[baseModelName(model)] ?? defaultContextLength;
+
+  /// Longest input (in characters) sent to Ollama; anything beyond it is
+  /// dropped before the request. Ollama still truncates to the exact token
+  /// budget server-side, so this only bounds the payload.
+  int get maxInputChars => contextLength * _charsPerToken;
+
   @override
   Future<List<double>> embed(String text) async {
+    if (text.trim().isEmpty) {
+      throw const EmbeddingProviderException(
+        'Refusing to embed blank text: Ollama returns an empty vector for '
+        'an empty prompt.',
+      );
+    }
+    final input =
+        text.length > maxInputChars ? text.substring(0, maxInputChars) : text;
+
     final http.Response response;
     try {
       response = await _client
           .post(
-            Uri.parse('$baseUrl/api/embeddings'),
+            Uri.parse('$baseUrl/api/embed'),
             headers: const {'content-type': 'application/json'},
-            body: jsonEncode({'model': model, 'prompt': text}),
+            body: jsonEncode({
+              'model': model,
+              'input': input,
+              'truncate': true,
+              'options': {'num_ctx': contextLength},
+            }),
           )
           .timeout(timeout);
     } catch (e) {
@@ -89,16 +134,23 @@ class OllamaEmbeddingProvider implements EmbeddingProvider {
       throw EmbeddingProviderException('Ollama returned invalid JSON: $e');
     }
 
-    if (decoded is! Map<String, dynamic> || decoded['embedding'] is! List) {
+    // `/api/embed` batches: one input in, a list of one vector out.
+    if (decoded is! Map<String, dynamic> || decoded['embeddings'] is! List) {
       throw EmbeddingProviderException(
-        'Ollama response missing an "embedding" array: ${response.body}',
+        'Ollama response missing an "embeddings" array: ${response.body}',
+      );
+    }
+    final vectors = decoded['embeddings'] as List;
+    if (vectors.isEmpty || vectors.first is! List) {
+      throw EmbeddingProviderException(
+        'Ollama response "embeddings" array is empty: ${response.body}',
       );
     }
 
-    final rawEmbedding = decoded['embedding'] as List;
+    final rawEmbedding = vectors.first as List;
     if (rawEmbedding.any((e) => e is! num)) {
       throw EmbeddingProviderException(
-        'Ollama response "embedding" array contains a non-numeric element: '
+        'Ollama response "embeddings" vector contains a non-numeric element: '
         '${response.body}',
       );
     }

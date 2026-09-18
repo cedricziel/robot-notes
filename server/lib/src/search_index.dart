@@ -753,8 +753,11 @@ class SearchIndex {
       final batch = pending.skip(offset).take(batchSize);
       final embeddings = await Future.wait([
         for (final note in batch)
-          embedOrNull(provider, note.content, logger: _log)
-              .then((embedding) => (id: note.id, embedding: embedding)),
+          embedOrNull(
+            provider,
+            embeddingInputFor(title: note.title, content: note.content),
+            logger: _log,
+          ).then((embedding) => (id: note.id, embedding: embedding)),
       ]);
 
       _db.execute('BEGIN');
@@ -778,17 +781,21 @@ class SearchIndex {
     }
   }
 
-  /// `(id, content)` for every note present in `notes_fts` but absent from
-  /// `note_vectors`, in one query — [backfillEmbeddings] needs both to
-  /// compute each note's embedding.
-  List<({String id, String content})> _idsMissingEmbeddings() {
+  /// `(id, title, content)` for every note present in `notes_fts` but
+  /// absent from `note_vectors`, in one query — [backfillEmbeddings] needs
+  /// all three to compute each note's embedding (see [embeddingInputFor]).
+  List<({String id, String title, String content})> _idsMissingEmbeddings() {
     final rows = _db.select(
-      'SELECT id, content FROM notes_fts '
+      'SELECT id, title, content FROM notes_fts '
       'WHERE id NOT IN (SELECT id FROM note_vectors);',
     );
     return [
       for (final row in rows)
-        (id: row['id'] as String, content: row['content'] as String),
+        (
+          id: row['id'] as String,
+          title: row['title'] as String,
+          content: row['content'] as String,
+        ),
     ];
   }
 

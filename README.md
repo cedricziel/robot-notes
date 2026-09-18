@@ -99,6 +99,11 @@ at a non-default Ollama host if it isn't on `localhost:11434`. Leaving
 never breaks search: it just runs BM25-only, exactly as before this feature
 existed. Existing notes get their embeddings filled in by a background
 backfill pass after startup; new/edited notes get theirs computed on write.
+Each note is embedded from its title followed by its content (so a note with
+an empty body is still findable by its title), and the request asks Ollama to
+truncate anything beyond the model's context window (8192 tokens for
+`nomic-embed-text`) rather than reject it, so long notes get a vector from
+their opening rather than none at all.
 
 ### Pointing the Flutter app at a server
 
