@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.12](https://github.com/cedricziel/robot-notes/compare/v0.2.11...v0.2.12) (2026-09-18)
+
+
+### Features
+
+* **app:** adaptive shell, notes list and note view redesign, shared status strips ([#224](https://github.com/cedricziel/robot-notes/issues/224)) ([2216794](https://github.com/cedricziel/robot-notes/commit/22167943739611b3a75a168b189c5e79709fd560))
+
+
+### Bug Fixes
+
+* **server:** make Ollama embeddings work for long and empty notes ([#225](https://github.com/cedricziel/robot-notes/issues/225)) ([acd7a0b](https://github.com/cedricziel/robot-notes/commit/acd7a0bc4885cafdb70f2e96454fabcdba39e819))
+
+
+### Documentation
+
+* **server:** state nomic-embed-text's real 2048-token context under Ollama ([#226](https://github.com/cedricziel/robot-notes/issues/226)) ([86aa4b6](https://github.com/cedricziel/robot-notes/commit/86aa4b64e638c6f8b4f78e60639cde102557b442))
+
 ## [0.2.11](https://github.com/cedricziel/robot-notes/compare/v0.2.10...v0.2.11) (2026-09-13)
 
 
