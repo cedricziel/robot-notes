@@ -465,4 +465,229 @@ void main() {
       expect(s.registry.get(def.id), isNull);
     });
   });
+
+  group('NoteWriteService.createRow', () {
+    test('defaults the path to the folder source', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        registry: s.registry,
+      );
+      final def = await makeDatabase(svc);
+      s.registry.upsert(def.toSummary(), def.extra);
+
+      final row = await svc.createRow(
+        databaseId: def.id,
+        title: 'Row One',
+        actor: 'a',
+        properties: {'status': 'todo'},
+      );
+
+      expect(row.path, 'Projects');
+    });
+
+    test('rejects a path outside a folder source', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        registry: s.registry,
+      );
+      final def = await makeDatabase(svc);
+      s.registry.upsert(def.toSummary(), def.extra);
+
+      expect(
+        () => svc.createRow(
+          databaseId: def.id,
+          title: 'Row Two',
+          actor: 'a',
+          path: 'Somewhere/Else',
+          properties: {'status': 'todo'},
+        ),
+        throwsA(isA<PathOutsideSourceException>()),
+      );
+    });
+
+    test('adds the source tag for a tag source', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        registry: s.registry,
+      );
+      final def = await s.storage.create(
+        title: 'Reading List',
+        content: '',
+        properties: {
+          'type': 'database',
+          'source': {'tag': 'reading'},
+          'properties': <String, Object?>{},
+          'views': [],
+        },
+      );
+      s.registry.upsert(def.toSummary(), def.extra);
+
+      final row = await svc.createRow(
+        databaseId: def.id,
+        title: 'Some Book',
+        actor: 'a',
+      );
+
+      final reread = await s.storage.read(row.id);
+      expect(reread.extra['tags'], ['reading']);
+    });
+
+    test('unknown database id throws DatabaseNotFoundException', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        registry: s.registry,
+      );
+
+      expect(
+        () => svc.createRow(databaseId: 'nope', title: 'Row', actor: 'a'),
+        throwsA(isA<DatabaseNotFoundException>()),
+      );
+    });
+  });
+
+  group('NoteWriteService.createDatabase / updateDatabase', () {
+    test('builds and validates the definition extra', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        registry: s.registry,
+      );
+
+      final note = await svc.createDatabase(
+        title: 'Projects',
+        actor: 'a',
+        path: 'Projects',
+        source: const DatabaseSource.folder('Projects'),
+        properties: {
+          'status': const PropertyDefinition(
+            type: PropertyType.select,
+            options: ['todo', 'done'],
+          ),
+        },
+      );
+
+      expect(note.extra['type'], 'database');
+      expect(s.registry.get(note.id), isNotNull);
+    });
+
+    test('rejects an invalid definition', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        registry: s.registry,
+      );
+
+      expect(
+        () => svc.createDatabase(
+          title: 'Projects',
+          actor: 'a',
+          source: const DatabaseSource.folder('Projects'),
+          properties: {
+            'status': const PropertyDefinition(type: PropertyType.select),
+          },
+        ),
+        throwsA(isA<DefinitionValidationException>()),
+      );
+    });
+
+    test('version_conflict on a stale ifMatch', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        registry: s.registry,
+      );
+      final note = await svc.createDatabase(
+        title: 'Projects',
+        actor: 'a',
+        path: 'Projects',
+        source: const DatabaseSource.folder('Projects'),
+      );
+
+      expect(
+        () => svc.updateDatabase(
+          id: note.id,
+          ifMatch: note.version + 99,
+          actor: 'a',
+          content: 'new body',
+        ),
+        throwsA(isA<VersionConflictException>()),
+      );
+    });
+
+    test(
+      'a body-only update on a definition preserves type/source/properties/'
+      'views',
+      () async {
+        final s = await _stack(tmp);
+        addTearDown(s.search.close);
+        final svc = NoteWriteService(
+          storage: s.storage,
+          metaIndex: s.meta,
+          searchIndex: s.search,
+          broadcaster: _CapturingBroadcaster(),
+          registry: s.registry,
+        );
+        final note = await svc.createDatabase(
+          title: 'Projects',
+          actor: 'a',
+          path: 'Projects',
+          source: const DatabaseSource.folder('Projects'),
+          properties: {
+            'status': const PropertyDefinition(
+              type: PropertyType.select,
+              options: ['todo', 'done'],
+            ),
+          },
+        );
+
+        final updated = await svc.updateDatabase(
+          id: note.id,
+          ifMatch: note.version,
+          actor: 'a',
+          content: 'new body text',
+        );
+
+        expect(updated.content, 'new body text');
+        expect(updated.extra['type'], 'database');
+        expect(updated.extra['properties'], note.extra['properties']);
+        expect(updated.extra['source'], note.extra['source']);
+        // An empty `views` list round-trips through YAML as `null` (a
+        // pre-existing frontmatter.dart limitation, not something this
+        // change touches); either is "no views declared".
+        expect(updated.extra['views'], anyOf(isNull, isEmpty));
+      },
+    );
+  });
 }
