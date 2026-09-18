@@ -152,6 +152,53 @@ void main() {
       expect(back.path, 'Projects/Alpha');
       expect(back.tags, ['urgent', 'planning']);
     });
+
+    test('properties default to empty and are omitted from JSON when so', () {
+      final note = Note(
+        id: '01HXY00000000000000000000A',
+        title: 'Hello',
+        content: 'World',
+        version: 1,
+        createdAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 1),
+      );
+      expect(note.properties, isEmpty);
+      expect(note.type, isNull);
+      final back = Note.fromJson(note.toJson());
+      expect(back, equals(note));
+    });
+
+    test('round-trips properties and type', () {
+      final note = Note(
+        id: '01HXY00000000000000000000A',
+        title: 'Projects',
+        content: '',
+        version: 1,
+        createdAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 1),
+        properties: const {'status': 'Active', 'due': '2026-10-01'},
+        type: 'database',
+      );
+      final json = note.toJson();
+      expect(json['properties'], {'status': 'Active', 'due': '2026-10-01'});
+      expect(json['type'], 'database');
+      final back = Note.fromJson(json);
+      expect(back, equals(note));
+    });
+
+    test('decodes a note carrying properties without a type', () {
+      final note = Note.fromJson({
+        'id': '01HXY00000000000000000000A',
+        'title': 'Hello',
+        'content': 'World',
+        'version': 1,
+        'created_at': '2026-01-01T00:00:00.000Z',
+        'updated_at': '2026-01-01T00:00:00.000Z',
+        'properties': {'status': 'Active', 'due': '2026-10-01'},
+      });
+      expect(note.properties, {'status': 'Active', 'due': '2026-10-01'});
+      expect(note.type, isNull);
+    });
   });
 
   group('InviteSummary', () {
