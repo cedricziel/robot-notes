@@ -1013,6 +1013,9 @@ class _NotePage extends StatelessWidget {
         unawaited(session.list.selectTag(tag));
         context.go('/');
       },
+      databases: session.databases,
+      onOpenDatabase: (id, viewName) =>
+          unawaited(context.push('/databases/$id?view=$viewName')),
     );
   }
 }
@@ -1151,6 +1154,8 @@ class NoteRoute extends StatefulWidget {
     this.onClosed,
     this.onOpenNote,
     this.onTagTap,
+    this.databases,
+    this.onOpenDatabase,
     super.key,
   });
 
@@ -1159,6 +1164,14 @@ class NoteRoute extends StatefulWidget {
   final String actor;
   final String noteId;
   final bool startEditing;
+
+  /// The shared database cache, for the body's `![[Title]]` embeds
+  /// (task 7.2). `null` leaves embeds rendered as their literal source.
+  final DatabasesController? databases;
+
+  /// Called with `(databaseId, viewName)` when an embed's "Show all" is
+  /// tapped, so the caller can navigate to `/databases/{id}?view=<name>`.
+  final void Function(String databaseId, String viewName)? onOpenDatabase;
 
   /// Whether the note is a full page (back arrow) or the detail pane of
   /// the three-pane shell (close button).
@@ -1238,6 +1251,9 @@ class _NoteRouteState extends State<NoteRoute> {
       presentation: widget.presentation,
       onOpenNote: widget.onOpenNote,
       onTagTap: widget.onTagTap,
+      databases: widget.databases,
+      events: widget.ws.events,
+      onOpenDatabase: widget.onOpenDatabase,
     );
   }
 }

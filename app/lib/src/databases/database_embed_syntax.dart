@@ -49,10 +49,22 @@ class DatabaseEmbedSyntax extends md.BlockSyntax {
 
 /// Renders the `<databaseEmbed>` element [DatabaseEmbedSyntax] produces.
 ///
-/// This is the spike's proof-of-concept builder; the real embed
-/// (`DatabaseEmbed`, task 7.2) replaces the placeholder body with the
-/// resolved view rendering.
+/// With no [embedBuilder] this is the task-1.1 spike's proof-of-concept
+/// placeholder (`Database: <title>`-style text in a bordered box), kept as
+/// the default so `database_embed_syntax_spike_test.dart` keeps exercising
+/// the bare block-syntax/builder wiring. The real embed (`DatabaseEmbed`,
+/// task 7.2, in `database_embed.dart`) is wired in via [embedBuilder] by
+/// its callers (the note view's view-mode `MarkdownBody` and edit-mode
+/// preview `Markdown`), replacing the placeholder body with the resolved,
+/// read-only view rendering.
 class DatabaseEmbedBuilder extends MarkdownElementBuilder {
+  DatabaseEmbedBuilder({this.embedBuilder});
+
+  /// Builds the real embed widget for a resolved `title`/`view` pair.
+  /// `null` keeps the placeholder rendering.
+  final Widget Function(BuildContext context, String title, String? view)?
+  embedBuilder;
+
   @override
   bool isBlockElement() => true;
 
@@ -65,6 +77,8 @@ class DatabaseEmbedBuilder extends MarkdownElementBuilder {
   ) {
     final title = element.attributes['title'] ?? '';
     final view = element.attributes['view'];
+    final builder = embedBuilder;
+    if (builder != null) return builder(context, title, view);
     return Container(
       key: Key('database-embed-$title${view == null ? '' : '#$view'}'),
       padding: const EdgeInsets.all(8),
