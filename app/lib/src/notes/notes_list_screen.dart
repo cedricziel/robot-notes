@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
+import '../format/note_time.dart';
 import '../widgets/error_strip.dart';
 import 'notes_list_controller.dart';
+
+export '../format/note_time.dart'
+    show formatNoteTimestamp, formatRelativeNoteTime;
 
 /// Notes list view. Backed by [NotesListController]; the controller is
 /// injected so widget tests can drive it without a real network.
@@ -520,37 +524,4 @@ class _NoteTileState extends State<_NoteTile> {
       child: menu,
     );
   }
-}
-
-/// Formats [dt] in the device's local time zone as `YYYY-MM-DD HH:MM`.
-/// Kept top-level so tests can pin a known instant.
-String formatNoteTimestamp(DateTime dt) {
-  final t = dt.toLocal();
-  return '${t.year}-${_two(t.month)}-${_two(t.day)} '
-      '${_two(t.hour)}:${_two(t.minute)}';
-}
-
-String _two(int n) => n.toString().padLeft(2, '0');
-
-/// Formats [dt] relative to [now] (defaulting to the current instant) as
-/// "just now" / "N minute(s) ago" / "N hour(s) ago" / "N day(s) ago", or
-/// falls back to [formatNoteTimestamp] beyond a week — an absolute date is
-/// more useful than "N days ago" once the gap gets that wide.
-String formatRelativeNoteTime(DateTime dt, {DateTime? now}) {
-  final reference = now ?? DateTime.now();
-  final diff = reference.difference(dt);
-  // A negative diff (dt is ahead of reference — server/client clock skew)
-  // bypasses every threshold below and would otherwise read as "just
-  // now" no matter how far in the future dt actually is.
-  if (diff.isNegative || diff.inDays >= 7) return formatNoteTimestamp(dt);
-  if (diff.inDays >= 1) {
-    return '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
-  }
-  if (diff.inHours >= 1) {
-    return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
-  }
-  if (diff.inMinutes >= 1) {
-    return '${diff.inMinutes} minute${diff.inMinutes == 1 ? '' : 's'} ago';
-  }
-  return 'just now';
 }
