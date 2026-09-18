@@ -14,6 +14,7 @@ import 'package:server/src/app_deps.dart';
 import 'package:server/src/auth_middleware.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/databases/registry.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/mcp/mcp_chain.dart';
@@ -34,6 +35,10 @@ import 'package:server/src/well_known_middleware.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
 
+import '../../routes/databases/[id]/index.dart' as databases_id_route;
+import '../../routes/databases/[id]/query.dart' as databases_id_query_route;
+import '../../routes/databases/[id]/rows.dart' as databases_id_rows_route;
+import '../../routes/databases/index.dart' as databases_index_route;
 import '../../routes/healthz.dart' as healthz_route;
 import '../../routes/index.dart' as root_index;
 import '../../routes/invites/[token]/index.dart' as invites_token_route;
@@ -43,6 +48,7 @@ import '../../routes/invites/index.dart' as invites_index_route;
 import '../../routes/mcp/index.dart' as mcp_route;
 import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
+import '../../routes/notes/[id]/properties.dart' as notes_id_properties_route;
 import '../../routes/notes/index.dart' as notes_index_route;
 import '../../routes/oauth/authorize.dart' as oauth_authorize_route;
 import '../../routes/oauth/oidc/callback.dart' as oauth_oidc_callback_route;
@@ -105,6 +111,7 @@ Future<HttpServer> startTestServer({
       .addMiddleware(provider<HttpPostForm>((_) => httpPostForm))
       .addMiddleware(provider<MetaIndex>((_) => deps.metaIndex))
       .addMiddleware(provider<NoteWriteService>((_) => deps.noteWriteService))
+      .addMiddleware(provider<DatabaseRegistry>((_) => deps.registry))
       .addMiddleware(provider<Storage>((_) => deps.storage))
       .addMiddleware(provider<Clock>((_) => deps.clock));
 
@@ -123,8 +130,13 @@ Future<HttpServer> startTestServer({
 
   final root = Router()
     ..mount('/notes/<id>/lock', _lockMount)
+    ..mount('/notes/<id>/properties', _notesIdPropertiesMount)
     ..mount('/notes/<id>', _notesIdMount)
     ..mount('/notes', _notesIndexMount)
+    ..mount('/databases/<id>/query', _databasesIdQueryMount)
+    ..mount('/databases/<id>/rows', _databasesIdRowsMount)
+    ..mount('/databases/<id>', _databasesIdMount)
+    ..mount('/databases', _databasesIndexMount)
     ..mount('/invites/<token>/onboarding.txt', _onboardingMount)
     ..mount('/invites/<token>', _invitesTokenMount)
     ..mount('/invites', _invitesIndexMount)
@@ -154,6 +166,26 @@ FutureOr<Response> _notesIdMount(RequestContext context, String id) {
 
 FutureOr<Response> _lockMount(RequestContext context, String id) {
   return notes_id_lock_route.onRequest(context, id);
+}
+
+FutureOr<Response> _notesIdPropertiesMount(RequestContext context, String id) {
+  return notes_id_properties_route.onRequest(context, id);
+}
+
+FutureOr<Response> _databasesIndexMount(RequestContext context) {
+  return databases_index_route.onRequest(context);
+}
+
+FutureOr<Response> _databasesIdMount(RequestContext context, String id) {
+  return databases_id_route.onRequest(context, id);
+}
+
+FutureOr<Response> _databasesIdQueryMount(RequestContext context, String id) {
+  return databases_id_query_route.onRequest(context, id);
+}
+
+FutureOr<Response> _databasesIdRowsMount(RequestContext context, String id) {
+  return databases_id_rows_route.onRequest(context, id);
 }
 
 FutureOr<Response> _invitesIndexMount(RequestContext context) {
@@ -211,6 +243,18 @@ class TestApp {
     return TestApp._(server, deps, config, tmpDir);
   }
 
+  /// Wraps an [HttpServer]/[AppDeps]/[Config] already built by hand (e.g.
+  /// a test that needs to reopen the same [dataDir] after closing a first
+  /// [TestApp], to exercise a restart) into the same convenience surface
+  /// [start] returns.
+  static TestApp wrap(
+    HttpServer server,
+    AppDeps deps,
+    Config config,
+    Directory dataDir,
+  ) =>
+      TestApp._(server, deps, config, dataDir);
+
   String get baseUrl => 'http://${server.address.host}:${server.port}';
 
   String get wsUrl => 'ws://${server.address.host}:${server.port}/ws';
@@ -221,10 +265,14 @@ class TestApp {
         'Content-Type': 'application/json',
       };
 
-  Future<void> close() async {
+  /// Shuts the server and [deps] down. [deleteDir] defaults to `true`
+  /// (removing [tmpDir]); a test that reopens the same [tmpDir] — to
+  /// exercise a restart against the same on-disk vault — passes `false`
+  /// and deletes it itself once done.
+  Future<void> close({bool deleteDir = true}) async {
     await server.close(force: true);
     await deps.close();
-    if (tmpDir.existsSync()) {
+    if (deleteDir && tmpDir.existsSync()) {
       tmpDir.deleteSync(recursive: true);
     }
   }
