@@ -82,14 +82,45 @@ class RobotNotesClient:
         return self._request("GET", f"/notes/{note_id}").json()
 
     def find_note_by_title(self, title: str, *, path: str) -> Optional[Dict[str, Any]]:
-        """A list-endpoint scan, not a lookup by content: the item it returns already
+        """Looks up a note by exact title within ``path``. The item returned already
         carries ``version``, so callers that only overwrite (not append) can write
-        straight from it without an extra ``get_note`` round trip."""
-        response = self._request("GET", "/notes", params={"path": path, "limit": 200})
-        for item in response.json().get("items", []):
-            if item.get("title") == title:
-                return item
-        return None
+        straight from it without an extra ``get_note`` round trip.
+
+        Tries the server's dedicated ``title`` filter first (a single request);
+        that filter may not exist on every deployed server yet, so an HTTP 400
+        response is treated as "unsupported" and triggers a fall back to a full
+        cursor scan of the folder instead of being raised. Any other error from
+        the filter attempt (network failure, 5xx, etc.) is not swallowed."""
+        try:
+            response = self._request("GET", "/notes", params={"path": path, "title": title, "limit": 1})
+        except ClientError as exc:
+            if "HTTP 400" not in str(exc):
+                raise
+        else:
+            items = response.json().get("items", [])
+            return items[0] if items else None
+
+        return self._find_note_by_title_scan(title, path=path)
+
+    def _find_note_by_title_scan(self, title: str, *, path: str) -> Optional[Dict[str, Any]]:
+        """Pages through every note in ``path`` via ``next_cursor`` looking for an
+        exact title match, used when the server has no ``title`` filter to lean
+        on. Sorted most-recently-updated first so the common case — a session
+        resumed shortly after it left off — is found on the very first page
+        rather than requiring the whole folder to be walked."""
+        cursor: Optional[str] = None
+        while True:
+            params: Dict[str, Any] = {"path": path, "limit": 200, "sort": "updated_desc"}
+            if cursor is not None:
+                params["after"] = cursor
+            response = self._request("GET", "/notes", params=params)
+            payload = response.json()
+            for item in payload.get("items", []):
+                if item.get("title") == title:
+                    return item
+            cursor = payload.get("next_cursor")
+            if not cursor:
+                return None
 
     def create_note(self, *, title: str, content: str = "", path: str = "") -> Dict[str, Any]:
         return self._request("POST", "/notes", json={"title": title, "content": content, "path": path}).json()
