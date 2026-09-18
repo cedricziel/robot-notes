@@ -4,6 +4,7 @@ import 'package:shared/shared.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
 import '../notes/notes_list_screen.dart' show formatNoteTimestamp;
+import '../widgets/empty_state.dart';
 import '../widgets/error_strip.dart';
 import 'search_controller.dart';
 
@@ -17,16 +18,28 @@ import 'search_controller.dart';
 /// anything, [recentNotes] (already loaded and sorted by the caller —
 /// typically the notes list, already most-recently-updated-first) fills
 /// the empty state instead of a bare hint.
+///
+/// Not a page: there is no [Scaffold] or [AppBar] here. The widget is a
+/// plain [Material] surface that fills whatever its parent gives it, so
+/// the router can host it in a top sheet on phones and a centered
+/// [Dialog] on wider windows without a second app bar (or a spurious
+/// back arrow) appearing inside the overlay. [onClose] adds a close
+/// button to the header for hosts that have no other affordance.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
     required this.controller,
     this.onResultTap,
+    this.onClose,
     this.recentNotes = const <NoteMeta>[],
     super.key,
   });
 
   final NotesSearchController controller;
   final ValueChanged<String>? onResultTap;
+
+  /// Invoked by the header's close button. `null` hides the button (the
+  /// host is expected to provide its own dismissal, e.g. a scrim tap).
+  final VoidCallback? onClose;
 
   /// Shown as a "Recent" section while the query is empty. `null`/empty
   /// falls back to the plain "Type to search." hint.
@@ -55,111 +68,149 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: TextField(
-          key: const Key('search.input'),
-          controller: _input,
-          focusNode: _inputFocus,
-          autofocus: true,
-          onChanged: widget.controller.setQuery,
-          decoration: InputDecoration(
-            hintText: 'Search notes…',
-            border: InputBorder.none,
-            suffixIcon: ValueListenableBuilder<TextEditingValue>(
-              valueListenable: _input,
-              builder: (context, value, _) {
-                if (value.text.isEmpty) return const SizedBox.shrink();
-                return IconButton(
-                  key: const Key('search.clear'),
-                  icon: const Icon(Icons.clear),
-                  tooltip: 'Clear',
-                  onPressed: _clear,
-                );
-              },
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: Column(
+        children: [
+          _buildHeader(context),
+          const Divider(height: 1),
+          Expanded(child: _buildBody(context)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      child: Row(
+        children: [
+          Icon(Icons.search, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(
+            child: TextField(
+              key: const Key('search.input'),
+              controller: _input,
+              focusNode: _inputFocus,
+              autofocus: true,
+              onChanged: widget.controller.setQuery,
+              decoration: const InputDecoration(
+                hintText: 'Search notes…',
+                border: InputBorder.none,
+                isDense: true,
+              ),
             ),
           ),
-        ),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _input,
+            builder: (context, value, _) {
+              if (value.text.isEmpty) return const SizedBox.shrink();
+              return IconButton(
+                key: const Key('search.clear'),
+                icon: const Icon(Icons.clear),
+                tooltip: 'Clear',
+                onPressed: _clear,
+              );
+            },
+          ),
+          if (widget.onClose != null)
+            IconButton(
+              key: const Key('search.close'),
+              icon: const Icon(Icons.close),
+              tooltip: 'Close',
+              onPressed: widget.onClose,
+            ),
+        ],
       ),
-      body: ValueListenableBuilder<SearchState>(
-        valueListenable: widget.controller,
-        builder: (context, state, _) {
-          final trimmedQuery = state.query.trim();
-          if (trimmedQuery.isEmpty) {
-            if (widget.recentNotes.isEmpty) {
-              return const Center(child: Text('Type to search.'));
-            }
-            return _RecentSection(
-              notes: widget.recentNotes,
-              onTap: widget.onResultTap,
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    return ValueListenableBuilder<SearchState>(
+      valueListenable: widget.controller,
+      builder: (context, state, _) {
+        final trimmedQuery = state.query.trim();
+        if (trimmedQuery.isEmpty) {
+          if (widget.recentNotes.isEmpty) {
+            return const EmptyState(
+              icon: Icons.search,
+              title: 'Type to search.',
             );
           }
-          final error = state.error;
-          if (state.hits.isEmpty) {
-            if (state.isLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (error != null) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _describe(error),
-                        key: const Key('search.error'),
-                        textAlign: TextAlign.center,
-                      ),
-                      _SyntaxHint(error: error, textAlign: TextAlign.center),
-                    ],
-                  ),
-                ),
-              );
-            }
-            return Center(child: Text('No matches for “$trimmedQuery”.'));
+          return _RecentSection(
+            notes: widget.recentNotes,
+            onTap: widget.onResultTap,
+          );
+        }
+        final error = state.error;
+        if (state.hits.isEmpty) {
+          if (state.isLoading) {
+            return const Center(child: CircularProgressIndicator());
           }
-          return Column(
-            children: [
-              if (state.isLoading) const LinearProgressIndicator(minHeight: 2),
-              if (error != null) ...[
-                ErrorStrip(
-                  key: const Key('search.error'),
-                  message: _describe(error),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _SyntaxHint(error: error),
-                ),
-              ],
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Text(
-                  _matchCountLabel(state.hits.length),
-                  key: const Key('search.count'),
-                  style: Theme.of(context).textTheme.labelMedium,
+          if (error != null) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _describe(error),
+                      key: const Key('search.error'),
+                      textAlign: TextAlign.center,
+                    ),
+                    _SyntaxHint(error: error, textAlign: TextAlign.center),
+                  ],
                 ),
               ),
-              Expanded(
-                child: ListView.separated(
-                  key: const Key('search.results'),
-                  itemCount: state.hits.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final hit = state.hits[index];
-                    return _HitTile(
-                      hit: hit,
-                      onTap: widget.onResultTap == null
-                          ? null
-                          : () => widget.onResultTap!(hit.id),
-                    );
-                  },
-                ),
+            );
+          }
+          return EmptyState(
+            icon: Icons.search_off,
+            title: 'No matches for “$trimmedQuery”.',
+          );
+        }
+        return Column(
+          children: [
+            if (state.isLoading) const LinearProgressIndicator(minHeight: 2),
+            if (error != null) ...[
+              ErrorStrip(
+                key: const Key('search.error'),
+                message: _describe(error),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _SyntaxHint(error: error),
               ),
             ],
-          );
-        },
-      ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text(
+                _matchCountLabel(state.hits.length),
+                key: const Key('search.count'),
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+            Expanded(
+              child: ListView.separated(
+                key: const Key('search.results'),
+                itemCount: state.hits.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final hit = state.hits[index];
+                  return _HitTile(
+                    hit: hit,
+                    onTap: widget.onResultTap == null
+                        ? null
+                        : () => widget.onResultTap!(hit.id),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

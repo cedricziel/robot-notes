@@ -7,10 +7,24 @@ import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import '../format/note_time.dart';
+import '../layout/breakpoints.dart';
+import '../theme/app_theme.dart';
+import '../widgets/status_strip.dart';
 import 'link_autocomplete.dart';
 import 'markdown_toolbar.dart';
 import 'note_controller.dart';
 import 'save_shortcut.dart';
+
+/// How a [NoteScreen] is being shown, which decides what its leading
+/// app-bar button means.
+enum NotePresentation {
+  /// Pushed over the notes list as its own route: the button goes back.
+  page,
+
+  /// The detail pane of the three-pane shell: the button clears the pane.
+  pane,
+}
 
 /// Single-note view. Renders three modes off [NoteController]:
 ///
@@ -26,6 +40,7 @@ class NoteScreen extends StatefulWidget {
     this.onOpenNote,
     this.onTagTap,
     this.startEditing = false,
+    this.presentation = NotePresentation.page,
     @visibleForTesting this.installSaveShortcut = installWebSaveShortcut,
     @visibleForTesting this.linkAutocompleteScheduler,
     super.key,
@@ -45,6 +60,13 @@ class NoteScreen extends StatefulWidget {
   /// Open straight into the editor with the title selected, so typing
   /// replaces a placeholder title.
   final bool startEditing;
+
+  /// Whether this screen is its own route ([NotePresentation.page], the
+  /// leading button reads "Back") or the detail pane of the three-pane
+  /// shell ([NotePresentation.pane], it reads "Close"). Either way the
+  /// button flushes a pending edit, releases the lock, and calls
+  /// [onClose].
+  final NotePresentation presentation;
 
   /// Overridable seam for tests: production code always uses
   /// [installWebSaveShortcut] (a no-op off web). Tests substitute a fake
@@ -67,6 +89,12 @@ class _NoteScreenState extends State<NoteScreen> {
   final TextEditingController _title = TextEditingController();
   late final _DiffTextController _content = _DiffTextController(_serverContent);
   late final LinkAutocompleteController _linkAutocomplete;
+
+  /// The user's explicit choice for the editor's live preview, if they've
+  /// made one this session. `null` means "whatever the width suggests":
+  /// shown side-by-side at [WindowSizeClass.medium] and up, hidden on a
+  /// compact window where it would halve an already small editor.
+  bool? _previewOverride;
 
   String? _serverContent() {
     final s = widget.controller.value;
@@ -232,10 +260,22 @@ class _NoteScreenState extends State<NoteScreen> {
     if (!didPop) await _close();
   }
 
+  void _setPreviewShown(bool shown) {
+    setState(() => _previewOverride = shown);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = widget.controller.value;
     final note = state.note;
+    final viewing = state.mode == NoteMode.viewing && note != null;
+    final (
+      IconData leadingIcon,
+      String leadingTooltip,
+    ) = switch (widget.presentation) {
+      NotePresentation.page => (Icons.arrow_back, 'Back'),
+      NotePresentation.pane => (Icons.close, 'Close'),
+    };
     return PopScope(
       canPop: !state.isDirty,
       onPopInvokedWithResult: _onPopInvoked,
@@ -243,8 +283,8 @@ class _NoteScreenState extends State<NoteScreen> {
         appBar: AppBar(
           leading: IconButton(
             key: const Key('note.close'),
-            tooltip: 'Close',
-            icon: const Icon(Icons.close),
+            tooltip: leadingTooltip,
+            icon: Icon(leadingIcon),
             onPressed: _close,
           ),
           title: Text(
@@ -255,18 +295,13 @@ class _NoteScreenState extends State<NoteScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Center(
-                  child: Tooltip(
-                    message: state.viewers.join(', '),
-                    child: Text(
-                      state.viewers.length <= 3
-                          ? state.viewers.join(', ')
-                          : '${state.viewers.length} viewers',
-                      key: const Key('note.presence'),
-                    ),
+                  child: _PresenceAvatars(
+                    key: const Key('note.presence'),
+                    viewers: state.viewers,
                   ),
                 ),
               ),
-            if (state.mode == NoteMode.viewing && note != null)
+            if (viewing)
               IconButton(
                 key: const Key('note.edit'),
                 tooltip: 'Edit',
@@ -279,7 +314,7 @@ class _NoteScreenState extends State<NoteScreen> {
                 onPressed: _save,
                 child: const Text('Save'),
               ),
-            if (state.mode == NoteMode.viewing && note != null)
+            if (viewing)
               PopupMenuButton<void>(
                 key: const Key('note.menu'),
                 itemBuilder: (_) => [
@@ -303,6 +338,11 @@ class _NoteScreenState extends State<NoteScreen> {
               const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
               const SingleActivator(LogicalKeyboardKey.keyS, control: true):
                   _save,
+            },
+            if (viewing) ...{
+              const SingleActivator(LogicalKeyboardKey.keyE, meta: true): _edit,
+              const SingleActivator(LogicalKeyboardKey.keyE, control: true):
+                  _edit,
             },
             const SingleActivator(LogicalKeyboardKey.escape): _close,
           },
@@ -427,28 +467,28 @@ class _NoteScreenState extends State<NoteScreen> {
     final banners = <Widget>[];
     if (state.lockedByOtherBanner != null) {
       banners.add(
-        _Banner(
+        StatusStrip(
           key: const Key('note.banner.lockedByOther'),
-          text: state.lockedByOtherBanner!,
-          tone: _BannerTone.warning,
+          message: state.lockedByOtherBanner!,
+          tone: StatusTone.warning,
+          icon: Icons.lock_outline,
         ),
       );
     } else if (state.mode == NoteMode.viewing &&
         state.lock != null &&
         state.lock!.holder.isNotEmpty) {
       banners.add(
-        _Banner(
+        StatusStrip(
           key: const Key('note.banner.lock'),
-          text: '${state.lock!.holder} is editing this note.',
-          tone: _BannerTone.info,
+          message: '${state.lock!.holder} is editing this note.',
+          tone: StatusTone.info,
+          icon: Icons.edit_outlined,
         ),
       );
     } else if ((state.mode == NoteMode.editing ||
             state.mode == NoteMode.saving) &&
         state.lock != null) {
-      banners.add(
-        _EditingStatus(key: const Key('note.editingStatus'), state: state),
-      );
+      banners.add(_EditingStatus(state: state));
     }
 
     if (state.mode == NoteMode.conflict) {
@@ -477,19 +517,16 @@ class _NoteScreenState extends State<NoteScreen> {
                   saving: state.mode == NoteMode.saving,
                   linkAutocomplete: _linkAutocomplete,
                   onSelectLink: _insertLink,
+                  previewOverride: _previewOverride,
+                  onPreviewShown: _setPreviewShown,
                 )
-              : Column(
-                  children: [
-                    _MetadataLine(note: note),
-                    Expanded(child: _ReadOnlyView(content: note.content)),
-                    if (note.tags.isNotEmpty)
-                      _TagChips(tags: note.tags, onTap: widget.onTagTap),
-                    _BacklinksPanel(
-                      backlinks: state.backlinks,
-                      loading: state.backlinksLoading,
-                      onOpen: widget.onOpenNote,
-                    ),
-                  ],
+              : _ReadingView(
+                  note: note,
+                  backlinks: state.backlinks,
+                  backlinksLoading: state.backlinksLoading,
+                  onOpenNote: widget.onOpenNote,
+                  onTagTap: widget.onTagTap,
+                  onEdit: state.mode == NoteMode.viewing ? _edit : null,
                 ),
         ),
       ],
@@ -497,29 +534,84 @@ class _NoteScreenState extends State<NoteScreen> {
   }
 }
 
-/// A wide window turns a comfortable reading line into an uncomfortably
-/// long one; cap it like a document, not an app panel that fills whatever
-/// space it's given.
-const double _maxReadingWidth = 760;
+/// First letter of [name], upper-cased, for an avatar. `?` for a blank name.
+String _initial(String name) {
+  final trimmed = name.trim();
+  return trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
+}
 
-class _ReadOnlyView extends StatelessWidget {
-  const _ReadOnlyView({required this.content});
-  final String content;
+/// The read-only note as one document: metadata line, rendered body, tag
+/// chips, and the backlinks section, all in a single scroll and all on the
+/// same reading-width column so nothing sits full-bleed next to a centered
+/// body.
+class _ReadingView extends StatelessWidget {
+  const _ReadingView({
+    required this.note,
+    required this.backlinks,
+    required this.backlinksLoading,
+    this.onOpenNote,
+    this.onTagTap,
+    this.onEdit,
+  });
+
+  final Note note;
+  final List<BacklinkHit> backlinks;
+  final bool backlinksLoading;
+  final ValueChanged<String>? onOpenNote;
+  final ValueChanged<String>? onTagTap;
+
+  /// Double-tapping the body starts editing. `null` while the screen is
+  /// busy (acquiring the lock, moving, deleting).
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: _maxReadingWidth),
-        child: SelectionArea(
-          child: Markdown(
-            key: const Key('note.body'),
-            data: content,
-            padding: const EdgeInsets.all(16),
-            // Never fetch images: a note can come from any actor, and
-            // loading a remote URL would leak the reader's IP to whoever
-            // wrote it.
-            imageBuilder: (uri, title, alt) => Text(alt ?? uri.toString()),
+    // Take focus when nothing else has it, so the screen's keyboard
+    // shortcuts (Cmd/Ctrl+E, Escape) work as soon as a note opens rather
+    // than only after a click into the body.
+    return Focus(
+      autofocus: true,
+      child: SingleChildScrollView(
+        key: const Key('note.scroll'),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: PaneSizes.readingColumn,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _MetadataLine(note: note),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onDoubleTap: onEdit,
+                  child: SelectionArea(
+                    child: MarkdownBody(
+                      key: const Key('note.body'),
+                      data: note.content,
+                      styleSheet: AppTheme.markdown(context),
+                      // Never fetch images: a note can come from any actor,
+                      // and loading a remote URL would leak the reader's IP
+                      // to whoever wrote it.
+                      imageBuilder: (uri, title, alt) =>
+                          Text(alt ?? uri.toString()),
+                    ),
+                  ),
+                ),
+                if (note.tags.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  _TagChips(tags: note.tags, onTap: onTagTap),
+                ],
+                const SizedBox(height: 24),
+                _BacklinksPanel(
+                  backlinks: backlinks,
+                  loading: backlinksLoading,
+                  onOpen: onOpenNote,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -537,47 +629,22 @@ class _MetadataLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = Theme.of(
-      context,
-    ).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor);
+    final theme = Theme.of(context);
+    final style = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     final parts = [
       if (note.path.isNotEmpty) note.path,
-      _formatRelativeTime(note.updatedAt),
+      formatRelativeNoteTime(note.updatedAt),
       'v${note.version}',
     ];
-    return Padding(
+    return Text(
+      parts.join(' · '),
       key: const Key('note.metadata'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Text(parts.join(' · '), style: style),
+      style: style,
     );
   }
 }
-
-/// Formats [dt] relative to now as "just now" / "N minute(s) ago" / "N
-/// hour(s) ago" / "N day(s) ago", falling back to an absolute date beyond
-/// a week. A near-duplicate of the notes-list row's relative-time helper
-/// (`notes_list_screen.dart`'s `formatRelativeNoteTime`, in an unmerged
-/// sibling change at time of writing) — worth consolidating into a
-/// shared util once both land, not worth blocking either on the other.
-String _formatRelativeTime(DateTime dt) {
-  final diff = DateTime.now().difference(dt);
-  if (diff.inDays >= 7) {
-    final t = dt.toLocal();
-    return '${t.year}-${_twoDigits(t.month)}-${_twoDigits(t.day)}';
-  }
-  if (diff.inDays >= 1) {
-    return '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
-  }
-  if (diff.inHours >= 1) {
-    return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
-  }
-  if (diff.inMinutes >= 1) {
-    return '${diff.inMinutes} minute${diff.inMinutes == 1 ? '' : 's'} ago';
-  }
-  return 'just now';
-}
-
-String _twoDigits(int n) => n.toString().padLeft(2, '0');
 
 class _Editor extends StatelessWidget {
   const _Editor({
@@ -589,6 +656,8 @@ class _Editor extends StatelessWidget {
     required this.saving,
     required this.linkAutocomplete,
     required this.onSelectLink,
+    required this.previewOverride,
+    required this.onPreviewShown,
   });
 
   final TextEditingController title;
@@ -599,6 +668,10 @@ class _Editor extends StatelessWidget {
   final bool saving;
   final LinkAutocompleteController linkAutocomplete;
   final ValueChanged<String> onSelectLink;
+
+  /// See `_NoteScreenState._previewOverride`.
+  final bool? previewOverride;
+  final ValueChanged<bool> onPreviewShown;
 
   /// Applies [transform] to [content]'s current value and reports the
   /// result the same way typing does, so undo/dirty-tracking/autocomplete
@@ -613,89 +686,121 @@ class _Editor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          TextField(
-            key: const Key('note.editor.title'),
-            controller: title,
-            autofocus: autofocusTitle,
-            onChanged: onTitle,
-            decoration: const InputDecoration(labelText: 'Title'),
-            enabled: !saving,
-          ),
-          const SizedBox(height: 12),
-          _FormattingToolbar(
-            enabled: !saving,
-            onBold: () => _applyFormat((v) => wrapSelection(v, '**')),
-            onItalic: () => _applyFormat((v) => wrapSelection(v, '*')),
-            onHeading: () => _applyFormat((v) => toggleLinePrefix(v, '# ')),
-            onList: () => _applyFormat((v) => toggleLinePrefix(v, '- ')),
-            onLink: () => _applyFormat(insertMarkdownLink),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final contentField = Column(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        key: const Key('note.editor.content'),
-                        controller: content,
-                        onChanged: onContent,
-                        decoration: const InputDecoration(
-                          labelText: 'Content',
-                          alignLabelWithHint: true,
-                        ),
-                        maxLines: null,
-                        expands: true,
-                        textAlignVertical: TextAlignVertical.top,
-                        enabled: !saving,
-                      ),
-                    ),
-                    _LinkSuggestions(
-                      linkAutocomplete: linkAutocomplete,
-                      onSelect: onSelectLink,
-                    ),
-                  ],
-                );
-                final preview = ListenableBuilder(
-                  listenable: content,
-                  builder: (context, _) => Markdown(
-                    key: const Key('note.editor.preview'),
-                    data: content.text,
-                    padding: const EdgeInsets.all(8),
-                    imageBuilder: (uri, title, alt) =>
-                        Text(alt ?? uri.toString()),
-                  ),
-                );
-                // Same narrow-screen stacking threshold as the conflict
-                // view's own side-by-side panes.
-                if (constraints.maxWidth < 600) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(child: contentField),
-                      const SizedBox(height: 8),
-                      Expanded(child: preview),
-                    ],
-                  );
-                }
-                return Row(
+    final theme = Theme.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide =
+            Breakpoints.fromConstraints(constraints) >= WindowSizeClass.medium;
+        final showPreview = previewOverride ?? wide;
+        final sideBySide = showPreview && wide;
+
+        final contentField = Column(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('note.editor.content'),
+                controller: content,
+                onChanged: onContent,
+                style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Start writing…',
+                  contentPadding: EdgeInsets.symmetric(vertical: 12),
+                ),
+                maxLines: null,
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
+                enabled: !saving,
+              ),
+            ),
+            _LinkSuggestions(
+              linkAutocomplete: linkAutocomplete,
+              onSelect: onSelectLink,
+            ),
+          ],
+        );
+
+        final Widget workspace;
+        if (!showPreview) {
+          workspace = contentField;
+        } else {
+          final preview = ListenableBuilder(
+            listenable: content,
+            builder: (context, _) => Markdown(
+              key: const Key('note.editor.preview'),
+              data: content.text,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              styleSheet: AppTheme.markdown(context),
+              imageBuilder: (uri, title, alt) => Text(alt ?? uri.toString()),
+            ),
+          );
+          workspace = sideBySide
+              ? Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(child: contentField),
-                    const SizedBox(width: 8),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: VerticalDivider(),
+                    ),
+                    Expanded(child: preview),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: contentField),
+                    const Divider(),
                     Expanded(child: preview),
                   ],
                 );
-              },
+        }
+
+        return Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: sideBySide
+                  ? PaneSizes.editorSplit
+                  : PaneSizes.readingColumn,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    key: const Key('note.editor.title'),
+                    controller: title,
+                    autofocus: autofocusTitle,
+                    onChanged: onTitle,
+                    style: theme.textTheme.headlineSmall,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      hintText: 'Title',
+                      contentPadding: EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    enabled: !saving,
+                  ),
+                  _FormattingToolbar(
+                    enabled: !saving,
+                    onBold: () => _applyFormat((v) => wrapSelection(v, '**')),
+                    onItalic: () => _applyFormat((v) => wrapSelection(v, '*')),
+                    onHeading: () =>
+                        _applyFormat((v) => toggleLinePrefix(v, '# ')),
+                    onList: () =>
+                        _applyFormat((v) => toggleLinePrefix(v, '- ')),
+                    onLink: () => _applyFormat(insertMarkdownLink),
+                    previewShown: showPreview,
+                    onTogglePreview: () => onPreviewShown(!showPreview),
+                  ),
+                  const Divider(),
+                  Expanded(child: workspace),
+                ],
+              ),
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -704,7 +809,8 @@ class _Editor extends StatelessWidget {
 /// the selection, heading/list toggle a marker on the current line, link
 /// inserts a `[title](url)` template. All operate on the same
 /// [TextEditingController] typing does, via [markdown_toolbar.dart]'s
-/// pure `TextEditingValue` transforms.
+/// pure `TextEditingValue` transforms. Ends with the live-preview toggle.
+/// Scrolls sideways rather than overflowing on a narrow window.
 class _FormattingToolbar extends StatelessWidget {
   const _FormattingToolbar({
     required this.enabled,
@@ -713,6 +819,8 @@ class _FormattingToolbar extends StatelessWidget {
     required this.onHeading,
     required this.onList,
     required this.onLink,
+    required this.previewShown,
+    required this.onTogglePreview,
   });
 
   final bool enabled;
@@ -721,42 +829,57 @@ class _FormattingToolbar extends StatelessWidget {
   final VoidCallback onHeading;
   final VoidCallback onList;
   final VoidCallback onLink;
+  final bool previewShown;
+  final VoidCallback onTogglePreview;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        IconButton(
-          key: const Key('note.toolbar.bold'),
-          tooltip: 'Bold',
-          icon: const Icon(Icons.format_bold),
-          onPressed: enabled ? onBold : null,
-        ),
-        IconButton(
-          key: const Key('note.toolbar.italic'),
-          tooltip: 'Italic',
-          icon: const Icon(Icons.format_italic),
-          onPressed: enabled ? onItalic : null,
-        ),
-        IconButton(
-          key: const Key('note.toolbar.heading'),
-          tooltip: 'Heading',
-          icon: const Icon(Icons.title),
-          onPressed: enabled ? onHeading : null,
-        ),
-        IconButton(
-          key: const Key('note.toolbar.list'),
-          tooltip: 'List',
-          icon: const Icon(Icons.format_list_bulleted),
-          onPressed: enabled ? onList : null,
-        ),
-        IconButton(
-          key: const Key('note.toolbar.link'),
-          tooltip: 'Link',
-          icon: const Icon(Icons.link),
-          onPressed: enabled ? onLink : null,
-        ),
-      ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            key: const Key('note.toolbar.bold'),
+            tooltip: 'Bold',
+            icon: const Icon(Icons.format_bold),
+            onPressed: enabled ? onBold : null,
+          ),
+          IconButton(
+            key: const Key('note.toolbar.italic'),
+            tooltip: 'Italic',
+            icon: const Icon(Icons.format_italic),
+            onPressed: enabled ? onItalic : null,
+          ),
+          IconButton(
+            key: const Key('note.toolbar.heading'),
+            tooltip: 'Heading',
+            icon: const Icon(Icons.title),
+            onPressed: enabled ? onHeading : null,
+          ),
+          IconButton(
+            key: const Key('note.toolbar.list'),
+            tooltip: 'List',
+            icon: const Icon(Icons.format_list_bulleted),
+            onPressed: enabled ? onList : null,
+          ),
+          IconButton(
+            key: const Key('note.toolbar.link'),
+            tooltip: 'Link',
+            icon: const Icon(Icons.link),
+            onPressed: enabled ? onLink : null,
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            key: const Key('note.toolbar.preview'),
+            tooltip: previewShown ? 'Hide preview' : 'Show preview',
+            isSelected: previewShown,
+            icon: const Icon(Icons.visibility),
+            selectedIcon: const Icon(Icons.visibility_off),
+            onPressed: onTogglePreview,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -817,32 +940,29 @@ class _TagChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return Wrap(
       key: const Key('note.tags'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 4,
-        children: [
-          for (final tag in tags)
-            ActionChip(
-              key: Key('note.tags.chip.$tag'),
-              label: Text(tag),
-              onPressed: onTap == null ? null : () => onTap!(tag),
-            ),
-        ],
-      ),
+      spacing: 8,
+      runSpacing: 4,
+      children: [
+        for (final tag in tags)
+          ActionChip(
+            key: Key('note.tags.chip.$tag'),
+            label: Text(tag),
+            onPressed: onTap == null ? null : () => onTap!(tag),
+          ),
+      ],
     );
   }
 }
 
-/// Backlinks panel: notes that link to the one currently open, from
+/// Backlinks section: notes that link to the one currently open, from
 /// `GET /notes/{id}/backlinks`. Shows an empty-state message (not an error)
 /// when there are none, since a fetch failure and "genuinely no backlinks"
 /// look the same to [NoteController]. When empty, this collapses to a
-/// small pill rather than the full bordered panel with its own heading —
-/// there's nothing to show, so it shouldn't claim footer space as if
-/// there were.
+/// small pill rather than a headed section — there's nothing to show, so
+/// it shouldn't claim space as if there were. Part of the reading scroll,
+/// not a pinned footer.
 class _BacklinksPanel extends StatelessWidget {
   const _BacklinksPanel({
     required this.backlinks,
@@ -857,63 +977,50 @@ class _BacklinksPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (backlinks.isEmpty) {
-      return Padding(
+      return Align(
         key: const Key('note.backlinks'),
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: loading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Chip(
-                  key: Key('note.backlinks.empty'),
-                  visualDensity: VisualDensity.compact,
-                  label: Text('No notes link to this one yet.'),
-                ),
-        ),
+        alignment: Alignment.centerLeft,
+        child: loading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Chip(
+                key: Key('note.backlinks.empty'),
+                visualDensity: VisualDensity.compact,
+                label: Text('No notes link to this one yet.'),
+              ),
       );
     }
-    return Container(
+    final theme = Theme.of(context);
+    return Column(
       key: const Key('note.backlinks'),
-      constraints: const BoxConstraints(maxHeight: 180),
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Text(
-              'Backlinks',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Divider(),
+        const SizedBox(height: 12),
+        Text(
+          'Backlinks',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
-          Flexible(
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (final hit in backlinks)
-                  ListTile(
-                    key: Key('note.backlinks.item.${hit.id}'),
-                    dense: true,
-                    title: Text(hit.title.isEmpty ? '(untitled)' : hit.title),
-                    subtitle: Text(
-                      hit.snippet,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: onOpen == null ? null : () => onOpen!(hit.id),
-                  ),
-              ],
+        ),
+        const SizedBox(height: 4),
+        for (final hit in backlinks)
+          ListTile(
+            key: Key('note.backlinks.item.${hit.id}'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(hit.title.isEmpty ? '(untitled)' : hit.title),
+            subtitle: Text(
+              hit.snippet,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
+            onTap: onOpen == null ? null : () => onOpen!(hit.id),
           ),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -1034,51 +1141,60 @@ class _ConflictView extends StatelessWidget {
       ),
     );
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const _Banner(
-            key: Key('note.banner.conflict'),
-            text:
-                'This note changed on the server. Use the server version, or edit yours and save it.',
-            tone: _BannerTone.warning,
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) => Flex(
-                direction: constraints.maxWidth < 600
-                    ? Axis.vertical
-                    : Axis.horizontal,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: server),
-                  const SizedBox.square(dimension: 12),
-                  Expanded(child: yours),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: PaneSizes.editorSplit),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              OutlinedButton(
-                key: const Key('note.conflict.acceptServer'),
-                onPressed: controller.resolveConflictAcceptServer,
-                child: const Text('Use server version'),
+              const StatusStrip(
+                key: Key('note.banner.conflict'),
+                message:
+                    'This note changed on the server. Use the server version, or edit yours and save it.',
+                tone: StatusTone.warning,
+                icon: Icons.sync_problem,
+                rounded: true,
               ),
-              FilledButton(
-                key: const Key('note.conflict.keepMine'),
-                onPressed: onKeepMine,
-                child: const Text('Save mine'),
+              const SizedBox(height: 12),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Flex(
+                    direction:
+                        Breakpoints.fromConstraints(constraints) >=
+                            WindowSizeClass.medium
+                        ? Axis.horizontal
+                        : Axis.vertical,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: server),
+                      const SizedBox.square(dimension: 12),
+                      Expanded(child: yours),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton(
+                    key: const Key('note.conflict.acceptServer'),
+                    onPressed: controller.resolveConflictAcceptServer,
+                    child: const Text('Use server version'),
+                  ),
+                  FilledButton(
+                    key: const Key('note.conflict.keepMine'),
+                    onPressed: onKeepMine,
+                    child: const Text('Save mine'),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1123,36 +1239,90 @@ class _DiffPane extends StatelessWidget {
   }
 }
 
-/// Formats [dt] in the device's local time zone as `HH:MM`, for the "you
-/// hold the lock until" banner. Kept top-level so tests can pin a known
-/// instant.
-String formatLockExpiry(DateTime dt) {
-  final t = dt.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(t.hour)}:${two(t.minute)}';
-}
+/// Formats [dt] in the device's local time zone as `HH:MM`, for the
+/// "Autosaved HH:MM" editing status. Kept top-level so tests can pin a
+/// known instant.
+String formatLockExpiry(DateTime dt) => formatClockTime(dt);
 
-enum _BannerTone { info, warning }
+/// Who's viewing the note, as a row of overlapping initials in the app
+/// bar: up to three avatars, then a "+N" for the rest. The full list is in
+/// the tooltip and in the semantics label, since initials alone don't
+/// identify anyone.
+class _PresenceAvatars extends StatelessWidget {
+  const _PresenceAvatars({required this.viewers, super.key});
 
-class _Banner extends StatelessWidget {
-  const _Banner({required this.text, required this.tone, super.key});
-  final String text;
-  final _BannerTone tone;
+  final List<String> viewers;
+
+  static const int _maxShown = 3;
+  static const double _radius = 12;
+
+  /// Ring of surface color around each avatar so the overlaps read as
+  /// separate circles.
+  static const double _ring = 2;
+  static const double _size = 2 * (_radius + _ring);
+
+  /// Horizontal distance between the left edges of neighbouring avatars.
+  static const double _step = _size - 8;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final bg = tone == _BannerTone.warning
-        ? scheme.errorContainer
-        : scheme.surfaceContainerHighest;
-    final fg = tone == _BannerTone.warning
-        ? scheme.onErrorContainer
-        : scheme.onSurface;
-    return Container(
-      width: double.infinity,
-      color: bg,
-      padding: const EdgeInsets.all(12),
-      child: Text(text, style: TextStyle(color: fg)),
+    final names = viewers.join(', ');
+    final shown = viewers.take(_maxShown).toList();
+    final extra = viewers.length - shown.length;
+    final count = shown.length + (extra > 0 ? 1 : 0);
+
+    Widget avatar(String label, {required bool overflow}) => Container(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: scheme.surface, width: _ring),
+      ),
+      child: CircleAvatar(
+        radius: _radius,
+        backgroundColor: overflow
+            ? scheme.surfaceContainerHighest
+            : scheme.primaryContainer,
+        foregroundColor: overflow
+            ? scheme.onSurfaceVariant
+            : scheme.onPrimaryContainer,
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: overflow
+                ? scheme.onSurfaceVariant
+                : scheme.onPrimaryContainer,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+
+    return Semantics(
+      container: true,
+      label: '${viewers.length == 1 ? 'Viewer' : 'Viewers'}: $names',
+      child: Tooltip(
+        message: names,
+        child: ExcludeSemantics(
+          child: SizedBox(
+            width: _size + _step * (count - 1),
+            height: _size,
+            child: Stack(
+              children: [
+                for (var i = 0; i < shown.length; i++)
+                  Positioned(
+                    left: i * _step,
+                    child: avatar(_initial(shown[i]), overflow: false),
+                  ),
+                if (extra > 0)
+                  Positioned(
+                    left: shown.length * _step,
+                    child: avatar('+$extra', overflow: true),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1162,13 +1332,12 @@ class _Banner extends StatelessWidget {
 /// automatic. The avatar's initial is [NoteState.lock]'s holder, which is
 /// always the current actor's own name while editing (the lock is theirs).
 class _EditingStatus extends StatelessWidget {
-  const _EditingStatus({required this.state, super.key});
+  const _EditingStatus({required this.state});
 
   final NoteState state;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final holder = state.lock!.holder;
     final String text;
     if (state.mode == NoteMode.saving) {
@@ -1178,23 +1347,16 @@ class _EditingStatus extends StatelessWidget {
     } else {
       text = 'Autosaved ${formatLockExpiry(state.note!.updatedAt)}';
     }
-    return Container(
-      width: double.infinity,
-      color: scheme.surfaceContainerHighest,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: 12,
-            child: Text(
-              holder.isEmpty ? '?' : holder[0].toUpperCase(),
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(text, style: TextStyle(color: scheme.onSurface)),
-        ],
+    return StatusStrip(
+      key: const Key('note.editingStatus'),
+      message: text,
+      tone: StatusTone.info,
+      leading: CircleAvatar(
+        radius: 12,
+        child: Text(
+          _initial(holder),
+          style: Theme.of(context).textTheme.labelSmall,
+        ),
       ),
     );
   }

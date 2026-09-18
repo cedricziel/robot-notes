@@ -1,8 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
+import '../format/note_time.dart';
+import '../layout/breakpoints.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/error_strip.dart';
+import '../widgets/resizable_panel.dart';
 import 'notes_list_controller.dart';
+
+export '../format/note_time.dart'
+    show formatNoteTimestamp, formatRelativeNoteTime;
+
+/// Which chrome [NotesListScreen] renders.
+///
+/// - [narrow]: phone chrome — bottom nav, FAB menu, folder drawer.
+/// - [wide]: toolbar actions in the app bar and an inline, resizable
+///   folder sidebar.
+///
+/// Normally derived from the screen's own constraints (wide at
+/// [WindowSizeClass.medium] and up); the three-pane shell pins it so the
+/// list pane keeps wide chrome even though it is narrower than a phone.
+enum NotesListLayout { narrow, wide }
 
 /// Notes list view. Backed by [NotesListController]; the controller is
 /// injected so widget tests can drive it without a real network.
@@ -22,8 +40,9 @@ class NotesListScreen extends StatefulWidget {
     this.onUploadFile,
     this.onSearch,
     this.onAccount,
-    this.appBarActions,
     this.sidebar,
+    this.layout,
+    this.selectedNoteId,
     super.key,
   });
 
@@ -31,7 +50,8 @@ class NotesListScreen extends StatefulWidget {
   final ValueChanged<String>? onNoteTap;
 
   /// Invoked when the user chooses "New note" — from the wide-layout
-  /// toolbar button, or the narrow-layout FAB menu. `null` hides both.
+  /// toolbar button, the narrow-layout FAB menu, or the empty state's
+  /// call to action. `null` hides all of them.
   final VoidCallback? onCreateNote;
 
   /// Invoked when the user chooses "New folder" from the narrow-layout
@@ -40,30 +60,34 @@ class NotesListScreen extends StatefulWidget {
   /// "New folder" action instead — the FAB doesn't exist there at all.
   final VoidCallback? onCreateFolder;
 
-  /// Invoked when the user chooses "Upload file" from the narrow-layout
-  /// FAB menu. That menu item is omitted when this is `null`.
+  /// Invoked when the user chooses "Upload file" — from the narrow-layout
+  /// FAB menu or the wide-layout toolbar. Both are omitted when `null`.
   final VoidCallback? onUploadFile;
 
-  /// Invoked by the narrow-layout bottom nav's "Search" destination.
-  /// Ignored on wide layouts, which keep [appBarActions] instead.
+  /// Invoked by the narrow-layout bottom nav's "Search" destination and
+  /// the wide-layout toolbar's search action. Both are omitted when
+  /// `null`.
   final VoidCallback? onSearch;
 
-  /// Invoked by the narrow-layout bottom nav's "Account" destination.
-  /// Ignored on wide layouts, which keep [appBarActions] instead.
+  /// Invoked by the narrow-layout bottom nav's "Account" destination and
+  /// the wide-layout toolbar's account action. Both are omitted when
+  /// `null`.
   final VoidCallback? onAccount;
 
-  /// Optional widgets rendered as the AppBar actions (e.g. search + reset
-  /// affordances supplied by the host shell) on wide layouts. Narrow
-  /// layouts never show these — the bottom nav ([onSearch], "Folders",
-  /// [onAccount]) replaces them, per the mobile redesign.
-  final List<Widget>? appBarActions;
-
-  /// The folder tree navigation panel. When supplied, it renders as a fixed
-  /// column beside the list on wide screens (>= 700 logical pixels) and
-  /// inside a [Drawer] on narrow ones, opened via the bottom nav's
-  /// "Folders" destination (there is no AppBar hamburger). `null` renders
-  /// no folder navigation and no "Folders" destination.
+  /// The folder tree navigation panel. When supplied, it renders as a
+  /// resizable column beside the list on wide layouts and inside a
+  /// [Drawer] on narrow ones, opened via the bottom nav's "Folders"
+  /// destination (there is no AppBar hamburger). `null` renders no folder
+  /// navigation and no "Folders" destination.
   final Widget? sidebar;
+
+  /// Forces the chrome regardless of the available width. `null` derives
+  /// it from this widget's own constraints via [Breakpoints].
+  final NotesListLayout? layout;
+
+  /// The note currently open beside the list (three-pane shell); its row
+  /// renders selected. `null` highlights nothing.
+  final String? selectedNoteId;
 
   @override
   State<NotesListScreen> createState() => _NotesListScreenState();
@@ -72,6 +96,12 @@ class NotesListScreen extends StatefulWidget {
 class _NotesListScreenState extends State<NotesListScreen> {
   late final ScrollController _scroll;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  double _sidebarWidth = PaneSizes.sidebarDefault;
+
+  /// False until the post-frame initial [NotesListController.refresh] has
+  /// been issued, so the very first frame shows the spinner rather than
+  /// flashing "No notes yet" over a vault that simply hasn't loaded.
+  bool _fetchStarted = false;
 
   @override
   void initState() {
@@ -81,6 +111,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
     // observing the loading state have a chance to set up listeners.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      setState(() => _fetchStarted = true);
       widget.controller.refresh();
     });
   }
@@ -127,191 +158,323 @@ class _NotesListScreenState extends State<NotesListScreen> {
     messenger.showSnackBar(const SnackBar(content: Text('Note deleted')));
   }
 
-  /// Below this width the sidebar moves into a [Drawer] instead of sitting
-  /// beside the list permanently.
-  static const _wideBreakpoint = 700.0;
+  /// Display name of a folder scope: its last path segment, or "Root" for
+  /// the vault root (`''`).
+  static String _folderLabel(String path) {
+    if (path.isEmpty) return 'Root';
+    final segments = path.split('/').where((s) => s.isNotEmpty);
+    return segments.isEmpty ? 'Root' : segments.last;
+  }
+
+  static String _titleFor(String? selectedPath) =>
+      selectedPath == null ? 'Notes' : _folderLabel(selectedPath);
 
   @override
   Widget build(BuildContext context) {
     final sidebar = widget.sidebar;
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Wide-layout affordances (hover-delete, the toolbar's "New note"
-        // action) are keyed off screen width alone; the sidebar's own
-        // inline-vs-drawer placement additionally requires one to exist.
-        final isWide = constraints.maxWidth >= _wideBreakpoint;
+        // Wide-layout affordances (hover-delete, the toolbar actions) are
+        // keyed off the layout alone; the sidebar's own inline-vs-drawer
+        // placement additionally requires one to exist.
+        final isWide = switch (widget.layout) {
+          NotesListLayout.wide => true,
+          NotesListLayout.narrow => false,
+          null =>
+            Breakpoints.fromConstraints(constraints) >= WindowSizeClass.medium,
+        };
         final showSidebarInline = sidebar != null && isWide;
-        return Scaffold(
-          key: _scaffoldKey,
-          appBar: AppBar(
-            title: const Text('Notes'),
-            // The narrow bottom nav's "Folders" destination opens the
-            // drawer, so the default hamburger would be a redundant second
-            // way to do the same thing — suppress it there. Wide layouts
-            // never have a drawer, so this has no effect on them.
-            automaticallyImplyLeading: isWide,
-            actions: isWide
-                ? [
-                    if (widget.onCreateNote != null)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: TextButton.icon(
-                          key: const Key('notes.create.toolbar'),
-                          onPressed: widget.onCreateNote,
-                          icon: const Icon(Icons.add),
-                          label: const Text('New note'),
-                        ),
-                      ),
-                    ...?widget.appBarActions,
-                  ]
-                : const [],
-          ),
-          drawer: sidebar == null || showSidebarInline
-              ? null
-              : Drawer(key: const Key('notes.sidebar.drawer'), child: sidebar),
-          floatingActionButton: widget.onCreateNote == null || isWide
-              ? null
-              : MenuAnchor(
-                  key: const Key('notes.create.menu'),
-                  menuChildren: [
-                    MenuItemButton(
-                      key: const Key('notes.create.note'),
-                      leadingIcon: const Icon(Icons.note_add_outlined),
-                      onPressed: widget.onCreateNote,
-                      child: const Text('New note'),
-                    ),
-                    if (widget.onCreateFolder != null)
-                      MenuItemButton(
-                        key: const Key('notes.create.folder'),
-                        leadingIcon: const Icon(
-                          Icons.create_new_folder_outlined,
-                        ),
-                        onPressed: widget.onCreateFolder,
-                        child: const Text('New folder'),
-                      ),
-                    if (widget.onUploadFile != null)
-                      MenuItemButton(
-                        key: const Key('notes.create.upload'),
-                        leadingIcon: const Icon(Icons.upload_file_outlined),
-                        onPressed: widget.onUploadFile,
-                        child: const Text('Upload file'),
-                      ),
-                  ],
-                  builder: (context, menuController, child) {
-                    return FloatingActionButton(
-                      key: const Key('notes.create'),
-                      tooltip: 'Create',
-                      onPressed: () {
-                        if (menuController.isOpen) {
-                          menuController.close();
-                        } else {
-                          menuController.open();
-                        }
-                      },
-                      child: const Icon(Icons.add),
-                    );
-                  },
+        return ValueListenableBuilder<NotesListState>(
+          valueListenable: widget.controller,
+          builder: (context, state, _) {
+            return Scaffold(
+              key: _scaffoldKey,
+              appBar: AppBar(
+                title: Text(
+                  _titleFor(state.selectedPath),
+                  key: const Key('notes.title'),
                 ),
-          bottomNavigationBar: isWide
-              ? null
-              : _BottomNav(
-                  hasFolders: sidebar != null,
-                  onSearch: widget.onSearch,
-                  onFolders: () => _scaffoldKey.currentState?.openDrawer(),
-                  onAccount: widget.onAccount,
-                ),
-          body: showSidebarInline
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      key: const Key('notes.sidebar.wide'),
-                      width: 260,
+                // The narrow bottom nav's "Folders" destination opens the
+                // drawer, so the default hamburger would be a redundant
+                // second way to do the same thing — suppress it there.
+                // Wide layouts never have a drawer, so this has no effect
+                // on them.
+                automaticallyImplyLeading: isWide,
+                actions: isWide ? _toolbarActions() : const [],
+              ),
+              drawer: sidebar == null || showSidebarInline
+                  ? null
+                  : Drawer(
+                      key: const Key('notes.sidebar.drawer'),
                       child: sidebar,
                     ),
-                    const VerticalDivider(width: 1),
-                    Expanded(child: _buildListBody(context, wide: isWide)),
-                  ],
-                )
-              : _buildListBody(context, wide: isWide),
+              floatingActionButton: widget.onCreateNote == null || isWide
+                  ? null
+                  : _buildCreateMenu(),
+              bottomNavigationBar: isWide
+                  ? null
+                  : _BottomNav(
+                      hasFolders: sidebar != null,
+                      onSearch: widget.onSearch,
+                      onFolders: () => _scaffoldKey.currentState?.openDrawer(),
+                      onAccount: widget.onAccount,
+                    ),
+              body: showSidebarInline
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ResizablePanel(
+                          width: _sidebarWidth,
+                          minWidth: PaneSizes.sidebarMin,
+                          maxWidth: PaneSizes.sidebarMax,
+                          onWidthChanged: (w) =>
+                              setState(() => _sidebarWidth = w),
+                          child: SizedBox.expand(
+                            key: const Key('notes.sidebar.wide'),
+                            child: sidebar,
+                          ),
+                        ),
+                        Expanded(child: _buildListBody(state, wide: isWide)),
+                      ],
+                    )
+                  : _buildListBody(state, wide: isWide),
+            );
+          },
         );
       },
     );
   }
 
-  Widget _buildListBody(BuildContext context, {required bool wide}) {
+  List<Widget> _toolbarActions() {
+    return [
+      if (widget.onCreateNote != null)
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: TextButton.icon(
+            key: const Key('notes.create.toolbar'),
+            onPressed: widget.onCreateNote,
+            icon: const Icon(Icons.add),
+            label: const Text('New note'),
+          ),
+        ),
+      if (widget.onUploadFile != null)
+        IconButton(
+          key: const Key('notes.create.upload.toolbar'),
+          tooltip: 'Upload file',
+          icon: const Icon(Icons.upload_file),
+          onPressed: widget.onUploadFile,
+        ),
+      if (widget.onSearch != null)
+        IconButton(
+          key: const Key('shell.search'),
+          tooltip: 'Search',
+          icon: const Icon(Icons.search),
+          onPressed: widget.onSearch,
+        ),
+      IconButton(
+        key: const Key('shell.refresh'),
+        tooltip: 'Refresh',
+        icon: const Icon(Icons.refresh),
+        onPressed: widget.controller.refresh,
+      ),
+      if (widget.onAccount != null)
+        IconButton(
+          key: const Key('shell.account'),
+          tooltip: 'Account',
+          icon: const Icon(Icons.account_circle),
+          onPressed: widget.onAccount,
+        ),
+      const SizedBox(width: 4),
+    ];
+  }
+
+  Widget _buildCreateMenu() {
+    return MenuAnchor(
+      key: const Key('notes.create.menu'),
+      menuChildren: [
+        MenuItemButton(
+          key: const Key('notes.create.note'),
+          leadingIcon: const Icon(Icons.note_add_outlined),
+          onPressed: widget.onCreateNote,
+          child: const Text('New note'),
+        ),
+        if (widget.onCreateFolder != null)
+          MenuItemButton(
+            key: const Key('notes.create.folder'),
+            leadingIcon: const Icon(Icons.create_new_folder_outlined),
+            onPressed: widget.onCreateFolder,
+            child: const Text('New folder'),
+          ),
+        if (widget.onUploadFile != null)
+          MenuItemButton(
+            key: const Key('notes.create.upload'),
+            leadingIcon: const Icon(Icons.upload_file_outlined),
+            onPressed: widget.onUploadFile,
+            child: const Text('Upload file'),
+          ),
+      ],
+      builder: (context, menuController, child) {
+        return FloatingActionButton(
+          key: const Key('notes.create'),
+          tooltip: 'Create',
+          onPressed: () {
+            if (menuController.isOpen) {
+              menuController.close();
+            } else {
+              menuController.open();
+            }
+          },
+          child: const Icon(Icons.add),
+        );
+      },
+    );
+  }
+
+  Widget _buildListBody(NotesListState state, {required bool wide}) {
+    if (state.items.isEmpty && (state.isLoadingFirst || !_fetchStarted)) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final error = state.error;
+    final showEmpty =
+        !state.isLoadingFirst && state.items.isEmpty && error == null;
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildFilterBar(state),
+        if (error != null)
+          ErrorStrip(
+            key: const Key('notes.error'),
+            message: describeError(error, fallback: 'Could not load notes.'),
+            onRetry: widget.controller.refresh,
+          ),
         Expanded(
-          child: ValueListenableBuilder<NotesListState>(
-            valueListenable: widget.controller,
-            builder: (context, state, _) {
-              if (state.isLoadingFirst && state.items.isEmpty) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final error = state.error;
-              final tag = state.selectedTag;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (tag != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                      child: Chip(
-                        key: const Key('notes.filter.tag'),
-                        label: Text('Tag: $tag'),
-                        deleteIcon: const Icon(
-                          Icons.close,
-                          key: Key('notes.filter.tag.clear'),
-                        ),
-                        onDeleted: () => widget.controller.selectTag(null),
-                      ),
-                    ),
-                  if (error != null)
-                    ErrorStrip(
-                      key: const Key('notes.error'),
-                      message: describeError(
-                        error,
-                        fallback: 'Could not load notes.',
-                      ),
-                      onRetry: widget.controller.refresh,
-                    ),
-                  Expanded(
-                    child: RefreshIndicator(
-                      onRefresh: widget.controller.refresh,
-                      child: ListView.separated(
-                        key: const Key('notes.list'),
-                        controller: _scroll,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        itemCount:
-                            state.items.length + (state.isLoadingMore ? 1 : 0),
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          if (index >= state.items.length) {
-                            return const Padding(
-                              padding: EdgeInsets.all(16),
-                              child: Center(child: CircularProgressIndicator()),
-                            );
-                          }
-                          final note = state.items[index];
-                          return _NoteTile(
-                            note: note,
-                            wide: wide,
-                            onTap: widget.onNoteTap == null
-                                ? null
-                                : () => widget.onNoteTap!(note.id),
-                            onDelete: () => _confirmDelete(note.id),
-                          );
-                        },
-                      ),
-                    ),
+          child: RefreshIndicator(
+            onRefresh: widget.controller.refresh,
+            child: showEmpty
+                ? _buildEmpty(state)
+                : ListView.separated(
+                    key: const Key('notes.list'),
+                    controller: _scroll,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount:
+                        state.items.length + (state.isLoadingMore ? 1 : 0),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      if (index >= state.items.length) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      final note = state.items[index];
+                      return _NoteTile(
+                        note: note,
+                        wide: wide,
+                        selected: note.id == widget.selectedNoteId,
+                        // The path is redundant when every row shares it.
+                        showPath: note.path != state.selectedPath,
+                        onTap: widget.onNoteTap == null
+                            ? null
+                            : () => widget.onNoteTap!(note.id),
+                        onDelete: () => _confirmDelete(note.id),
+                      );
+                    },
                   ),
-                ],
-              );
-            },
           ),
         ),
       ],
+    );
+  }
+
+  /// Folder and tag scope chips. Renders nothing when the list is
+  /// unscoped so the list sits flush under the app bar.
+  Widget _buildFilterBar(NotesListState state) {
+    final path = state.selectedPath;
+    final tag = state.selectedTag;
+    if (path == null && tag == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          if (path != null)
+            InputChip(
+              key: const Key('notes.filter.folder'),
+              avatar: const Icon(Icons.folder_outlined),
+              label: Text('Folder: ${_folderLabel(path)}'),
+              deleteIcon: const Icon(
+                Icons.close,
+                key: Key('notes.filter.folder.clear'),
+              ),
+              deleteButtonTooltipMessage: 'Show all folders',
+              onDeleted: () => widget.controller.selectFolder(null),
+            ),
+          if (tag != null)
+            InputChip(
+              key: const Key('notes.filter.tag'),
+              avatar: const Icon(Icons.tag),
+              label: Text('Tag: $tag'),
+              deleteIcon: const Icon(
+                Icons.close,
+                key: Key('notes.filter.tag.clear'),
+              ),
+              deleteButtonTooltipMessage: 'Clear tag filter',
+              onDeleted: () => widget.controller.selectTag(null),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The empty placeholder, laid out inside a scrollable so the
+  /// surrounding [RefreshIndicator] still responds to a pull.
+  Widget _buildEmpty(NotesListState state) {
+    final tag = state.selectedTag;
+    final path = state.selectedPath;
+    final newNote = widget.onCreateNote == null
+        ? null
+        : FilledButton.tonalIcon(
+            key: const Key('notes.empty.create'),
+            onPressed: widget.onCreateNote,
+            icon: const Icon(Icons.add),
+            label: const Text('New note'),
+          );
+    final Widget empty;
+    if (tag != null) {
+      empty = EmptyState(
+        key: const Key('notes.empty'),
+        icon: Icons.tag,
+        title: 'No notes tagged #$tag',
+        message: path == null
+            ? 'Nothing in the vault carries this tag.'
+            : 'Nothing in ${_folderLabel(path)} carries this tag.',
+        action: TextButton(
+          key: const Key('notes.empty.clearFilter'),
+          onPressed: () => widget.controller.selectTag(null),
+          child: const Text('Clear filter'),
+        ),
+      );
+    } else if (path != null) {
+      empty = EmptyState(
+        key: const Key('notes.empty'),
+        icon: Icons.folder_open_outlined,
+        title: 'Nothing in ${_folderLabel(path)}',
+        message: 'Notes you create here land in this folder.',
+        action: newNote,
+      );
+    } else {
+      empty = EmptyState(
+        key: const Key('notes.empty'),
+        icon: Icons.note_outlined,
+        title: 'No notes yet',
+        message: 'Notes you and your agents write show up here.',
+        action: newNote,
+      );
+    }
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [SliverFillRemaining(hasScrollBody: false, child: empty)],
     );
   }
 }
@@ -401,8 +564,10 @@ class _NoteTile extends StatefulWidget {
   const _NoteTile({
     required this.note,
     required this.wide,
-    this.onTap,
+    required this.selected,
+    required this.showPath,
     required this.onDelete,
+    this.onTap,
   });
 
   final NoteMeta note;
@@ -411,6 +576,15 @@ class _NoteTile extends StatefulWidget {
   /// on narrow/touch layouts, long-press/right-click (via [MenuAnchor])
   /// remains the only delete affordance.
   final bool wide;
+
+  /// Whether this is the note open beside the list.
+  final bool selected;
+
+  /// Whether to show the folder path in the metadata line. `false` when
+  /// the list is already scoped to that folder (every row would repeat it).
+  /// Root notes have no path to show either way.
+  final bool showPath;
+
   final VoidCallback? onTap;
   final VoidCallback onDelete;
 
@@ -425,63 +599,55 @@ class _NoteTileState extends State<_NoteTile> {
   Widget build(BuildContext context) {
     final note = widget.note;
     final theme = Theme.of(context);
-    final path = note.path;
+    final metaStyle = theme.textTheme.labelSmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final showPath = widget.showPath && note.path.isNotEmpty;
     final tile = ListTile(
       key: Key('notes.tile.${note.id}'),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              note.title.isEmpty ? '(untitled)' : note.title,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (path.isNotEmpty)
-            Flexible(
-              child: Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Text(
-                  path,
-                  key: Key('notes.tile.${note.id}.path'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ),
-        ],
+      selected: widget.selected,
+      title: Text(
+        note.title.isEmpty ? '(untitled)' : note.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
       ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (note.excerpt.isNotEmpty)
-            Text(note.excerpt, overflow: TextOverflow.ellipsis),
-          Row(
-            children: [
-              if (note.tags.isNotEmpty)
+            Text(note.excerpt, maxLines: 1, overflow: TextOverflow.ellipsis),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Expanded(
+                  // A Wrap rather than a Row so a long path or many tags
+                  // spill to a second line instead of overflowing.
                   child: Wrap(
-                    spacing: 4,
+                    spacing: 8,
+                    runSpacing: 2,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      for (final tag in note.tags)
-                        Chip(
-                          label: Text(tag),
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
+                      if (showPath)
+                        Text(
+                          note.path,
+                          key: Key('notes.tile.${note.id}.path'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: metaStyle,
                         ),
+                      if (showPath && note.tags.isNotEmpty)
+                        Text('·', style: metaStyle),
+                      for (final tag in note.tags)
+                        Text('#$tag', style: metaStyle),
                     ],
                   ),
-                )
-              else
-                const Spacer(),
-              Text(
-                formatRelativeNoteTime(note.updatedAt),
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
+                ),
+                const SizedBox(width: 12),
+                Text(formatRelativeNoteTime(note.updatedAt), style: metaStyle),
+              ],
+            ),
           ),
         ],
       ),
@@ -520,37 +686,4 @@ class _NoteTileState extends State<_NoteTile> {
       child: menu,
     );
   }
-}
-
-/// Formats [dt] in the device's local time zone as `YYYY-MM-DD HH:MM`.
-/// Kept top-level so tests can pin a known instant.
-String formatNoteTimestamp(DateTime dt) {
-  final t = dt.toLocal();
-  return '${t.year}-${_two(t.month)}-${_two(t.day)} '
-      '${_two(t.hour)}:${_two(t.minute)}';
-}
-
-String _two(int n) => n.toString().padLeft(2, '0');
-
-/// Formats [dt] relative to [now] (defaulting to the current instant) as
-/// "just now" / "N minute(s) ago" / "N hour(s) ago" / "N day(s) ago", or
-/// falls back to [formatNoteTimestamp] beyond a week — an absolute date is
-/// more useful than "N days ago" once the gap gets that wide.
-String formatRelativeNoteTime(DateTime dt, {DateTime? now}) {
-  final reference = now ?? DateTime.now();
-  final diff = reference.difference(dt);
-  // A negative diff (dt is ahead of reference — server/client clock skew)
-  // bypasses every threshold below and would otherwise read as "just
-  // now" no matter how far in the future dt actually is.
-  if (diff.isNegative || diff.inDays >= 7) return formatNoteTimestamp(dt);
-  if (diff.inDays >= 1) {
-    return '${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
-  }
-  if (diff.inHours >= 1) {
-    return '${diff.inHours} hour${diff.inHours == 1 ? '' : 's'} ago';
-  }
-  if (diff.inMinutes >= 1) {
-    return '${diff.inMinutes} minute${diff.inMinutes == 1 ? '' : 's'} ago';
-  }
-  return 'just now';
 }

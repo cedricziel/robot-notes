@@ -121,6 +121,9 @@ flutter build macos \
   --dart-define=ROBOT_NOTES_ACTOR=cedric
 ```
 
+See [`app/README.md`](app/README.md) for the app's own test/analyze
+commands, its layout breakpoints, and keyboard shortcuts.
+
 ### Running the server via Docker
 
 The CI pipeline publishes a multi-arch (`linux/amd64`, `linux/arm64`)

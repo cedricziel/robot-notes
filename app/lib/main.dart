@@ -8,6 +8,7 @@ import 'src/app_router.dart';
 import 'src/config/config_store.dart';
 import 'src/desktop/tray_controller.dart';
 import 'src/otel/otel_bootstrap.dart';
+import 'src/theme/app_theme.dart';
 import 'src/url_strategy.dart';
 
 export 'src/app_router.dart' show NoteRoute, blankNoteTitle, createBlankNote;
@@ -68,12 +69,8 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
   Widget build(BuildContext context) {
     return MaterialApp.router(
       title: 'robot-notes',
-      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.indigo,
-        brightness: Brightness.dark,
-      ),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
       routerConfig: _router,
       builder: (context, child) =>
           AppRouterShell(configHolder: _configHolder, child: child),

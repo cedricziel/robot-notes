@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../auth/oidc_sign_in_controller.dart';
 import '../auth/server_capabilities.dart';
 import '../config/app_config.dart';
+import '../widgets/status_strip.dart';
 import 'setup_controller.dart';
 
 /// First-run flow, split into two steps: pick a server, then log in.
@@ -219,22 +220,50 @@ class _SetupScreenState extends State<SetupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Connect to robot-notes')),
+      appBar: AppBar(title: const Text('Connect')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
-          child: Card(
-            key: const Key('setup.card'),
-            margin: const EdgeInsets.all(16),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: SingleChildScrollView(
-                child: switch (_step) {
-                  _SetupStep.server => _buildServerStep(context),
-                  _SetupStep.login => _buildLoginStep(context),
-                },
-              ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+                  child: Column(
+                    children: [
+                      Text(
+                        'robot-notes',
+                        key: const Key('setup.productName'),
+                        style: theme.textTheme.headlineSmall,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Notes shared between you and your agents',
+                        key: const Key('setup.tagline'),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+                Card(
+                  key: const Key('setup.card'),
+                  margin: const EdgeInsets.all(16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: switch (_step) {
+                      _SetupStep.server => _buildServerStep(context),
+                      _SetupStep.login => _buildLoginStep(context),
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -257,10 +286,10 @@ class _SetupScreenState extends State<SetupScreen> {
           ),
         );
       case _Reachability.ok:
-        return const Icon(
+        return Icon(
           Icons.check_circle,
-          key: Key('setup.reachability.ok'),
-          color: Colors.green,
+          key: const Key('setup.reachability.ok'),
+          color: Theme.of(context).colorScheme.primary,
         );
       case _Reachability.error:
         return Tooltip(
@@ -338,9 +367,8 @@ class _SetupScreenState extends State<SetupScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        if (state is SetupFailed) _ErrorBanner(message: state.message),
-        if (oidcState is OidcSignInFailed)
-          _ErrorBanner(message: oidcState.message),
+        if (state is SetupFailed) _errorStrip(state.message),
+        if (oidcState is OidcSignInFailed) _errorStrip(oidcState.message),
         if (showSignIn) ...[
           FilledButton(
             key: const Key('setup.signInWithOidc'),
@@ -401,28 +429,14 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 }
 
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Theme.of(context).colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Text(
-            message,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onErrorContainer,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+/// Error strip shown at the top of the login step, with the same bottom
+/// spacing the old card-local banner used.
+Widget _errorStrip(String message) => Padding(
+  padding: const EdgeInsets.only(bottom: 12),
+  child: StatusStrip(
+    message: message,
+    tone: StatusTone.error,
+    icon: Icons.error_outline,
+    rounded: true,
+  ),
+);

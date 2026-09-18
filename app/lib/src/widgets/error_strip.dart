@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../api/api_exceptions.dart';
+import 'status_strip.dart';
 
 /// Non-blocking error strip rendered above a list so already-loaded
 /// content stays visible. [onRetry] adds a "Retry" button when given.
+///
+/// A thin preset over [StatusStrip] kept for the many call sites that only
+/// ever need the error tone.
 class ErrorStrip extends StatelessWidget {
   const ErrorStrip({required this.message, this.onRetry, super.key});
 
@@ -12,26 +16,13 @@ class ErrorStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.errorContainer,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        child: Row(
-          children: [
-            Icon(Icons.error_outline, color: scheme.onErrorContainer),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(color: scheme.onErrorContainer),
-              ),
-            ),
-            if (onRetry != null)
-              TextButton(onPressed: onRetry, child: const Text('Retry')),
-          ],
-        ),
-      ),
+    return StatusStrip(
+      message: message,
+      tone: StatusTone.error,
+      icon: Icons.error_outline,
+      action: onRetry == null
+          ? null
+          : TextButton(onPressed: onRetry, child: const Text('Retry')),
     );
   }
 }

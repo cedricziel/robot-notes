@@ -6,6 +6,8 @@ import 'package:app/src/config/app_config.dart';
 import 'package:app/src/notes/note_controller.dart';
 import 'package:app/src/notes/note_screen.dart';
 import 'package:app/src/realtime/ws_client.dart';
+import 'package:app/src/widgets/status_strip.dart';
+import 'package:flutter/gestures.dart' show kDoubleTapMinTime;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -174,6 +176,8 @@ Future<void> _pumpConflict(
 
 /// Pumps a [NoteScreen] showing a note with [content] in read-only mode.
 /// [backlinksItems] answers `GET /notes/01H/backlinks` (empty by default).
+/// `POST /notes/01H/lock` is granted, so tests can move into edit mode
+/// from the viewer (double-tap, Cmd+E) without a dedicated mock.
 Future<void> _pumpViewer(
   WidgetTester tester, {
   required String content,
@@ -184,6 +188,7 @@ Future<void> _pumpViewer(
   List<Object?>? backlinksItems,
   ValueChanged<String>? onOpenNote,
   ValueChanged<String>? onTagTap,
+  NotePresentation presentation = NotePresentation.page,
 }) async {
   final mock = MockClient((request) async {
     if (request.method == 'GET' && request.url.path == '/notes/01H/backlinks') {
@@ -191,6 +196,9 @@ Future<void> _pumpViewer(
         jsonEncode(<String, Object?>{'items': backlinksItems ?? <Object?>[]}),
         200,
       );
+    }
+    if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
+      return http.Response(jsonEncode(_lockJson()), 200);
     }
     return http.Response(
       jsonEncode(
@@ -206,7 +214,13 @@ Future<void> _pumpViewer(
     );
   });
   final api = RobotNotesClient(config: _config, httpClient: mock);
-  final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
+  final ctrl = NoteController(
+    api: api,
+    noteId: '01H',
+    actor: 'cedric',
+    scheduler: (_) => Completer<void>().future,
+    autosaveScheduler: (_) => Completer<void>().future,
+  );
   addTearDown(ctrl.dispose);
 
   await tester.pumpWidget(
@@ -215,9 +229,27 @@ Future<void> _pumpViewer(
         controller: ctrl,
         onOpenNote: onOpenNote,
         onTagTap: onTagTap,
+        presentation: presentation,
       ),
     ),
   );
+  await tester.pumpAndSettle();
+}
+
+/// Sizes the test window to [width] x [height] logical pixels for the rest
+/// of the test.
+void _setWindow(WidgetTester tester, double width, {double height = 800}) {
+  tester.view.physicalSize = Size(width, height);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+}
+
+/// Two quick taps on [finder], close enough together to register as a
+/// double tap.
+Future<void> _doubleTap(WidgetTester tester, Finder finder) async {
+  await tester.tap(finder);
+  await tester.pump(kDoubleTapMinTime);
+  await tester.tap(finder);
   await tester.pumpAndSettle();
 }
 
@@ -230,8 +262,144 @@ void main() {
     expect(find.byKey(const Key('note.body')), findsOneWidget);
     expect(find.text('body text'), findsOneWidget);
     expect(find.byKey(const Key('note.edit')), findsOneWidget);
-    expect(find.byTooltip('Close'), findsOneWidget);
+    expect(find.byTooltip('Back'), findsOneWidget);
     expect(find.byTooltip('Edit'), findsOneWidget);
+  });
+
+  group('presentation', () {
+    testWidgets('page shows a back arrow as the leading button', (
+      tester,
+    ) async {
+      await _pumpViewer(tester, content: 'hello');
+
+      final button = tester.widget<IconButton>(
+        find.byKey(const Key('note.close')),
+      );
+      expect(button.tooltip, 'Back');
+      expect((button.icon as Icon).icon, Icons.arrow_back);
+      expect(find.byTooltip('Close'), findsNothing);
+    });
+
+    testWidgets('pane shows a close button as the leading button', (
+      tester,
+    ) async {
+      await _pumpViewer(
+        tester,
+        content: 'hello',
+        presentation: NotePresentation.pane,
+      );
+
+      final button = tester.widget<IconButton>(
+        find.byKey(const Key('note.close')),
+      );
+      expect(button.tooltip, 'Close');
+      expect((button.icon as Icon).icon, Icons.close);
+      expect(find.byTooltip('Back'), findsNothing);
+    });
+  });
+
+  group('reading column', () {
+    testWidgets(
+      'metadata, body, tags, and backlinks share one scrollable and one '
+      'left edge',
+      (tester) async {
+        _setWindow(tester, 1400);
+        await _pumpViewer(
+          tester,
+          content: 'hello',
+          tags: const ['urgent'],
+          backlinksItems: [
+            {'id': '02H', 'title': 'Referencing note', 'snippet': 's'},
+          ],
+        );
+
+        final scroll = find.byKey(const Key('note.scroll'));
+        expect(scroll, findsOneWidget);
+        expect(tester.widget(scroll), isA<SingleChildScrollView>());
+        final metadata = find.byKey(const Key('note.metadata'));
+        final body = find.byKey(const Key('note.body'));
+        final tags = find.byKey(const Key('note.tags'));
+        final backlinks = find.byKey(const Key('note.backlinks'));
+        for (final part in [metadata, body, tags, backlinks]) {
+          expect(
+            find.ancestor(of: part, matching: scroll),
+            findsOneWidget,
+            reason: 'every section scrolls with the body',
+          );
+        }
+
+        final left = tester.getTopLeft(body).dx;
+        expect(tester.getTopLeft(metadata).dx, left);
+        expect(tester.getTopLeft(tags).dx, left);
+        expect(tester.getTopLeft(backlinks).dx, left);
+        // Centered, not flush left, on a wide window.
+        expect(left, greaterThan(100));
+        expect(tester.getSize(body).width, lessThanOrEqualTo(760));
+      },
+    );
+
+    testWidgets('a long body scrolls the backlinks into view', (tester) async {
+      _setWindow(tester, 800, height: 400);
+      await _pumpViewer(
+        tester,
+        content: List.generate(60, (i) => 'line $i').join('\n\n'),
+        backlinksItems: [
+          {'id': '02H', 'title': 'Referencing note', 'snippet': 's'},
+        ],
+      );
+
+      final item = find.byKey(const Key('note.backlinks.item.02H'));
+      expect(item.hitTestable(), findsNothing);
+      await tester.scrollUntilVisible(
+        item,
+        200,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('note.scroll')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(item.hitTestable(), findsOneWidget);
+    });
+  });
+
+  group('entering edit mode', () {
+    testWidgets('double-tapping the body starts editing', (tester) async {
+      await _pumpViewer(tester, content: 'hello');
+      expect(find.byKey(_titleField), findsNothing);
+
+      await _doubleTap(tester, find.byKey(const Key('note.body')));
+
+      expect(find.byKey(_titleField), findsOneWidget);
+      expect(find.byKey(_contentField), findsOneWidget);
+    });
+
+    testWidgets('Cmd+E starts editing', (tester) async {
+      await _pumpViewer(tester, content: 'hello');
+      await tester.tap(find.byKey(const Key('note.body')));
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyE);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_contentField), findsOneWidget);
+    });
+
+    testWidgets('Ctrl+E starts editing', (tester) async {
+      await _pumpViewer(tester, content: 'hello');
+      await tester.tap(find.byKey(const Key('note.body')));
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyE);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_contentField), findsOneWidget);
+    });
   });
 
   testWidgets('read-only view renders the body as Markdown', (tester) async {
@@ -318,6 +486,130 @@ void main() {
     expect(find.byKey(_titleField), findsOneWidget);
     expect(find.byKey(_contentField), findsOneWidget);
     expect(find.byKey(const Key('note.save')), findsOneWidget);
+  });
+
+  group('editor fields', () {
+    testWidgets('are document-style: no outline border, hint text only', (
+      tester,
+    ) async {
+      await _pumpEditor(tester);
+
+      final title = tester.widget<TextField>(find.byKey(_titleField));
+      expect(title.decoration?.border, InputBorder.none);
+      expect(title.decoration?.labelText, isNull);
+      expect(title.decoration?.hintText, 'Title');
+
+      final content = tester.widget<TextField>(find.byKey(_contentField));
+      expect(content.decoration?.border, InputBorder.none);
+      expect(content.decoration?.labelText, isNull);
+      expect(content.decoration?.hintText, 'Start writing…');
+    });
+
+    testWidgets('the title is set in the headline style', (tester) async {
+      await _pumpEditor(tester);
+
+      final title = tester.widget<TextField>(find.byKey(_titleField));
+      final headline = Theme.of(
+        tester.element(find.byKey(_titleField)),
+      ).textTheme.headlineSmall;
+      expect(title.style?.fontSize, headline?.fontSize);
+    });
+  });
+
+  group('preview toggle', () {
+    const toggle = Key('note.toolbar.preview');
+    const preview = Key('note.editor.preview');
+
+    testWidgets('preview is shown by default at medium width and up', (
+      tester,
+    ) async {
+      _setWindow(tester, 800);
+      await _pumpEditor(tester);
+
+      expect(find.byKey(preview), findsOneWidget);
+      final button = tester.widget<IconButton>(find.byKey(toggle));
+      expect(button.isSelected, isTrue);
+      expect(button.tooltip, 'Hide preview');
+    });
+
+    testWidgets('preview is hidden by default on a compact width', (
+      tester,
+    ) async {
+      _setWindow(tester, 400);
+      await _pumpEditor(tester);
+
+      expect(find.byKey(preview), findsNothing);
+      final button = tester.widget<IconButton>(find.byKey(toggle));
+      expect(button.isSelected, isFalse);
+      expect(button.tooltip, 'Show preview');
+    });
+
+    testWidgets('toggling hides the preview on a wide window', (tester) async {
+      _setWindow(tester, 800);
+      await _pumpEditor(tester);
+
+      await tester.tap(find.byKey(toggle));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(preview), findsNothing);
+      expect(tester.widget<IconButton>(find.byKey(toggle)).isSelected, isFalse);
+
+      await tester.tap(find.byKey(toggle));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(preview), findsOneWidget);
+    });
+
+    testWidgets('toggling on a compact window stacks the preview below', (
+      tester,
+    ) async {
+      _setWindow(tester, 400);
+      await _pumpEditor(tester);
+
+      await tester.tap(find.byKey(toggle));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(preview), findsOneWidget);
+      expect(tester.widget<IconButton>(find.byKey(toggle)).isSelected, isTrue);
+      final contentRect = tester.getRect(find.byKey(_contentField));
+      final previewRect = tester.getRect(find.byKey(preview));
+      expect(previewRect.top, greaterThanOrEqualTo(contentRect.bottom));
+      expect(previewRect.left, closeTo(contentRect.left, 1));
+    });
+
+    testWidgets('the user\'s choice survives a rebuild', (tester) async {
+      _setWindow(tester, 800);
+      await _pumpEditor(tester);
+
+      await tester.tap(find.byKey(toggle));
+      await tester.pumpAndSettle();
+      // Typing rebuilds the screen through the controller listener.
+      await tester.enterText(find.byKey(_contentField), 'still hidden');
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(preview), findsNothing);
+    });
+
+    testWidgets('the formatting toolbar scrolls sideways on a narrow window', (
+      tester,
+    ) async {
+      _setWindow(tester, 320);
+      await _pumpEditor(tester);
+
+      // No overflow error; the last button is reachable by scrolling.
+      expect(tester.takeException(), isNull);
+      expect(
+        find.ancestor(
+          of: find.byKey(toggle),
+          matching: find.byWidgetPredicate(
+            (w) =>
+                w is SingleChildScrollView &&
+                w.scrollDirection == Axis.horizontal,
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
   });
 
   group('formatting toolbar', () {
@@ -1192,15 +1484,55 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('note.presence')), findsOneWidget);
-    expect(find.text('cedric, agent-1'), findsOneWidget);
+    final presence = find.byKey(const Key('note.presence'));
+    expect(presence, findsOneWidget);
+    // One initial per viewer, no "+N" overflow.
+    expect(
+      find.descendant(of: presence, matching: find.byType(CircleAvatar)),
+      findsNWidgets(2),
+    );
+    expect(find.descendant(of: presence, matching: find.text('C')), findsOne);
+    expect(find.descendant(of: presence, matching: find.text('A')), findsOne);
+    expect(find.textContaining('+'), findsNothing);
     final tooltip = tester.widget<Tooltip>(
-      find.ancestor(
-        of: find.byKey(const Key('note.presence')),
-        matching: find.byType(Tooltip),
-      ),
+      find.descendant(of: presence, matching: find.byType(Tooltip)),
     );
     expect(tooltip.message, 'cedric, agent-1');
+    final semantics = tester.widget<Semantics>(
+      find.descendant(of: presence, matching: find.byType(Semantics)).first,
+    );
+    expect(semantics.properties.label, 'Viewers: cedric, agent-1');
+  });
+
+  testWidgets('presence avatars are readable by assistive technology', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final mock = MockClient((request) async {
+      return http.Response(jsonEncode(_noteJson()), 200);
+    });
+    final api = RobotNotesClient(config: _config, httpClient: mock);
+    final events = StreamController<RealtimeEvent>.broadcast();
+    addTearDown(events.close);
+    final ctrl = NoteController(
+      api: api,
+      noteId: '01H',
+      actor: 'cedric',
+      events: events.stream,
+    );
+    addTearDown(ctrl.dispose);
+
+    await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+    await tester.pumpAndSettle();
+    events.add(
+      const RealtimeMessage(
+        PresenceEvent(noteId: '01H', viewers: <String>['agent-1']),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.bySemanticsLabel('Viewer: agent-1'), findsOneWidget);
+    handle.dispose();
   });
 
   testWidgets(
@@ -1233,14 +1565,28 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('4 viewers'), findsOneWidget);
+      final presence = find.byKey(const Key('note.presence'));
+      // Three initials plus one "+N" overflow avatar.
+      expect(
+        find.descendant(of: presence, matching: find.byType(CircleAvatar)),
+        findsNWidgets(4),
+      );
+      expect(
+        find.descendant(of: presence, matching: find.text('+1')),
+        findsOne,
+      );
+      expect(find.text('4 viewers'), findsNothing);
       final tooltip = tester.widget<Tooltip>(
-        find.ancestor(
-          of: find.byKey(const Key('note.presence')),
-          matching: find.byType(Tooltip),
-        ),
+        find.descendant(of: presence, matching: find.byType(Tooltip)),
       );
       expect(tooltip.message, 'cedric, alice, bob, agent-1');
+      final semantics = tester.widget<Semantics>(
+        find.descendant(of: presence, matching: find.byType(Semantics)).first,
+      );
+      expect(
+        semantics.properties.label,
+        'Viewers: cedric, alice, bob, agent-1',
+      );
     },
   );
 
@@ -1277,6 +1623,58 @@ void main() {
 
     expect(find.byKey(const Key('note.banner.lock')), findsOneWidget);
     expect(find.textContaining('alice'), findsOneWidget);
+    final strip = tester.widget<StatusStrip>(
+      find.byKey(const Key('note.banner.lock')),
+    );
+    expect(strip.tone, StatusTone.info);
+  });
+
+  testWidgets('losing the lock mid-edit shows a warning strip', (tester) async {
+    final events = StreamController<RealtimeEvent>.broadcast();
+    addTearDown(events.close);
+    final mock = MockClient((request) async {
+      if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
+        return http.Response(jsonEncode(_lockJson()), 200);
+      }
+      return http.Response(jsonEncode(_noteJson()), 200);
+    });
+    final ctrl = NoteController(
+      api: RobotNotesClient(config: _config, httpClient: mock),
+      noteId: '01H',
+      actor: 'cedric',
+      events: events.stream,
+      scheduler: (_) => Completer<void>().future,
+      autosaveScheduler: (_) => Completer<void>().future,
+    );
+    addTearDown(ctrl.dispose);
+    await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('note.edit')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<StatusStrip>(find.byKey(const Key('note.editingStatus')))
+          .tone,
+      StatusTone.info,
+    );
+
+    events.add(
+      RealtimeMessage(
+        LockEvent(
+          noteId: '01H',
+          holder: 'alice',
+          expiresAt: DateTime.utc(2025, 1, 1, 0, 1),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final strip = tester.widget<StatusStrip>(
+      find.byKey(const Key('note.banner.lockedByOther')),
+    );
+    expect(strip.tone, StatusTone.warning);
+    expect(find.textContaining('alice'), findsOneWidget);
+    expect(find.byKey(const Key('note.body')), findsOneWidget);
   });
 
   group('delete', () {
