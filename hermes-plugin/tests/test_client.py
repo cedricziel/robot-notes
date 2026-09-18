@@ -196,6 +196,116 @@ def test_network_failure_raises_client_error_not_a_raw_exception(client):
 
 
 @respx.mock
+def test_find_note_by_title_uses_title_filter_when_supported(client):
+    route = respx.get("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "01ABC", "title": "Session X", "version": 2}], "next_cursor": None}
+        )
+    )
+
+    result = client.find_note_by_title("Session X", path="conversations/agent")
+
+    assert result["id"] == "01ABC"
+    assert route.call_count == 1
+    sent = route.calls.last.request
+    assert sent.url.params["title"] == "Session X"
+    assert sent.url.params["path"] == "conversations/agent"
+
+
+@respx.mock
+def test_find_note_by_title_filter_miss_does_not_fall_back_to_scan(client):
+    route = respx.get("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(200, json={"items": [], "next_cursor": None})
+    )
+
+    result = client.find_note_by_title("Missing", path="conversations/agent")
+
+    assert result is None
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_find_note_by_title_falls_back_to_scan_on_http_400(client):
+    route = respx.get("https://notes.example.com/notes").mock(
+        side_effect=[
+            httpx.Response(400, json={"error": {"code": "validation_failed"}}),
+            httpx.Response(
+                200, json={"items": [{"id": "01ABC", "title": "Session X", "version": 1}], "next_cursor": None}
+            ),
+        ]
+    )
+
+    result = client.find_note_by_title("Session X", path="conversations/agent")
+
+    assert result["id"] == "01ABC"
+    assert route.call_count == 2
+    first_request, second_request = route.calls[0].request, route.calls[1].request
+    assert first_request.url.params["title"] == "Session X"
+    assert "title" not in second_request.url.params
+    assert second_request.url.params["sort"] == "updated_desc"
+
+
+@respx.mock
+def test_find_note_by_title_scan_finds_note_on_third_page(client):
+    respx.get("https://notes.example.com/notes").mock(
+        side_effect=[
+            httpx.Response(400, json={}),
+            httpx.Response(200, json={"items": [{"id": "1", "title": "Other"}], "next_cursor": "c1"}),
+            httpx.Response(200, json={"items": [{"id": "2", "title": "Other2"}], "next_cursor": "c2"}),
+            httpx.Response(
+                200, json={"items": [{"id": "3", "title": "Target", "version": 5}], "next_cursor": None}
+            ),
+        ]
+    )
+
+    result = client.find_note_by_title("Target", path="conversations/agent")
+
+    assert result == {"id": "3", "title": "Target", "version": 5}
+
+
+@respx.mock
+def test_find_note_by_title_scan_returns_none_after_exhausting_pages(client):
+    respx.get("https://notes.example.com/notes").mock(
+        side_effect=[
+            httpx.Response(400, json={}),
+            httpx.Response(200, json={"items": [{"id": "1", "title": "Other"}], "next_cursor": "c1"}),
+            httpx.Response(200, json={"items": [{"id": "2", "title": "Other2"}], "next_cursor": None}),
+        ]
+    )
+
+    result = client.find_note_by_title("Missing", path="conversations/agent")
+
+    assert result is None
+
+
+@respx.mock
+def test_find_note_by_title_scan_stops_after_one_page_when_found(client):
+    route = respx.get("https://notes.example.com/notes").mock(
+        side_effect=[
+            httpx.Response(400, json={}),
+            httpx.Response(
+                200, json={"items": [{"id": "01ABC", "title": "Session X", "version": 1}], "next_cursor": "c1"}
+            ),
+        ]
+    )
+
+    result = client.find_note_by_title("Session X", path="conversations/agent")
+
+    assert result["id"] == "01ABC"
+    # 1 request for the unsupported title filter + exactly 1 scan page, even
+    # though the first scan page's next_cursor implies more pages exist.
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_find_note_by_title_propagates_non_400_errors_from_filter_attempt(client):
+    respx.get("https://notes.example.com/notes").mock(return_value=httpx.Response(500))
+
+    with pytest.raises(ClientError):
+        client.find_note_by_title("Session X", path="conversations/agent")
+
+
+@respx.mock
 def test_delete_note(client):
     route = respx.delete("https://notes.example.com/notes/01XYZ").mock(
         return_value=httpx.Response(200, json={"id": "01XYZ", "deleted": True})
