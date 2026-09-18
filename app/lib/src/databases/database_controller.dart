@@ -256,13 +256,19 @@ class DatabaseController extends ValueNotifier<DatabaseScreenState> {
       <String, Map<String, Object?>>{};
 
   /// Loads the definition (via the shared cache) and the first page for the
-  /// resolved view.
-  Future<void> load() async {
+  /// resolved view. [forceRefresh] bypasses the cache — used after the
+  /// schema editor saves changes to this database's definition, so the
+  /// screen picks them up without waiting for the next `changed`-debounced
+  /// refresh.
+  Future<void> load({bool forceRefresh = false}) async {
     if (_disposed) return;
     value = value.copyWith(mode: DatabaseScreenMode.loading, error: null);
     final DatabaseDefinition def;
     try {
-      def = await _databases.definition(_databaseId);
+      def = await _databases.definition(
+        _databaseId,
+        forceRefresh: forceRefresh,
+      );
     } on NotFoundException {
       if (_disposed) return;
       value = value.copyWith(mode: DatabaseScreenMode.notFound);

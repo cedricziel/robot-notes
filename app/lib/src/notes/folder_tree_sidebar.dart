@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared/shared.dart';
 
 import 'folder_tree_controller.dart';
 
@@ -6,12 +7,21 @@ import 'folder_tree_controller.dart';
 /// expandable folder tree, backed by [FolderTreeController]. An "All
 /// notes" entry always sits at the top and clears the folder scope;
 /// selecting any other entry calls [onSelect] with that folder's full path.
+///
+/// Optionally also shows a "Databases" section — task 6.1's sidebar entry
+/// point for creating a database, ahead of task 7.3's full sidebar list —
+/// when [databases] is given: every entry by title plus a "New database"
+/// header action, matching the `flutter-client` spec's "Sidebar lists
+/// databases and can create one" requirement.
 class FolderTreeSidebar extends StatefulWidget {
   const FolderTreeSidebar({
     required this.controller,
     required this.onSelect,
     required this.onCreateFolder,
     this.selectedPath,
+    this.databases,
+    this.onSelectDatabase,
+    this.onNewDatabase,
     super.key,
   });
 
@@ -24,6 +34,15 @@ class FolderTreeSidebar extends StatefulWidget {
   /// The folder currently scoping the notes list, or `null` for "All
   /// notes" — used only to highlight the active selection.
   final String? selectedPath;
+
+  /// The Databases section's entries. `null` hides the section entirely.
+  final List<DatabaseSummary>? databases;
+
+  /// Called with a database's id when the user taps its entry.
+  final ValueChanged<String>? onSelectDatabase;
+
+  /// Invoked when the user taps the "New database" header action.
+  final VoidCallback? onNewDatabase;
 
   @override
   State<FolderTreeSidebar> createState() => _FolderTreeSidebarState();
@@ -93,6 +112,39 @@ class _FolderTreeSidebarState extends State<FolderTreeSidebar> {
                       selectedPath: widget.selectedPath,
                       onSelect: widget.onSelect,
                     ),
+                  if (widget.databases != null) ...[
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Databases',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                          ),
+                          if (widget.onNewDatabase != null)
+                            IconButton(
+                              key: const Key('sidebar.newDatabase'),
+                              tooltip: 'New database',
+                              icon: const Icon(Icons.add_box_outlined),
+                              onPressed: widget.onNewDatabase,
+                            ),
+                        ],
+                      ),
+                    ),
+                    for (final db in widget.databases!)
+                      ListTile(
+                        key: Key('sidebar.database.${db.id}'),
+                        shape: _selectedShape,
+                        leading: const Icon(Icons.table_chart_outlined),
+                        title: Text(db.title),
+                        onTap: widget.onSelectDatabase == null
+                            ? null
+                            : () => widget.onSelectDatabase!(db.id),
+                      ),
+                  ],
                 ],
               ),
             ),

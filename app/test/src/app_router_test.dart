@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/app_router.dart';
 import 'package:app/src/config/app_config.dart';
+import 'package:app/src/databases/databases_controller.dart';
 import 'package:app/src/desktop/app_menu_actions.dart';
 import 'package:app/src/desktop/app_menu_bar.dart';
 import 'package:app/src/files/picked_file.dart';
@@ -150,6 +151,7 @@ Widget _harness({
   final ws = RobotNotesWsClient(config: _config);
   final list = NotesListController(api: api);
   final tree = FolderTreeController(api: api);
+  final databases = DatabasesController(api: api);
   final goRouter =
       router ??
       buildAppRouter(
@@ -164,6 +166,7 @@ Widget _harness({
       ws: ws,
       list: list,
       tree: tree,
+      databases: databases,
       actor: _config.actor,
       baseUrl: _config.baseUrl,
       connection: connection ?? ValueNotifier(ConnectionStatus.connected),
@@ -1234,6 +1237,7 @@ void main() {
     final ws = RobotNotesWsClient(config: _config);
     final list = NotesListController(api: api);
     final tree = FolderTreeController(api: api);
+    final databases = DatabasesController(api: api);
     final router = buildAppRouter(
       configHolder: ConfigHolder.seeded(_config),
       initialLocation: '/',
@@ -1248,6 +1252,7 @@ void main() {
           ws: ws,
           list: list,
           tree: tree,
+          databases: databases,
           actor: _config.actor,
           baseUrl: _config.baseUrl,
           connection: ValueNotifier(ConnectionStatus.connected),
