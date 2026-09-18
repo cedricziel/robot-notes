@@ -100,5 +100,57 @@ void main() {
       expect(titles, ['Restricted Alpha']);
       expect(searchCalls, 0);
     });
+
+    test('forDatabase queries POST /databases/{id}/query with a title contains '
+        'filter and returns row titles instead of GET /search', () async {
+      var searchCalls = 0;
+      Map<String, dynamic>? body;
+      final mock = MockClient((request) async {
+        if (request.url.path == '/search') {
+          searchCalls += 1;
+          return http.Response('unexpected', 500);
+        }
+        if (request.method == 'POST' &&
+            request.url.path == '/databases/db1/query') {
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'items': <Object?>[
+                {
+                  'id': '02H',
+                  'title': 'Project Alpha',
+                  'path': '',
+                  'version': 1,
+                  'created_at': _now,
+                  'updated_at': _now,
+                  'tags': <String>[],
+                  'properties': <String, Object?>{},
+                  'invalid': <String>[],
+                },
+              ],
+              'next_cursor': null,
+            }),
+            200,
+          );
+        }
+        return http.Response('unexpected ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final service = TitleSearchService.forDatabase(
+        api: api,
+        databaseId: 'db1',
+      );
+
+      final titles = await service.search('Proj');
+
+      expect(titles, ['Project Alpha']);
+      expect(searchCalls, 0);
+      expect(body?['filter'], <String, Object?>{
+        'property': 'title',
+        'op': 'contains',
+        'value': 'Proj',
+      });
+      expect(body?['limit'], 20);
+    });
   });
 }
