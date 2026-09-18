@@ -1,8 +1,13 @@
+import 'dart:async';
+
+import 'package:flutter/cupertino.dart' show CupertinoSliverRefreshControl;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:shared/shared.dart';
 
 import '../format/note_time.dart';
 import '../layout/breakpoints.dart';
+import '../widgets/adaptive.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_strip.dart';
 import '../widgets/resizable_panel.dart';
@@ -25,10 +30,13 @@ enum NotesListLayout { narrow, wide }
 /// Notes list view. Backed by [NotesListController]; the controller is
 /// injected so widget tests can drive it without a real network.
 ///
-/// - Pull-to-refresh re-issues `GET /notes`.
+/// - Pull-to-refresh re-issues `GET /notes` — the iOS rubber-band control
+///   on Apple platforms, the Material indicator elsewhere.
 /// - A failed fetch shows a strip above the list with a retry; items that
 ///   already loaded stay visible.
 /// - Scrolling near the end pages in the next cursor batch.
+/// - On touch (narrow) layouts a row swipes away to delete, after the same
+///   confirmation the long-press menu asks for.
 /// - Live `changed` events flow into the controller and reflect here without
 ///   manual refresh.
 class NotesListScreen extends StatefulWidget {
@@ -94,7 +102,6 @@ class NotesListScreen extends StatefulWidget {
 }
 
 class _NotesListScreenState extends State<NotesListScreen> {
-  late final ScrollController _scroll;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   double _sidebarWidth = PaneSizes.sidebarDefault;
 
@@ -106,7 +113,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
   @override
   void initState() {
     super.initState();
-    _scroll = ScrollController()..addListener(_onScroll);
     // Kick off the initial fetch after the first frame so any tests
     // observing the loading state have a chance to set up listeners.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -116,46 +122,58 @@ class _NotesListScreenState extends State<NotesListScreen> {
     });
   }
 
-  @override
-  void dispose() {
-    _scroll.removeListener(_onScroll);
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (!_scroll.hasClients) return;
-    final pos = _scroll.position;
-    if (pos.pixels >= pos.maxScrollExtent - 200) {
+  /// Pages in the next batch once the user scrolls near the end. Driven by
+  /// scroll notifications rather than a private [ScrollController] so the
+  /// list stays the Scaffold's primary scrollable — which is what lets a
+  /// tap on the iOS status bar scroll it back to the top.
+  bool _onScrollNotification(ScrollNotification notification) {
+    final metrics = notification.metrics;
+    if (metrics.axis == Axis.vertical &&
+        metrics.pixels >= metrics.maxScrollExtent - 200) {
       widget.controller.loadMore();
     }
+    return false;
   }
 
-  Future<void> _confirmDelete(String id) async {
+  /// Asks, then deletes. Returns whether the note is gone, so a swipe can
+  /// finish sliding the row away only when it really was removed.
+  Future<bool> _confirmDelete(String id) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => AlertDialog.adaptive(
         title: const Text('Delete this note?'),
         content: const Text("This can't be undone."),
         actions: [
-          TextButton(
+          adaptiveDialogAction(
+            ctx,
             key: const Key('notes.delete.cancel'),
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
-          FilledButton(
+          adaptiveDialogAction(
+            ctx,
             key: const Key('notes.delete.confirm'),
+            primary: true,
+            destructive: true,
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Delete'),
           ),
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted) return false;
     final messenger = ScaffoldMessenger.of(context);
     final deleted = await widget.controller.delete(id);
-    if (!mounted || !deleted) return;
+    if (!mounted || !deleted) return false;
     messenger.showSnackBar(const SnackBar(content: Text('Note deleted')));
+    return true;
+  }
+
+  /// Swipe-to-delete on a touch layout. The row is already slid out when
+  /// this runs, so a cancelled confirmation springs it back.
+  Future<bool> _confirmSwipeDelete(String id) {
+    unawaited(HapticFeedback.mediumImpact());
+    return _confirmDelete(id);
   }
 
   /// Display name of a folder scope: its last path segment, or "Root" for
@@ -332,7 +350,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
 
   Widget _buildListBody(NotesListState state, {required bool wide}) {
     if (state.items.isEmpty && (state.isLoadingFirst || !_fetchStarted)) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: CircularProgressIndicator.adaptive());
     }
     final error = state.error;
     final showEmpty =
@@ -348,14 +366,19 @@ class _NotesListScreenState extends State<NotesListScreen> {
             onRetry: widget.controller.refresh,
           ),
         Expanded(
-          child: RefreshIndicator(
-            onRefresh: widget.controller.refresh,
-            child: showEmpty
-                ? _buildEmpty(state)
-                : ListView.separated(
-                    key: const Key('notes.list'),
-                    controller: _scroll,
-                    physics: const AlwaysScrollableScrollPhysics(),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScrollNotification,
+            child: _RefreshableScrollView(
+              onRefresh: widget.controller.refresh,
+              scrollKey: showEmpty ? null : const Key('notes.list'),
+              slivers: [
+                if (showEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _buildEmpty(state),
+                  )
+                else
+                  SliverList.separated(
                     itemCount:
                         state.items.length + (state.isLoadingMore ? 1 : 0),
                     separatorBuilder: (_, _) => const Divider(height: 1),
@@ -363,7 +386,9 @@ class _NotesListScreenState extends State<NotesListScreen> {
                       if (index >= state.items.length) {
                         return const Padding(
                           padding: EdgeInsets.all(16),
-                          child: Center(child: CircularProgressIndicator()),
+                          child: Center(
+                            child: CircularProgressIndicator.adaptive(),
+                          ),
                         );
                       }
                       final note = state.items[index];
@@ -377,9 +402,14 @@ class _NotesListScreenState extends State<NotesListScreen> {
                             ? null
                             : () => widget.onNoteTap!(note.id),
                         onDelete: () => _confirmDelete(note.id),
+                        onSwipeDelete: wide
+                            ? null
+                            : () => _confirmSwipeDelete(note.id),
                       );
                     },
                   ),
+              ],
+            ),
           ),
         ),
       ],
@@ -427,8 +457,8 @@ class _NotesListScreenState extends State<NotesListScreen> {
     );
   }
 
-  /// The empty placeholder, laid out inside a scrollable so the
-  /// surrounding [RefreshIndicator] still responds to a pull.
+  /// The empty placeholder; the caller lays it out inside the refreshable
+  /// scroll view so a pull still refreshes over it.
   Widget _buildEmpty(NotesListState state) {
     final tag = state.selectedTag;
     final path = state.selectedPath;
@@ -472,9 +502,51 @@ class _NotesListScreenState extends State<NotesListScreen> {
         action: newNote,
       );
     }
-    return CustomScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      slivers: [SliverFillRemaining(hasScrollBody: false, child: empty)],
+    return empty;
+  }
+}
+
+/// A vertical sliver scroll view with pull-to-refresh in the platform's
+/// own idiom: on iOS and macOS the [CupertinoSliverRefreshControl] that
+/// stretches the list on overscroll, elsewhere the Material
+/// [RefreshIndicator] that drops a spinner over it. Always scrollable, so
+/// a pull works over content shorter than the viewport. No controller is
+/// attached on purpose — see `_onScrollNotification`.
+class _RefreshableScrollView extends StatelessWidget {
+  const _RefreshableScrollView({
+    required this.onRefresh,
+    required this.slivers,
+    this.scrollKey,
+  });
+
+  final Future<void> Function() onRefresh;
+  final List<Widget> slivers;
+  final Key? scrollKey;
+
+  @override
+  Widget build(BuildContext context) {
+    if (useCupertino(context)) {
+      return CustomScrollView(
+        key: scrollKey,
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        slivers: [
+          CupertinoSliverRefreshControl(
+            key: const Key('notes.refresh.cupertino'),
+            onRefresh: onRefresh,
+          ),
+          ...slivers,
+        ],
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: CustomScrollView(
+        key: scrollKey,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: slivers,
+      ),
     );
   }
 }
@@ -568,6 +640,7 @@ class _NoteTile extends StatefulWidget {
     required this.showPath,
     required this.onDelete,
     this.onTap,
+    this.onSwipeDelete,
   });
 
   final NoteMeta note;
@@ -587,6 +660,11 @@ class _NoteTile extends StatefulWidget {
 
   final VoidCallback? onTap;
   final VoidCallback onDelete;
+
+  /// Confirms and performs a swipe-to-delete, resolving to whether the row
+  /// is gone. `null` (wide layouts) turns the swipe off; hover-delete and
+  /// the context menu cover it there.
+  final Future<bool> Function()? onSwipeDelete;
 
   @override
   State<_NoteTile> createState() => _NoteTileState();
@@ -679,6 +757,28 @@ class _NoteTileState extends State<_NoteTile> {
       },
       child: tile,
     );
+    final onSwipeDelete = widget.onSwipeDelete;
+    if (onSwipeDelete != null) {
+      return Dismissible(
+        key: Key('notes.tile.${note.id}.dismissible'),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (_) => onSwipeDelete(),
+        background: ColoredBox(
+          color: theme.colorScheme.error,
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Icon(
+                Icons.delete_outline,
+                color: theme.colorScheme.onError,
+              ),
+            ),
+          ),
+        ),
+        child: menu,
+      );
+    }
     if (!widget.wide) return menu;
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
