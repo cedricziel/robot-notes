@@ -176,8 +176,17 @@ void main() {
         ),
       ]);
 
-      final covering = registry.covering('Projects', {});
-      expect(covering, isEmpty);
+      expect(registry.covering('Projects', {}, noteId: 'db1'), isEmpty);
+      expect(
+        registry.covering('Projects', {}, noteId: 'row1'),
+        isNotEmpty,
+        reason: 'sibling notes in the definition folder are rows',
+      );
+      expect(
+        registry.covering('Projects', {}, noteId: 'db2', isDefinition: true),
+        isEmpty,
+        reason: 'a definition note is never a row',
+      );
     });
 
     test('covering matches a tag source', () {

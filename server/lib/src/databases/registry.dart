@@ -93,7 +93,19 @@ class DatabaseRegistry {
 
   /// The registered definitions whose source covers a note at [path]
   /// carrying [tags] — see `coveringDatabases` in `shared`, reused here
-  /// rather than reimplemented. A definition never covers its own note.
-  List<DatabaseDefinition> covering(String path, Set<String> tags) =>
-      coveringDatabases(path, tags.toList(), all);
+  /// rather than reimplemented. A definition never covers its own note
+  /// ([noteId]) and a definition note ([isDefinition]) is never covered.
+  List<DatabaseDefinition> covering(
+    String path,
+    Set<String> tags, {
+    String? noteId,
+    bool isDefinition = false,
+  }) =>
+      coveringDatabases(
+        path,
+        tags.toList(),
+        all,
+        noteId: noteId,
+        isDefinition: isDefinition,
+      );
 }
