@@ -103,11 +103,42 @@ void main() {
         );
         fail('expected VersionConflictException');
       } on VersionConflictException catch (e) {
-        expect(e.current.id, '01H');
-        expect(e.current.version, 7);
-        expect(e.current.content, 'newer');
+        expect(e.current!.id, '01H');
+        expect(e.current!.version, 7);
+        expect(e.current!.content, 'newer');
       }
     });
+
+    test(
+      '409 version_conflict without current surfaces VersionConflictException '
+      'with a null current',
+      () async {
+        final mock = MockClient((request) async {
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'error': 'version_conflict',
+              'message': 'database definition changed',
+            }),
+            409,
+          );
+        });
+
+        final client = RobotNotesClient(config: _config, httpClient: mock);
+
+        try {
+          await client.updateNote(
+            id: '01H',
+            title: 'hi',
+            content: 'mine',
+            ifMatch: 3,
+          );
+          fail('expected VersionConflictException');
+        } on VersionConflictException catch (e) {
+          expect(e.current, isNull);
+          expect(e.message, 'database definition changed');
+        }
+      },
+    );
 
     test('423 surfaces Locked with holder and expires_at', () async {
       final expiresAt = DateTime.utc(
@@ -644,6 +675,33 @@ void main() {
         expect(e.message, 'title is required');
       }
     });
+
+    test(
+      '400 validation_failed surfaces BadRequestException with the message',
+      () async {
+        final mock = MockClient((request) async {
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'error': 'validation_failed',
+              'message': 'property "status" must be one of the select options',
+            }),
+            400,
+          );
+        });
+
+        final client = RobotNotesClient(config: _config, httpClient: mock);
+
+        try {
+          await client.createNote(title: '');
+          fail('expected BadRequestException');
+        } on BadRequestException catch (e) {
+          expect(
+            e.message,
+            'property "status" must be one of the select options',
+          );
+        }
+      },
+    );
 
     test('404 surfaces NotFound', () async {
       final mock = MockClient((request) async {

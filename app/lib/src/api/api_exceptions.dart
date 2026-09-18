@@ -33,14 +33,18 @@ class BadRequestException extends ApiException {
   const BadRequestException({super.message}) : super(statusCode: 400);
 }
 
-/// 409 — `If-Match: <version>` was stale. The server returns the current
-/// note state in the body so the UI can show a 3-way diff or "discard mine /
-/// take theirs" prompt without a second round-trip.
+/// 409 — `If-Match: <version>` was stale, or (for endpoints such as
+/// `PUT /databases/{id}` that don't version a [Note]) some other optimistic
+/// concurrency check failed. When the conflict is on a note, the server
+/// returns its current state in the body so the UI can show a 3-way diff or
+/// "discard mine / take theirs" prompt without a second round-trip; other
+/// `version_conflict` bodies omit `current` entirely, in which case this
+/// carries `null` and the caller falls back to the [ApiException.message].
 class VersionConflictException extends ApiException {
   const VersionConflictException({required this.current, super.message})
     : super(statusCode: 409);
 
-  final Note current;
+  final Note? current;
 }
 
 /// 423 — somebody else holds the editor lock. Includes their identity and

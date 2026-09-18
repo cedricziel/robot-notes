@@ -389,19 +389,20 @@ class RobotNotesClient {
         if (body?['error'] == 'path_conflict') {
           return PathConflictException(message: message);
         }
-        final current = body?['current'];
-        if (current is Map<String, dynamic>) {
+        if (body?['error'] == 'version_conflict') {
+          final current = body?['current'];
           // The 409 body for PUT /notes/{id} omits `lock`, which is fine —
-          // Note.fromJson treats a missing `lock` key as `null`.
+          // Note.fromJson treats a missing `lock` key as `null`. Other
+          // version_conflict responses (e.g. PUT /databases/{id}) omit
+          // `current` entirely; the caller falls back to `message`.
           return VersionConflictException(
-            current: Note.fromJson(current),
+            current: current is Map<String, dynamic>
+                ? Note.fromJson(current)
+                : null,
             message: message,
           );
         }
-        return ApiServerException(
-          statusCode: 409,
-          message: message ?? 'version_conflict body missing "current"',
-        );
+        return ApiServerException(statusCode: 409, message: message);
       case 413:
         return PayloadTooLargeException(message: message);
       case 423:
