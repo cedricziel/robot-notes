@@ -295,6 +295,7 @@ void main() {
             'note_properties_key_text_idx',
             'note_properties_key_num_idx',
             'note_properties_key_date_idx',
+            'note_properties_note_id_key_idx',
           ]),
         );
       },

@@ -238,6 +238,16 @@ class SearchIndex {
   final Logger _log;
   final Tracer _tracer;
 
+  /// The raw `search.db` connection, exposed so `databases/query.dart`'s
+  /// `DatabaseQuery` can run its own SQL directly against the property
+  /// index tables ([kSearchSchemaVersion] 5's `note_meta`/
+  /// `note_properties`) without [SearchIndex] growing query-compilation
+  /// methods of its own — see the `add-databases` design's "Query
+  /// compilation" decision, which lives in `databases/query.dart` instead.
+  /// Callers must not close it directly; [SearchIndex.close] owns its
+  /// lifecycle.
+  Database get rawDb => _db;
+
   /// When non-null, hybrid ranking is active: [search] fuses BM25 with
   /// vector similarity, and [upsert] computes and stores an embedding per
   /// note. `null` (the default) means search behaves exactly as it did
@@ -1295,6 +1305,14 @@ class SearchIndex {
       ..execute('''
         CREATE INDEX IF NOT EXISTS note_properties_note_id_idx
           ON note_properties(note_id);
+      ''')
+      // Covers every correlated-by-note_id-then-key lookup the query
+      // compiler issues (EXISTS conditions, sort/group_by value
+      // subqueries, tag hydration) — without it those degrade to a table
+      // scan per outer row, per the 3.11 benchmark's original 7s+ runtime.
+      ..execute('''
+        CREATE INDEX IF NOT EXISTS note_properties_note_id_key_idx
+          ON note_properties(note_id, key);
       ''')
       ..execute('''
         CREATE INDEX IF NOT EXISTS note_properties_key_text_idx
