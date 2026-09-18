@@ -12,6 +12,12 @@ import 'package:server/src/storage.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
 
+/// How many times [NoteWriteService.append] re-reads and retries its write
+/// after losing a version race before giving up. Shared by the MCP
+/// `append_to_note` tool and `POST /notes/{id}/append` so both surfaces
+/// have an identical retry budget.
+const int kAppendMaxRetries = 3;
+
 /// Orchestrates the side-effects of every successful note write:
 /// 1. Canonical filesystem write via [Storage].
 /// 2. FTS5 cache update via [SearchIndex].
@@ -208,6 +214,70 @@ class NoteWriteService {
         return updated;
       },
     );
+  }
+
+  /// Appends [text] to the end of note [id] as a safe server-side
+  /// read-modify-write: reads the current content, appends on a new line
+  /// (unless the note is empty, or already ends with one), and retries
+  /// automatically — up to [kAppendMaxRetries] extra attempts — if another
+  /// actor's write lands first. The single helper behind both the MCP
+  /// `append_to_note` tool and `POST /notes/{id}/append`, so the two
+  /// surfaces have byte-identical semantics.
+  ///
+  /// Checks [lockManager] before the initial read and again before every
+  /// retry — another actor may acquire the lock in the gap between a lost
+  /// version race and the next attempt — throwing [LockedException] when
+  /// [actor] doesn't hold it. Throws [NoteNotFoundException] if the note
+  /// doesn't exist, or re-throws the last [VersionConflictException] if
+  /// every retry loses the race.
+  Future<StoredNote> append({
+    required String id,
+    required String text,
+    required String actor,
+  }) {
+    return _tracer.startActiveSpan(
+      'note.write.append',
+      attributes: {'note.id': id},
+      (span) async {
+        _checkLock(id, actor);
+        var current = await storage.read(id);
+
+        for (var attempt = 0; attempt <= kAppendMaxRetries; attempt++) {
+          _checkLock(id, actor);
+          final needsNewline =
+              current.content.isNotEmpty && !current.content.endsWith('\n');
+          final nextContent = current.content.isEmpty
+              ? text
+              : '${current.content}${needsNewline ? '\n' : ''}$text';
+          try {
+            return await update(
+              id: id,
+              title: current.title,
+              content: nextContent,
+              ifMatch: current.version,
+              actor: actor,
+            );
+          } on VersionConflictException catch (e) {
+            // The exception carries the fresh state, so retrying needs no
+            // extra read.
+            current = e.current;
+          }
+        }
+        throw VersionConflictException(
+          current: current,
+          suppliedIfMatch: current.version,
+        );
+      },
+    );
+  }
+
+  /// Throws [LockedException] if [id]'s editor lock is held by an actor
+  /// other than [actor].
+  void _checkLock(String id, String actor) {
+    final active = lockManager.lockOf(id);
+    if (active != null && active.holder != actor) {
+      throw LockedException(current: active, actor: actor);
+    }
   }
 
   /// Finds every other note with a *parsed* outgoing link (not a raw text
