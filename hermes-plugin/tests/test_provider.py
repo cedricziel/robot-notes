@@ -290,6 +290,58 @@ def test_on_session_end_updates_existing_note_for_resumed_session(provider):
 
 
 @respx.mock
+def test_on_session_switch_rebinds_session_id_so_on_session_end_targets_a_new_note(provider):
+    respx.get("https://notes.example.com/notes").mock(return_value=httpx.Response(200, json={"items": []}))
+    create_route = respx.post("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(201, json={"id": "01SESSION", "title": "session-1", "version": 1})
+    )
+
+    provider.on_session_end([{"role": "user", "content": "first"}])
+    provider.on_session_switch("session-2")
+    provider.on_session_end([{"role": "user", "content": "second"}])
+
+    titles = [json.loads(call.request.content)["title"] for call in create_route.calls]
+    assert titles == ["session-1", "session-2"]
+
+
+def test_on_session_switch_ignores_empty_new_session_id(provider):
+    provider.on_session_switch("")
+
+    assert provider._session_id == "session-1"
+
+
+def test_on_session_switch_ignores_blank_new_session_id(provider):
+    provider.on_session_switch("   ")
+
+    assert provider._session_id == "session-1"
+
+
+@respx.mock
+def test_on_session_switch_discards_a_prefetch_queued_before_it(provider):
+    release = threading.Event()
+
+    def _slow_response(request):
+        release.wait(timeout=2)
+        return httpx.Response(
+            200, json={"items": [{"id": "1", "title": "Stale", "snippet": "from the old session"}]}
+        )
+
+    respx.get("https://notes.example.com/search").mock(side_effect=_slow_response)
+
+    provider.queue_prefetch("old query", session_id="session-1")
+    stale_thread = provider._prefetch_thread
+
+    provider.on_session_switch("session-2")
+
+    # let the superseded search land after the switch has already moved the generation on
+    release.set()
+    stale_thread.join(timeout=2)
+
+    # the stale result must not have been allowed to populate the cache for the new session
+    assert provider._prefetch_cache == ""
+
+
+@respx.mock
 def test_on_memory_write_add_creates_memory_note_first_time(provider):
     respx.get("https://notes.example.com/notes").mock(return_value=httpx.Response(200, json={"items": []}))
     create_route = respx.post("https://notes.example.com/notes").mock(
