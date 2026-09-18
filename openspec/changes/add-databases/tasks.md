@@ -74,7 +74,7 @@ Each task is a TDD step: write the failing test named in the task, make it pass,
 ## 8. Docs and wrap-up
 
 - [x] 8.1 Document every new endpoint, the definition frontmatter format, property encodings, date semantics, and the filter grammar in `server/API.md`; add the seven tools to the tool catalog section; verify by reading the rendered sections back - added a `## Databases` section (frontmatter format, property encodings, reserved/built-in keys, date semantics, filter grammar, and all five `/databases*` endpoints) plus `PATCH /notes/{id}/properties`, updated `POST`/`GET`/`PUT /notes/{id}` for `properties`/`type`, extended the error-envelope sibling-key table, and grew the MCP tool catalog table from twelve to nineteen tools
-- [ ] 8.2 Add a worked example to `README.md` (create a Projects database, add a row, query the board) using `curl`; verify the commands run against a dev server
+- [x] 8.2 Add a worked example to `README.md` (create a Projects database, add a row, query the board) using `curl`; verify the commands run against a dev server - added a "Working with databases" section after "Connecting an MCP client"; verified the exact commands against a real running server via a throwaway integration test driving the actual `curl` binary (not just the equivalent HTTP client), which also caught that a query page's `groups` field is `count`, not `row_count` (fixed in both `README.md` and `server/API.md`)
 - [ ] 8.3 Run `dart analyze`, `dart format --set-exit-if-changed`, and the full `server` and `shared` suites; verify clean
 
 ## Definition of Done

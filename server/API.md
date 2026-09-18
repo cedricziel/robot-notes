@@ -1034,10 +1034,10 @@ Response `200 OK`:
   ],
   "next_cursor": null,
   "groups": [
-    { "value": "todo", "row_count": 3 },
-    { "value": "doing", "row_count": 1 },
-    { "value": "done", "row_count": 0 },
-    { "value": null, "row_count": 0 }
+    { "value": "todo", "count": 3 },
+    { "value": "doing", "count": 1 },
+    { "value": "done", "count": 0 },
+    { "value": null, "count": 0 }
   ]
 }
 ```

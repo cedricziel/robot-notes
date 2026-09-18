@@ -301,6 +301,67 @@ key over that connection, with the same exposure as the bearer check
 everywhere else in the API. See `--public-url` above for pinning the
 origin OAuth metadata advertises when the server sits behind a proxy.
 
+### Working with databases
+
+A **database** is just a note with `type: database` frontmatter,
+declaring a schema and which other notes are its rows (by folder or
+tag). Here's creating a "Projects" database, adding a row, and
+querying it as a board — see [`server/API.md`](server/API.md#databases)
+for the full frontmatter format, property encodings, and filter
+grammar.
+
+```sh
+# Create the database: a "Projects" folder, with a select property.
+curl -X POST https://notes.example.com/databases \
+     -H "Authorization: Bearer $ROBOT_NOTES_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "title": "Projects",
+           "path": "Projects",
+           "properties": {
+             "status": {
+               "type": "select",
+               "options": ["todo", "doing", "done"]
+             }
+           },
+           "views": [
+             { "name": "Board", "type": "board", "group_by": "status" }
+           ]
+         }'
+# → 201 Created with the full definition, including its "id".
+
+# Add a row: a note under Projects/ with a validated "status" value.
+curl -X POST https://notes.example.com/databases/<database-id>/rows \
+     -H "Authorization: Bearer $ROBOT_NOTES_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "title": "Ship the databases feature",
+           "properties": { "status": "doing" }
+         }'
+# → 201 Created with the new row's id, path, and properties.
+
+# Query the board: every row grouped by status.
+curl -X POST https://notes.example.com/databases/<database-id>/query \
+     -H "Authorization: Bearer $ROBOT_NOTES_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"view": "Board"}'
+# → 200 OK with { "items": [...], "groups": [
+#      {"value": "todo", "count": 0},
+#      {"value": "doing", "count": 1},
+#      {"value": "done", "count": 0},
+#      {"value": null, "count": 0}
+#    ] }
+```
+
+Row properties can also be read/written through the ordinary note
+endpoints — `GET`/`PUT /notes/{id}` return and accept `properties`,
+and `PATCH /notes/{id}/properties` sets/unsets a handful of keys
+without touching the body or requiring a version. The seven MCP tools
+(`list_databases`, `get_database`, `create_database`,
+`update_database`, `query_database`, `create_row`,
+`update_properties`) mirror this same REST surface for agents
+connected over `/mcp`.
+
 ### Agent plugins
 
 - [`claude-plugin/`](claude-plugin/) — a Claude Code plugin with a skill
