@@ -280,13 +280,9 @@ void main() {
         await tester.pumpWidget(h.screen);
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('cell.status.tap')));
+        await tester.tap(find.byKey(const Key('property_editor.select')));
         await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byKey(const Key('cell.editor.input')),
-          'Active',
-        );
-        await tester.tap(find.byKey(const Key('cell.editor.save')));
+        await tester.tap(find.text('Active').last);
         await tester.pumpAndSettle();
 
         expect(h.patchRequests.single.url.path, '/notes/01R/properties');
@@ -317,9 +313,9 @@ void main() {
       await tester.pumpWidget(h.screen);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('cell.status.tap')));
+      await tester.tap(find.byKey(const Key('property_editor.select')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('cell.editor.clear')));
+      await tester.tap(find.text('None').last);
       await tester.pumpAndSettle();
 
       expect(jsonDecode(h.patchRequests.single.body) as Map<String, Object?>, {

@@ -15,6 +15,8 @@ import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
 import 'databases/database_screen.dart';
+import 'databases/databases_controller.dart';
+import 'databases/new_database_form.dart';
 import 'desktop/app_menu_actions.dart';
 import 'desktop/app_menu_bar.dart';
 import 'files/picked_file.dart';
@@ -470,15 +472,27 @@ class _AppShellState extends State<_AppShell> {
                 // with the "Folders" header — insets below it.
                 child: SafeArea(
                   bottom: false,
-                  child: FolderTreeSidebar(
-                    controller: session.tree,
-                    selectedPath: selectedPath,
-                    onSelect: session.list.selectFolder,
-                    onCreateFolder: () => unawaited(
-                      _createFolder(
-                        context,
-                        session,
-                        initialPath: selectedPath,
+                  child: ValueListenableBuilder<DatabasesState>(
+                    valueListenable: session.databases,
+                    builder: (context, dbState, _) => FolderTreeSidebar(
+                      controller: session.tree,
+                      selectedPath: selectedPath,
+                      onSelect: session.list.selectFolder,
+                      onCreateFolder: () => unawaited(
+                        _createFolder(
+                          context,
+                          session,
+                          initialPath: selectedPath,
+                        ),
+                      ),
+                      databases: dbState.items,
+                      onSelectDatabase: (id) => context.go('/databases/$id'),
+                      onNewDatabase: () => unawaited(
+                        _openNewDatabaseForm(
+                          context,
+                          session,
+                          initialFolder: selectedPath,
+                        ),
                       ),
                     ),
                   ),
@@ -573,15 +587,27 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
         ),
         onSearch: () => unawaited(_openSearch(context, session)),
         onAccount: () => unawaited(_showAccount(context, session)),
-        sidebar: FolderTreeSidebar(
-          controller: session.tree,
-          selectedPath: listState.selectedPath,
-          onSelect: session.list.selectFolder,
-          onCreateFolder: () => unawaited(
-            _createFolder(
-              context,
-              session,
-              initialPath: listState.selectedPath,
+        sidebar: ValueListenableBuilder<DatabasesState>(
+          valueListenable: session.databases,
+          builder: (context, dbState, _) => FolderTreeSidebar(
+            controller: session.tree,
+            selectedPath: listState.selectedPath,
+            onSelect: session.list.selectFolder,
+            onCreateFolder: () => unawaited(
+              _createFolder(
+                context,
+                session,
+                initialPath: listState.selectedPath,
+              ),
+            ),
+            databases: dbState.items,
+            onSelectDatabase: (id) => unawaited(context.push('/databases/$id')),
+            onNewDatabase: () => unawaited(
+              _openNewDatabaseForm(
+                context,
+                session,
+                initialFolder: listState.selectedPath,
+              ),
             ),
           ),
         ),
@@ -770,6 +796,31 @@ Future<void> _createFolder(
     initialPath: initialPath,
   );
   if (created) await session.tree.refresh();
+}
+
+/// Opens the "New database" form (task 6.1) as a full-screen route, seeded
+/// with [initialFolder] as the folder-source default. On success it
+/// refreshes the sidebar's Databases section and navigates to the new
+/// database, replacing the form in the navigation stack.
+Future<void> _openNewDatabaseForm(
+  BuildContext context,
+  AppSession session, {
+  String? initialFolder,
+}) async {
+  final router = GoRouter.of(context);
+  await Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (formContext) => NewDatabaseForm(
+        api: session.api,
+        initialFolder: initialFolder,
+        onCreated: (definition) {
+          unawaited(session.databases.refresh());
+          Navigator.of(formContext).pop();
+          router.go('/databases/${definition.id}');
+        },
+      ),
+    ),
+  );
 }
 
 /// Opens the file picker via [pickFile] and, unless cancelled, uploads the
@@ -1200,6 +1251,7 @@ class AppSession extends InheritedWidget {
     required this.ws,
     required this.list,
     required this.tree,
+    required this.databases,
     required this.actor,
     required this.baseUrl,
     required this.connection,
@@ -1212,6 +1264,7 @@ class AppSession extends InheritedWidget {
   final RobotNotesWsClient ws;
   final NotesListController list;
   final FolderTreeController tree;
+  final DatabasesController databases;
   final String actor;
 
   /// The connected server's origin, for display in the account surface.
@@ -1264,6 +1317,7 @@ class _SessionHostState extends State<SessionHost> {
   late final RobotNotesWsClient _ws;
   late final NotesListController _list;
   late final FolderTreeController _tree;
+  late final DatabasesController _databases;
   late final ConnectionStatusController _status;
 
   @override
@@ -1276,6 +1330,7 @@ class _SessionHostState extends State<SessionHost> {
     _ws = RobotNotesWsClient(config: widget.config);
     _list = NotesListController(api: _api, events: _ws.events);
     _tree = FolderTreeController(api: _api, events: _ws.events);
+    _databases = DatabasesController(api: _api, events: _ws.events);
     _status = ConnectionStatusController(
       events: _ws.events,
       onStaleReconnect: _list.refresh,
@@ -1283,12 +1338,14 @@ class _SessionHostState extends State<SessionHost> {
     unawaited(_ws.start());
     // Wildcard subscription keeps the list in sync with everyone's writes.
     _ws.subscribe('*');
+    unawaited(_databases.refresh());
   }
 
   @override
   void dispose() {
     _status.dispose();
     _tree.dispose();
+    _databases.dispose();
     _list.dispose();
     unawaited(_ws.dispose());
     _api.close();
@@ -1302,6 +1359,7 @@ class _SessionHostState extends State<SessionHost> {
       ws: _ws,
       list: _list,
       tree: _tree,
+      databases: _databases,
       actor: widget.config.actor,
       baseUrl: widget.config.baseUrl,
       connection: _status,

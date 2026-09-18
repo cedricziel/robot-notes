@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
@@ -11,6 +13,7 @@ import 'database_controller.dart';
 import 'database_list_view.dart';
 import 'database_table_view.dart';
 import 'databases_controller.dart';
+import 'schema_editor_screen.dart';
 
 /// The `/databases/{id}` route's content: title, view switcher, New row and
 /// schema editor actions, and the table/list/board rendering for the
@@ -116,9 +119,15 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
     }
   }
 
-  void _onCellCommit(String noteId, String key, PropertyPatch patch) {
-    widget.controller.patchProperty(noteId, set: patch.set, unset: patch.unset);
-  }
+  Future<String?> _onCellCommit(
+    String noteId,
+    String key,
+    PropertyPatch patch,
+  ) => widget.controller.patchProperty(
+    noteId,
+    set: patch.set,
+    unset: patch.unset,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -277,6 +286,7 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
           isLoadingMore: state.isLoadingMore,
           onLoadMore: widget.controller.loadMore,
           onCommit: _onCellCommit,
+          api: widget.controller.api,
           onOpenRow: widget.onOpenRow,
         );
       case ViewType.list:
@@ -488,13 +498,38 @@ class _DatabaseRouteState extends State<DatabaseRoute> {
     super.dispose();
   }
 
+  /// Opens the schema editor as a full-screen route on top of this one, per
+  /// design.md's "Schema editor is a full-screen form" — wired here rather
+  /// than left as a bare stub, unless [DatabaseRoute.onOpenSchemaEditor]
+  /// overrides it. Saving forces the controller to reload the definition
+  /// (bypassing the shared cache) so the screen picks up the change
+  /// immediately, then pops the editor.
+  void _openSchemaEditor() {
+    final definition = _controller.value.definition;
+    if (definition == null) return;
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SchemaEditorScreen(
+            definition: definition,
+            api: _controller.api,
+            onSaved: (_) {
+              Navigator.of(context).pop();
+              unawaited(_controller.load(forceRefresh: true));
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return DatabaseScreen(
       controller: _controller,
       onClose: widget.onClose,
       onOpenRow: widget.onOpenNote,
-      onOpenSchemaEditor: widget.onOpenSchemaEditor,
+      onOpenSchemaEditor: widget.onOpenSchemaEditor ?? _openSchemaEditor,
       onViewChanged: widget.onViewChanged,
     );
   }

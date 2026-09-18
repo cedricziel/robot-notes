@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared/shared.dart';
 
 const _config = AppConfig(
   baseUrl: 'https://notes.example',
@@ -151,5 +152,56 @@ void main() {
 
       expect(tapped, isTrue);
     });
+
+    testWidgets(
+      'a Databases section is hidden when databases is null and shown '
+      'with entries and a New database action otherwise',
+      (tester) async {
+        final mock = MockClient((request) async {
+          return http.Response(jsonEncode({'folders': <Object?>[]}), 200);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final controller = FolderTreeController(api: api);
+        addTearDown(controller.dispose);
+
+        await _pumpSidebar(tester, controller: controller);
+        expect(find.text('Databases'), findsNothing);
+
+        String? selectedId;
+        var newTapped = false;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: FolderTreeSidebar(
+                controller: controller,
+                onSelect: (_) {},
+                onCreateFolder: () {},
+                databases: const [
+                  DatabaseSummary(
+                    id: '01D',
+                    title: 'Projects',
+                    source: DatabaseSource.folder('Projects'),
+                    rowCount: 3,
+                  ),
+                ],
+                onSelectDatabase: (id) => selectedId = id,
+                onNewDatabase: () => newTapped = true,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Databases'), findsOneWidget);
+        expect(find.byKey(const Key('sidebar.database.01D')), findsOneWidget);
+        expect(find.text('Projects'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('sidebar.database.01D')));
+        expect(selectedId, '01D');
+
+        await tester.tap(find.byKey(const Key('sidebar.newDatabase')));
+        expect(newTapped, isTrue);
+      },
+    );
   });
 }
