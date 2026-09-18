@@ -77,6 +77,22 @@ Edit mode is explicit because entering it acquires the server-side editor
 lock; an always-editable note would hold a lock for every open note and block
 other humans and agents.
 
+## Touch gestures
+
+Every gesture routes into an action that is also reachable from a button or
+menu, so nothing is gesture-only.
+
+| Gesture                                                    | Where                    | Action                                                                                                 |
+| ---------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Swipe a row from its trailing edge toward its leading edge | Notes list               | Delete the note, after the same confirmation the long-press menu uses; cancelling springs the row back |
+| Long-press (or right-click) a row                          | Notes list               | Open the row's context menu                                                                            |
+| Pull down                                                  | Notes list               | Re-fetch the list                                                                                      |
+| Drag from the leading screen edge                          | Notes list, compact only | Open the folder drawer                                                                                 |
+| Pull down                                                  | Note view, while reading | Re-fetch the note and its backlinks (not offered while editing)                                        |
+| Double-tap the body                                        | Note view, while reading | Enter edit mode (same as Cmd/Ctrl+E)                                                                   |
+| Swipe up over the header or the bottom grab handle         | Search sheet, compact    | Close search (swiping over the results scrolls them instead)                                           |
+| Tap the scrim                                              | Search, account sheet    | Close the overlay                                                                                      |
+
 ## Where things live
 
 - `lib/src/app_router.dart` — routes, the three-pane shell, search and account overlays, app-level shortcuts.

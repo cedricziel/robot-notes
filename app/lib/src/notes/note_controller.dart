@@ -193,6 +193,22 @@ class NoteController extends ValueNotifier<NoteState> {
   int _heartbeatGen = 0;
   int _autosaveGen = 0;
 
+  /// Bumped for every note fetch after the initial [open] ([reload] and
+  /// the realtime-triggered refetch), so a response that lands after a
+  /// newer fetch started is dropped instead of overwriting the newer
+  /// state. [open] stays outside it: nothing commits before the note has
+  /// loaded, so it cannot be overtaken.
+  int _noteFetchGen = 0;
+
+  /// Bumped whenever a realtime lock event updates [NoteState.lock]. A
+  /// note response that started before the event keeps the event's lock
+  /// rather than replacing it with the older one the server embedded.
+  int _lockGen = 0;
+
+  /// Bumped for every backlinks fetch, which runs unawaited beside the
+  /// note fetch and so can be in flight more than once.
+  int _backlinksGen = 0;
+
   /// Loads the note and tells the realtime layer to subscribe so we receive
   /// `presence`, `lock`, and `changed` events for it.
   Future<void> open() async {
@@ -213,22 +229,66 @@ class NoteController extends ValueNotifier<NoteState> {
     }
   }
 
+  /// Re-fetches the note and its backlinks (pull-to-refresh) without
+  /// re-subscribing to its realtime events. Only meaningful while viewing:
+  /// in any other mode the edit buffers or an in-flight lock acquisition
+  /// own the note, so this is a no-op — including when the user enters
+  /// edit mode while the fetch is still in flight. A failure lands in
+  /// [NoteState.error] and leaves the already-loaded note on screen.
+  Future<void> reload() async {
+    if (_disposed) return;
+    if (value.mode != NoteMode.viewing) return;
+    final gen = ++_noteFetchGen;
+    final lockGen = _lockGen;
+    value = value.copyWith(error: null);
+    try {
+      final note = await _api.getNote(_noteId);
+      if (!_canCommitNoteFetch(gen)) return;
+      _commitFetchedNote(note, lockGen: lockGen);
+      unawaited(_loadBacklinks());
+    } on ApiException catch (e) {
+      // A failure from a fetch that has since been superseded (or that
+      // finished after the user entered edit mode) is not this reload's
+      // to report.
+      if (!_canCommitNoteFetch(gen)) return;
+      value = value.copyWith(error: e);
+    }
+  }
+
+  /// Whether a note fetch started at [gen] may still write its result:
+  /// the controller is alive, no newer fetch has started, and the user is
+  /// still viewing (edit buffers and lock acquisition own the note
+  /// otherwise).
+  bool _canCommitNoteFetch(int gen) =>
+      !_disposed && gen == _noteFetchGen && value.mode == NoteMode.viewing;
+
+  /// Writes a fetched [note], keeping the lock a realtime event set while
+  /// the fetch was in flight (identified by [lockGen]) over the older one
+  /// embedded in the response.
+  void _commitFetchedNote(Note note, {required int lockGen}) {
+    value = value.copyWith(
+      note: note,
+      lock: lockGen == _lockGen ? note.lock : value.lock,
+    );
+  }
+
   /// Loads notes that link to this one for the backlinks panel. Best-effort:
   /// a failure just leaves the list empty (the panel's empty state and an
   /// error state look the same to the user — there's nothing actionable to
   /// tell them apart), rather than surfacing via [NoteState.error].
   Future<void> _loadBacklinks() async {
     if (_disposed) return;
+    final gen = ++_backlinksGen;
     value = value.copyWith(backlinksLoading: true);
     try {
       final hits = await _api.getBacklinks(_noteId);
-      if (_disposed) return;
+      if (_disposed || gen != _backlinksGen) return;
       value = value.copyWith(backlinks: hits, backlinksLoading: false);
     } catch (_) {
       // Best-effort: the panel's empty state and "couldn't load" would look
       // identical to the user, so any failure (network, decode, ...) just
       // leaves the list empty rather than surfacing via NoteState.error.
-      if (_disposed) return;
+      if (_disposed || gen != _backlinksGen) return;
       value = value.copyWith(backlinksLoading: false);
     }
   }
@@ -510,6 +570,7 @@ class NoteController extends ValueNotifier<NoteState> {
       value = value.copyWith(viewers: List<String>.unmodifiable(msg.viewers));
     } else if (msg is LockEvent) {
       if (msg.noteId != _noteId) return;
+      _lockGen += 1;
       final newLock = (msg.holder == null || msg.expiresAt == null)
           ? null
           : Lock(holder: msg.holder!, expiresAt: msg.expiresAt!);
@@ -539,11 +600,12 @@ class NoteController extends ValueNotifier<NoteState> {
   }
 
   Future<void> _refreshNoteFromServer() async {
+    final gen = ++_noteFetchGen;
+    final lockGen = _lockGen;
     try {
       final note = await _api.getNote(_noteId);
-      if (_disposed) return;
-      if (value.mode != NoteMode.viewing) return;
-      value = value.copyWith(note: note, lock: note.lock);
+      if (!_canCommitNoteFetch(gen)) return;
+      _commitFetchedNote(note, lockGen: lockGen);
     } on ApiException {
       // Ignore — next user action will retry.
     }
