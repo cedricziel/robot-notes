@@ -396,7 +396,35 @@ void main() {
         defPath: 'Projects',
         folder: 'Projects',
       );
-      final result = coveringDatabases('Projects', const [], [def]);
+      final result =
+          coveringDatabases('Projects', const [], [def], noteId: 'db1');
+      expect(result, isEmpty);
+    });
+
+    test('covers sibling notes in the definition\'s own folder', () {
+      final def = folderDef(
+        id: 'db1',
+        defPath: 'Projects',
+        folder: 'Projects',
+      );
+      final result =
+          coveringDatabases('Projects', const [], [def], noteId: 'row1');
+      expect(result, [def]);
+    });
+
+    test('a database definition note is never a row of another database', () {
+      final def = folderDef(
+        id: 'db1',
+        defPath: 'Projects',
+        folder: 'Projects',
+      );
+      final result = coveringDatabases(
+        'Projects',
+        const [],
+        [def],
+        noteId: 'db2',
+        isDefinition: true,
+      );
       expect(result, isEmpty);
     });
   });

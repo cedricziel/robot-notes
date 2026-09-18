@@ -1030,12 +1030,15 @@ class PropertyPatch {
 List<DatabaseDefinition> coveringDatabases(
   String path,
   List<String> tags,
-  List<DatabaseDefinition> definitions,
-) {
+  List<DatabaseDefinition> definitions, {
+  String? noteId,
+  bool isDefinition = false,
+}) {
+  if (isDefinition) return const [];
   final normalizedTags = tags.map((t) => t.toLowerCase()).toSet();
   return [
     for (final def in definitions)
-      if (path != def.path && _sourceCovers(def.source, path, normalizedTags))
+      if (def.id != noteId && _sourceCovers(def.source, path, normalizedTags))
         def,
   ];
 }
