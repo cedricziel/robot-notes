@@ -465,6 +465,27 @@ void main() {
       expect(response.statusCode, HttpStatus.unauthorized);
     });
 
+    test('every new databases/notes-properties route requires auth',
+        () async {
+      final cases = <(String, HttpMethod)>[
+        ('/databases', HttpMethod.get),
+        ('/databases', HttpMethod.post),
+        ('/databases/x', HttpMethod.get),
+        ('/databases/x', HttpMethod.put),
+        ('/databases/x/query', HttpMethod.post),
+        ('/databases/x/rows', HttpMethod.post),
+        ('/notes/x/properties', HttpMethod.patch),
+      ];
+      for (final (path, method) in cases) {
+        final ctx = _ctx(path: path, method: method);
+        final response = await _runMiddleware(
+          bearerAuth(configuredKey: configured),
+          ctx,
+        );
+        expect(response.statusCode, HttpStatus.unauthorized, reason: path);
+      }
+    });
+
     test(
         '/keys, /rotate, /auth/rotate are not exempt but reach the app '
         'unauthenticated calls still 401', () async {
