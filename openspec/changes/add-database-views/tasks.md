@@ -42,7 +42,7 @@ TDD throughout: each task names its failing widget or unit test first. Conventio
 
 ## 7. Note view integration
 
-- [ ] 7.1 Property panel above the body, typed editors for declared properties, read-only rows for undeclared, collapsible with remembered state; widget tests; implement
+- [x] 7.1 Property panel above the body, typed editors for declared properties, read-only rows for undeclared, collapsible with remembered state; widget tests; implement — added `app/lib/src/notes/note_property_panel.dart` (`NotePropertyPanel`, reusing `PropertyEditor`/`PropertyValueView`) and `app/lib/src/notes/property_panel_prefs.dart` (a small `PropertyPanelPrefs` seam over the new `shared_preferences` dependency — nothing else in the app used local, non-secure UI-state storage yet); wired into `note_screen.dart` above the body in both viewing and editing modes (not shown during conflict). `NoteController` gained a small `api` getter (mirroring `DatabaseController.api`) so relation pickers can build a `TitleSearchService`. `_onPropertyCommit` reports success by comparing the note's version before/after the patch rather than reading `NoteState.error` directly, since `patchProperty` does not clear a stale error on a later success
 - [ ] 7.2 `DatabaseEmbed` widget resolving title and view through the cache, rendering read-only table or board limited to 50 with Show all, literal fallback, bounded height, tappable inside `SelectionArea`, rendered in view mode and the edit preview pane, debounced refresh; widget tests; implement
 - [ ] 7.3 Sidebar Databases section with navigation; widget test; implement
 

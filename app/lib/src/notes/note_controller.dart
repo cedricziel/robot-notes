@@ -203,6 +203,12 @@ class NoteController extends ValueNotifier<NoteState> {
   /// How long after the last edit an automatic save fires.
   static const Duration autosaveDebounce = Duration(seconds: 2);
 
+  /// The API client this controller was built with, for callers (the
+  /// property panel's relation editors) that need to build their own
+  /// requests, such as a [TitleSearchService] — mirrors
+  /// `DatabaseController.api`.
+  RobotNotesClient get api => _api;
+
   final RobotNotesClient _api;
   final TitleSearchService _titleSearch;
   final String _noteId;

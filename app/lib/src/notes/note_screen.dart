@@ -17,6 +17,7 @@ import '../widgets/status_strip.dart';
 import 'link_autocomplete.dart';
 import 'markdown_toolbar.dart';
 import 'note_controller.dart';
+import 'note_property_panel.dart';
 import 'save_shortcut.dart';
 
 /// How a [NoteScreen] is being shown, which decides what its leading
@@ -182,6 +183,23 @@ class _NoteScreenState extends State<NoteScreen> {
   Future<void> _save() async {
     await widget.controller.save();
     _announceOutcome(failed: 'Could not save', succeeded: 'Saved');
+  }
+
+  /// Wired to [NotePropertyPanel.onCommit]. Delegates to
+  /// [NoteController.patchProperty], which never touches the title/content
+  /// edit buffers (design.md), and reports success by comparing the note's
+  /// version before and after — the controller's own [NoteState.error]
+  /// field is not cleared on a successful patch, so it can't be read
+  /// directly here without risking a stale error from an earlier,
+  /// unrelated failure.
+  Future<String?> _onPropertyCommit(String key, PropertyPatch patch) async {
+    final before = widget.controller.value.note?.version;
+    await widget.controller.patchProperty(set: patch.set, unset: patch.unset);
+    if (!mounted) return null;
+    final after = widget.controller.value;
+    if (after.note?.version != before) return null;
+    final error = after.error;
+    return error == null ? null : _describe(error);
   }
 
   Future<void> _keepMine() async {
@@ -578,6 +596,23 @@ class _NoteScreenState extends State<NoteScreen> {
     return Column(
       children: [
         ...banners,
+        if (state.properties.isNotEmpty || state.coveringDefinitions.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: PaneSizes.readingColumn,
+                ),
+                child: NotePropertyPanel(
+                  properties: state.properties,
+                  coveringDefinitions: state.coveringDefinitions,
+                  api: widget.controller.api,
+                  onCommit: _onPropertyCommit,
+                ),
+              ),
+            ),
+          ),
         Expanded(
           child: editing
               ? _Editor(
