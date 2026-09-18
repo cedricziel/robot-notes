@@ -8,6 +8,7 @@ abstract final class Routes {
   static const String tags = '/tags';
   static const String ws = '/ws';
   static const String invites = '/invites';
+  static const String databases = '/databases';
   static const String mcp = '/mcp';
   static const String oauthRegister = '/oauth/register';
   static const String oauthAuthorize = '/oauth/authorize';
@@ -24,6 +25,11 @@ abstract final class Routes {
 
   static String note(String id) => '/notes/$id';
   static String noteLock(String id) => '/notes/$id/lock';
+  static String noteProperties(String id) => '/notes/$id/properties';
+
+  static String database(String id) => '/databases/$id';
+  static String databaseQuery(String id) => '/databases/$id/query';
+  static String databaseRows(String id) => '/databases/$id/rows';
 
   static String invite(String token) => '/invites/$token';
   static String inviteOnboarding(String token) =>
