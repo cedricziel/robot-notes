@@ -1412,7 +1412,7 @@ void main() {
   });
 
   group('tools/list catalog', () {
-    test('has exactly the twelve note tools with object schemas', () {
+    test('has exactly the nineteen note tools with object schemas', () {
       final names = registry.tools.map((t) => t.name).toSet();
       expect(names, {
         'list_notes',
@@ -1427,9 +1427,70 @@ void main() {
         'create_folder',
         'request_upload',
         'finalize_upload',
+        'list_databases',
+        'get_database',
+        'create_database',
+        'update_database',
+        'query_database',
+        'create_row',
+        'update_properties',
       });
       for (final tool in registry.tools) {
         expect(tool.inputSchema['type'], 'object');
+      }
+    });
+
+    test('create_row declares id and title as required', () {
+      final tool = registry.tools.firstWhere((t) => t.name == 'create_row');
+      expect(tool.inputSchema['required'], ['id', 'title']);
+    });
+
+    test('update_database declares id and version as required', () {
+      final tool =
+          registry.tools.firstWhere((t) => t.name == 'update_database');
+      expect(tool.inputSchema['required'], ['id', 'version']);
+    });
+
+    test('create_database declares only title as required', () {
+      final tool =
+          registry.tools.firstWhere((t) => t.name == 'create_database');
+      expect(tool.inputSchema['required'], ['title']);
+    });
+
+    test('list_databases declares no inputs', () {
+      final tool = registry.tools.firstWhere((t) => t.name == 'list_databases');
+      expect(tool.inputSchema['required'], <String>[]);
+      expect(
+        tool.inputSchema['properties'],
+        isEmpty,
+      );
+    });
+
+    test('database tool descriptions embed the filter grammar', () {
+      final tool = registry.tools.firstWhere((t) => t.name == 'query_database');
+      expect(tool.description, contains('is_empty'));
+      expect(tool.description, contains('not_contains'));
+      expect(tool.description, contains('gte'));
+    });
+
+    test('database tool descriptions embed the per-type encoding table', () {
+      for (final name in [
+        'create_database',
+        'update_database',
+        'create_row',
+        'update_properties',
+      ]) {
+        final tool = registry.tools.firstWhere((t) => t.name == name);
+        expect(
+          tool.description,
+          contains('multi_select -> a list of declared option strings'),
+          reason: name,
+        );
+        expect(
+          tool.description,
+          contains('[[Title]]'),
+          reason: name,
+        );
       }
     });
 
