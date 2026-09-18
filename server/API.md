@@ -441,6 +441,38 @@ title/content change) and `"updated"` otherwise.
 
 ---
 
+### `POST /notes/{id}/append`
+
+Append text to the end of a note as a safe server-side
+read-modify-write — no `If-Match` needed. The server reads the
+current content, appends the given text on a new line (unless the
+note is empty, or its content already ends with one), and retries
+internally if another writer's version race is lost, up to the same
+retry budget as the MCP `append_to_note` tool. REST twin of that
+tool: both call the same server-side helper, so semantics (newline
+handling, retry count, lock/scope handling, broadcast) are identical.
+
+Request:
+
+```json
+{ "content": "- another line" }
+```
+
+Successful response `200 OK` (same shape as `GET /notes/{id}` minus
+`lock`), reflecting the appended content and bumped `version`.
+
+Failure modes:
+
+| Status                | Meaning                                                                 |
+| --------------------- | ------------------------------------------------------------------------ |
+| `400 Bad Request`     | Body isn't JSON, or `content` is missing/empty (`validation_failed`).  |
+| `404 Not Found`       | No note with this id.                                                  |
+| `423 Locked`          | Another actor holds the editor lock. Body includes the current lock object. |
+
+Successful writes broadcast `changed { id, version, by, action: "updated" }`.
+
+---
+
 ### `DELETE /notes/{id}`
 
 Delete a note. Authenticated. Returns `204 No Content`. Broadcasts
@@ -741,7 +773,7 @@ the consent page falls back to the paste-the-key form as before.
 | `create_note`     | Create a note; accepts `path` — mirrors `POST /notes`.                                                                        |
 | `update_note`     | Update a note under optimistic concurrency (`version` required); accepts `path` — mirrors `PUT /notes/{id}`.                  |
 | `move_note`       | Change only a note's `path` under the same version/lock rules as `update_note`; broadcasts `action: "moved"`.                 |
-| `append_to_note`  | Server-side read-append-write; retries on a lost version race.                                                                |
+| `append_to_note`  | Server-side read-append-write; retries on a lost version race — mirrors `POST /notes/{id}/append`.                            |
 | `get_backlinks`   | Notes whose content links to this note — mirrors `GET /notes/{id}/backlinks`.                                                 |
 | `delete_note`     | Delete a note — mirrors `DELETE /notes/{id}`.                                                                                 |
 | `create_folder`   | Create an empty folder (idempotent, no error if it already exists) — mirrors `POST /notes/tree`.                              |
