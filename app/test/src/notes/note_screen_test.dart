@@ -681,7 +681,7 @@ void main() {
         final databases = DatabasesController(api: api);
         databases.value = databases.value.copyWith(
           items: [
-            DatabaseSummary.fromJson(<String, Object?>{
+            DatabaseSummary.fromJson(const <String, Object?>{
               'id': 'db1',
               'title': 'Projects',
               'path': '',

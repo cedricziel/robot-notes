@@ -49,7 +49,7 @@ TDD throughout: each task names its failing widget or unit test first. Conventio
 ## 8. Wrap-up
 
 - [x] 8.1 Update the `flutter-client` user-facing docs section in `README.md` (screens and how to create a database); verify by reading back — added a "Database views" subsection after "Pointing the Flutter app at a server" covering what a database/property/view is, creating one from the sidebar's New database form, what each view type (table/list/board) and the schema editor offer, the note view's property panel, and the `![[Title]]`/`![[Title#View]]` embed syntax; read back to confirm rendering
-- [ ] 8.2 `flutter analyze`, `dart format --set-exit-if-changed`, full `app`, `shared`, and `server` suites green; manual run against a dev server: create a database, add rows, drag a card, edit a cell, embed a view in a note, patch a property while typing in the body
+- [x] 8.2 `flutter analyze`, `dart format --set-exit-if-changed`, full `app`, `shared`, and `server` suites green; manual run against a dev server: create a database, add rows, drag a card, edit a cell, embed a view in a note, patch a property while typing in the body — `dart format --set-exit-if-changed .` at the repo root: clean (381 files, 0 changed); `flutter analyze` in `app/`: 12 pre-existing info-level lints, no errors; `dart analyze` at the repo root: 152 pre-existing info-level lints (all in `server/test/`), no errors; `cd app && flutter test`: 703 passed; `cd shared && dart test`: 82 passed; `cd server && dart test`: 1475 passed. The manual run against a live dev server was skipped — no display available in this (headless) environment, per the task instructions given to this agent
 
 ## Definition of Done
 
