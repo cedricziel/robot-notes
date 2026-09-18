@@ -166,6 +166,7 @@ jobs:
         with:
           filters: |
             changed:
+              - '.github/workflows/ci.yml'
               - 'hermes-plugin/**'
               - 'claude-plugin/hooks/**'
               - 'server/**'

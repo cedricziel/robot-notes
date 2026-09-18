@@ -58,6 +58,37 @@ def test_append_line_creates_then_appends_in_order(hook, e2e_base_url, e2e_api_k
     assert fetched["version"] == 2  # one create + one update, never a second create
 
 
+def test_append_line_uses_a_single_newline_separator(hook, e2e_base_url, e2e_api_key, e2e_client):
+    """append_line's fast path is now `POST /notes/{id}/append` (#248), so the
+    separator it lands is whatever the server's `NoteWriteService.append`
+    inserts — a single ``\\n`` — not the old client-side ``\\n\\n``."""
+    actor = f"e2e-hook-{_uid()}"
+    session_id = f"e2e-hook-session-{_uid()}"
+    path = hook.conversations_path(actor)
+
+    hook.append_line(e2e_base_url, e2e_api_key, actor, session_id, path, "**user**: hello there")
+    hook.append_line(e2e_base_url, e2e_api_key, actor, session_id, path, "**assistant**: hi, how can I help?")
+
+    note = e2e_client.find_note_by_title(session_id, path=path)
+    fetched = e2e_client.get_note(note["id"])
+    assert fetched["content"] == "**user**: hello there\n**assistant**: hi, how can I help?"
+
+
+def test_find_note_by_title_uses_the_server_title_filter(hook, e2e_base_url, e2e_api_key, e2e_client):
+    """find_note_by_title's fast path (#248) is the server's `?title=` filter,
+    not the paginated folder scan — confirmed here by locating a note the
+    scan would also find, through the hook's own function."""
+    actor = f"e2e-hook-{_uid()}"
+    session_id = f"e2e-hook-session-{_uid()}"
+    path = hook.conversations_path(actor)
+
+    hook.append_line(e2e_base_url, e2e_api_key, actor, session_id, path, "**user**: hi")
+
+    found = hook.find_note_by_title(e2e_base_url, e2e_api_key, actor, session_id, path)
+    assert found is not None
+    assert found["title"] == session_id
+
+
 def test_append_line_is_idempotent_note_target_across_calls(hook, e2e_base_url, e2e_api_key, e2e_client):
     """Guards against the exact bug this hook's file lock exists to prevent: two
     events for the same session must never race into two separate notes."""

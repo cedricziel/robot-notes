@@ -161,7 +161,7 @@ model; the table below is a quick reference.
 | `robotnotes_list`     | `path?`, `after?`, `limit?`          | Paginated metadata for every note, optionally under a `path` — use this to enumerate |
 | `robotnotes_note`     | `id`                                 | Fetch a note by id                                                                    |
 | `robotnotes_remember` | `title`, `content`, `path?`          | Store a durable fact as a *new* note; a duplicate title under `path` returns `path_conflict` — search then `robotnotes_append` instead |
-| `robotnotes_append`   | `id`, `content`                      | Append content to an existing note on a new line, instead of duplicating it          |
+| `robotnotes_append`   | `id`, `content`                      | Append content to an existing note on a new line, instead of duplicating it — via the server's `POST /notes/{id}/append` (falls back to a client-side read-modify-write only against a server old enough to 404/405 that route) |
 | `robotnotes_forget`   | `id`                                 | Delete a note by id                                                                   |
 
 ## Skill

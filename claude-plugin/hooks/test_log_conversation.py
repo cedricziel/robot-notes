@@ -1,7 +1,8 @@
 """Unit tests for log_conversation.py's note read/write logic, run with
 `python3 -m unittest` from this directory — no pytest or extra deps needed.
-HTTP is stubbed at the `_request` boundary so no network or server is
-required.
+HTTP is stubbed at the `_request` boundary (and, where a fallback branch
+needs to distinguish an HTTP status, at the `urllib.error.HTTPError` it
+raises) so no network or server is required.
 """
 
 from __future__ import annotations
@@ -9,9 +10,14 @@ from __future__ import annotations
 import os
 import time
 import unittest
+import urllib.error
 from unittest import mock
 
 import log_conversation as lc
+
+
+def _http_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("http://x", code, "error", None, None)
 
 
 class SanitizeActorTests(unittest.TestCase):
@@ -56,11 +62,44 @@ class FormatLineTests(unittest.TestCase):
 
 
 class FindNoteByTitleTests(unittest.TestCase):
+    def test_uses_the_title_filter_when_supported(self) -> None:
+        with mock.patch.object(
+            lc, "_request", return_value={"items": [{"id": "a", "title": "sess-1"}], "next_cursor": None}
+        ) as request:
+            note = lc.find_note_by_title("http://x", "key", "actor", "sess-1", "conversations/actor")
+        self.assertEqual(note, {"id": "a", "title": "sess-1"})
+        request.assert_called_once()
+        called_path = request.call_args.args[4]
+        self.assertIn("title=sess-1", called_path)
+
+    def test_title_filter_miss_does_not_fall_back_to_scan(self) -> None:
+        with mock.patch.object(lc, "_request", return_value={"items": [], "next_cursor": None}) as request:
+            note = lc.find_note_by_title("http://x", "key", "actor", "sess-1", "conversations/actor")
+        self.assertIsNone(note)
+        request.assert_called_once()
+
+    def test_falls_back_to_scan_on_400(self) -> None:
+        with mock.patch.object(
+            lc,
+            "_request",
+            side_effect=[_http_error(400), {"items": [{"id": "b", "title": "sess-1"}], "next_cursor": None}],
+        ) as request:
+            note = lc.find_note_by_title("http://x", "key", "actor", "sess-1", "conversations/actor")
+        self.assertEqual(note, {"id": "b", "title": "sess-1"})
+        self.assertEqual(request.call_count, 2)
+
+    def test_other_http_errors_are_not_swallowed(self) -> None:
+        with mock.patch.object(lc, "_request", side_effect=_http_error(500)):
+            with self.assertRaises(urllib.error.HTTPError):
+                lc.find_note_by_title("http://x", "key", "actor", "sess-1", "conversations/actor")
+
+
+class FindNoteByTitleScanTests(unittest.TestCase):
     def test_returns_match_on_first_page(self) -> None:
         with mock.patch.object(
             lc, "_request", return_value={"items": [{"id": "a", "title": "sess-1"}], "next_cursor": None}
         ):
-            note = lc.find_note_by_title("http://x", "key", "actor", "sess-1", "conversations/actor")
+            note = lc._find_note_by_title_scan("http://x", "key", "actor", "sess-1", "conversations/actor")
         self.assertEqual(note, {"id": "a", "title": "sess-1"})
 
     def test_follows_next_cursor_to_find_match_on_later_page(self) -> None:
@@ -69,7 +108,7 @@ class FindNoteByTitleTests(unittest.TestCase):
             {"items": [{"id": "b", "title": "sess-1"}], "next_cursor": None},
         ]
         with mock.patch.object(lc, "_request", side_effect=pages) as request:
-            note = lc.find_note_by_title("http://x", "key", "actor", "sess-1", "conversations/actor")
+            note = lc._find_note_by_title_scan("http://x", "key", "actor", "sess-1", "conversations/actor")
         self.assertEqual(note, {"id": "b", "title": "sess-1"})
         self.assertEqual(request.call_count, 2)
         second_call_path = request.call_args_list[1].args[4]
@@ -77,8 +116,24 @@ class FindNoteByTitleTests(unittest.TestCase):
 
     def test_returns_none_when_exhausted_without_match(self) -> None:
         with mock.patch.object(lc, "_request", return_value={"items": [], "next_cursor": None}):
-            note = lc.find_note_by_title("http://x", "key", "actor", "sess-1", "conversations/actor")
+            note = lc._find_note_by_title_scan("http://x", "key", "actor", "sess-1", "conversations/actor")
         self.assertIsNone(note)
+
+
+class JoinWithSeparatorTests(unittest.TestCase):
+    def test_empty_current_becomes_addition(self) -> None:
+        self.assertEqual(lc._join_with_separator("", "first line"), "first line")
+
+    def test_inserts_a_single_newline_when_missing(self) -> None:
+        self.assertEqual(lc._join_with_separator("line one", "line two"), "line one\nline two")
+
+    def test_does_not_double_a_trailing_newline(self) -> None:
+        self.assertEqual(lc._join_with_separator("line one\n", "line two"), "line one\nline two")
+
+    def test_preserves_existing_blank_lines_rather_than_collapsing_them(self) -> None:
+        # Matches the server's NoteWriteService.append: it only checks whether
+        # content already ends with "\n", it never strips extra trailing ones.
+        self.assertEqual(lc._join_with_separator("line one\n\n", "line two"), "line one\n\nline two")
 
 
 class AppendLineTests(unittest.TestCase):
@@ -89,31 +144,63 @@ class AppendLineTests(unittest.TestCase):
             lc.append_line("http://x", "key", "actor", "sess-1", "Claude/Sessions", "**user**: hi")
         create.assert_called_once_with("http://x", "key", "actor", "sess-1", "**user**: hi", "Claude/Sessions")
 
-    def test_appends_to_existing_note(self) -> None:
+    def test_appends_via_the_server_append_endpoint(self) -> None:
         note = {"id": "abc", "version": 1}
         with mock.patch.object(lc, "find_note_by_title", return_value=note), mock.patch.object(
+            lc, "append_note"
+        ) as append_note, mock.patch.object(lc, "_request") as request:
+            lc.append_line("http://x", "key", "actor", "sess-1", "Claude/Sessions", "**assistant**: hey")
+        append_note.assert_called_once_with("http://x", "key", "actor", "abc", "**assistant**: hey")
+        request.assert_not_called()  # no GET/PUT read-modify-write when the endpoint succeeds
+
+    def test_falls_back_to_read_modify_write_on_404_route(self) -> None:
+        note = {"id": "abc", "version": 1}
+        with mock.patch.object(lc, "find_note_by_title", return_value=note), mock.patch.object(
+            lc, "append_note", side_effect=_http_error(404)
+        ), mock.patch.object(
             lc, "_request", return_value={"content": "**user**: hi", "version": 1}
         ), mock.patch.object(lc, "update_note") as update:
             lc.append_line("http://x", "key", "actor", "sess-1", "Claude/Sessions", "**assistant**: hey")
-        update.assert_called_once_with("http://x", "key", "actor", "abc", 1, "**user**: hi\n\n**assistant**: hey")
+        update.assert_called_once_with("http://x", "key", "actor", "abc", 1, "**user**: hi\n**assistant**: hey")
 
-    def test_empty_existing_content_not_blank_prefixed(self) -> None:
+    def test_falls_back_to_read_modify_write_on_405_route(self) -> None:
         note = {"id": "abc", "version": 1}
         with mock.patch.object(lc, "find_note_by_title", return_value=note), mock.patch.object(
+            lc, "append_note", side_effect=_http_error(405)
+        ), mock.patch.object(
             lc, "_request", return_value={"content": "", "version": 1}
         ), mock.patch.object(lc, "update_note") as update:
             lc.append_line("http://x", "key", "actor", "sess-1", "Claude/Sessions", "**user**: first")
         update.assert_called_once_with("http://x", "key", "actor", "abc", 1, "**user**: first")
 
-    def test_retries_on_version_conflict(self) -> None:
+    def test_other_append_errors_are_not_swallowed_into_a_fallback(self) -> None:
+        note = {"id": "abc", "version": 1}
+        with mock.patch.object(lc, "find_note_by_title", return_value=note), mock.patch.object(
+            lc, "append_note", side_effect=_http_error(500)
+        ), mock.patch.object(lc, "_request") as request:
+            with self.assertRaises(urllib.error.HTTPError):
+                lc.append_line("http://x", "key", "actor", "sess-1", "Claude/Sessions", "**user**: hi")
+        request.assert_not_called()
+
+    def test_empty_existing_content_not_blank_prefixed_in_fallback(self) -> None:
+        note = {"id": "abc", "version": 1}
+        with mock.patch.object(lc, "find_note_by_title", return_value=note), mock.patch.object(
+            lc, "append_note", side_effect=_http_error(404)
+        ), mock.patch.object(
+            lc, "_request", return_value={"content": "", "version": 1}
+        ), mock.patch.object(lc, "update_note") as update:
+            lc.append_line("http://x", "key", "actor", "sess-1", "Claude/Sessions", "**user**: first")
+        update.assert_called_once_with("http://x", "key", "actor", "abc", 1, "**user**: first")
+
+    def test_fallback_retries_on_version_conflict(self) -> None:
         note = {"id": "abc", "version": 1}
         reads = [
             {"content": "old", "version": 1},
-            {"content": "old\n\nsomeone else wrote", "version": 2},
+            {"content": "old\nsomeone else wrote", "version": 2},
         ]
         with mock.patch.object(lc, "find_note_by_title", return_value=note), mock.patch.object(
-            lc, "_request", side_effect=reads
-        ), mock.patch.object(
+            lc, "append_note", side_effect=_http_error(404)
+        ), mock.patch.object(lc, "_request", side_effect=reads), mock.patch.object(
             lc, "update_note", side_effect=[lc.VersionConflict(), {"version": 3}]
         ) as update:
             lc.append_line("http://x", "key", "actor", "sess-1", "Claude/Sessions", "**user**: retry me")
@@ -122,9 +209,11 @@ class AppendLineTests(unittest.TestCase):
         self.assertIn("someone else wrote", second_call_content)
         self.assertIn("retry me", second_call_content)
 
-    def test_gives_up_after_max_retries(self) -> None:
+    def test_fallback_gives_up_after_max_retries(self) -> None:
         note = {"id": "abc", "version": 1}
         with mock.patch.object(lc, "find_note_by_title", return_value=note), mock.patch.object(
+            lc, "append_note", side_effect=_http_error(404)
+        ), mock.patch.object(
             lc, "_request", return_value={"content": "old", "version": 1}
         ), mock.patch.object(lc, "update_note", side_effect=lc.VersionConflict()) as update:
             lc.append_line("http://x", "key", "actor", "sess-1", "Claude/Sessions", "**user**: never lands")

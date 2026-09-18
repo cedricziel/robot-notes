@@ -33,6 +33,32 @@ def _make_provider(tmp_path, *, base_url, api_key, actor, session_id, monkeypatc
     return provider
 
 
+def test_handle_tool_call_append_uses_the_server_append_endpoint(
+    tmp_path, monkeypatch, e2e_base_url, e2e_api_key, e2e_client: RobotNotesClient
+):
+    """robotnotes_append (#248) goes straight to `POST /notes/{id}/append` on
+    a real server — no local read/If-Match round trip — and lands the same
+    single-`\\n` join `NoteWriteService.append` uses everywhere else."""
+    actor = f"e2e-provider-{_uid()}"
+    note = e2e_client.create_note(title=f"e2e-{_uid()}", content="line one", path=f"e2e-provider-{_uid()}")
+
+    provider = _make_provider(
+        tmp_path,
+        base_url=e2e_base_url,
+        api_key=e2e_api_key,
+        actor=actor,
+        session_id=f"e2e-session-{_uid()}",
+        monkeypatch=monkeypatch,
+    )
+    try:
+        result = json.loads(provider.handle_tool_call("robotnotes_append", {"id": note["id"], "content": "line two"}))
+    finally:
+        provider.shutdown()
+
+    assert result["content"] == "line one\nline two"
+    assert result["version"] == note["version"] + 1
+
+
 def test_on_session_end_twice_converges_on_one_note(
     tmp_path, monkeypatch, e2e_base_url, e2e_api_key, e2e_client: RobotNotesClient
 ):

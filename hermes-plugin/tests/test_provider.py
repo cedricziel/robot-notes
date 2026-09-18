@@ -466,7 +466,34 @@ def test_handle_tool_call_remember_title_collision_is_path_conflict(provider):
 
 
 @respx.mock
-def test_handle_tool_call_append_adds_a_new_line_to_existing_content(provider):
+def test_handle_tool_call_append_uses_the_server_append_endpoint(provider):
+    """The happy path is a single POST to the server's own append endpoint —
+    no client-side read-modify-write, no GET beforehand."""
+    get_route = respx.get("https://notes.example.com/notes/01SESSION")
+    append_route = respx.post("https://notes.example.com/notes/01SESSION/append").mock(
+        return_value=httpx.Response(
+            200, json={"id": "01SESSION", "version": 2, "content": "line one\nline two"}
+        )
+    )
+
+    result = json.loads(
+        provider.handle_tool_call("robotnotes_append", {"id": "01SESSION", "content": "line two"})
+    )
+
+    assert append_route.called
+    assert not get_route.called
+    sent_body = json.loads(append_route.calls.last.request.content)
+    assert sent_body == {"content": "line two"}
+    assert result["version"] == 2
+    assert result["content"] == "line one\nline two"
+
+
+@respx.mock
+def test_handle_tool_call_append_falls_back_to_read_modify_write_on_404_route(provider):
+    """A server that predates POST /notes/{id}/append answers the route with a
+    plain 404; that must not be mistaken for the note itself being missing —
+    it falls back to the client-side read-modify-write instead."""
+    respx.post("https://notes.example.com/notes/01SESSION/append").mock(return_value=httpx.Response(404))
     respx.get("https://notes.example.com/notes/01SESSION").mock(
         return_value=httpx.Response(200, json={"id": "01SESSION", "version": 1, "content": "line one"})
     )
@@ -484,7 +511,10 @@ def test_handle_tool_call_append_adds_a_new_line_to_existing_content(provider):
 
 
 @respx.mock
-def test_handle_tool_call_append_on_empty_note_does_not_prefix_a_blank_line(provider):
+def test_handle_tool_call_append_falls_back_on_405_route(provider):
+    """A server that answers 405 (method not allowed) for the append route —
+    e.g. it only wired up GET/PUT/DELETE on /notes/{id} — also falls back."""
+    respx.post("https://notes.example.com/notes/01EMPTY/append").mock(return_value=httpx.Response(405))
     respx.get("https://notes.example.com/notes/01EMPTY").mock(
         return_value=httpx.Response(200, json={"id": "01EMPTY", "version": 1, "content": ""})
     )
@@ -500,12 +530,37 @@ def test_handle_tool_call_append_on_empty_note_does_not_prefix_a_blank_line(prov
 
 @respx.mock
 def test_handle_tool_call_append_not_found_is_tool_error(provider):
-    respx.get("https://notes.example.com/notes/missing").mock(return_value=httpx.Response(404))
+    """A note that genuinely doesn't exist 404s from the append endpoint, falls
+    back (indistinguishable from an old server at that point), and then 404s
+    again from the fallback's own read — surfacing as the same not_found
+    tool_error either way."""
+    respx.post("https://notes.example.com/notes/missing/append").mock(
+        return_value=httpx.Response(404, json={"error": "not_found"})
+    )
+    respx.get("https://notes.example.com/notes/missing").mock(
+        return_value=httpx.Response(404, json={"error": "not_found"})
+    )
 
     result = json.loads(provider.handle_tool_call("robotnotes_append", {"id": "missing", "content": "x"}))
 
     assert result["code"] == "not_found"
     assert "error" in result
+
+
+@respx.mock
+def test_handle_tool_call_append_other_error_is_not_treated_as_missing_route(provider):
+    """A 500 (or any status other than 404/405) from the append endpoint is a
+    real failure, not a signal to fall back — it must propagate as-is rather
+    than being swallowed into a read-modify-write attempt."""
+    respx.post("https://notes.example.com/notes/01SESSION/append").mock(return_value=httpx.Response(500))
+    get_route = respx.get("https://notes.example.com/notes/01SESSION")
+
+    result = json.loads(
+        provider.handle_tool_call("robotnotes_append", {"id": "01SESSION", "content": "line two"})
+    )
+
+    assert not get_route.called
+    assert result["code"] == "error"
 
 
 @respx.mock
