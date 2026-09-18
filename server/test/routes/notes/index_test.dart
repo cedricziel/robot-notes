@@ -467,6 +467,126 @@ void main() {
       expect(items, hasLength(1));
       expect(items.single['title'], 'A');
     });
+
+    test('title filter returns only the note with that exact title', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'Project Alpha', content: '');
+      await storage.create(title: 'Project Beta', content: '');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?title=Project%20Alpha'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items, hasLength(1));
+      expect(items.single['title'], 'Project Alpha');
+    });
+
+    test('title filter is case- and NFC-insensitive', () async {
+      final storage = _storage(tmp);
+      // 'é' composed (single codepoint) stored on disk.
+      await storage.create(
+        title: 'caf${String.fromCharCode(0x00e9)}',
+        content: '',
+      );
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      // Query with a decomposed 'e' + combining acute accent and
+      // different casing.
+      final decomposedQuery = 'CAF${String.fromCharCodes([0x65, 0x0301])}';
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse(
+            '/notes?title=${Uri.encodeQueryComponent(decomposedQuery)}',
+          ),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items, hasLength(1));
+    });
+
+    test('title filter returning no match yields an empty items list',
+        () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'Project Alpha', content: '');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?title=Nope'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['items'], isEmpty);
+    });
+
+    test('title filter composes with path filter', () async {
+      final storage = _storage(tmp);
+      await storage.create(
+        title: 'Notes',
+        content: '',
+        path: 'Projects/Alpha',
+      );
+      await storage.create(title: 'Notes', content: '');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?title=Notes&path=Projects/Alpha'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items, hasLength(1));
+      expect(items.single['path'], 'Projects/Alpha');
+    });
+
+    test('title filter composes with pagination', () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'Dup', content: '', path: 'A');
+      await storage.create(title: 'Dup', content: '', path: 'B');
+      await storage.create(title: 'Other', content: '');
+      final index = MetaIndex();
+      await index.scan(storage);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?title=Dup&limit=1'),
+        ),
+      );
+
+      final body = await res.json() as Map<String, dynamic>;
+      final items = (body['items'] as List).cast<Map<String, dynamic>>();
+      expect(items, hasLength(1));
+      expect(body['next_cursor'], isNotNull);
+    });
   });
 
   group('POST /notes', () {

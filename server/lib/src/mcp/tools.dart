@@ -303,6 +303,7 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
           },
           'path': {'type': 'string'},
           'tag': {'type': 'string'},
+          'title': {'type': 'string'},
         },
         'required': <String>[],
       },
@@ -314,6 +315,7 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
         final sort = (args['sort'] as String?) ?? kSortId;
         final pathFilter = args['path'] as String?;
         final tagFilter = args['tag'] as String?;
+        final titleFilter = args['title'] as String?;
         if (!kSupportedSorts.contains(sort)) {
           return toolFail(kErrorValidationFailed, message: kSortErrorMessage);
         }
@@ -325,6 +327,7 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
             sort: sort,
             pathPrefix: pathFilter,
             tag: tagFilter,
+            title: titleFilter,
           );
         } on InvalidCursorException {
           return toolFail(
