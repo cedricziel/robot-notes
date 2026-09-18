@@ -25,9 +25,11 @@ There is no way to say "these notes are projects, each has a status and a due da
 
 - `notes-api`: `GET /notes/{id}` returns `properties`; `POST /notes` and `PUT /notes/{id}` accept `properties`.
 - `mcp-server`: tool catalog grows by the seven database tools; `get_note` returns `properties`; `create_note` and `update_note` accept `properties`.
-- `notes-storage`: reserved frontmatter keys are defined; property values are stored as top-level frontmatter keys with a defined encoding per type.
+- `notes-storage`: storage-managed, server-interpreted, and property keys are distinguished; property values are stored as top-level frontmatter keys.
 - `links`: `relation` property values are parsed as outgoing links.
 - `search`: the index stores property values and supports the database query path.
+- `lock-management`: property patches are not lock-governed.
+- `realtime-sync`: property patches emit `changed` with `action: "updated"`.
 
 ## Impact
 

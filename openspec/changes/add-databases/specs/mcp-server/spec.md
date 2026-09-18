@@ -4,7 +4,7 @@
 
 ### Requirement: tools/list returns the fixed note tool catalog
 
-`tools/list` SHALL return exactly these tools, each with a `description` and a JSON Schema `inputSchema` of type `object` declaring the listed properties and `required` set: `list_notes` (`limit` integer 1..200, `after` string, `path` string, `tag` string), `get_note` (`id` required), `create_note` (`title` required, `content`, `path`, `properties` object), `update_note` (`id` and `version` required, `title`, `content`, `path`, `properties` object), `append_to_note` (`id` and `text` required), `delete_note` (`id` required), `search_notes` (`query` required, `limit` integer 1..100, `path` string, `tag` string), `move_note` (`id` and `version` required, `path` required), `get_backlinks` (`id` required), `create_folder` (`path` required), `request_upload` and `finalize_upload` (as specified by the file upload capability), `list_databases` (no inputs), `get_database` (`id` required), `create_database` (`title` required; `path`, `source`, `properties`, `views`, `content`), `update_database` (`id` and `version` required; `source`, `properties`, `views`), `query_database` (`id` required; `view`, `filter`, `sort`, `group_by`, `limit` integer 1..200, `after`), `create_row` (`id` and `title` required; `properties`, `content`, `path`), `update_properties` (`id` required; `set` object, `unset` array). The catalog SHALL be the same regardless of the caller's scopes. The result SHALL NOT include a `nextCursor`.
+`tools/list` SHALL return exactly these tools, each with a `description` and a JSON Schema `inputSchema` of type `object` declaring the listed properties and `required` set: `list_notes` (`limit` integer 1..200, `after` string, `path` string, `tag` string), `get_note` (`id` required), `create_note` (`title` required, `content`, `path`, `properties` object), `update_note` (`id` and `version` required, `title`, `content`, `path`, `properties` object), `append_to_note` (`id` and `text` required), `delete_note` (`id` required), `search_notes` (`query` required, `limit` integer 1..100, `path` string, `tag` string), `move_note` (`id` and `version` required, `path` required), `get_backlinks` (`id` required), `create_folder` (`path` required), `request_upload` (`path` and `filename` required, `size_bytes` integer >= 0), `finalize_upload` (`token` required), `list_databases` (no inputs), `get_database` (`id` required), `create_database` (`title` required; `path`, `source`, `properties`, `views`, `content`), `update_database` (`id` and `version` required; `source`, `properties`, `views`), `query_database` (`id` required; `view`, `filter`, `sort`, `group_by`, `limit` integer 1..200, `after`), `create_row` (`id` and `title` required; `properties`, `content`, `path`), `update_properties` (`id` required; `set` object, `unset` array). The catalog SHALL be the same regardless of the caller's scopes. The result SHALL NOT include a `nextCursor`.
 
 #### Scenario: Catalog contents
 
@@ -20,6 +20,11 @@
 
 - **WHEN** the client inspects the `move_note` entry
 - **THEN** `inputSchema.required` SHALL equal `["id", "version", "path"]`
+
+#### Scenario: Wrong argument type is invalid params
+
+- **WHEN** a client calls `query_database` with `filter` given as a string
+- **THEN** the response SHALL be a JSON-RPC invalid-params error, not an internal error
 
 #### Scenario: create_row requires id and title
 
