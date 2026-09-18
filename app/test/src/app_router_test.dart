@@ -1,16 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/app_router.dart';
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/files/picked_file.dart';
+import 'package:app/src/layout/breakpoints.dart';
 import 'package:app/src/notes/folder_tree_controller.dart';
 import 'package:app/src/notes/notes_list_controller.dart';
+import 'package:app/src/notes/notes_list_screen.dart';
+import 'package:app/src/realtime/connection_status.dart';
 import 'package:app/src/realtime/ws_client.dart';
+import 'package:app/src/search/search_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -83,28 +89,95 @@ Widget _harness({
   required String initialLocation,
   VoidCallback? onReset,
   PickFile? pickFile,
+  GoRouter? router,
+  ValueNotifier<ConnectionStatus>? connection,
 }) {
   final ws = RobotNotesWsClient(config: _config);
   final list = NotesListController(api: api);
   final tree = FolderTreeController(api: api);
-  final router = buildAppRouter(
-    configHolder: ConfigHolder.seeded(_config),
-    initialLocation: initialLocation,
-    pickFile: pickFile ?? () async => null,
-  );
+  final goRouter =
+      router ??
+      buildAppRouter(
+        configHolder: ConfigHolder.seeded(_config),
+        initialLocation: initialLocation,
+        pickFile: pickFile ?? () async => null,
+      );
   return MaterialApp.router(
-    routerConfig: router,
+    routerConfig: goRouter,
     builder: (context, child) => AppSession(
       api: api,
       ws: ws,
       list: list,
       tree: tree,
       actor: _config.actor,
+      baseUrl: _config.baseUrl,
+      connection: connection ?? ValueNotifier(ConnectionStatus.connected),
       onReset: onReset ?? () {},
       child: child!,
     ),
   );
 }
+
+/// Sets the test window to [size] logical pixels (1:1 device pixels) and
+/// restores the default once the test ends.
+void _setWindow(WidgetTester tester, Size size) {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+}
+
+/// Presses [key] while [modifier] is held, the way a user types a chord.
+Future<void> _pressChord(
+  WidgetTester tester,
+  LogicalKeyboardKey modifier,
+  LogicalKeyboardKey key, {
+  LogicalKeyboardKey? secondModifier,
+}) async {
+  await tester.sendKeyDownEvent(modifier);
+  if (secondModifier != null) await tester.sendKeyDownEvent(secondModifier);
+  await tester.sendKeyDownEvent(key);
+  await tester.sendKeyUpEvent(key);
+  if (secondModifier != null) await tester.sendKeyUpEvent(secondModifier);
+  await tester.sendKeyUpEvent(modifier);
+  await tester.pumpAndSettle();
+}
+
+/// Closes an open note (through the discard prompt if the editor is
+/// dirty) and lets its lock heartbeat timer elapse, so a test that opened
+/// the editor ends with nothing pending.
+Future<void> _closeNoteAndDrainTimers(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('note.close')));
+  await tester.pumpAndSettle();
+  final discardConfirm = find.byKey(const Key('note.discard.confirm'));
+  if (discardConfirm.evaluate().isNotEmpty) {
+    await tester.tap(discardConfirm);
+    await tester.pumpAndSettle();
+  }
+  await tester.pump(const Duration(days: 365 * 100));
+}
+
+/// Backend that additionally lists one note (`01H`, "hello") so the notes
+/// list has a row to tap.
+Future<http.Response> _backendWithOneNote(http.Request request) async {
+  if (request.method == 'GET' && request.url.path == '/notes') {
+    return http.Response(
+      jsonEncode(<String, Object?>{
+        'items': <Object?>[_noteJson()],
+        'limit': 50,
+        'next_cursor': null,
+      }),
+      200,
+    );
+  }
+  return _fakeBackend(request);
+}
+
+/// The "hello" row inside the notes list (the open note's title also
+/// reads "hello", so the list must be named explicitly).
+Finder _listRow() => find.descendant(
+  of: find.byType(NotesListScreen),
+  matching: find.text('hello'),
+);
 
 void main() {
   testWidgets('a failed create-note request shows a real error, not "null"', (
@@ -346,7 +419,73 @@ void main() {
       expect(find.byKey(const Key('sidebar.allNotes')), findsOneWidget);
     });
 
-    testWidgets('Account opens the disconnect confirmation, which resets', (
+    testWidgets(
+      'Account opens the account sheet; Disconnect confirms, then resets',
+      (tester) async {
+        await setNarrow(tester);
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: _mockClient(),
+        );
+        addTearDown(api.close);
+        final connection = ValueNotifier(ConnectionStatus.reconnecting);
+        addTearDown(connection.dispose);
+        var wasReset = false;
+
+        await tester.pumpWidget(
+          _harness(
+            api: api,
+            initialLocation: '/',
+            onReset: () => wasReset = true,
+            connection: connection,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('notes.bottomNav.account')));
+        await tester.pumpAndSettle();
+
+        // Compact: a bottom sheet, not a dialog.
+        expect(find.byKey(const Key('account.sheet')), findsOneWidget);
+        expect(find.byType(BottomSheet), findsOneWidget);
+        expect(find.byType(Dialog), findsNothing);
+        expect(
+          tester.widget<Text>(find.byKey(const Key('account.server'))).data,
+          'https://notes.example',
+        );
+        expect(
+          tester.widget<Text>(find.byKey(const Key('account.actor'))).data,
+          'cedric',
+        );
+        expect(
+          tester.widget<Text>(find.byKey(const Key('account.connection'))).data,
+          'Reconnecting…',
+        );
+
+        // The connection row is live.
+        connection.value = ConnectionStatus.connected;
+        await tester.pump();
+        expect(
+          tester.widget<Text>(find.byKey(const Key('account.connection'))).data,
+          'Connected',
+        );
+        expect(find.text('Disconnect from server?'), findsNothing);
+
+        await tester.tap(find.byKey(const Key('account.disconnect')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('account.sheet')), findsNothing);
+        expect(find.text('Disconnect from server?'), findsOneWidget);
+        expect(wasReset, isFalse);
+
+        await tester.tap(find.byKey(const Key('account.disconnect.confirm')));
+        await tester.pumpAndSettle();
+
+        expect(wasReset, isTrue);
+      },
+    );
+
+    testWidgets('cancelling the disconnect confirmation keeps the session', (
       tester,
     ) async {
       await setNarrow(tester);
@@ -365,14 +504,45 @@ void main() {
 
       await tester.tap(find.byKey(const Key('notes.bottomNav.account')));
       await tester.pumpAndSettle();
-
-      expect(find.text('Disconnect from server?'), findsOneWidget);
-
-      await tester.tap(find.text('Disconnect'));
+      await tester.tap(find.byKey(const Key('account.disconnect')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
-      expect(wasReset, isTrue);
+      expect(wasReset, isFalse);
+      expect(find.text('Disconnect from server?'), findsNothing);
     });
+  });
+
+  testWidgets('on a wide window the account surface is a dialog', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(800, 600));
+    final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+    addTearDown(api.close);
+    var wasReset = false;
+
+    await tester.pumpWidget(
+      _harness(api: api, initialLocation: '/', onReset: () => wasReset = true),
+    );
+    await tester.pumpAndSettle();
+
+    // The old direct "Disconnect" toolbar action is gone.
+    expect(find.byKey(const Key('shell.reset')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('shell.account')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('account.sheet')), findsOneWidget);
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+
+    await tester.tap(find.byKey(const Key('account.disconnect')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('account.disconnect.confirm')));
+    await tester.pumpAndSettle();
+
+    expect(wasReset, isTrue);
   });
 
   testWidgets('choosing "New note" targets the currently selected folder', (
@@ -663,6 +833,64 @@ void main() {
       expect(find.text('Notes'), findsOneWidget);
     });
 
+    testWidgets('is a palette dialog on a wide window, closed by its button', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(800, 600));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('shell.search')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+      final paletteSize = tester.getSize(find.byType(SearchScreen));
+      expect(paletteSize.width, lessThanOrEqualTo(640));
+      expect(paletteSize.height, lessThanOrEqualTo(0.7 * 600));
+      // Anchored near the top rather than vertically centered.
+      expect(
+        tester.getTopLeft(find.byType(SearchScreen)).dy,
+        lessThan(600 / 2 - paletteSize.height / 2),
+      );
+
+      await tester.tap(find.byKey(const Key('search.close')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('search.input')), findsNothing);
+      expect(find.byType(Dialog), findsNothing);
+    });
+
+    testWidgets('is a top sheet, not a dialog, on a compact window', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(400, 800));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.bottomNav.search')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+      expect(find.byType(Dialog), findsNothing);
+      // Anchored to the top edge of the window.
+      expect(
+        tester.getTopLeft(find.byKey(const Key('search.input'))).dy,
+        lessThan(100),
+      );
+
+      await tester.tap(find.byKey(const Key('search.close')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('search.input')), findsNothing);
+    });
+
     testWidgets(
       'closing the overlay returns to the list without a fresh fetch',
       (tester) async {
@@ -717,6 +945,8 @@ void main() {
           list: list,
           tree: tree,
           actor: _config.actor,
+          baseUrl: _config.baseUrl,
+          connection: ValueNotifier(ConnectionStatus.connected),
           onReset: () {},
           child: child!,
         ),
@@ -753,4 +983,348 @@ void main() {
       expect(find.text('Notes'), findsOneWidget);
     },
   );
+
+  group('three-pane shell (large window)', () {
+    testWidgets(
+      'renders folders, the list and an empty detail pane; tapping a row '
+      'opens the note beside the list with the row selected',
+      (tester) async {
+        _setWindow(tester, const Size(1400, 900));
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: MockClient(_backendWithOneNote),
+        );
+        addTearDown(api.close);
+        final router = buildAppRouter(
+          configHolder: ConfigHolder.seeded(_config),
+          initialLocation: '/',
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _harness(api: api, initialLocation: '/', router: router),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('shell.sidebar')), findsOneWidget);
+        expect(find.byKey(const Key('sidebar.allNotes')), findsOneWidget);
+        expect(find.byType(NotesListScreen), findsOneWidget);
+        expect(find.byKey(const Key('shell.detail.empty')), findsOneWidget);
+        expect(find.text('Select a note'), findsOneWidget);
+        expect(
+          tester.getSize(find.byType(NotesListScreen)).width,
+          PaneSizes.listPane,
+        );
+        expect(_listRow(), findsOneWidget);
+        expect(
+          tester
+              .widget<ListTile>(
+                find.ancestor(of: _listRow(), matching: find.byType(ListTile)),
+              )
+              .selected,
+          isFalse,
+        );
+
+        await tester.tap(_listRow());
+        await tester.pumpAndSettle();
+
+        expect(
+          router.routeInformationProvider.value.uri.toString(),
+          '/notes/01H',
+        );
+        // The note renders in the detail pane, beside the still-mounted list.
+        expect(find.byKey(const Key('note.body')), findsOneWidget);
+        expect(find.text('world'), findsOneWidget);
+        expect(find.byType(NotesListScreen), findsOneWidget);
+        expect(find.byKey(const Key('shell.detail.empty')), findsNothing);
+        expect(
+          tester.getTopLeft(find.byKey(const Key('note.body'))).dx,
+          greaterThan(PaneSizes.listPane + PaneSizes.sidebarMin),
+        );
+        expect(
+          tester
+              .widget<ListTile>(
+                find.ancestor(of: _listRow(), matching: find.byType(ListTile)),
+              )
+              .selected,
+          isTrue,
+        );
+        // Pane presentation: a close button rather than a back arrow, and
+        // nothing was pushed (the shell replaced the detail pane).
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('note.close')),
+            matching: find.byIcon(Icons.close),
+          ),
+          findsOneWidget,
+        );
+        expect(router.canPop(), isFalse);
+
+        await tester.tap(find.byKey(const Key('note.close')));
+        await tester.pumpAndSettle();
+
+        expect(router.routeInformationProvider.value.uri.toString(), '/');
+        expect(find.byKey(const Key('note.body')), findsNothing);
+        expect(find.byKey(const Key('shell.detail.empty')), findsOneWidget);
+        expect(find.byType(NotesListScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets('a deep-linked note renders beside the list', (tester) async {
+      _setWindow(tester, const Size(1400, 900));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(_backendWithOneNote),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/notes/01H'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('note.body')), findsOneWidget);
+      expect(find.byType(NotesListScreen), findsOneWidget);
+      expect(
+        tester
+            .widget<ListTile>(
+              find.ancestor(of: _listRow(), matching: find.byType(ListTile)),
+            )
+            .selected,
+        isTrue,
+      );
+    });
+
+    testWidgets('the sidebar width survives navigating to a note', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(1400, 900));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(_backendWithOneNote),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      final sidebar = find.byKey(const Key('shell.sidebar'));
+      expect(tester.getSize(sidebar).width, PaneSizes.sidebarDefault);
+
+      final handle = find.byKey(const Key('panel.resizeHandle'));
+      final gesture = await tester.startGesture(
+        tester.getCenter(handle),
+        kind: PointerDeviceKind.mouse,
+      );
+      await gesture.moveBy(const Offset(20, 0)); // crosses the drag slop
+      await gesture.moveBy(const Offset(60, 0));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      final widened = tester.getSize(sidebar).width;
+      expect(widened, greaterThan(PaneSizes.sidebarDefault));
+
+      await tester.tap(_listRow());
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('note.body')), findsOneWidget);
+      expect(tester.getSize(sidebar).width, widened);
+    });
+
+    testWidgets('"New note" opens the editor in the detail pane', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(1400, 900));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.method == 'POST' && request.url.path == '/notes') {
+            return http.Response(jsonEncode(_noteJson()), 201);
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+      final router = buildAppRouter(
+        configHolder: ConfigHolder.seeded(_config),
+        initialLocation: '/',
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/', router: router),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('notes.create.toolbar')));
+      await tester.pumpAndSettle();
+
+      expect(
+        router.routeInformationProvider.value.uri.toString(),
+        '/notes/01H?edit=1',
+      );
+      expect(find.byKey(const Key('note.editor.title')), findsOneWidget);
+      expect(find.byType(NotesListScreen), findsOneWidget);
+      expect(router.canPop(), isFalse);
+
+      await _closeNoteAndDrainTimers(tester);
+    });
+  });
+
+  group('single-pane below the large breakpoint', () {
+    testWidgets('tapping a row pushes the note as a page over the list', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(800, 600));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(_backendWithOneNote),
+      );
+      addTearDown(api.close);
+      final router = buildAppRouter(
+        configHolder: ConfigHolder.seeded(_config),
+        initialLocation: '/',
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/', router: router),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('shell.sidebar')), findsNothing);
+      expect(find.byKey(const Key('shell.detail.empty')), findsNothing);
+      // The inline sidebar belongs to the list screen here.
+      expect(find.byKey(const Key('sidebar.allNotes')), findsOneWidget);
+
+      await tester.tap(_listRow());
+      await tester.pumpAndSettle();
+
+      expect(
+        router.routeInformationProvider.value.uri.toString(),
+        '/notes/01H',
+      );
+      expect(router.canPop(), isTrue);
+      expect(find.byKey(const Key('note.body')), findsOneWidget);
+      expect(find.byType(NotesListScreen), findsNothing);
+      // Page presentation: a back arrow.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('note.close')),
+          matching: find.byIcon(Icons.arrow_back),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('note.close')));
+      await tester.pumpAndSettle();
+
+      expect(router.routeInformationProvider.value.uri.toString(), '/');
+      expect(find.byType(NotesListScreen), findsOneWidget);
+    });
+  });
+
+  group('keyboard shortcuts', () {
+    testWidgets('Cmd+K opens search', (tester) async {
+      _setWindow(tester, const Size(800, 600));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('search.input')), findsNothing);
+
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.metaLeft,
+        LogicalKeyboardKey.keyK,
+      );
+
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+    });
+
+    testWidgets('Ctrl+Shift+F opens search', (tester) async {
+      _setWindow(tester, const Size(800, 600));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.controlLeft,
+        LogicalKeyboardKey.keyF,
+        secondModifier: LogicalKeyboardKey.shiftLeft,
+      );
+
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+    });
+
+    testWidgets('Ctrl+N creates a note in the selected folder and opens it', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(800, 600));
+      Map<String, dynamic>? createBody;
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/tree') {
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'folders': [
+                  {'path': 'Projects', 'note_count': 1},
+                ],
+              }),
+              200,
+            );
+          }
+          if (request.method == 'POST' && request.url.path == '/notes') {
+            createBody = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(jsonEncode(_noteJson()), 201);
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Projects'));
+      await tester.pumpAndSettle();
+
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.controlLeft,
+        LogicalKeyboardKey.keyN,
+      );
+
+      expect(createBody?['path'], 'Projects');
+      expect(find.byKey(const Key('note.editor.title')), findsOneWidget);
+
+      await _closeNoteAndDrainTimers(tester);
+    });
+
+    testWidgets('shortcuts also fire from inside the open note', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(800, 600));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/notes/01H'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('note.body')), findsOneWidget);
+
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.controlLeft,
+        LogicalKeyboardKey.keyK,
+      );
+
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+    });
+  });
 }

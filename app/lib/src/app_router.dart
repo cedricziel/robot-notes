@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' show min;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show ValueListenable, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:go_router/go_router.dart';
 import 'package:shared/shared.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -13,6 +15,7 @@ import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
 import 'files/picked_file.dart';
+import 'layout/breakpoints.dart';
 import 'notes/folder_prompt.dart';
 import 'notes/folder_tree_controller.dart';
 import 'notes/folder_tree_sidebar.dart';
@@ -28,7 +31,9 @@ import 'search/search_screen.dart';
 import 'setup/setup_controller.dart';
 import 'setup/setup_screen.dart';
 import 'widgets/connection_banner.dart';
+import 'widgets/empty_state.dart';
 import 'widgets/error_strip.dart';
+import 'widgets/resizable_panel.dart';
 
 /// Builds the placeholder title for a freshly-created note, prefixed
 /// with the calendar date so the list stays roughly chronological even
@@ -202,6 +207,10 @@ FutureOr<String?> _redirect(ConfigHolder configHolder, GoRouterState state) {
 
 /// Builds the app's [GoRouter]. A single instance lives for the app's
 /// lifetime; [ConfigHolder] drives redirects as the config comes and goes.
+///
+/// `/` and `/notes/:id` share a [ShellRoute] so the three-pane layout at
+/// [WindowSizeClass.large] (folders | notes list | note) can keep the
+/// folder tree and the list mounted while the note pane navigates.
 GoRouter buildAppRouter({
   required ConfigHolder configHolder,
   String? initialLocation,
@@ -218,13 +227,22 @@ GoRouter buildAppRouter({
     refreshListenable: configHolder,
     redirect: (context, state) => _redirect(configHolder, state),
     routes: [
-      GoRoute(
-        path: '/',
-        builder: (context, state) => _buildListPage(context, pickFile),
-      ),
-      GoRoute(
-        path: '/notes/:id',
-        builder: (context, state) => _buildNotePage(context, state),
+      ShellRoute(
+        builder: (context, state, child) =>
+            _AppShell(location: state.uri, pickFile: pickFile, child: child),
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => _HomePage(pickFile: pickFile),
+          ),
+          GoRoute(
+            path: '/notes/:id',
+            builder: (context, state) => _NotePage(
+              noteId: state.pathParameters['id']!,
+              startEditing: state.uri.queryParameters['edit'] == '1',
+            ),
+          ),
+        ],
       ),
       GoRoute(
         path: '/setup',
@@ -236,6 +254,195 @@ GoRouter buildAppRouter({
       ),
     ],
   );
+}
+
+/// Whether the window is wide enough for the three-pane shell, in which
+/// notes open beside the list (`go`) instead of on top of it (`push`).
+bool _isLarge(BuildContext context) =>
+    Breakpoints.of(context) >= WindowSizeClass.large;
+
+/// The note id a shell location points at, or `null` on the list route.
+String? _noteIdFromLocation(Uri location) {
+  final segments = location.pathSegments;
+  if (segments.length == 2 && segments.first == 'notes') return segments[1];
+  return null;
+}
+
+/// Creates a new note in the current folder (Cmd/Ctrl+N).
+class NewNoteIntent extends Intent {
+  const NewNoteIntent();
+}
+
+/// Opens the search overlay (Cmd/Ctrl+K, Cmd/Ctrl+Shift+F).
+class OpenSearchIntent extends Intent {
+  const OpenSearchIntent();
+}
+
+/// App-level keyboard shortcuts, active anywhere inside the shell. Both
+/// the macOS (meta) and Windows/Linux (control) chords are registered so
+/// the map doesn't need to know the platform.
+const Map<ShortcutActivator, Intent> appShortcuts = {
+  SingleActivator(LogicalKeyboardKey.keyN, meta: true): NewNoteIntent(),
+  SingleActivator(LogicalKeyboardKey.keyN, control: true): NewNoteIntent(),
+  SingleActivator(LogicalKeyboardKey.keyK, meta: true): OpenSearchIntent(),
+  SingleActivator(LogicalKeyboardKey.keyK, control: true): OpenSearchIntent(),
+  SingleActivator(LogicalKeyboardKey.keyF, meta: true, shift: true):
+      OpenSearchIntent(),
+  SingleActivator(LogicalKeyboardKey.keyF, control: true, shift: true):
+      OpenSearchIntent(),
+};
+
+/// The [ShellRoute] chrome around `/` and `/notes/:id`: keyboard
+/// shortcuts on every size, plus the folder sidebar and the notes list as
+/// persistent panes at [WindowSizeClass.large]. Stateful so the sidebar
+/// width survives navigation between notes.
+class _AppShell extends StatefulWidget {
+  const _AppShell({
+    required this.location,
+    required this.pickFile,
+    required this.child,
+  });
+
+  final Uri location;
+  final PickFile pickFile;
+  final Widget child;
+
+  @override
+  State<_AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<_AppShell> {
+  double _sidebarWidth = PaneSizes.sidebarDefault;
+
+  @override
+  Widget build(BuildContext context) {
+    final session = AppSession.of(context);
+    final large = _isLarge(context);
+    return Shortcuts(
+      shortcuts: appShortcuts,
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          NewNoteIntent: CallbackAction<NewNoteIntent>(
+            onInvoke: (_) {
+              unawaited(
+                _createNote(
+                  context,
+                  session,
+                  path: session.list.value.selectedPath ?? '',
+                ),
+              );
+              return null;
+            },
+          ),
+          OpenSearchIntent: CallbackAction<OpenSearchIntent>(
+            onInvoke: (_) {
+              unawaited(_openSearch(context, session));
+              return null;
+            },
+          ),
+        },
+        // Parks focus inside the shell when nothing else holds it, so the
+        // shortcuts above see key events even before the user has clicked
+        // anything. A text field that later requests focus takes over as
+        // usual; the scope never steals it back.
+        child: FocusScope(
+          autofocus: true,
+          child: large ? _buildThreePane(context, session) : widget.child,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThreePane(BuildContext context, AppSession session) {
+    final scheme = Theme.of(context).colorScheme;
+    final selectedNoteId = _noteIdFromLocation(widget.location);
+    return ValueListenableBuilder<NotesListState>(
+      valueListenable: session.list,
+      builder: (context, listState, _) {
+        final selectedPath = listState.selectedPath;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ResizablePanel(
+              width: _sidebarWidth,
+              minWidth: PaneSizes.sidebarMin,
+              maxWidth: PaneSizes.sidebarMax,
+              onWidthChanged: (w) => setState(() => _sidebarWidth = w),
+              child: Material(
+                key: const Key('shell.sidebar'),
+                color: scheme.surfaceContainerLow,
+                child: FolderTreeSidebar(
+                  controller: session.tree,
+                  selectedPath: selectedPath,
+                  onSelect: session.list.selectFolder,
+                  onCreateFolder: () => unawaited(
+                    _createFolder(context, session, initialPath: selectedPath),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(
+              width: PaneSizes.listPane,
+              // A nested messenger so app-level SnackBars surface once, in
+              // the note pane, instead of in every Scaffold of the shell.
+              child: ScaffoldMessenger(
+                child: NotesListScreen(
+                  key: const Key('shell.list'),
+                  controller: session.list,
+                  layout: NotesListLayout.wide,
+                  selectedNoteId: selectedNoteId,
+                  onNoteTap: (id) => context.go('/notes/$id'),
+                  onCreateNote: () => unawaited(
+                    _createNote(context, session, path: selectedPath ?? ''),
+                  ),
+                  onCreateFolder: () => unawaited(
+                    _createFolder(context, session, initialPath: selectedPath),
+                  ),
+                  onUploadFile: () => unawaited(
+                    _uploadFile(
+                      context,
+                      session,
+                      pickFile: widget.pickFile,
+                      path: selectedPath ?? '',
+                    ),
+                  ),
+                  onSearch: () => unawaited(_openSearch(context, session)),
+                  onAccount: () => unawaited(_showAccount(context, session)),
+                ),
+              ),
+            ),
+            const VerticalDivider(width: 1),
+            Expanded(child: widget.child),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The `/` route. Inside the three-pane shell the list already lives in
+/// its own pane, so this is just the "nothing selected" placeholder for
+/// the note pane; below that, it is the full notes list screen. Reads the
+/// size class in `build` so a window resize flips between the two.
+class _HomePage extends StatelessWidget {
+  const _HomePage({required this.pickFile});
+
+  final PickFile pickFile;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLarge(context)) {
+      return const Scaffold(
+        body: EmptyState(
+          key: Key('shell.detail.empty'),
+          icon: Icons.notes,
+          title: 'Select a note',
+          message: 'Choose a note from the list, or create a new one.',
+        ),
+      );
+    }
+    return _buildListPage(context, pickFile);
+  }
 }
 
 Widget _buildListPage(BuildContext context, PickFile pickFile) {
@@ -261,7 +468,7 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
           ),
         ),
         onSearch: () => unawaited(_openSearch(context, session)),
-        onAccount: () => unawaited(_confirmReset(context, session)),
+        onAccount: () => unawaited(_showAccount(context, session)),
         sidebar: FolderTreeSidebar(
           controller: session.tree,
           selectedPath: listState.selectedPath,
@@ -274,26 +481,6 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
             ),
           ),
         ),
-        appBarActions: [
-          IconButton(
-            key: const Key('shell.refresh'),
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: session.list.refresh,
-          ),
-          IconButton(
-            key: const Key('shell.search'),
-            tooltip: 'Search',
-            icon: const Icon(Icons.search),
-            onPressed: () => unawaited(_openSearch(context, session)),
-          ),
-          IconButton(
-            key: const Key('shell.reset'),
-            tooltip: 'Disconnect',
-            icon: const Icon(Icons.logout),
-            onPressed: () => unawaited(_confirmReset(context, session)),
-          ),
-        ],
       );
     },
   );
@@ -301,19 +488,64 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
 
 /// Opens search as an overlay above the current screen instead of routing
 /// to a full page — the list underneath stays mounted (no refetch, no
-/// scroll-position loss) and dismissing (scrim tap or back gesture) just
-/// closes the dialog. [NotesSearchController] is scoped to this call: a
-/// fresh one is created per open and disposed once it closes.
+/// scroll-position loss) and dismissing (scrim tap, close button, or back
+/// gesture) just closes the overlay. On compact windows it slides down as
+/// a top sheet; from medium up it is a palette-style dialog near the top.
+/// [NotesSearchController] is scoped to this call: a fresh one is created
+/// per open and disposed once it closes.
 Future<void> _openSearch(BuildContext context, AppSession session) async {
   final controller = NotesSearchController(api: session.api);
+  final router = GoRouter.of(context);
+  void openResult(BuildContext dialogContext, String id) {
+    final large = _isLarge(dialogContext);
+    Navigator.of(dialogContext).pop();
+    if (large) {
+      router.go('/notes/$id');
+    } else {
+      unawaited(router.push('/notes/$id'));
+    }
+  }
+
   try {
+    if (Breakpoints.of(context) >= WindowSizeClass.medium) {
+      await showDialog<void>(
+        context: context,
+        barrierLabel: 'Search',
+        builder: (ctx) {
+          final height = MediaQuery.sizeOf(ctx).height;
+          return Dialog(
+            alignment: const Alignment(0, -0.6),
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 640,
+                maxHeight: min(560, 0.7 * height),
+              ),
+              child: SizedBox.expand(
+                child: SearchScreen(
+                  controller: controller,
+                  recentNotes: session.list.value.items,
+                  onResultTap: (id) => openResult(ctx, id),
+                  onClose: () => Navigator.of(ctx).pop(),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
     await showGeneralDialog<void>(
       context: context,
       barrierLabel: 'Search',
       barrierDismissible: true,
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 200),
-      pageBuilder: (context, animation, secondaryAnimation) {
+      pageBuilder: (ctx, animation, secondaryAnimation) {
         return SafeArea(
           child: Align(
             alignment: Alignment.topCenter,
@@ -326,10 +558,8 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
                 child: SearchScreen(
                   controller: controller,
                   recentNotes: session.list.value.items,
-                  onResultTap: (id) {
-                    Navigator.of(context).pop();
-                    unawaited(context.push('/notes/$id'));
-                  },
+                  onResultTap: (id) => openResult(ctx, id),
+                  onClose: () => Navigator.of(ctx).pop(),
                 ),
               ),
             ),
@@ -360,7 +590,12 @@ Future<void> _createNote(
   try {
     final note = await createBlankNote(session.api, path: path);
     if (!context.mounted) return;
-    unawaited(context.push('/notes/${note.id}?edit=1'));
+    final location = '/notes/${note.id}?edit=1';
+    if (_isLarge(context)) {
+      context.go(location);
+    } else {
+      unawaited(context.push(location));
+    }
   } on ApiException catch (e) {
     final message = describeError(e, fallback: 'Could not create note.');
     messenger.showSnackBar(SnackBar(content: Text(message)));
@@ -409,6 +644,100 @@ Future<void> _uploadFile(
   }
 }
 
+/// Opens the account surface — a bottom sheet on compact windows, a
+/// dialog from medium up — showing which server and identity this session
+/// is using and the live connection state. Its "Disconnect" button closes
+/// the surface and hands off to the existing confirmation prompt.
+Future<void> _showAccount(BuildContext context, AppSession session) async {
+  final sheet = _AccountSheet(session: session);
+  final bool? disconnect;
+  if (Breakpoints.of(context) >= WindowSizeClass.medium) {
+    disconnect = await showDialog<bool>(
+      context: context,
+      builder: (_) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: sheet,
+        ),
+      ),
+    );
+  } else {
+    disconnect = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(top: false, child: sheet),
+    );
+  }
+  if ((disconnect ?? false) && context.mounted) {
+    await _confirmReset(context, session);
+  }
+}
+
+/// Body of the account bottom sheet / dialog. Pops with `true` when the
+/// user asks to disconnect; the caller runs the confirmation.
+class _AccountSheet extends StatelessWidget {
+  const _AccountSheet({required this.session});
+
+  final AppSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      key: const Key('account.sheet'),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Text('Account', style: theme.textTheme.titleLarge),
+          ),
+          ListTile(
+            leading: const Icon(Icons.dns_outlined),
+            title: const Text('Server'),
+            subtitle: Text(session.baseUrl, key: const Key('account.server')),
+          ),
+          ListTile(
+            leading: const Icon(Icons.person_outline),
+            title: const Text('Display name'),
+            subtitle: Text(session.actor, key: const Key('account.actor')),
+          ),
+          ValueListenableBuilder<ConnectionStatus>(
+            valueListenable: session.connection,
+            builder: (context, status, _) {
+              final (IconData icon, String label) = switch (status) {
+                ConnectionStatus.connected => (
+                  Icons.cloud_done_outlined,
+                  'Connected',
+                ),
+                ConnectionStatus.reconnecting => (Icons.sync, 'Reconnecting…'),
+                ConnectionStatus.stale => (Icons.cloud_off, 'Connection lost'),
+              };
+              return ListTile(
+                leading: Icon(icon),
+                title: const Text('Connection'),
+                subtitle: Text(label, key: const Key('account.connection')),
+              );
+            },
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: FilledButton.tonalIcon(
+              key: const Key('account.disconnect'),
+              onPressed: () => Navigator.of(context).pop(true),
+              icon: const Icon(Icons.logout),
+              label: const Text('Disconnect'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 Future<void> _confirmReset(BuildContext context, AppSession session) async {
   final confirmed = await showDialog<bool>(
     context: context,
@@ -424,6 +753,7 @@ Future<void> _confirmReset(BuildContext context, AppSession session) async {
           child: const Text('Cancel'),
         ),
         FilledButton.tonal(
+          key: const Key('account.disconnect.confirm'),
           onPressed: () => Navigator.of(ctx).pop(true),
           child: const Text('Disconnect'),
         ),
@@ -435,35 +765,62 @@ Future<void> _confirmReset(BuildContext context, AppSession session) async {
   }
 }
 
-Widget _buildNotePage(BuildContext context, GoRouterState state) {
-  final session = AppSession.of(context);
-  return NoteRoute(
-    api: session.api,
-    ws: session.ws,
-    actor: session.actor,
-    noteId: state.pathParameters['id']!,
-    startEditing: state.uri.queryParameters['edit'] == '1',
-    onClosed: (saved) => _handleNoteClosed(context, session, saved),
-    // Backlinks open the referencing note on top of the current one, same
-    // as tapping a note in the list — a further close pops back here.
-    onOpenNote: (id) => unawaited(context.push('/notes/$id')),
-    // Tag filtering is a list-view concern: scope the list, then go there
-    // directly (replacing this route, like a search-result tap does).
-    onTagTap: (tag) {
-      unawaited(session.list.selectTag(tag));
-      context.go('/');
-    },
-  );
+/// The `/notes/:id` route. Keyed on the note id so `go`-ing from one note
+/// to another inside the shell (same page key) remounts [NoteRoute] and
+/// its controller instead of updating a controller bound to the old id.
+/// Reads the size class in `build`, so a resize across the large boundary
+/// switches the close affordance between "back" (page) and "close" (pane).
+class _NotePage extends StatelessWidget {
+  const _NotePage({required this.noteId, required this.startEditing});
+
+  final String noteId;
+  final bool startEditing;
+
+  @override
+  Widget build(BuildContext context) {
+    final session = AppSession.of(context);
+    final large = _isLarge(context);
+    return NoteRoute(
+      key: ValueKey<String>(noteId),
+      api: session.api,
+      ws: session.ws,
+      actor: session.actor,
+      noteId: noteId,
+      startEditing: startEditing,
+      presentation: large ? NotePresentation.pane : NotePresentation.page,
+      onClosed: (saved) => _handleNoteClosed(context, session, saved),
+      // Backlinks open the referencing note: beside the list in the shell,
+      // or on top of the current note (a further close pops back here).
+      onOpenNote: (id) {
+        if (_isLarge(context)) {
+          context.go('/notes/$id');
+        } else {
+          unawaited(context.push('/notes/$id'));
+        }
+      },
+      // Tag filtering is a list-view concern: scope the list, then go there
+      // directly (replacing this route, like a search-result tap does).
+      onTagTap: (tag) {
+        unawaited(session.list.selectTag(tag));
+        context.go('/');
+      },
+    );
+  }
 }
 
 /// The list only learns about a save through the realtime stream, which is
 /// not always connected — refresh explicitly, but only when a save actually
 /// happened, so viewing a note doesn't cost an extra fetch on every close.
 ///
-/// Only needed on the `canPop()` branch: the no-history branch remounts
-/// [NotesListScreen], which already refreshes itself in `initState`.
+/// Only needed on the `canPop()` and shell branches: the no-history branch
+/// remounts [NotesListScreen], which already refreshes itself in `initState`.
 void _handleNoteClosed(BuildContext context, AppSession session, bool saved) {
-  if (context.canPop()) {
+  if (_isLarge(context)) {
+    // The list stays mounted beside the note pane; closing just empties
+    // the pane.
+    if (saved) unawaited(session.list.refresh());
+    context.go('/');
+  } else if (context.canPop()) {
     if (saved) unawaited(session.list.refresh());
     context.pop();
   } else {
@@ -529,6 +886,7 @@ class NoteRoute extends StatefulWidget {
     required this.actor,
     required this.noteId,
     this.startEditing = false,
+    this.presentation = NotePresentation.page,
     this.onClosed,
     this.onOpenNote,
     this.onTagTap,
@@ -540,6 +898,10 @@ class NoteRoute extends StatefulWidget {
   final String actor;
   final String noteId;
   final bool startEditing;
+
+  /// Whether the note is a full page (back arrow) or the detail pane of
+  /// the three-pane shell (close button).
+  final NotePresentation presentation;
 
   /// Called when the user taps a backlink entry in the note view, with the
   /// referencing note's id.
@@ -612,6 +974,7 @@ class _NoteRouteState extends State<NoteRoute> {
       controller: _controller,
       onClose: _close,
       startEditing: widget.startEditing,
+      presentation: widget.presentation,
       onOpenNote: widget.onOpenNote,
       onTagTap: widget.onTagTap,
     );
@@ -628,6 +991,8 @@ class AppSession extends InheritedWidget {
     required this.list,
     required this.tree,
     required this.actor,
+    required this.baseUrl,
+    required this.connection,
     required this.onReset,
     required super.child,
     super.key,
@@ -638,6 +1003,14 @@ class AppSession extends InheritedWidget {
   final NotesListController list;
   final FolderTreeController tree;
   final String actor;
+
+  /// The connected server's origin, for display in the account surface.
+  final String baseUrl;
+
+  /// Live realtime connection state, for the account surface. The banner
+  /// above the routed content renders the same value.
+  final ValueListenable<ConnectionStatus> connection;
+
   final VoidCallback onReset;
 
   static AppSession of(BuildContext context) {
@@ -720,11 +1093,29 @@ class _SessionHostState extends State<SessionHost> {
       list: _list,
       tree: _tree,
       actor: widget.config.actor,
+      baseUrl: widget.config.baseUrl,
+      connection: _status,
       onReset: widget.onReset,
       child: Column(
         children: [
           ConnectionBanner(status: _status),
-          Expanded(child: widget.child),
+          Expanded(
+            child: ValueListenableBuilder<ConnectionStatus>(
+              valueListenable: _status,
+              // The banner already sits inside a SafeArea, so while it is
+              // visible the AppBar below must not reserve status-bar space
+              // a second time.
+              builder: (context, status, child) =>
+                  status == ConnectionStatus.connected
+                  ? child!
+                  : MediaQuery.removePadding(
+                      context: context,
+                      removeTop: true,
+                      child: child!,
+                    ),
+              child: widget.child,
+            ),
+          ),
         ],
       ),
     );
