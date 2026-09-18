@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
+import 'package:app/src/databases/databases_controller.dart';
 import 'package:app/src/notes/folder_tree_controller.dart';
 import 'package:app/src/notes/folder_tree_sidebar.dart';
+import 'package:app/src/realtime/ws_client.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -201,6 +204,95 @@ void main() {
 
         await tester.tap(find.byKey(const Key('sidebar.newDatabase')));
         expect(newTapped, isTrue);
+      },
+    );
+
+    testWidgets(
+      'the Databases section stays current: it updates from the shared '
+      'DatabasesController on a `changed` event without the sidebar being '
+      'remounted (task 7.3)',
+      (tester) async {
+        final treeMock = MockClient((request) async {
+          return http.Response(jsonEncode({'folders': <Object?>[]}), 200);
+        });
+        final treeApi = RobotNotesClient(config: _config, httpClient: treeMock);
+        final tree = FolderTreeController(api: treeApi);
+        addTearDown(tree.dispose);
+
+        var call = 0;
+        final dbMock = MockClient((request) async {
+          call += 1;
+          final title = call == 1 ? 'Projects' : 'Projects and Tasks';
+          return http.Response(
+            jsonEncode(<String, Object?>{
+              'items': <Object?>[
+                <String, Object?>{
+                  'id': '01D',
+                  'title': title,
+                  'path': '',
+                  'source': <String, Object?>{
+                    'folder': '',
+                    'include_subfolders': true,
+                  },
+                  'row_count': 1,
+                },
+              ],
+            }),
+            200,
+          );
+        });
+        final dbApi = RobotNotesClient(config: _config, httpClient: dbMock);
+        final wsController = StreamController<RealtimeEvent>.broadcast();
+        addTearDown(wsController.close);
+        final databases = DatabasesController(
+          api: dbApi,
+          events: wsController.stream,
+          // Synchronous in tests: the production 1 s debounce is exercised
+          // in databases_controller_test.dart.
+          debounceScheduler: (_) => Future<void>.value(),
+        );
+        addTearDown(databases.dispose);
+        await databases.refresh();
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ValueListenableBuilder<DatabasesState>(
+                valueListenable: databases,
+                builder: (context, state, _) => FolderTreeSidebar(
+                  controller: tree,
+                  onSelect: (_) {},
+                  onCreateFolder: () {},
+                  databases: state.items,
+                  onSelectDatabase: (_) {},
+                  onNewDatabase: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Projects'), findsOneWidget);
+        expect(find.text('Projects and Tasks'), findsNothing);
+
+        // A wildcard `changed` event (any note may be a database
+        // definition) — see `DatabasesController`'s doc comment — triggers
+        // the same debounced refresh the sidebar rides on.
+        wsController.add(
+          const RealtimeMessage(
+            ChangedEvent(
+              noteId: 'some-note',
+              version: 2,
+              by: 'cedric',
+              action: ChangeAction.updated,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Projects and Tasks'), findsOneWidget);
+        expect(find.text('Projects'), findsNothing);
       },
     );
   });
