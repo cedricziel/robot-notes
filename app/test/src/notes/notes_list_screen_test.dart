@@ -651,6 +651,131 @@ void main() {
     );
   });
 
+  group('swipe to delete', () {
+    /// Pumps a single-row list whose backend answers `DELETE /notes/01H`
+    /// with [deleteResponse] and records every request in [calls].
+    Future<NotesListController> pumpRow(
+      WidgetTester tester, {
+      required List<String> calls,
+      http.Response Function()? deleteResponse,
+    }) async {
+      final mock = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.url.path == '/notes') {
+          return _page(<Object?>[_metaJson(id: '01H', title: 'swiped')]);
+        }
+        if (request.method == 'DELETE' && request.url.path == '/notes/01H') {
+          return deleteResponse?.call() ?? http.Response('', 204);
+        }
+        return http.Response('unexpected: ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+      return ctrl;
+    }
+
+    const tile = Key('notes.tile.01H');
+
+    testWidgets('swiping a row toward the leading edge asks to confirm; '
+        'confirming deletes the note', (tester) async {
+      final calls = <String>[];
+      await pumpRow(tester, calls: calls);
+
+      // The default 800px test surface: 500px is comfortably past the 40%
+      // dismiss threshold.
+      await tester.drag(find.byKey(tile), const Offset(-500, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete this note?'), findsOneWidget);
+      expect(calls, isNot(contains('DELETE /notes/01H')));
+
+      await tester.tap(find.byKey(const Key('notes.delete.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(calls, contains('DELETE /notes/01H'));
+      expect(find.text('swiped'), findsNothing);
+      expect(find.text('Note deleted'), findsOneWidget);
+    });
+
+    testWidgets('cancelling a swipe springs the row back with no request', (
+      tester,
+    ) async {
+      final calls = <String>[];
+      await pumpRow(tester, calls: calls);
+      final restingLeft = tester.getTopLeft(find.byKey(tile)).dx;
+
+      await tester.drag(find.byKey(tile), const Offset(-500, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete this note?'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('notes.delete.cancel')));
+      await tester.pumpAndSettle();
+
+      expect(calls, isNot(contains('DELETE /notes/01H')));
+      expect(find.text('swiped'), findsOneWidget);
+      expect(tester.getTopLeft(find.byKey(tile)).dx, restingLeft);
+    });
+
+    testWidgets('a failed delete keeps the row and surfaces the error', (
+      tester,
+    ) async {
+      final calls = <String>[];
+      await pumpRow(
+        tester,
+        calls: calls,
+        deleteResponse: () => http.Response(
+          jsonEncode(<String, Object?>{
+            'error': 'internal',
+            'message': 'disk on fire',
+          }),
+          500,
+        ),
+      );
+      final restingLeft = tester.getTopLeft(find.byKey(tile)).dx;
+
+      await tester.drag(find.byKey(tile), const Offset(-500, 0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.delete.confirm')));
+      await tester.pumpAndSettle();
+
+      expect(calls, contains('DELETE /notes/01H'));
+      expect(find.text('swiped'), findsOneWidget);
+      expect(find.byKey(const Key('notes.error')), findsOneWidget);
+      expect(find.text('Note deleted'), findsNothing);
+      expect(tester.getTopLeft(find.byKey(tile)).dx, restingLeft);
+    });
+
+    testWidgets('swiping toward the trailing edge does nothing', (
+      tester,
+    ) async {
+      final calls = <String>[];
+      await pumpRow(tester, calls: calls);
+      final restingLeft = tester.getTopLeft(find.byKey(tile)).dx;
+
+      await tester.drag(find.byKey(tile), const Offset(500, 0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete this note?'), findsNothing);
+      expect(calls, isNot(contains('DELETE /notes/01H')));
+      expect(tester.getTopLeft(find.byKey(tile)).dx, restingLeft);
+    });
+
+    testWidgets('the long-press menu still works alongside the swipe', (
+      tester,
+    ) async {
+      final calls = <String>[];
+      await pumpRow(tester, calls: calls);
+
+      await tester.longPress(find.byKey(tile));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.tile.01H.delete')), findsOneWidget);
+    });
+  });
+
   group('create action placement', () {
     testWidgets('on a narrow screen, the FAB has a tooltip naming its action', (
       tester,
