@@ -59,14 +59,38 @@ def test_backup_paths_is_empty(provider):
 def test_prefetch_formats_search_results(provider):
     respx.get("https://notes.example.com/search").mock(
         return_value=httpx.Response(
-            200, json={"items": [{"id": "1", "title": "Budget", "snippet": "<mark>budget</mark> plan", "rank": 1.0}]}
+            200,
+            json={
+                "items": [
+                    {
+                        "id": "01ABC",
+                        "title": "Budget",
+                        "path": "Finance",
+                        "snippet": "<mark>budget</mark> plan",
+                        "rank": 1.0,
+                    }
+                ]
+            },
         )
     )
 
     context = provider.prefetch("budget", session_id="session-1")
 
     assert "Budget" in context
+    assert "id: 01ABC" in context
+    assert "Finance" in context
     assert "budget plan" in context
+
+
+@respx.mock
+def test_prefetch_requests_limit_five(provider):
+    route = respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+
+    provider.prefetch("budget", session_id="session-1")
+
+    assert route.calls.last.request.url.params["limit"] == "5"
 
 
 @respx.mock
@@ -84,7 +108,7 @@ def test_prefetch_empty_on_network_failure(provider):
 
 
 @respx.mock
-def test_queue_prefetch_primes_cache_consumed_by_next_prefetch(provider):
+def test_queue_prefetch_primes_cache_consumed_by_matching_prefetch(provider):
     route = respx.get("https://notes.example.com/search").mock(
         side_effect=[
             httpx.Response(200, json={"items": [{"id": "1", "title": "Budget", "snippet": "plan"}]}),
@@ -94,8 +118,8 @@ def test_queue_prefetch_primes_cache_consumed_by_next_prefetch(provider):
 
     provider.queue_prefetch("budget", session_id="session-1")
     provider._prefetch_thread.join(timeout=2)
-    first = provider.prefetch("irrelevant", session_id="session-1")
-    second = provider.prefetch("irrelevant", session_id="session-1")
+    first = provider.prefetch("budget", session_id="session-1")
+    second = provider.prefetch("budget", session_id="session-1")
 
     assert "Budget" in first
     # first prefetch() call returns the primed cache without a second network call;
@@ -124,6 +148,42 @@ def test_queue_prefetch_spawns_via_spawn_context_thread(provider, monkeypatch):
     provider._prefetch_thread.join(timeout=2)
 
     assert captured == {"name": "robot-notes-prefetch", "called": True}
+
+
+@respx.mock
+def test_prefetch_does_not_consume_cache_primed_for_a_different_query(provider):
+    route = respx.get("https://notes.example.com/search").mock(
+        side_effect=[
+            httpx.Response(200, json={"items": [{"id": "1", "title": "Budget", "snippet": "plan"}]}),
+            httpx.Response(200, json={"items": []}),
+        ]
+    )
+
+    provider.queue_prefetch("budget", session_id="session-1")
+    provider._prefetch_thread.join(timeout=2)
+    # different query than the one queued: must not pick up the "budget" cache entry
+    result = provider.prefetch("irrelevant", session_id="session-1")
+
+    assert result == ""
+    assert route.call_count == 2
+
+
+@respx.mock
+def test_prefetch_does_not_consume_cache_primed_for_a_different_session(provider):
+    route = respx.get("https://notes.example.com/search").mock(
+        side_effect=[
+            httpx.Response(200, json={"items": [{"id": "1", "title": "Budget", "snippet": "plan"}]}),
+            httpx.Response(200, json={"items": []}),
+        ]
+    )
+
+    provider.queue_prefetch("budget", session_id="session-1")
+    provider._prefetch_thread.join(timeout=2)
+    # same query, but a different session: must run its own search, not session-1's
+    result = provider.prefetch("budget", session_id="session-2")
+
+    assert result == ""
+    assert route.call_count == 2
 
 
 @respx.mock
@@ -167,10 +227,82 @@ def test_a_stale_prefetch_does_not_clobber_a_newer_one(provider):
     stale_release.set()
     stale_thread.join(timeout=2)
 
-    result = provider.prefetch("irrelevant", session_id="session-1")
+    result = provider.prefetch("second", session_id="session-1")
 
     assert "Fresh" in result
     assert "Stale" not in result
+
+
+@respx.mock
+def test_queue_prefetch_skips_trivial_prompt(provider):
+    route = respx.get("https://notes.example.com/search")
+
+    provider.queue_prefetch("ok", session_id="session-1")
+
+    assert provider._prefetch_thread is None
+    assert not route.called
+
+
+@respx.mock
+def test_prefetch_skips_trivial_prompt(provider):
+    route = respx.get("https://notes.example.com/search")
+
+    result = provider.prefetch("thanks!", session_id="session-1")
+
+    assert result == ""
+    assert not route.called
+
+
+def test_recall_status_is_none_before_any_prefetch(provider):
+    assert provider.recall_status() is None
+
+
+@respx.mock
+def test_recall_status_reports_count_from_last_prefetch(provider):
+    respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"id": "1", "title": "Budget", "path": "", "snippet": "a"},
+                    {"id": "2", "title": "Plan", "path": "", "snippet": "b"},
+                ]
+            },
+        )
+    )
+
+    provider.prefetch("budget", session_id="session-1")
+    status = provider.recall_status()
+
+    assert status is not None
+    assert status.provider_label == "robot-notes"
+    assert status.count == 2
+
+
+@respx.mock
+def test_recall_status_is_none_when_last_prefetch_injected_nothing(provider):
+    respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": []}))
+
+    provider.prefetch("nothing", session_id="session-1")
+
+    assert provider.recall_status() is None
+
+
+@respx.mock
+def test_recall_status_reflects_only_the_last_prefetch(provider):
+    respx.get("https://notes.example.com/search").mock(
+        side_effect=[
+            httpx.Response(200, json={"items": [{"id": "1", "title": "Budget", "path": "", "snippet": "a"}]}),
+            httpx.Response(200, json={"items": []}),
+        ]
+    )
+
+    provider.prefetch("budget", session_id="session-1")
+    assert provider.recall_status() is not None
+
+    provider.prefetch("nothing", session_id="session-1")
+
+    assert provider.recall_status() is None
 
 
 def test_get_tool_schemas_lists_expected_tools(provider):
@@ -379,8 +511,10 @@ def test_on_session_switch_discards_a_prefetch_queued_before_it(provider):
     release.set()
     stale_thread.join(timeout=2)
 
-    # the stale result must not have been allowed to populate the cache for the new session
-    assert provider._prefetch_cache == ""
+    # the stale result must not have been allowed to populate the cache at all, so a
+    # later prefetch() for the same (session, query) pair still misses and falls back
+    # to a fresh synchronous search rather than serving the stale, pre-switch result
+    assert provider._recall_cache.consume("session-1", "old query") is None
 
 
 @respx.mock

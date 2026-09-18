@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ._hermes_compat import MemoryProvider, spawn_context_thread, tool_error
 from .client import ClientError, RobotNotesClient
 from .config import DEFAULT_ACTOR, RobotNotesConfig
+from .recall import RecallCache, RecallStatus, is_trivial_prompt
 from .transcript import build_transcript
 
 logger = logging.getLogger(__name__)
@@ -84,10 +85,7 @@ class RobotNotesProvider(MemoryProvider):
         self._hermes_home: str = ""
         self._platform: str = ""
         self._agent_identity: str = ""
-        self._prefetch_cache: str = ""
-        self._prefetch_lock = threading.Lock()
-        self._prefetch_thread: Optional[threading.Thread] = None
-        self._prefetch_generation = 0
+        self._recall_cache = RecallCache()
         self._tools = [
             {
                 "name": "robotnotes_search",
@@ -196,46 +194,53 @@ class RobotNotesProvider(MemoryProvider):
 
     # -- Recall ---------------------------------------------------------
 
+    @property
+    def _prefetch_thread(self) -> Optional[threading.Thread]:
+        """Exposed for tests: the background thread started by the most recent
+        queue_prefetch(), if any. Cache bookkeeping itself lives in RecallCache."""
+        return self._recall_cache.thread
+
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
-        """Runs the search off the caller's thread — this must return immediately so a
-        per-turn call site never blocks on network latency; prefetch() picks up the
-        result (if ready by then) on the following turn. A generation counter stops a
-        slow, superseded search from clobbering a faster, more recent one.
+        """Queues the search off the caller's thread, keyed by (session_id, query) —
+        this must return immediately so a per-turn call site never blocks on network
+        latency; prefetch() picks up a matching result on the following turn. Skipped
+        for trivial prompts ("ok", "thanks", ...), which carry no recall signal.
 
-        Spawned via ``spawn_context_thread`` (never a bare ``threading.Thread``): under the
-        Hermes host, profile home and the per-turn secret scope live in contextvars, and only
-        that helper carries them onto the background thread."""
-        self._prefetch_generation += 1
-        generation = self._prefetch_generation
-
-        def _run() -> None:
-            result = self._search_and_format(query)
-            with self._prefetch_lock:
-                if generation == self._prefetch_generation:
-                    self._prefetch_cache = result
-
-        thread = spawn_context_thread(_run, name="robot-notes-prefetch")
-        self._prefetch_thread = thread
-        thread.start()
+        The background work is spawned via ``spawn_context_thread`` (never a bare
+        ``threading.Thread``): under the Hermes host, profile home and the per-turn
+        secret scope live in contextvars, and only that helper carries them onto the
+        background thread. It's passed into the cache rather than imported by
+        ``recall.py`` so this module-level name stays the one thing to monkeypatch."""
+        if is_trivial_prompt(query):
+            return
+        self._recall_cache.queue(session_id, query, self._search_and_format, spawn_thread=spawn_context_thread)
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
-        with self._prefetch_lock:
-            cached, self._prefetch_cache = self._prefetch_cache, ""
-        if cached:
-            return cached
-        return self._search_and_format(query)
+        if is_trivial_prompt(query):
+            return self._recall_cache.note_result("", 0)
+        cached = self._recall_cache.consume(session_id, query)
+        formatted, count = cached if cached is not None else self._search_and_format(query)
+        return self._recall_cache.note_result(formatted, count)
 
-    def _search_and_format(self, query: str) -> str:
+    def recall_status(self) -> Optional[RecallStatus]:
+        return self._recall_cache.status("robot-notes")
+
+    def _search_and_format(self, query: str) -> "tuple[str, int]":
         if not self._client or not query:
-            return ""
+            return "", 0
         try:
-            items = self._client.search(query)
+            items = self._client.search(query, limit=5)
         except ClientError:
-            return ""
+            return "", 0
         if not items:
-            return ""
-        lines = [f"- {item['title']}: {_MARK_RE.sub('', item.get('snippet', ''))}" for item in items[:5]]
-        return "Relevant notes from robot-notes:\n" + "\n".join(lines)
+            return "", 0
+        items = items[:5]
+        lines = [
+            f"- {item['title']} (id: {item.get('id', '')}, {item.get('path', '')}): "
+            f"{_MARK_RE.sub('', item.get('snippet', ''))}"
+            for item in items
+        ]
+        return "Relevant notes from robot-notes:\n" + "\n".join(lines), len(items)
 
     # -- Explicit tools ---------------------------------------------------
 
@@ -305,12 +310,12 @@ class RobotNotesProvider(MemoryProvider):
         without a matching initialize(): rebind so the *next* on_session_end writes to a
         note named after the new session instead of overwriting the previous session's note
         under it. A blank new_session_id is ignored (some callers reassign a rewind in place).
-        Also bumps the prefetch generation and drops any cached prefetch so a recall queued
-        for the old session cannot be injected into the new one."""
+        Also bumps the recall cache's generation and drops every cached entry (for every
+        session, not just this one) so a recall queued before the switch — for this
+        session or another one sharing this provider instance — cannot land in the cache
+        and be injected after it."""
         self._session_id = str(new_session_id or "").strip() or self._session_id
-        self._prefetch_generation += 1
-        with self._prefetch_lock:
-            self._prefetch_cache = ""
+        self._recall_cache.clear()
 
     def _conversations_path(self) -> str:
         return f"{CONVERSATIONS_ROOT}/{_sanitize_actor(self._config.actor)}"
