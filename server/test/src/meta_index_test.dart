@@ -426,6 +426,84 @@ void main() {
     });
   });
 
+  group('MetaIndex.page title filter', () {
+    test('null title returns everything (default sort)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', title: 'Alpha'))
+        ..upsert(_summary('B', title: 'Beta'));
+      final page = idx.page(limit: 10);
+      expect(page.items.map((s) => s.id), ['A', 'B']);
+    });
+
+    test('only the note with the exact title is returned', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', title: 'Project Alpha'))
+        ..upsert(_summary('B', title: 'Project Beta'));
+      final page = idx.page(limit: 10, title: 'Project Alpha');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('a title matching no note returns an empty page', () {
+      final idx = MetaIndex()..upsert(_summary('A', title: 'Project Alpha'));
+      final page = idx.page(limit: 10, title: 'Nope');
+      expect(page.items, isEmpty);
+      expect(page.nextCursor, isNull);
+    });
+
+    test('matching is case-insensitive', () {
+      final idx = MetaIndex()..upsert(_summary('A', title: 'Project Alpha'));
+      final page = idx.page(limit: 10, title: 'project alpha');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('matching is NFC-normalization-insensitive', () {
+      // 'é' composed (single codepoint) vs. 'e' + combining acute accent.
+      final composedTitle = 'caf${String.fromCharCode(0x00e9)}';
+      final decomposedQuery = 'caf${String.fromCharCodes([0x65, 0x0301])}';
+      final idx = MetaIndex()..upsert(_summary('A', title: composedTitle));
+      final page = idx.page(limit: 10, title: decomposedQuery);
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('composes with pathPrefix', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', path: 'Folder', title: 'Notes'))
+        ..upsert(_summary('B', title: 'Notes'));
+      final page = idx.page(limit: 10, pathPrefix: 'Folder', title: 'Notes');
+      expect(page.items.map((s) => s.id), ['A']);
+    });
+
+    test('pagination composes with the filter (sort=id)', () {
+      final idx = MetaIndex()
+        ..upsert(_summary('A', title: 'Dup'))
+        ..upsert(_summary('B', title: 'Other'))
+        ..upsert(_summary('C', title: 'Dup'))
+        ..upsert(_summary('D', title: 'Dup'));
+      final p1 = idx.page(limit: 2, title: 'Dup');
+      expect(p1.items.map((s) => s.id), ['A', 'C']);
+      expect(p1.nextCursor, 'C');
+      final p2 = idx.page(after: p1.nextCursor, limit: 2, title: 'Dup');
+      expect(p2.items.map((s) => s.id), ['D']);
+      expect(p2.nextCursor, isNull);
+    });
+
+    test('pagination composes with the filter (sort=updated_desc)', () {
+      final now = DateTime.utc(2026);
+      final idx = MetaIndex()
+        ..upsert(_summary('A', title: 'Dup').copyWithUpdated(now))
+        ..upsert(
+          _summary('B', title: 'Other')
+              .copyWithUpdated(now.add(const Duration(minutes: 1))),
+        )
+        ..upsert(
+          _summary('C', title: 'Dup')
+              .copyWithUpdated(now.add(const Duration(minutes: 2))),
+        );
+      final page = idx.page(sort: 'updated_desc', limit: 10, title: 'Dup');
+      expect(page.items.map((s) => s.id), ['C', 'A']);
+    });
+  });
+
   group('MetaIndex.resolveTitle', () {
     test('resolves a title that matches exactly one note', () {
       final idx = MetaIndex()..upsert(_summary('A', title: 'Project Alpha'));

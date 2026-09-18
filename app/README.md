@@ -85,6 +85,22 @@ On the macOS desktop build the Cmd chords above live in the native menu bar
 press reaches exactly one handler and the menu shows the shortcut the way a
 Mac user expects. See "Platform behaviour" below.
 
+## Touch gestures
+
+Every gesture routes into an action that is also reachable from a button or
+menu, so nothing is gesture-only.
+
+| Gesture                                                    | Where                    | Action                                                                                                 |
+| ---------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Swipe a row from its trailing edge toward its leading edge | Notes list               | Delete the note, after the same confirmation the long-press menu uses; cancelling springs the row back |
+| Long-press (or right-click) a row                          | Notes list               | Open the row's context menu                                                                            |
+| Pull down                                                  | Notes list               | Re-fetch the list                                                                                      |
+| Drag from the leading screen edge                          | Notes list, compact only | Open the folder drawer                                                                                 |
+| Pull down                                                  | Note view, while reading | Re-fetch the note and its backlinks (not offered while editing)                                        |
+| Double-tap the body                                        | Note view, while reading | Enter edit mode (same as Cmd/Ctrl+E)                                                                   |
+| Swipe up over the header or the bottom grab handle         | Search sheet, compact    | Close search (swiping over the results scrolls them instead)                                           |
+| Tap the scrim                                              | Search, account sheet    | Close the overlay                                                                                      |
+
 ## Platform behaviour
 
 One widget tree, adapted at the seams. Every decision keys off the theme's
@@ -98,7 +114,6 @@ platform (`Theme.of(context).platform`), so a widget test can pin it with
 | Note "…" menu    | iOS: action sheet with Cancel and a destructive Delete. macOS: popup menu                                                                                                | Popup menu                                        |
 | Glyphs           | Chevron back, horizontal-dots "more", platform spinners                                                                                                                  | Arrow back, vertical dots                         |
 | Notes list       | iOS overscroll pull-to-refresh; status-bar tap scrolls to top                                                                                                            | Material refresh indicator                        |
-| Phone layouts    | Swipe a row left to delete (after the usual confirmation) — on every platform                                                                                            | Same                                              |
 | macOS menu bar   | App, File, Edit, View, Note, Window menus; items enable only while their command applies (Save while editing, Edit Note while viewing…); Cmd+W hides to the tray | No platform menu (Flutter supports macOS only) |
 
 The menu bar is driven by `lib/src/desktop/app_menu_actions.dart`: the shell

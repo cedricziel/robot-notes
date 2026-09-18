@@ -15,5 +15,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["robot_notes"]
 
+[tool.setuptools.package-data]
+robot_notes = ["skills/**/SKILL.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

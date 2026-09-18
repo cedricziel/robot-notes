@@ -5,3 +5,5 @@ pip_dependencies:
   - httpx
 requires_env:
   - ROBOT_NOTES_API_KEY
+hooks:
+  - on_session_switch

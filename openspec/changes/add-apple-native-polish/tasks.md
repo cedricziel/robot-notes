@@ -15,9 +15,10 @@
 
 ## 3. Notes list on touch
 
-- [x] 3.1 Write failing tests in `notes_list_screen_apple_test.dart`: Cupertino refresh control on iOS/macOS (Material elsewhere) that re-fetches on pull; swipe-to-delete asks, deletes on confirm, springs back on cancel or failure; off on wide layouts; the list has no private scroll controller
-- [x] 3.2 Rebuild the list body on `CustomScrollView` + `SliverList.separated` behind `_RefreshableScrollView`; paginate via `NotificationListener`; wrap narrow rows in `Dismissible` with haptic feedback
+- [x] 3.1 Write failing tests in `notes_list_screen_apple_test.dart`: Cupertino refresh control on iOS/macOS (Material elsewhere) that re-fetches on pull; the `add-touch-gestures` swipe-to-delete behaves the same under an Apple theme (Cupertino confirmation); the list has no private scroll controller
+- [x] 3.2 Rebuild the list body on `CustomScrollView` + `SliverList.separated` behind `_RefreshableScrollView`; paginate via `NotificationListener`; add haptic feedback to the swipe
 - [x] 3.3 `flutter analyze`, `dart format`; commit `feat(app): iOS pull-to-refresh, swipe-to-delete, primary scroll for the notes list`
+- [x] 3.4 Merge `main` (`add-touch-gestures` landed its own swipe-to-delete): keep main's `Dismissible`, drop the narrow-only variant, make the note view's new pull-to-refresh adaptive
 
 ## 4. macOS menu bar
 
@@ -35,11 +36,11 @@
 - [x] 5.2 `npx -y @fission-ai/openspec@1.13.0 validate add-apple-native-polish --strict`
 - [x] 5.3 Full `flutter test`, `dart analyze`, `dart format --set-exit-if-changed .` green
 - [ ] 5.4 Manual run-through on a Mac (`flutter run -d macos`): menu bar shows the six menus; File › New Note is greyed on the setup screen and enabled in the shell; ⌘N creates exactly one note; Save greys out when not editing and ⌘S saves while editing; ⌘W hides to the tray and the tray restores; Edit › Select All works in the editor
-- [ ] 5.5 Manual run-through on an iPhone simulator: pull-to-refresh is the iOS control; swipe a row to delete; the note's "…" opens an action sheet; delete/move dialogs are Cupertino; no ink ripples
+- [ ] 5.5 Manual run-through on an iPhone simulator: pull-to-refresh is the iOS control on the list and the note; swipe a row to delete; the note's "…" opens an action sheet; delete/move dialogs are Cupertino; no ink ripples
 
 ## Definition of Done
 
 - All checkboxes above are checked, except 5.4/5.5 which need Apple hardware and are tracked for the next Mac session.
 - `flutter test` passes with the new Apple-platform and menu-bar tests; `dart analyze` and `dart format` are clean.
 - `openspec validate add-apple-native-polish --strict` passes.
-- Android/Windows/Linux/Web behaviour is covered by the existing suite (which still runs on the Material path) and only gains swipe-to-delete on phones plus the two new shortcuts.
+- Android/Windows/Linux/Web behaviour is covered by the existing suite (which still runs on the Material path) and only gains the two new shortcuts.

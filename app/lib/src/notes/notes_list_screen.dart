@@ -35,8 +35,8 @@ enum NotesListLayout { narrow, wide }
 /// - A failed fetch shows a strip above the list with a retry; items that
 ///   already loaded stay visible.
 /// - Scrolling near the end pages in the next cursor batch.
-/// - On touch (narrow) layouts a row swipes away to delete, after the same
-///   confirmation the long-press menu asks for.
+/// - A row swipes from its trailing edge to delete, after the same
+///   confirmation the long-press menu asks for (with haptic feedback).
 /// - Live `changed` events flow into the controller and reflect here without
 ///   manual refresh.
 class NotesListScreen extends StatefulWidget {
@@ -135,8 +135,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
     return false;
   }
 
-  /// Asks, then deletes. Returns whether the note is gone, so a swipe can
-  /// finish sliding the row away only when it really was removed.
+  /// Asks, then deletes. Resolves to whether the note is gone.
   Future<bool> _confirmDelete(String id) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -167,13 +166,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
     if (!mounted || !deleted) return false;
     messenger.showSnackBar(const SnackBar(content: Text('Note deleted')));
     return true;
-  }
-
-  /// Swipe-to-delete on a touch layout. The row is already slid out when
-  /// this runs, so a cancelled confirmation springs it back.
-  Future<bool> _confirmSwipeDelete(String id) {
-    unawaited(HapticFeedback.mediumImpact());
-    return _confirmDelete(id);
   }
 
   /// Display name of a folder scope: its last path segment, or "Root" for
@@ -402,9 +394,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
                             ? null
                             : () => widget.onNoteTap!(note.id),
                         onDelete: () => _confirmDelete(note.id),
-                        onSwipeDelete: wide
-                            ? null
-                            : () => _confirmSwipeDelete(note.id),
                       );
                     },
                   ),
@@ -640,14 +629,13 @@ class _NoteTile extends StatefulWidget {
     required this.showPath,
     required this.onDelete,
     this.onTap,
-    this.onSwipeDelete,
   });
 
   final NoteMeta note;
 
-  /// Whether the row is laid out wide enough for hover-to-reveal delete —
-  /// on narrow/touch layouts, long-press/right-click (via [MenuAnchor])
-  /// remains the only delete affordance.
+  /// Whether the row is laid out wide enough for hover-to-reveal delete.
+  /// Long-press/right-click (via [MenuAnchor]) and the trailing-edge swipe
+  /// (via [Dismissible]) are available on every layout.
   final bool wide;
 
   /// Whether this is the note open beside the list.
@@ -659,12 +647,10 @@ class _NoteTile extends StatefulWidget {
   final bool showPath;
 
   final VoidCallback? onTap;
-  final VoidCallback onDelete;
 
-  /// Confirms and performs a swipe-to-delete, resolving to whether the row
-  /// is gone. `null` (wide layouts) turns the swipe off; hover-delete and
-  /// the context menu cover it there.
-  final Future<bool> Function()? onSwipeDelete;
+  /// Runs the delete confirmation and, if confirmed, the delete. Awaited
+  /// by the swipe so the row can spring back once the dialog resolves.
+  final Future<void> Function() onDelete;
 
   @override
   State<_NoteTile> createState() => _NoteTileState();
@@ -757,33 +743,47 @@ class _NoteTileState extends State<_NoteTile> {
       },
       child: tile,
     );
-    final onSwipeDelete = widget.onSwipeDelete;
-    if (onSwipeDelete != null) {
-      return Dismissible(
-        key: Key('notes.tile.${note.id}.dismissible'),
-        direction: DismissDirection.endToStart,
-        confirmDismiss: (_) => onSwipeDelete(),
-        background: ColoredBox(
-          color: theme.colorScheme.error,
-          child: Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Icon(
-                Icons.delete_outline,
-                color: theme.colorScheme.onError,
-              ),
+    final row = !widget.wide
+        ? menu
+        : MouseRegion(
+            onEnter: (_) => setState(() => _hovering = true),
+            onExit: (_) => setState(() => _hovering = false),
+            child: menu,
+          );
+    // Swiping from the trailing edge reaches the same confirm-then-delete
+    // flow as the menu. `confirmDismiss` always answers `false`: on cancel
+    // or a failed delete the row springs back, and on success the
+    // controller has already dropped the row from `state.items`, so there
+    // is nothing left for the Dismissible to collapse. (Dismissible guards
+    // its post-confirm animation on `mounted`, so the unmounted row is
+    // safe.) `startToEnd` stays disabled so a swipe the other way doesn't
+    // hint at an action that doesn't exist.
+    return Dismissible(
+      key: Key('notes.tile.${note.id}.swipe'),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (_) async {
+        // A swipe is a touch gesture; acknowledge it the way the platform
+        // does before asking.
+        unawaited(HapticFeedback.mediumImpact());
+        await widget.onDelete();
+        return false;
+      },
+      background: ColoredBox(
+        key: Key('notes.tile.${note.id}.swipeBackground'),
+        color: theme.colorScheme.errorContainer,
+        child: Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Icon(
+              Icons.delete_outline,
+              color: theme.colorScheme.onErrorContainer,
+              semanticLabel: 'Delete note',
             ),
           ),
         ),
-        child: menu,
-      );
-    }
-    if (!widget.wide) return menu;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: menu,
+      ),
+      child: row,
     );
   }
 }

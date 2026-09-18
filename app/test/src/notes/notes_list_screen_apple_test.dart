@@ -12,8 +12,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 /// How the notes list adapts to Apple platforms: the iOS pull-to-refresh
-/// control, Cupertino confirmation dialogs, and swipe-to-delete on touch
-/// layouts.
+/// control, Cupertino confirmation dialogs, and swipe-to-delete (from
+/// `add-touch-gestures`) under an Apple theme.
 const _config = AppConfig(
   baseUrl: 'https://notes.example',
   apiKey: 'test-key',
@@ -222,31 +222,6 @@ void main() {
 
       expect(calls, contains('DELETE /notes/01H'));
       expect(find.text('swipe me'), findsNothing);
-    });
-
-    testWidgets('is off on a wide layout, where hover-delete exists', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(900, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      final mock = MockClient(
-        (request) async =>
-            _page(<Object?>[_metaJson(id: '01H', title: 'wide')]),
-      );
-      final api = RobotNotesClient(config: _config, httpClient: mock);
-      final ctrl = NotesListController(api: api);
-      addTearDown(ctrl.dispose);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(platform: TargetPlatform.macOS),
-          home: NotesListScreen(controller: ctrl),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byType(Dismissible), findsNothing);
     });
   });
 

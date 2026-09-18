@@ -19,8 +19,10 @@ import 'package:shared/shared.dart';
 const int kMcpSearchDefaultLimit = 20;
 
 /// How many times `append_to_note` re-reads and retries its write after
-/// losing a version race before giving up with a `version_conflict`.
-const int kMcpAppendMaxRetries = 3;
+/// losing a version race before giving up with a `version_conflict`. An
+/// alias for [kAppendMaxRetries] — the retry budget itself lives on
+/// [NoteWriteService.append], shared with `POST /notes/{id}/append`.
+const int kMcpAppendMaxRetries = kAppendMaxRetries;
 
 /// Case-insensitive Crockford base-32 ULID charset, matching the ids
 /// `package:ulid` generates for [Storage] (which itself always stores them
@@ -143,11 +145,7 @@ class McpToolRegistry {
         _searchNotesTool(deps.searchIndex),
         _createNoteTool(deps.noteWriteService),
         _updateNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
-        _appendToNoteTool(
-          deps.storage,
-          deps.noteWriteService,
-          deps.lockManager,
-        ),
+        _appendToNoteTool(deps.noteWriteService),
         _deleteNoteTool(deps.noteWriteService, deps.lockManager),
         _moveNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
         _getBacklinksTool(deps.metaIndex, deps.linkIndex, deps.storage),
@@ -303,6 +301,7 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
           },
           'path': {'type': 'string'},
           'tag': {'type': 'string'},
+          'title': {'type': 'string'},
         },
         'required': <String>[],
       },
@@ -314,6 +313,7 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
         final sort = (args['sort'] as String?) ?? kSortId;
         final pathFilter = args['path'] as String?;
         final tagFilter = args['tag'] as String?;
+        final titleFilter = args['title'] as String?;
         if (!kSupportedSorts.contains(sort)) {
           return toolFail(kErrorValidationFailed, message: kSortErrorMessage);
         }
@@ -325,6 +325,7 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
             sort: sort,
             pathPrefix: pathFilter,
             tag: tagFilter,
+            title: titleFilter,
           );
         } on InvalidCursorException {
           return toolFail(
@@ -573,12 +574,7 @@ McpTool _updateNoteTool(
       },
     );
 
-McpTool _appendToNoteTool(
-  Storage storage,
-  NoteWriteService writes,
-  LockManager lockManager,
-) =>
-    McpTool(
+McpTool _appendToNoteTool(NoteWriteService writes) => McpTool(
       name: 'append_to_note',
       description:
           'Append text to the end of an existing note as a safe server-side '
@@ -611,46 +607,23 @@ McpTool _appendToNoteTool(
           );
         }
 
-        final initialConflict = _lockConflict(lockManager, id, principal.actor);
-        if (initialConflict != null) return initialConflict;
-
-        StoredNote current;
         try {
-          current = await storage.read(id);
+          final updated = await writes.append(
+            id: id,
+            text: text,
+            actor: principal.actor,
+          );
+          return toolOk({'id': updated.id, 'version': updated.version});
         } on NoteNotFoundException {
           return toolFail(ErrorCode.notFound.wire);
+        } on LockedException catch (e) {
+          return toolFail(
+            ErrorCode.locked.wire,
+            details: {'holder': e.current.holder},
+          );
+        } on VersionConflictException catch (e) {
+          return _versionConflictFail(e.current, principal);
         }
-
-        for (var attempt = 0; attempt <= kMcpAppendMaxRetries; attempt++) {
-          // Re-checked every attempt, not just once up front: another actor
-          // may acquire the lock in the gap between a lost version race and
-          // this retry.
-          final conflict = _lockConflict(lockManager, id, principal.actor);
-          if (conflict != null) return conflict;
-
-          final needsNewline =
-              current.content.isNotEmpty && !current.content.endsWith('\n');
-          final nextContent = current.content.isEmpty
-              ? text
-              : '${current.content}${needsNewline ? '\n' : ''}$text';
-          try {
-            final updated = await writes.update(
-              id: id,
-              title: current.title,
-              content: nextContent,
-              ifMatch: current.version,
-              actor: principal.actor,
-            );
-            return toolOk({'id': updated.id, 'version': updated.version});
-          } on VersionConflictException catch (e) {
-            // Another writer landed first — the exception carries the fresh
-            // state, so retrying needs no extra read.
-            current = e.current;
-          } on NoteNotFoundException {
-            return toolFail(ErrorCode.notFound.wire);
-          }
-        }
-        return _versionConflictFail(current, principal);
       },
     );
 

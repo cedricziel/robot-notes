@@ -404,6 +404,23 @@ class _NoteScreenState extends State<NoteScreen> {
     );
   }
 
+  /// Pull-to-refresh on the reading view: re-fetches the note and its
+  /// backlinks. A failure is reported in a snackbar (the note stays);
+  /// the controller ignores the pull outside viewing mode, so a pull that
+  /// races the user into edit mode reports nothing.
+  Future<void> _refresh() async {
+    await widget.controller.reload();
+    if (!mounted) return;
+    final state = widget.controller.value;
+    final error = state.error;
+    if (state.mode != NoteMode.viewing || error == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Could not refresh the note: ${_describe(error)}'),
+      ),
+    );
+  }
+
   /// Free-text folder path entry (see `design.md`'s note on this vs. a full
   /// tree picker). Prefills with the note's current folder so the user
   /// edits from there rather than retyping it.
@@ -582,6 +599,7 @@ class _NoteScreenState extends State<NoteScreen> {
                   onOpenNote: widget.onOpenNote,
                   onTagTap: widget.onTagTap,
                   onEdit: state.mode == NoteMode.viewing ? _edit : null,
+                  onRefresh: _refresh,
                 ),
         ),
       ],
@@ -607,6 +625,7 @@ class _ReadingView extends StatelessWidget {
     this.onOpenNote,
     this.onTagTap,
     this.onEdit,
+    required this.onRefresh,
   });
 
   final Note note;
@@ -619,6 +638,9 @@ class _ReadingView extends StatelessWidget {
   /// busy (acquiring the lock, moving, deleting).
   final VoidCallback? onEdit;
 
+  /// Pulling the document down re-fetches it.
+  final RefreshCallback onRefresh;
+
   @override
   Widget build(BuildContext context) {
     // Take focus when nothing else has it, so the screen's keyboard
@@ -626,46 +648,54 @@ class _ReadingView extends StatelessWidget {
     // than only after a click into the body.
     return Focus(
       autofocus: true,
-      child: SingleChildScrollView(
-        key: const Key('note.scroll'),
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: PaneSizes.readingColumn,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _MetadataLine(note: note),
-                const SizedBox(height: 12),
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onDoubleTap: onEdit,
-                  child: SelectionArea(
-                    child: MarkdownBody(
-                      key: const Key('note.body'),
-                      data: note.content,
-                      styleSheet: AppTheme.markdown(context),
-                      // Never fetch images: a note can come from any actor,
-                      // and loading a remote URL would leak the reader's IP
-                      // to whoever wrote it.
-                      imageBuilder: (uri, title, alt) =>
-                          Text(alt ?? uri.toString()),
+      // The platform's own pull-to-refresh spinner, as on the notes list.
+      child: RefreshIndicator.adaptive(
+        key: const Key('note.refresh'),
+        onRefresh: onRefresh,
+        child: SingleChildScrollView(
+          key: const Key('note.scroll'),
+          // Always scrollable so a note shorter than the pane can still be
+          // pulled to refresh.
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: PaneSizes.readingColumn,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _MetadataLine(note: note),
+                  const SizedBox(height: 12),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onDoubleTap: onEdit,
+                    child: SelectionArea(
+                      child: MarkdownBody(
+                        key: const Key('note.body'),
+                        data: note.content,
+                        styleSheet: AppTheme.markdown(context),
+                        // Never fetch images: a note can come from any actor,
+                        // and loading a remote URL would leak the reader's IP
+                        // to whoever wrote it.
+                        imageBuilder: (uri, title, alt) =>
+                            Text(alt ?? uri.toString()),
+                      ),
                     ),
                   ),
-                ),
-                if (note.tags.isNotEmpty) ...[
-                  const SizedBox(height: 20),
-                  _TagChips(tags: note.tags, onTap: onTagTap),
+                  if (note.tags.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    _TagChips(tags: note.tags, onTap: onTagTap),
+                  ],
+                  const SizedBox(height: 24),
+                  _BacklinksPanel(
+                    backlinks: backlinks,
+                    loading: backlinksLoading,
+                    onOpen: onOpenNote,
+                  ),
                 ],
-                const SizedBox(height: 24),
-                _BacklinksPanel(
-                  backlinks: backlinks,
-                  loading: backlinksLoading,
-                  onOpen: onOpenNote,
-                ),
-              ],
+              ),
             ),
           ),
         ),

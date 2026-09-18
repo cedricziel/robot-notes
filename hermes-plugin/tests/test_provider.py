@@ -5,7 +5,7 @@ import httpx
 import pytest
 import respx
 
-from robot_notes import RobotNotesConfig, RobotNotesProvider
+from robot_notes import SKILL_NAME, SKILL_PATH, RobotNotesConfig, RobotNotesProvider, register
 
 
 @pytest.fixture
@@ -290,6 +290,58 @@ def test_on_session_end_updates_existing_note_for_resumed_session(provider):
 
 
 @respx.mock
+def test_on_session_switch_rebinds_session_id_so_on_session_end_targets_a_new_note(provider):
+    respx.get("https://notes.example.com/notes").mock(return_value=httpx.Response(200, json={"items": []}))
+    create_route = respx.post("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(201, json={"id": "01SESSION", "title": "session-1", "version": 1})
+    )
+
+    provider.on_session_end([{"role": "user", "content": "first"}])
+    provider.on_session_switch("session-2")
+    provider.on_session_end([{"role": "user", "content": "second"}])
+
+    titles = [json.loads(call.request.content)["title"] for call in create_route.calls]
+    assert titles == ["session-1", "session-2"]
+
+
+def test_on_session_switch_ignores_empty_new_session_id(provider):
+    provider.on_session_switch("")
+
+    assert provider._session_id == "session-1"
+
+
+def test_on_session_switch_ignores_blank_new_session_id(provider):
+    provider.on_session_switch("   ")
+
+    assert provider._session_id == "session-1"
+
+
+@respx.mock
+def test_on_session_switch_discards_a_prefetch_queued_before_it(provider):
+    release = threading.Event()
+
+    def _slow_response(request):
+        release.wait(timeout=2)
+        return httpx.Response(
+            200, json={"items": [{"id": "1", "title": "Stale", "snippet": "from the old session"}]}
+        )
+
+    respx.get("https://notes.example.com/search").mock(side_effect=_slow_response)
+
+    provider.queue_prefetch("old query", session_id="session-1")
+    stale_thread = provider._prefetch_thread
+
+    provider.on_session_switch("session-2")
+
+    # let the superseded search land after the switch has already moved the generation on
+    release.set()
+    stale_thread.join(timeout=2)
+
+    # the stale result must not have been allowed to populate the cache for the new session
+    assert provider._prefetch_cache == ""
+
+
+@respx.mock
 def test_on_memory_write_add_creates_memory_note_first_time(provider):
     respx.get("https://notes.example.com/notes").mock(return_value=httpx.Response(200, json={"items": []}))
     create_route = respx.post("https://notes.example.com/notes").mock(
@@ -353,6 +405,135 @@ def test_get_config_schema_declares_fields():
     assert api_key_field["secret"] is True
 
 
+@pytest.fixture
+def subagent_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize("session-1", hermes_home=str(tmp_path), agent_context="subagent")
+    return p
+
+
+@pytest.fixture
+def cron_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize("session-1", hermes_home=str(tmp_path), agent_context="cron")
+    return p
+
+
+def test_initialize_defaults_write_enabled_when_agent_context_missing(provider):
+    assert provider._can_write() is True
+
+
+@pytest.mark.parametrize("agent_context", ["subagent", "cron", "flush"])
+def test_initialize_disables_writes_for_non_primary_contexts(tmp_path, monkeypatch, agent_context):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize("session-1", hermes_home=str(tmp_path), agent_context=agent_context)
+
+    assert p._can_write() is False
+
+
+def test_initialize_enables_writes_for_primary_context(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize("session-1", hermes_home=str(tmp_path), agent_context="primary")
+
+    assert p._can_write() is True
+
+
+def test_initialize_records_hermes_home_platform_and_agent_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(
+        json.dumps({"base_url": "https://notes.example.com", "actor": "hermes-bot"}), encoding="utf-8"
+    )
+    p = RobotNotesProvider()
+    p.initialize(
+        "session-1",
+        hermes_home=str(tmp_path),
+        platform="cli",
+        agent_identity="research-bot",
+    )
+
+    assert p._hermes_home == str(tmp_path)
+    assert p._platform == "cli"
+    assert p._agent_identity == "research-bot"
+
+
+@respx.mock
+@pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
+def test_on_session_end_skipped_for_non_primary_context(request, ctx_provider):
+    create_route = respx.post("https://notes.example.com/notes")
+    provider = request.getfixturevalue(ctx_provider)
+
+    provider.on_session_end([{"role": "user", "content": "hi"}])
+
+    assert not create_route.called
+
+
+@respx.mock
+@pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
+def test_on_memory_write_skipped_for_non_primary_context(request, ctx_provider):
+    create_route = respx.post("https://notes.example.com/notes")
+    provider = request.getfixturevalue(ctx_provider)
+
+    provider.on_memory_write("add", "memory", "the user prefers dark mode")
+
+    assert not create_route.called
+
+
+@pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
+def test_handle_tool_call_remember_gated_for_non_primary_context(request, ctx_provider):
+    provider = request.getfixturevalue(ctx_provider)
+
+    result = json.loads(provider.handle_tool_call("robotnotes_remember", {"title": "Fact", "content": "x"}))
+
+    assert result["error"] == "read_only"
+
+
+@pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
+def test_handle_tool_call_forget_gated_for_non_primary_context(request, ctx_provider):
+    provider = request.getfixturevalue(ctx_provider)
+
+    result = json.loads(provider.handle_tool_call("robotnotes_forget", {"id": "01NEW"}))
+
+    assert result["error"] == "read_only"
+
+
+@respx.mock
+def test_handle_tool_call_search_still_works_for_subagent_context(subagent_provider):
+    respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(200, json={"items": [{"id": "1", "title": "Budget"}]})
+    )
+
+    result = json.loads(subagent_provider.handle_tool_call("robotnotes_search", {"query": "budget"}))
+
+    assert result["items"][0]["id"] == "1"
+
+
+@respx.mock
+def test_prefetch_still_works_for_subagent_context(subagent_provider):
+    respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(
+            200, json={"items": [{"id": "1", "title": "Budget", "snippet": "budget plan"}]}
+        )
+    )
+
+    assert "Budget" in subagent_provider.prefetch("budget", session_id="session-1")
+
+
 def test_save_config_does_not_persist_api_key(tmp_path):
     RobotNotesProvider().save_config(
         {"base_url": "https://notes.example.com", "actor": "hermes-bot", "api_key": "secret-key"}, str(tmp_path)
@@ -360,3 +541,52 @@ def test_save_config_does_not_persist_api_key(tmp_path):
 
     saved = json.loads((tmp_path / "robot_notes.json").read_text(encoding="utf-8"))
     assert saved == {"base_url": "https://notes.example.com", "actor": "hermes-bot"}
+
+
+class _FakeCtxWithSkills:
+    def __init__(self):
+        self.provider = None
+        self.skills = []
+
+    def register_memory_provider(self, provider):
+        self.provider = provider
+
+    def register_skill(self, name, path, description=""):
+        self.skills.append((name, path, description))
+
+
+class _FakeCtxWithoutSkills:
+    """No register_skill attribute at all, like an older Hermes host."""
+
+    def __init__(self):
+        self.provider = None
+
+    def register_memory_provider(self, provider):
+        self.provider = provider
+
+
+def test_register_registers_provider_and_skill_when_ctx_supports_it():
+    ctx = _FakeCtxWithSkills()
+
+    register(ctx)
+
+    assert isinstance(ctx.provider, RobotNotesProvider)
+    assert len(ctx.skills) == 1
+    name, path, description = ctx.skills[0]
+    assert name == SKILL_NAME
+    assert path == SKILL_PATH
+    assert description
+
+
+def test_register_skill_path_points_at_a_shipped_skill_md():
+    assert SKILL_PATH.name == "SKILL.md"
+    assert SKILL_PATH.is_file()
+
+
+def test_register_registers_provider_only_when_ctx_lacks_register_skill():
+    ctx = _FakeCtxWithoutSkills()
+
+    register(ctx)
+
+    assert isinstance(ctx.provider, RobotNotesProvider)
+    assert not hasattr(ctx, "register_skill")

@@ -6,10 +6,10 @@ The client renders the same Material chrome on every platform. On an iPhone that
 
 - **Theme follows the platform**: iOS and macOS drop ink ripples, iOS centers app-bar titles, and code in notes renders in Menlo (Apple has no generic `monospace` alias).
 - **Adaptive controls**: confirmation and input dialogs (delete, move, new folder, disconnect) take their Cupertino form on iOS/macOS; spinners, the back glyph, and the "more" glyph follow the platform; the note's "more" menu is an iOS action sheet on iPhone/iPad and stays a popup menu on macOS.
-- **Notes list on touch**: the iOS rubber-band pull-to-refresh control on Apple platforms (Material indicator elsewhere); swipe a row left to delete after the same confirmation; a status-bar tap scrolls the list to the top.
+- **Notes list on touch**: the iOS rubber-band pull-to-refresh control on Apple platforms (Material indicator elsewhere); the swipe-to-delete from `add-touch-gestures` gains haptic feedback; a status-bar tap scrolls the list to the top.
 - **macOS menu bar**: the app installs its own menus (app, File, Edit, View, Note, Window) with the app's shortcuts shown natively. Items are enabled only while their command applies (Save while editing, Edit Note while viewing, New Note while the shell is up). The menu bar owns those ⌘ chords on macOS so a press reaches exactly one handler; ⌘W hides the window to the existing tray; ⌘, opens the account surface; ⌘R refreshes.
 - **New in-app shortcuts everywhere**: Cmd+R / F5 refresh the list, Cmd/Ctrl+, opens the account surface.
-- Android, Windows, Linux, and Web keep Material chrome; the only visible change there is swipe-to-delete on phone layouts and the two new shortcuts.
+- Android, Windows, Linux, and Web keep Material chrome; the only visible change there is the two new shortcuts.
 
 ## Capabilities
 

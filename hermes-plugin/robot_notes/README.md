@@ -53,6 +53,16 @@ the API key.
 | `robotnotes_remember` | Store a durable fact as a new note                                                    |
 | `robotnotes_forget`   | Delete a note by id                                                                   |
 
+## Skill
+
+`register(ctx)` also calls `ctx.register_skill("robot-notes", ...)` when the
+host supports it (`hasattr(ctx, "register_skill")`), bundling
+[`skills/robot-notes/SKILL.md`](skills/robot-notes/SKILL.md) —
+the search-before-create / append-not-duplicate discipline for the
+`robotnotes_*` tools above, addressed as `robot_notes:robot-notes`. On a
+host without skill support, registration of the memory provider itself is
+unaffected.
+
 ## Write behavior
 
 Writes are deliberately sparse — this plugin never writes a note per
@@ -61,10 +71,40 @@ conversation turn:
 - **Recall** searches the workspace before each turn and injects the top
   matches as context; it never blocks a turn on a slow or unreachable
   server.
-- **Session end** files or updates one summary note per session under
-  `conversations/<actor>/<session id>`.
+- **Session end** files or updates one note per session under
+  `conversations/<actor>/<session id>`. What leaves the device is a
+  readable, bounded transcript built by `robot_notes/transcript.py`, never
+  the raw message list:
+  - only `user`/`assistant` text is kept — string content, or the `text`
+    parts of list-shaped content (tool calls, tool results, images and
+    `system` messages are dropped);
+  - assistant messages that are only `tool_calls` (no text) are dropped
+    entirely;
+  - Hermes' own context-compaction handoff summaries are recognized and
+    dropped, so a compacted session doesn't file its own compaction
+    scaffolding;
+  - the `<memory-context>...</memory-context>` block Hermes prepends to a
+    user turn with recalled memory is stripped before filing — that block
+    is recalled memory, not something the user said;
+  - the note opens with a small header (session id, actor, an ISO-8601
+    UTC timestamp, turn count) and a one-line title derived from the
+    first user message (truncated to 80 characters);
+  - total size is bounded to 32 KB; a longer session keeps the head and
+    tail of the conversation and marks what was cut with an elision
+    marker in between.
 - **Explicit tool calls** (`robotnotes_remember`, `robotnotes_forget`) let
   the model manage notes directly.
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
   are mirrored one-directionally into `Hermes/Memory.md` and
   `Hermes/User.md` in the workspace.
+
+`initialize()` also honors the host's `agent_context` kwarg
+(`"primary"` | `"subagent"` | `"cron"` | `"flush"`): every write path above
+— session-end summaries, the memory mirror, and the `robotnotes_remember` /
+`robotnotes_forget` tools — is skipped whenever `agent_context` is
+`"subagent"`, `"cron"`, or `"flush"`, so a spawned subagent or a scheduled
+cron/flush tick never files its own conversation note or mutates shared
+memory. Reads (`robotnotes_search`, `robotnotes_list`, `robotnotes_note`,
+and recall/prefetch) stay available in every context. A gated write tool
+call returns a `read_only` tool error instead of silently no-oping. A
+missing `agent_context` (older hosts) defaults to writes enabled.

@@ -24,17 +24,9 @@ On iOS and macOS the client SHALL follow the platform's own conventions for the 
 - **WHEN** any of the dialogs above is shown
 - **THEN** it SHALL be a Material alert with Material buttons, and the back and "more" glyphs SHALL be the Material arrow and vertical dots
 
-### Requirement: Notes list uses touch idioms on phones
+### Requirement: Pull-to-refresh follows the platform
 
-On iOS and macOS the notes list SHALL use the iOS overscroll pull-to-refresh control; elsewhere it SHALL keep the Material refresh indicator. Either SHALL re-issue `GET /notes` for the first page. On narrow (touch) layouts a row SHALL be swipeable from the trailing edge to delete: the swipe SHALL show the same confirmation as the long-press menu, the row SHALL leave the list only once the server confirmed the deletion, and a cancelled or failed deletion SHALL restore the row. Wide layouts SHALL NOT offer the swipe (hover-delete exists there). The list SHALL be the screen's primary scrollable so a tap on the iOS status bar scrolls it to the top.
-
-#### Scenario: Swipe-to-delete on a phone
-
-- **GIVEN** the list renders in its narrow layout with a note "A"
-- **WHEN** the user swipes "A" to the leading edge and confirms
-- **THEN** the app SHALL `DELETE /notes/{id}`, the row SHALL slide away, and "Note deleted" SHALL be shown
-- **WHEN** the user swipes and cancels instead
-- **THEN** no request SHALL be sent and the row SHALL spring back
+On iOS and macOS the notes list SHALL use the iOS overscroll pull-to-refresh control and the note view's pull-to-refresh SHALL use the platform spinner; elsewhere both SHALL keep the Material refresh indicator. Either SHALL perform the same re-fetch. The swipe-to-delete on list rows (see the `add-touch-gestures` change) SHALL additionally give haptic feedback. The list SHALL be the screen's primary scrollable so a tap on the iOS status bar scrolls it to the top.
 
 #### Scenario: Pull-to-refresh control follows the platform
 
@@ -43,6 +35,12 @@ On iOS and macOS the notes list SHALL use the iOS overscroll pull-to-refresh con
 - **THEN** pulling past the top SHALL show the Cupertino refresh control and re-fetch the first page
 - **WHEN** the app runs with an Android theme
 - **THEN** the Material refresh indicator SHALL be shown instead
+
+#### Scenario: Swipe-to-delete under an Apple theme
+
+- **GIVEN** the list renders under an iOS theme with a note "A"
+- **WHEN** the user swipes "A" from its trailing edge
+- **THEN** the confirmation SHALL be a Cupertino alert, confirming SHALL `DELETE /notes/{id}` and drop the row, and cancelling SHALL spring the row back with no request
 
 ### Requirement: macOS has a native menu bar
 

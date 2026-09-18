@@ -2023,6 +2023,114 @@ void main() {
     });
   });
 
+  group('pull to refresh', () {
+    /// Pumps the viewer over a backend whose `GET /notes/01H` answers are
+    /// taken from [responses] in order (the last one repeats).
+    Future<List<String>> pumpWithResponses(
+      WidgetTester tester,
+      List<http.Response Function()> responses,
+    ) async {
+      final calls = <String>[];
+      var gets = 0;
+      final mock = MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.method == 'GET' && request.url.path == '/notes/01H') {
+          final i = gets < responses.length ? gets : responses.length - 1;
+          gets += 1;
+          return responses[i]();
+        }
+        if (request.url.path == '/notes/01H/backlinks') {
+          return http.Response(
+            jsonEncode(<String, Object?>{'items': <Object?>[]}),
+            200,
+          );
+        }
+        if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
+          return http.Response(jsonEncode(_lockJson()), 200);
+        }
+        return http.Response('unexpected ${request.url.path}', 500);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NoteController(
+        api: api,
+        noteId: '01H',
+        actor: 'cedric',
+        scheduler: (_) => Completer<void>().future,
+        autosaveScheduler: (_) => Completer<void>().future,
+      );
+      addTearDown(ctrl.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NoteScreen(
+            controller: ctrl,
+            linkAutocompleteScheduler: (_) async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return calls;
+    }
+
+    /// Pulls the reading view down far enough to trigger its refresh and
+    /// waits for the indicator to run and hide.
+    Future<void> pull(WidgetTester tester) async {
+      await tester.fling(
+        find.byKey(const Key('note.scroll')),
+        const Offset(0, 300),
+        1000,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('pulling the reading view down re-fetches the note', (
+      tester,
+    ) async {
+      final calls = await pumpWithResponses(tester, [
+        () => http.Response(jsonEncode(_noteJson(content: 'first')), 200),
+        () => http.Response(
+          jsonEncode(_noteJson(content: 'second', version: 2)),
+          200,
+        ),
+      ]);
+      expect(find.text('first'), findsOneWidget);
+      expect(find.byKey(const Key('note.refresh')), findsOneWidget);
+      expect(calls.where((c) => c == 'GET /notes/01H').length, 1);
+
+      await pull(tester);
+
+      expect(calls.where((c) => c == 'GET /notes/01H').length, 2);
+      expect(find.text('second'), findsOneWidget);
+      expect(find.text('first'), findsNothing);
+      expect(find.textContaining('v2'), findsOneWidget);
+    });
+
+    testWidgets('a failed re-fetch keeps the note and reports the failure', (
+      tester,
+    ) async {
+      await pumpWithResponses(tester, [
+        () => http.Response(jsonEncode(_noteJson(content: 'kept')), 200),
+        () => http.Response(
+          jsonEncode(<String, Object?>{'error': 'internal', 'message': 'boom'}),
+          500,
+        ),
+      ]);
+
+      await pull(tester);
+
+      expect(find.text('kept'), findsOneWidget);
+      expect(find.textContaining('Could not refresh the note'), findsOneWidget);
+    });
+
+    testWidgets('no refresh indicator while editing', (tester) async {
+      await _pumpEditor(tester);
+
+      expect(find.byKey(const Key('note.refresh')), findsNothing);
+      expect(find.byType(RefreshIndicator), findsNothing);
+    });
+  });
+
   group('move', () {
     /// Pumps a read-only note and opens the move dialog via the overflow
     /// menu. `PUT /notes/01H` answers with [putResponse].
