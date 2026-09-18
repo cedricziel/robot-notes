@@ -84,6 +84,53 @@ Future<http.Response> _fakeBackend(http.Request request) async {
 
 MockClient _mockClient() => MockClient(_fakeBackend);
 
+const _dbNow = '2025-01-01T00:00:00.000Z';
+
+Map<String, Object?> _databaseDefinitionJson({
+  String id = '01D',
+}) => <String, Object?>{
+  'id': id,
+  'title': 'Projects',
+  'path': '',
+  'version': 1,
+  'source': <String, Object?>{'folder': '', 'include_subfolders': true},
+  'properties': <String, Object?>{
+    'status': <String, Object?>{
+      'type': 'select',
+      'options': ['Idea', 'Active', 'Done'],
+    },
+  },
+  'views': <Object?>[
+    <String, Object?>{
+      'name': 'All',
+      'type': 'table',
+      'properties': ['status'],
+    },
+    <String, Object?>{'name': 'Kanban', 'type': 'board', 'group_by': 'status'},
+  ],
+  'created_at': _dbNow,
+  'updated_at': _dbNow,
+};
+
+/// A backend that additionally serves `GET /databases/01D` and
+/// `POST /databases/01D/query` with an empty page, for the `/databases/:id`
+/// route tests below.
+Future<http.Response> _databaseBackend(http.Request request) async {
+  final path = request.url.path;
+  if (request.method == 'GET' && path == '/databases/01D') {
+    return http.Response(jsonEncode(_databaseDefinitionJson()), 200);
+  }
+  if (request.method == 'POST' && path == '/databases/01D/query') {
+    return http.Response(
+      jsonEncode(<String, Object?>{'items': <Object?>[], 'next_cursor': null}),
+      200,
+    );
+  }
+  return _fakeBackend(request);
+}
+
+MockClient _databaseMockClient() => MockClient(_databaseBackend);
+
 /// Router-level test harness: a real [GoRouter] from [buildAppRouter], but
 /// wrapped in a hand-rolled [AppSession] instead of the production
 /// [SessionHost] so the test owns the [RobotNotesWsClient] and never starts
@@ -826,12 +873,12 @@ void main() {
 
   group('/databases/:id route', () {
     testWidgets(
-      '/databases/01D?view=Kanban deep link renders the stub screen with '
-      'the parsed id and view',
+      '/databases/01D?view=Kanban deep link renders the real screen with '
+      'the definition title and the requested view selected',
       (tester) async {
         final api = RobotNotesClient(
           config: _config,
-          httpClient: _mockClient(),
+          httpClient: _databaseMockClient(),
         );
         addTearDown(api.close);
 
@@ -840,19 +887,21 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.byKey(const Key('database.id')), findsOneWidget);
-        expect(find.text('Database 01D'), findsOneWidget);
-        expect(find.text('View: Kanban'), findsOneWidget);
+        expect(find.byKey(const Key('database.title')), findsOneWidget);
+        expect(find.text('Projects'), findsOneWidget);
+        final chip = tester.widget<ChoiceChip>(
+          find.byKey(const Key('database.view.Kanban')),
+        );
+        expect(chip.selected, isTrue);
       },
     );
 
     testWidgets(
-      '/databases/01D with no view query param shows the default-view '
-      'placeholder',
+      '/databases/01D with no view query param resolves to the first view',
       (tester) async {
         final api = RobotNotesClient(
           config: _config,
-          httpClient: _mockClient(),
+          httpClient: _databaseMockClient(),
         );
         addTearDown(api.close);
 
@@ -861,14 +910,54 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('View: (default)'), findsOneWidget);
+        final chip = tester.widget<ChoiceChip>(
+          find.byKey(const Key('database.view.All')),
+        );
+        expect(chip.selected, isTrue);
+      },
+    );
+
+    testWidgets(
+      'an unknown ?view= falls back to the first view and rewrites the URL',
+      (tester) async {
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: _databaseMockClient(),
+        );
+        addTearDown(api.close);
+        final router = buildAppRouter(
+          configHolder: ConfigHolder.seeded(_config),
+          initialLocation: '/databases/01D?view=Bogus',
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _harness(
+            api: api,
+            initialLocation: '/databases/01D?view=Bogus',
+            router: router,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final chip = tester.widget<ChoiceChip>(
+          find.byKey(const Key('database.view.All')),
+        );
+        expect(chip.selected, isTrue);
+        expect(
+          router.routeInformationProvider.value.uri.toString(),
+          '/databases/01D?view=All',
+        );
       },
     );
 
     testWidgets('the setup redirect applies to a database deep link too', (
       tester,
     ) async {
-      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: _databaseMockClient(),
+      );
       addTearDown(api.close);
       final router = buildAppRouter(
         configHolder: ConfigHolder.seeded(null),
@@ -892,7 +981,7 @@ void main() {
       (tester) async {
         final api = RobotNotesClient(
           config: _config,
-          httpClient: _mockClient(),
+          httpClient: _databaseMockClient(),
         );
         addTearDown(api.close);
 
@@ -900,12 +989,12 @@ void main() {
           _harness(api: api, initialLocation: '/databases/01D'),
         );
         await tester.pumpAndSettle();
-        expect(find.byKey(const Key('database.id')), findsOneWidget);
+        expect(find.byKey(const Key('database.title')), findsOneWidget);
 
         await tester.tap(find.byKey(const Key('database.close')));
         await tester.pumpAndSettle();
 
-        expect(find.byKey(const Key('database.id')), findsNothing);
+        expect(find.byKey(const Key('database.title')), findsNothing);
         expect(find.text('Notes'), findsOneWidget);
       },
     );
@@ -919,7 +1008,11 @@ void main() {
         _setWindow(tester, const Size(1400, 900));
         final api = RobotNotesClient(
           config: _config,
-          httpClient: MockClient(_backendWithOneNote),
+          httpClient: MockClient((request) async {
+            final one = await _backendWithOneNote(request);
+            if (one.statusCode != 404) return one;
+            return _databaseBackend(request);
+          }),
         );
         addTearDown(api.close);
         final router = buildAppRouter(
@@ -936,13 +1029,13 @@ void main() {
         expect(find.byKey(const Key('shell.sidebar')), findsOneWidget);
         expect(find.byType(NotesListScreen), findsOneWidget);
         expect(_listRow(), findsOneWidget);
-        expect(find.byKey(const Key('database.id')), findsOneWidget);
+        expect(find.byKey(const Key('database.title')), findsOneWidget);
 
         await tester.tap(find.byKey(const Key('database.close')));
         await tester.pumpAndSettle();
 
         expect(router.routeInformationProvider.value.uri.toString(), '/');
-        expect(find.byKey(const Key('database.id')), findsNothing);
+        expect(find.byKey(const Key('database.title')), findsNothing);
         expect(find.byType(NotesListScreen), findsOneWidget);
       },
     );
