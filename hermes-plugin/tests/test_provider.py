@@ -460,7 +460,8 @@ def test_handle_tool_call_remember_title_collision_is_path_conflict(provider):
         provider.handle_tool_call("robotnotes_remember", {"title": "Fact", "content": "dup"})
     )
 
-    assert result["error"] == "path_conflict"
+    assert result["code"] == "path_conflict"
+    assert "error" in result
 
 
 @respx.mock
@@ -502,7 +503,8 @@ def test_handle_tool_call_append_not_found_is_tool_error(provider):
 
     result = json.loads(provider.handle_tool_call("robotnotes_append", {"id": "missing", "content": "x"}))
 
-    assert result["error"] == "not_found"
+    assert result["code"] == "not_found"
+    assert "error" in result
 
 
 @respx.mock
@@ -944,6 +946,15 @@ def test_handle_tool_call_forget_gated_for_non_primary_context(request, ctx_prov
     provider = request.getfixturevalue(ctx_provider)
 
     result = json.loads(provider.handle_tool_call("robotnotes_forget", {"id": "01NEW"}))
+
+    assert result["code"] == "read_only"
+
+
+@pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
+def test_handle_tool_call_append_gated_for_non_primary_context(request, ctx_provider):
+    provider = request.getfixturevalue(ctx_provider)
+
+    result = json.loads(provider.handle_tool_call("robotnotes_append", {"id": "01NEW", "content": "x"}))
 
     assert result["code"] == "read_only"
 
