@@ -349,10 +349,21 @@ class Storage {
   ///
   /// Throws [PathConflictException] if the resolved `<path>/<title>.md`
   /// already belongs to a different note.
+  ///
+  /// [properties] becomes the note's `extra` verbatim: since a freshly
+  /// created note has no prior frontmatter, there is nothing to merge —
+  /// see [update] for the merge behavior a second write applies. Callers
+  /// writing declared row properties pass just those key/value pairs;
+  /// callers writing a database definition (or other server-interpreted
+  /// keys such as `tags`) pass those directly in the same map, since
+  /// [Storage] itself does not distinguish "property" keys from
+  /// server-interpreted ones on create — that distinction only matters
+  /// once there is existing state to preserve, in [update].
   Future<StoredNote> create({
     required String title,
     required String content,
     String path = '',
+    Map<String, Object?>? properties,
   }) async {
     await _ensureIndexed();
     final id = _idGenerator();
@@ -372,6 +383,7 @@ class Storage {
         createdAt: now,
         updatedAt: now,
         content: content,
+        extra: properties ?? const {},
       );
       await _writeAtNewLocation(note, relPath);
       _claim(id: id, key: key, relPath: relPath);
@@ -388,12 +400,24 @@ class Storage {
   /// backing file is renamed/moved as part of this same write. Throws
   /// [PathConflictException] (without changing anything on disk) if the
   /// new target already belongs to a different note.
+  /// When [properties] is omitted (`null`), [content] is written and every
+  /// existing `extra` key is preserved unchanged. When [properties] is
+  /// supplied (even as `{}`), the note's `extra` is rebuilt: a key already
+  /// present in [properties] takes its new value (this is how a
+  /// server-interpreted key such as `type`/`source`/`properties`/`views` is
+  /// replaced, e.g. by a database definition update); a server-interpreted
+  /// key ([_serverInterpretedExtraKeys]) NOT present in [properties] is
+  /// preserved automatically; any other existing key not present in
+  /// [properties] is dropped (this is how a `properties`-replacing write
+  /// removes property keys the caller no longer sent). Key order is
+  /// preserved for keys that remain; brand-new keys are appended.
   Future<StoredNote> update({
     required NoteId id,
     required String title,
     required String content,
     required int ifMatch,
     String? path,
+    Map<String, Object?>? properties,
   }) {
     return _withLock(id, () async {
       await _ensureIndexed();
@@ -424,7 +448,7 @@ class Storage {
           createdAt: current.createdAt,
           updatedAt: now,
           content: content,
-          extra: current.extra,
+          extra: _rebuildExtra(current.extra, properties),
         );
         if (newRelPath == oldRelPath) {
           await _writeAtNewLocation(next, newRelPath);
@@ -437,6 +461,48 @@ class Storage {
         _claim(id: id, key: newKey, relPath: newRelPath);
         return next;
       });
+    });
+  }
+
+  /// Merges [existing] (freshly read via [update]) with the caller's
+  /// [set]/[unset], runs the whole read-modify-write inside the same
+  /// per-id mutex [update] uses (see [_withLock]) so a concurrent `PUT`
+  /// and a property patch serialize instead of racing, bumps [version] and
+  /// `updated_at`, and writes the file atomically. Never touches [content],
+  /// and needs no `ifMatch` — the mutex is what makes this safe, per the
+  /// `add-databases` design's "Property patch is a new
+  /// `NoteWriteService.patchProperties`" decision.
+  ///
+  /// [set] entries are applied after [unset] removals, so a key present in
+  /// both ends up set (callers SHOULD reject that combination earlier, at
+  /// the validation layer, rather than relying on this ordering).
+  Future<StoredNote> patchExtra({
+    required NoteId id,
+    Map<String, Object?> set = const {},
+    Set<String> unset = const {},
+  }) {
+    return _withLock(id, () async {
+      await _ensureIndexed();
+      final current = await read(id);
+      final nextExtra = {...current.extra};
+      for (final key in unset) {
+        nextExtra.remove(key);
+      }
+      nextExtra.addAll(set);
+      final now = _clock.nowUtc();
+      final next = StoredNote(
+        id: current.id,
+        title: current.title,
+        path: current.path,
+        version: current.version + 1,
+        createdAt: current.createdAt,
+        updatedAt: now,
+        content: current.content,
+        extra: nextExtra,
+      );
+      final relPath = _relPathById[id]!;
+      await _writeAtNewLocation(next, relPath);
+      return next;
     });
   }
 
@@ -715,6 +781,41 @@ class Storage {
     'created_at',
     'updated_at',
   };
+
+  // Frontmatter keys a database write interprets structurally rather than
+  // as a caller-owned property value. Duplicated locally (rather than
+  // imported from `search_index.dart`'s `kServerInterpretedKeys`) to avoid
+  // a storage.dart <-> search_index.dart import cycle — `search_index.dart`
+  // already imports `storage.dart`. See [_rebuildExtra].
+  static const Set<String> _serverInterpretedExtraKeys = {
+    'type',
+    'tags',
+    'source',
+    'properties',
+    'views',
+  };
+
+  // Rebuilds `extra` for [update] per the merge rule documented on
+  // [update]'s doc comment. Returns [currentExtra] unchanged (same
+  // instance) when [properties] is `null`.
+  static Map<String, Object?> _rebuildExtra(
+    Map<String, Object?> currentExtra,
+    Map<String, Object?>? properties,
+  ) {
+    if (properties == null) return currentExtra;
+    final next = <String, Object?>{};
+    for (final entry in currentExtra.entries) {
+      if (properties.containsKey(entry.key)) {
+        next[entry.key] = properties[entry.key];
+      } else if (_serverInterpretedExtraKeys.contains(entry.key)) {
+        next[entry.key] = entry.value;
+      }
+    }
+    for (final entry in properties.entries) {
+      next.putIfAbsent(entry.key, () => entry.value);
+    }
+    return next;
+  }
 
   static NoteId _ulid() => Ulid().toString();
 }

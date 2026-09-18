@@ -62,13 +62,18 @@ class LinkIndex {
     return _bySource.length;
   }
 
-  /// Parses [content] and replaces [id]'s outgoing edges with the result.
+  /// Parses [content] and replaces [id]'s outgoing edges with the result,
+  /// plus any [extraLinks] — non-body link sources, namely wikilinks found
+  /// in the frontmatter values of declared `relation` properties (see the
+  /// `add-databases` design's "Relations feed the link index" decision).
   /// Called on every create and update, so the index never drifts from
   /// what's actually on disk.
-  void upsert(NoteId id, String content) {
+  void upsert(NoteId id, String content,
+      {List<LinkEdge> extraLinks = const []}) {
     _bySource[id] = [
       for (final link in parseLinks(content))
         LinkEdge(targetTitle: link.targetTitle, alias: link.alias),
+      ...extraLinks,
     ];
   }
 

@@ -867,4 +867,204 @@ void main() {
       expect(note(content: '').toSummary().excerpt, '');
     });
   });
+
+  group('Storage.create with properties', () {
+    test('writes property keys after storage-managed keys', () async {
+      final storage = _storage(
+        tmp,
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final note = await storage.create(
+        title: 'Task One',
+        content: 'body',
+        properties: {'status': 'todo', 'priority': 2},
+      );
+      expect(note.extra, {'status': 'todo', 'priority': 2});
+
+      final raw = File(
+        '${tmp.path}/content/${note.title}.md',
+      ).readAsStringSync();
+      final fm = parseFrontmatter(raw);
+      expect(fm.metadata.keys.toList(), [
+        'id',
+        'title',
+        'path',
+        'version',
+        'created_at',
+        'updated_at',
+        'status',
+        'priority',
+      ]);
+      expect(fm.metadata['status'], 'todo');
+      expect(fm.metadata['priority'], 2);
+    });
+  });
+
+  group('Storage.update with properties', () {
+    test('omitted properties preserves all extras', () async {
+      final storage = _storage(
+        tmp,
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final created = await storage.create(
+        title: 'Task Two',
+        content: 'body',
+        properties: {
+          'status': 'todo',
+          'tags': ['work']
+        },
+      );
+      final updated = await storage.update(
+        id: created.id,
+        title: created.title,
+        content: 'new body',
+        ifMatch: created.version,
+      );
+      expect(updated.extra, {
+        'status': 'todo',
+        'tags': ['work']
+      });
+    });
+
+    test(
+      'supplied properties replaces property keys but keeps tags/type/'
+      'source/views',
+      () async {
+        final storage = _storage(
+          tmp,
+          clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+        );
+        final created = await storage.create(
+          title: 'Task Three',
+          content: 'body',
+          properties: {
+            'type': 'database',
+            'tags': ['work'],
+            'status': 'todo',
+            'priority': 1,
+          },
+        );
+        final updated = await storage.update(
+          id: created.id,
+          title: created.title,
+          content: 'body',
+          ifMatch: created.version,
+          properties: {'status': 'done'},
+        );
+        expect(updated.extra, {
+          'type': 'database',
+          'tags': ['work'],
+          'status': 'done',
+        });
+      },
+    );
+
+    test('key order preserved and new keys appended', () async {
+      final storage = _storage(
+        tmp,
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final created = await storage.create(
+        title: 'Task Four',
+        content: 'body',
+        properties: {'a': 1, 'b': 2},
+      );
+      final updated = await storage.update(
+        id: created.id,
+        title: created.title,
+        content: 'body',
+        ifMatch: created.version,
+        properties: {'b': 20, 'c': 3},
+      );
+      expect(updated.extra.keys.toList(), ['b', 'c']);
+      expect(updated.extra, {'b': 20, 'c': 3});
+    });
+  });
+
+  group('Storage.patchExtra', () {
+    test('sets and unsets keys, bumps version, preserves body', () async {
+      final storage = _storage(
+        tmp,
+        clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
+      );
+      final created = await storage.create(
+        title: 'Patchy',
+        content: 'unchanged body',
+        properties: {'status': 'todo', 'priority': 1},
+      );
+      final patched = await storage.patchExtra(
+        id: created.id,
+        set: {'status': 'done'},
+        unset: {'priority'},
+      );
+      expect(patched.version, created.version + 1);
+      expect(patched.content, 'unchanged body');
+      expect(patched.extra, {'status': 'done'});
+
+      final reread = await storage.read(created.id);
+      expect(reread.extra, {'status': 'done'});
+      expect(reread.version, created.version + 1);
+    });
+
+    test('two concurrent patches both apply', () async {
+      final storage = _storage(tmp);
+      final created = await storage.create(
+        title: 'Concurrent',
+        content: 'body',
+        properties: {},
+      );
+      final f1 = storage.patchExtra(id: created.id, set: {'a': 1});
+      final f2 = storage.patchExtra(id: created.id, set: {'b': 2});
+      await Future.wait([f1, f2]);
+      final reread = await storage.read(created.id);
+      expect(reread.extra, {'a': 1, 'b': 2});
+      expect(reread.version, created.version + 2);
+    });
+
+    test(
+      'a concurrent update with a stale ifMatch gets VersionConflictException',
+      () async {
+        final storage = _storage(tmp);
+        final created = await storage.create(
+          title: 'Racer',
+          content: 'body',
+          properties: {},
+        );
+        await storage.patchExtra(id: created.id, set: {'status': 'done'});
+        expect(
+          () => storage.update(
+            id: created.id,
+            title: created.title,
+            content: 'new body',
+            ifMatch: created.version,
+          ),
+          throwsA(isA<VersionConflictException>()),
+        );
+      },
+    );
+
+    test('body is byte-identical after a patch', () async {
+      final storage = _storage(tmp);
+      final created = await storage.create(
+        title: 'Bytes',
+        content: 'exact body text\nwith newline',
+        properties: {'status': 'todo'},
+      );
+      final rawBefore = File(
+        '${tmp.path}/content/${created.title}.md',
+      ).readAsStringSync();
+      final bodyBefore = parseFrontmatter(rawBefore).body;
+
+      final patched = await storage.patchExtra(
+        id: created.id,
+        set: {'status': 'done'},
+      );
+
+      final rawAfter = File(
+        '${tmp.path}/content/${patched.title}.md',
+      ).readAsStringSync();
+      final bodyAfter = parseFrontmatter(rawAfter).body;
+      expect(bodyAfter, bodyBefore);
+    });
+  });
 }
