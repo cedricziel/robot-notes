@@ -1218,6 +1218,262 @@ void main() {
         expect(ctrl.value.mode, NoteMode.viewing);
         expect(ctrl.value.note?.title, 'kept');
       });
+
+      /// Backend whose `GET /notes/01H` and backlinks answers are handed
+      /// out as completers, in request order, so a test can settle them in
+      /// whatever order it wants. Every other request is answered at once.
+      ({
+        RobotNotesClient api,
+        List<Completer<http.Response>> noteGets,
+        List<Completer<http.Response>> backlinkGets,
+      })
+      deferredBackend() {
+        final noteGets = <Completer<http.Response>>[];
+        final backlinkGets = <Completer<http.Response>>[];
+        final mock = MockClient((request) {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            final c = Completer<http.Response>();
+            noteGets.add(c);
+            return c.future;
+          }
+          if (request.url.path == '/notes/01H/backlinks') {
+            final c = Completer<http.Response>();
+            backlinkGets.add(c);
+            return c.future;
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return Future.value(http.Response(jsonEncode(_lockJson()), 200));
+          }
+          return Future.value(http.Response('unexpected', 500));
+        });
+        return (
+          api: RobotNotesClient(config: _config, httpClient: mock),
+          noteGets: noteGets,
+          backlinkGets: backlinkGets,
+        );
+      }
+
+      http.Response noteResponse({
+        int version = 1,
+        Map<String, Object?>? lock,
+      }) => http.Response(
+        jsonEncode(_noteJson(version: version, title: 'v$version', lock: lock)),
+        200,
+      );
+
+      http.Response backlinksResponse(List<String> ids) => http.Response(
+        jsonEncode(<String, Object?>{
+          'items': [
+            for (final id in ids)
+              <String, Object?>{'id': id, 'title': id, 'snippet': ''},
+          ],
+        }),
+        200,
+      );
+
+      /// Opens the note against [backend] and settles the initial fetches.
+      Future<NoteController> openDeferred(
+        ({
+          RobotNotesClient api,
+          List<Completer<http.Response>> noteGets,
+          List<Completer<http.Response>> backlinkGets,
+        })
+        backend, {
+        StreamController<RealtimeEvent>? events,
+      }) async {
+        final ctrl = NoteController(
+          api: backend.api,
+          noteId: '01H',
+          actor: 'cedric',
+          events: events?.stream,
+          scheduler: (_) => Completer<void>().future,
+          autosaveScheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+        final opening = ctrl.open();
+        await Future<void>.delayed(Duration.zero);
+        backend.noteGets[0].complete(noteResponse());
+        await opening;
+        await Future<void>.delayed(Duration.zero);
+        backend.backlinkGets[0].complete(backlinksResponse(const []));
+        await Future<void>.delayed(Duration.zero);
+        expect(ctrl.value.note?.version, 1);
+        return ctrl;
+      }
+
+      test(
+        'a stale reload response does not overwrite a newer realtime refetch',
+        () async {
+          final backend = deferredBackend();
+          final events = StreamController<RealtimeEvent>.broadcast();
+          addTearDown(events.close);
+          final ctrl = await openDeferred(backend, events: events);
+
+          final reloading = ctrl.reload();
+          await Future<void>.delayed(Duration.zero);
+          expect(backend.noteGets, hasLength(2));
+
+          // Someone saves while the pull is in flight: the realtime refetch
+          // starts second but answers first, with the newer version.
+          events.add(
+            const RealtimeMessage(
+              ChangedEvent(
+                noteId: '01H',
+                version: 3,
+                by: 'alice',
+                action: ChangeAction.updated,
+              ),
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(backend.noteGets, hasLength(3));
+          backend.noteGets[2].complete(noteResponse(version: 3));
+          await Future<void>.delayed(Duration.zero);
+          expect(ctrl.value.note?.version, 3);
+
+          backend.noteGets[1].complete(noteResponse(version: 2));
+          await reloading;
+
+          expect(ctrl.value.note?.version, 3);
+          expect(ctrl.value.note?.title, 'v3');
+        },
+      );
+
+      test(
+        'a stale realtime refetch does not overwrite a newer reload',
+        () async {
+          final backend = deferredBackend();
+          final events = StreamController<RealtimeEvent>.broadcast();
+          addTearDown(events.close);
+          final ctrl = await openDeferred(backend, events: events);
+
+          events.add(
+            const RealtimeMessage(
+              ChangedEvent(
+                noteId: '01H',
+                version: 2,
+                by: 'alice',
+                action: ChangeAction.updated,
+              ),
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(backend.noteGets, hasLength(2));
+
+          final reloading = ctrl.reload();
+          await Future<void>.delayed(Duration.zero);
+          expect(backend.noteGets, hasLength(3));
+          backend.noteGets[2].complete(noteResponse(version: 3));
+          await reloading;
+          expect(ctrl.value.note?.version, 3);
+
+          backend.noteGets[1].complete(noteResponse(version: 2));
+          await Future<void>.delayed(Duration.zero);
+
+          expect(ctrl.value.note?.version, 3);
+        },
+      );
+
+      test(
+        'a lock event during a pending reload wins over the response',
+        () async {
+          final backend = deferredBackend();
+          final events = StreamController<RealtimeEvent>.broadcast();
+          addTearDown(events.close);
+          final ctrl = await openDeferred(backend, events: events);
+
+          final reloading = ctrl.reload();
+          await Future<void>.delayed(Duration.zero);
+
+          events.add(
+            RealtimeMessage(
+              LockEvent(
+                noteId: '01H',
+                holder: 'alice',
+                expiresAt: DateTime.utc(2025, 1, 1, 0, 1),
+              ),
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(ctrl.value.lock?.holder, 'alice');
+
+          // The response was produced before alice took the lock.
+          backend.noteGets[1].complete(noteResponse(version: 2));
+          await reloading;
+
+          expect(ctrl.value.note?.version, 2, reason: 'content still lands');
+          expect(ctrl.value.lock?.holder, 'alice', reason: 'newer lock kept');
+        },
+      );
+
+      test(
+        'a stale backlinks response does not overwrite a newer one',
+        () async {
+          final backend = deferredBackend();
+          final ctrl = await openDeferred(backend);
+
+          // Two reloads, each spawning a backlinks fetch; settle the newer
+          // backlinks fetch first, then the older one.
+          final first = ctrl.reload();
+          await Future<void>.delayed(Duration.zero);
+          backend.noteGets[1].complete(noteResponse(version: 2));
+          await first;
+          final second = ctrl.reload();
+          await Future<void>.delayed(Duration.zero);
+          backend.noteGets[2].complete(noteResponse(version: 3));
+          await second;
+          await Future<void>.delayed(Duration.zero);
+          expect(backend.backlinkGets, hasLength(3));
+
+          backend.backlinkGets[2].complete(backlinksResponse(const ['X']));
+          await Future<void>.delayed(Duration.zero);
+          expect(ctrl.value.backlinks.map((b) => b.id), ['X']);
+          expect(ctrl.value.backlinksLoading, isFalse);
+
+          backend.backlinkGets[1].complete(backlinksResponse(const []));
+          await Future<void>.delayed(Duration.zero);
+
+          expect(ctrl.value.backlinks.map((b) => b.id), ['X']);
+          expect(ctrl.value.backlinksLoading, isFalse);
+        },
+      );
+
+      test(
+        'a reload that fails after the user entered edit mode records no error',
+        () async {
+          final backend = deferredBackend();
+          final ctrl = await openDeferred(backend);
+
+          final reloading = ctrl.reload();
+          await Future<void>.delayed(Duration.zero);
+          expect(backend.noteGets, hasLength(2));
+
+          // Entering edit mode acquires the lock and re-fetches the note
+          // itself; that fetch succeeds first.
+          final editing = ctrl.enterEditMode();
+          await Future<void>.delayed(Duration.zero);
+          expect(backend.noteGets, hasLength(3));
+          backend.noteGets[2].complete(noteResponse(version: 2));
+          await editing;
+          expect(ctrl.value.mode, NoteMode.editing);
+
+          backend.noteGets[1].complete(
+            http.Response(
+              jsonEncode(<String, Object?>{
+                'error': 'internal',
+                'message': 'boom',
+              }),
+              500,
+            ),
+          );
+          await reloading;
+
+          expect(ctrl.value.mode, NoteMode.editing);
+          expect(ctrl.value.error, isNull);
+          expect(ctrl.value.note?.version, 2);
+        },
+      );
     });
   });
 }
