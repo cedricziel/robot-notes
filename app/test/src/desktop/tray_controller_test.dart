@@ -113,7 +113,29 @@ void main() {
     });
   });
 
+  group('TrayController on macOS', () {
+    test(
+      'hideWindow hides the window (the menu bar\'s Close Window)',
+      () async {
+        final controller = buildController();
+        await controller.init();
+
+        await controller.hideWindow();
+
+        verify(() => windowManager.hide()).called(1);
+      },
+    );
+  });
+
   group('TrayController off macOS', () {
+    test('hideWindow is a no-op', () async {
+      final controller = buildController(isMacOS: false);
+
+      await controller.hideWindow();
+
+      verifyNever(() => windowManager.hide());
+    });
+
     test('init is a no-op', () async {
       final controller = buildController(isMacOS: false);
 

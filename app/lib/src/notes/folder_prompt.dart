@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import '../widgets/adaptive.dart';
 import '../widgets/error_strip.dart';
 
 /// Shows a "New folder" prompt and, on confirm, calls
@@ -56,22 +57,19 @@ class _CreateFolderDialogState extends State<_CreateFolderDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return AlertDialog.adaptive(
       title: const Text('New folder'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextFormField(
+          AdaptiveDialogTextField(
             key: const Key('folder.create.input'),
             initialValue: _draft,
-            autofocus: true,
             enabled: !_submitting,
+            label: 'Folder path',
+            hint: 'e.g. Projects/Alpha',
             onChanged: (v) => _draft = v,
-            decoration: const InputDecoration(
-              labelText: 'Folder path',
-              hintText: 'e.g. Projects/Alpha',
-            ),
           ),
           if (_error != null) ...[
             const SizedBox(height: 8),
@@ -84,15 +82,18 @@ class _CreateFolderDialogState extends State<_CreateFolderDialog> {
         ],
       ),
       actions: [
-        TextButton(
+        adaptiveDialogAction(
+          context,
           key: const Key('folder.create.cancel'),
           onPressed: _submitting
               ? null
               : () => Navigator.of(context).pop(false),
           child: const Text('Cancel'),
         ),
-        FilledButton(
+        adaptiveDialogAction(
+          context,
           key: const Key('folder.create.confirm'),
+          primary: true,
           onPressed: _submitting ? null : _submit,
           child: const Text('Create'),
         ),

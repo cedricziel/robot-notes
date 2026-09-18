@@ -146,7 +146,7 @@ class _SearchScreenState extends State<SearchScreen> {
         final error = state.error;
         if (state.hits.isEmpty) {
           if (state.isLoading) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator.adaptive());
           }
           if (error != null) {
             return Center(

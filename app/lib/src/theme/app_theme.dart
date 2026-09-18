@@ -1,5 +1,13 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+
+/// Whether [platform] is one of Apple's, where the app should feel like a
+/// Cupertino citizen (no ink ripples, iOS-style dialogs, Menlo for code)
+/// rather than an Android one. The theme and the adaptive widgets both key
+/// off this so they agree on where "Apple" begins.
+bool isApplePlatform(TargetPlatform platform) =>
+    platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
 
 /// The one place the app's [ThemeData] is assembled. Both brightnesses
 /// derive from the same seed; everything else here is density and
@@ -7,11 +15,14 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 abstract final class AppTheme {
   static const Color seed = Colors.indigo;
 
-  static ThemeData light() => _build(Brightness.light);
+  static ThemeData light({TargetPlatform? platform}) =>
+      _build(Brightness.light, platform ?? defaultTargetPlatform);
 
-  static ThemeData dark() => _build(Brightness.dark);
+  static ThemeData dark({TargetPlatform? platform}) =>
+      _build(Brightness.dark, platform ?? defaultTargetPlatform);
 
-  static ThemeData _build(Brightness brightness) {
+  static ThemeData _build(Brightness brightness, TargetPlatform platform) {
+    final apple = isApplePlatform(platform);
     final scheme = ColorScheme.fromSeed(
       seedColor: seed,
       brightness: brightness,
@@ -20,8 +31,14 @@ abstract final class AppTheme {
       useMaterial3: true,
       colorScheme: scheme,
       brightness: brightness,
+      platform: platform,
       // Tighter controls on desktop, standard touch targets on mobile.
       visualDensity: VisualDensity.adaptivePlatformDensity,
+      // Ink ripples are a Material signature that reads as "Android" on an
+      // iPhone or a Mac; Apple platforms get a plain highlight instead.
+      // (Typography already follows the platform: ThemeData picks the
+      // system font — San Francisco on iOS/macOS — for `platform`.)
+      splashFactory: apple ? NoSplash.splashFactory : null,
     );
     return base.copyWith(
       // Flat app bars sit better next to the inline sidebar and the
@@ -31,7 +48,10 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
         elevation: 0,
-        centerTitle: false,
+        // iOS centers navigation-bar titles; macOS (like the desktop
+        // three-pane shell it usually runs in) and everything else keep
+        // them leading-aligned.
+        centerTitle: platform == TargetPlatform.iOS,
       ),
       dividerTheme: DividerThemeData(
         color: scheme.outlineVariant,
@@ -53,6 +73,20 @@ abstract final class AppTheme {
     );
   }
 
+  /// Monospace stack for code in notes. Apple ships Menlo on every iPhone
+  /// and Mac but has no generic `monospace` alias, so it goes first there;
+  /// elsewhere the generic family resolves to the platform's own choice.
+  static TextStyle codeFont(TargetPlatform platform) =>
+      isApplePlatform(platform)
+      ? const TextStyle(
+          fontFamily: 'Menlo',
+          fontFamilyFallback: ['monospace', 'Courier New'],
+        )
+      : const TextStyle(
+          fontFamily: 'monospace',
+          fontFamilyFallback: ['Menlo', 'Consolas', 'Courier New'],
+        );
+
   /// Markdown styling for both the read-only note body and the editor's
   /// live preview, so they render identically. Derived from the ambient
   /// theme rather than the package defaults: readable line height,
@@ -62,9 +96,7 @@ abstract final class AppTheme {
     final scheme = theme.colorScheme;
     final text = theme.textTheme;
     final body = text.bodyLarge?.copyWith(height: 1.5);
-    final code = TextStyle(
-      fontFamily: 'monospace',
-      fontFamilyFallback: const ['Menlo', 'Consolas', 'Courier New'],
+    final code = codeFont(theme.platform).copyWith(
       fontSize: (text.bodyMedium?.fontSize ?? 14) * 0.95,
       height: 1.45,
       color: scheme.onSurface,

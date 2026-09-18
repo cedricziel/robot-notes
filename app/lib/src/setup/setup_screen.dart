@@ -282,7 +282,7 @@ class _SetupScreenState extends State<SetupScreen> {
             key: Key('setup.reachability.checking'),
             width: 16,
             height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            child: CircularProgressIndicator.adaptive(strokeWidth: 2),
           ),
         );
       case _Reachability.ok:
@@ -377,7 +377,7 @@ class _SetupScreenState extends State<SetupScreen> {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator.adaptive(strokeWidth: 2),
                   )
                 : const Text('Sign in with your identity provider'),
           ),
@@ -419,7 +419,7 @@ class _SetupScreenState extends State<SetupScreen> {
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator.adaptive(strokeWidth: 2),
                   )
                 : const Text('Connect'),
           ),

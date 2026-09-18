@@ -61,10 +61,13 @@ void main() {
 
       await _openDialog(tester, api: api, initialPath: 'Projects');
 
-      final field = tester.widget<TextFormField>(
-        find.byKey(const Key('folder.create.input')),
+      final field = tester.widget<EditableText>(
+        find.descendant(
+          of: find.byKey(const Key('folder.create.input')),
+          matching: find.byType(EditableText),
+        ),
       );
-      expect(field.initialValue, 'Projects');
+      expect(field.controller.text, 'Projects');
     });
 
     testWidgets('confirming calls createFolder and pops true on success', (

@@ -59,6 +59,13 @@ class TrayController with TrayListener, WindowListener {
     await _windowManager.focus();
   }
 
+  /// Hides the window the way closing it does (the tray icon keeps the app
+  /// alive); backs the menu bar's Window › Close Window. No-op off macOS.
+  Future<void> hideWindow() async {
+    if (!_isMacOS) return;
+    await _windowManager.hide();
+  }
+
   @override
   void onTrayIconMouseDown() {
     _restore();

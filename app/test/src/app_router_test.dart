@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/app_router.dart';
 import 'package:app/src/config/app_config.dart';
+import 'package:app/src/desktop/app_menu_actions.dart';
+import 'package:app/src/desktop/app_menu_bar.dart';
 import 'package:app/src/files/picked_file.dart';
 import 'package:app/src/layout/breakpoints.dart';
 import 'package:app/src/notes/folder_tree_controller.dart';
@@ -12,6 +14,8 @@ import 'package:app/src/notes/notes_list_screen.dart';
 import 'package:app/src/realtime/connection_status.dart';
 import 'package:app/src/realtime/ws_client.dart';
 import 'package:app/src/search/search_screen.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/services.dart';
@@ -91,6 +95,10 @@ Widget _harness({
   PickFile? pickFile,
   GoRouter? router,
   ValueNotifier<ConnectionStatus>? connection,
+  AppMenuActions? menuActions,
+  // Wraps the routed content inside [AppSession], e.g. to pin an ambient
+  // MediaQuery (a macOS unified-title-bar inset) around the shell.
+  Widget Function(Widget)? wrapContent,
 }) {
   final ws = RobotNotesWsClient(config: _config);
   final list = NotesListController(api: api);
@@ -102,7 +110,7 @@ Widget _harness({
         initialLocation: initialLocation,
         pickFile: pickFile ?? () async => null,
       );
-  return MaterialApp.router(
+  final app = MaterialApp.router(
     routerConfig: goRouter,
     builder: (context, child) => AppSession(
       api: api,
@@ -113,9 +121,11 @@ Widget _harness({
       baseUrl: _config.baseUrl,
       connection: connection ?? ValueNotifier(ConnectionStatus.connected),
       onReset: onReset ?? () {},
-      child: child!,
+      child: wrapContent == null ? child! : wrapContent(child!),
     ),
   );
+  if (menuActions == null) return app;
+  return AppMenuActionsScope(actions: menuActions, child: app);
 }
 
 /// Sets the test window to [size] logical pixels (1:1 device pixels) and
@@ -1147,6 +1157,51 @@ void main() {
       },
     );
 
+    testWidgets('honours a macOS unified-title-bar inset from the ambient '
+        'MediaQuery: the sidebar Material still starts at the top, but its '
+        "'Folders' header and the notes list's app bar inset below it", (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(1400, 900));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(_backendWithOneNote),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          wrapContent: (child) => Builder(
+            builder: (context) {
+              final media = MediaQuery.of(context);
+              return MediaQuery(
+                data: media.copyWith(padding: media.padding.copyWith(top: 28)),
+                child: child,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The sidebar's background still paints all the way up (under a
+      // unified title bar's traffic lights)...
+      expect(tester.getTopLeft(find.byKey(const Key('shell.sidebar'))).dy, 0);
+      // ...but its content insets below the title-bar inset.
+      expect(
+        tester.getTopLeft(find.text('Folders')).dy,
+        greaterThanOrEqualTo(28),
+      );
+      // The notes list pane's own AppBar (a Scaffold-hosted AppBar
+      // already honours MediaQuery.padding.top) insets the same way.
+      expect(
+        tester.getTopLeft(find.byKey(const Key('notes.title'))).dy,
+        greaterThanOrEqualTo(28),
+      );
+    });
+
     testWidgets('a deep-linked note renders beside the list', (tester) async {
       _setWindow(tester, const Size(1400, 900));
       final api = RobotNotesClient(
@@ -1402,6 +1457,140 @@ void main() {
       );
 
       expect(find.byKey(const Key('search.input')), findsOneWidget);
+    });
+  });
+
+  group('extra shortcuts', () {
+    testWidgets('Cmd+R re-fetches the notes list', (tester) async {
+      _setWindow(tester, const Size(800, 600));
+      var listCalls = 0;
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes') {
+            listCalls++;
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+      expect(listCalls, 1);
+
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.metaLeft,
+        LogicalKeyboardKey.keyR,
+      );
+      await tester.pumpAndSettle();
+
+      expect(listCalls, 2);
+    });
+
+    testWidgets('Ctrl+, opens the account surface', (tester) async {
+      _setWindow(tester, const Size(800, 600));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('account.sheet')), findsNothing);
+
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.controlLeft,
+        LogicalKeyboardKey.comma,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('account.sheet')), findsOneWidget);
+    });
+  });
+
+  group('macOS menu bar registration', () {
+    testWidgets('the shell publishes its commands while mounted', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(800, 600));
+      final actions = AppMenuActions();
+      addTearDown(actions.dispose);
+      var listCalls = 0;
+      Map<String, dynamic>? createBody;
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes') {
+            listCalls++;
+          }
+          if (request.method == 'POST' && request.url.path == '/notes') {
+            createBody = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(jsonEncode(_noteJson()), 201);
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/', menuActions: actions),
+      );
+      await tester.pumpAndSettle();
+
+      expect(actions.shell.newNote, isNotNull);
+      expect(actions.shell.newFolder, isNotNull);
+      expect(actions.shell.uploadFile, isNotNull);
+      expect(actions.shell.search, isNotNull);
+      expect(actions.shell.refresh, isNotNull);
+      expect(actions.shell.account, isNotNull);
+
+      actions.shell.refresh!();
+      await tester.pumpAndSettle();
+      expect(listCalls, 2);
+
+      actions.shell.search!();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('search.close')));
+      await tester.pumpAndSettle();
+
+      actions.shell.newNote!();
+      await tester.pumpAndSettle();
+      expect(createBody, isNotNull);
+      expect(find.byKey(const Key('note.editor.title')), findsOneWidget);
+
+      await _closeNoteAndDrainTimers(tester);
+    });
+
+    testWidgets('on the macOS desktop build the shell leaves menu-owned '
+        'chords to the menu bar', (tester) async {
+      // Reset inline (not in a tearDown): the test binding checks this
+      // override is clear before tearDowns run.
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        _setWindow(tester, const Size(800, 600));
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: _mockClient(),
+        );
+        addTearDown(api.close);
+
+        await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+        await tester.pumpAndSettle();
+
+        final shortcuts = tester
+            .widgetList<Shortcuts>(find.byType(Shortcuts))
+            .map((w) => w.shortcuts)
+            .firstWhere((m) => m.values.any((i) => i is OpenSearchIntent));
+        expect(shortcuts.keys.any(menuOwnsShortcut), isFalse);
+        // The non-menu spellings survive.
+        expect(shortcuts.values, contains(const OpenSearchIntent()));
+        expect(shortcuts.values, contains(const NewNoteIntent()));
+        expect(nativeMenuBarActive, isTrue);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     });
   });
 }
