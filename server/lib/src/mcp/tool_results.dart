@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:shared/shared.dart';
+
 /// Wire error code for a tool call that requires a scope the calling
 /// `McpPrincipal` lacks. Not one of the codes in `package:shared`'s
 /// `ErrorCode` enum, which predates MCP scopes, so it lives here as a
@@ -7,15 +9,14 @@ import 'dart:convert';
 const String kErrorInsufficientScope = 'insufficient_scope';
 
 /// Wire error code for a semantically invalid tool call (e.g. an empty
-/// title, a blank search query) as opposed to a malformed one. Not one of
-/// the codes in `package:shared`'s `ErrorCode` enum; see
-/// [kErrorInsufficientScope].
-const String kErrorValidationFailed = 'validation_failed';
+/// title, a blank search query) as opposed to a malformed one. Backed by
+/// `package:shared`'s `ErrorCode.validationFailed`.
+final String kErrorValidationFailed = ErrorCode.validationFailed.wire;
 
 /// Wire error code for a write whose resolved target path collides with a
-/// different note, mirroring the HTTP API's `path_conflict` (also not an
-/// `ErrorCode` enum member — see [kErrorInsufficientScope]).
-const String kErrorPathConflict = 'path_conflict';
+/// different note, mirroring the HTTP API's `path_conflict`. Backed by
+/// `package:shared`'s `ErrorCode.pathConflict`.
+final String kErrorPathConflict = ErrorCode.pathConflict.wire;
 
 /// Wire error code for an upload whose (declared or actual) size exceeds
 /// the server's configured maximum, mirroring the HTTP API's `413`

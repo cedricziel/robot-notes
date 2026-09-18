@@ -16,7 +16,14 @@ enum ErrorCode {
   unknownType('unknown_type'),
   authFailed('auth_failed'),
   authTimeout('auth_timeout'),
-  internalError('internal_error');
+  internalError('internal_error'),
+
+  /// A caller-supplied value (a property, a filter, a definition section)
+  /// failed schema validation.
+  validationFailed('validation_failed'),
+
+  /// A write's resolved target path collides with a different note.
+  pathConflict('path_conflict');
 
   const ErrorCode(this.wire);
 
