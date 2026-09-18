@@ -192,6 +192,29 @@ void main() {
       final body = await res.json() as Map<String, dynamic>;
       expect(body['tags'], ['urgent']);
     });
+
+    test('exposes frontmatter extras as properties', () async {
+      final note = await storage.create(
+        title: 't',
+        content: 'c',
+        properties: {'status': 'Active'},
+      );
+      index.upsert(note.toSummary());
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+        ),
+        note.id,
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['properties'], {'status': 'Active'});
+    });
   });
 
   group('PUT /notes/{id}', () {
@@ -253,6 +276,65 @@ void main() {
       expect(body['title'], 'original title');
       expect(body['content'], 'new content, same title');
       expect(body['version'], 2);
+    });
+
+    test('supplied properties replace extras', () async {
+      final note = await storage.create(
+        title: 't',
+        content: 'c',
+        properties: {'status': 'Active', 'mood': 'great'},
+      );
+      index.upsert(note.toSummary());
+      final writes = await _writeService(tmp, storage, index);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          writes: writes,
+          headers: {'if-match': '1'},
+          body: {
+            'content': 'c',
+            'properties': {'status': 'Done'},
+          },
+        ),
+        note.id,
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['properties'], {'status': 'Done'});
+      final onDisk = await storage.read(note.id);
+      expect(onDisk.extra.containsKey('mood'), isFalse);
+    });
+
+    test('omitted properties preserves extras', () async {
+      final note = await storage.create(
+        title: 't',
+        content: 'c',
+        properties: {'status': 'Active'},
+      );
+      index.upsert(note.toSummary());
+      final writes = await _writeService(tmp, storage, index);
+
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.put,
+          storage: storage,
+          metaIndex: index,
+          lockManager: lockManager,
+          writes: writes,
+          headers: {'if-match': '1'},
+          body: {'title': 't', 'content': 'new'},
+        ),
+        note.id,
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['properties'], {'status': 'Active'});
     });
 
     test('with an empty title returns 400 bad_request', () async {

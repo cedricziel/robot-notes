@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor.dart';
+import 'package:server/src/databases/note_properties.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/storage.dart';
@@ -167,6 +168,18 @@ Future<Response> _create(RequestContext context) async {
     );
   }
   final path = (pathRaw as String?) ?? '';
+  final propertiesRaw = raw['properties'];
+  if (propertiesRaw != null && propertiesRaw is! Map) {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: const {
+        'error': 'bad_request',
+        'message': 'properties must be an object when provided',
+      },
+    );
+  }
+  final properties =
+      (propertiesRaw as Map<String, dynamic>?)?.cast<String, Object?>();
 
   final actor = context.read<Actor>();
   final writes = context.read<NoteWriteService>();
@@ -176,6 +189,7 @@ Future<Response> _create(RequestContext context) async {
       content: content,
       actor: actor.name,
       path: path,
+      properties: properties,
     );
     return Response.json(
       statusCode: HttpStatus.created,
@@ -187,6 +201,15 @@ Future<Response> _create(RequestContext context) async {
         'version': note.version,
         'created_at': note.createdAt.toUtc().toIso8601String(),
         'updated_at': note.updatedAt.toUtc().toIso8601String(),
+        'properties': propertiesOf(note.extra),
+      },
+    );
+  } on PropertyValidationException catch (e) {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: {
+        'error': 'validation_failed',
+        'message': e.violations.join('; '),
       },
     );
   } on PathConflictException {
