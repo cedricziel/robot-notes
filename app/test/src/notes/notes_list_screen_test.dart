@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
+import 'package:app/src/layout/breakpoints.dart';
 import 'package:app/src/notes/notes_list_controller.dart';
 import 'package:app/src/notes/notes_list_screen.dart';
 import 'package:flutter/gestures.dart';
@@ -45,6 +47,20 @@ http.Response _page(List<Object?> items) => http.Response(
   }),
   200,
 );
+
+/// Drags the sidebar's resize handle by [dx] with a mouse (no touch slop
+/// is swallowed, so the panel sees exactly [dx]).
+Future<void> _dragHandle(WidgetTester tester, double dx) async {
+  final handle = find.byKey(const Key('panel.resizeHandle'));
+  final gesture = await tester.startGesture(
+    tester.getCenter(handle),
+    kind: PointerDeviceKind.mouse,
+  );
+  await gesture.moveBy(Offset(dx, 0));
+  await tester.pump();
+  await gesture.up();
+  await tester.pumpAndSettle();
+}
 
 void main() {
   testWidgets('initial render fetches the first page', (tester) async {
@@ -106,7 +122,7 @@ void main() {
   testWidgets('a supplied sidebar renders beside the list on a wide screen', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.physicalSize = const Size(800, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final mock = MockClient((request) async {
@@ -209,7 +225,7 @@ void main() {
     expect(find.text('after-2'), findsOneWidget);
   });
 
-  testWidgets('a refresh action in the AppBar re-fetches the first page', (
+  testWidgets('the wide toolbar refresh action re-fetches the first page', (
     tester,
   ) async {
     var calls = 0;
@@ -222,19 +238,7 @@ void main() {
     addTearDown(ctrl.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: NotesListScreen(
-          controller: ctrl,
-          appBarActions: [
-            IconButton(
-              key: const Key('shell.refresh'),
-              tooltip: 'Refresh',
-              icon: const Icon(Icons.refresh),
-              onPressed: ctrl.refresh,
-            ),
-          ],
-        ),
-      ),
+      MaterialApp(home: NotesListScreen(controller: ctrl)),
     );
     await tester.pumpAndSettle();
     expect(calls, 1);
@@ -309,107 +313,6 @@ void main() {
     expect(find.text('recovered'), findsOneWidget);
   });
 
-  group('formatNoteTimestamp', () {
-    test('renders YYYY-MM-DD HH:MM with zero padding and no UTC marker', () {
-      expect(
-        formatNoteTimestamp(DateTime(2026, 1, 2, 3, 4, 5)),
-        '2026-01-02 03:04',
-      );
-    });
-
-    test('renders a UTC instant as the local wall-clock time', () {
-      final utc = DateTime.utc(2026, 9, 12, 10, 28);
-      final l = utc.toLocal();
-      final wallClock = DateTime(l.year, l.month, l.day, l.hour, l.minute);
-
-      expect(formatNoteTimestamp(utc), formatNoteTimestamp(wallClock));
-    });
-  });
-
-  group('formatRelativeNoteTime', () {
-    final now = DateTime.utc(2026, 9, 12, 12, 0, 0);
-
-    test('just now for less than a minute ago', () {
-      expect(
-        formatRelativeNoteTime(
-          now.subtract(const Duration(seconds: 30)),
-          now: now,
-        ),
-        'just now',
-      );
-    });
-
-    test('singular minute', () {
-      expect(
-        formatRelativeNoteTime(
-          now.subtract(const Duration(minutes: 1)),
-          now: now,
-        ),
-        '1 minute ago',
-      );
-    });
-
-    test('plural minutes', () {
-      expect(
-        formatRelativeNoteTime(
-          now.subtract(const Duration(minutes: 5)),
-          now: now,
-        ),
-        '5 minutes ago',
-      );
-    });
-
-    test('singular hour', () {
-      expect(
-        formatRelativeNoteTime(
-          now.subtract(const Duration(hours: 1)),
-          now: now,
-        ),
-        '1 hour ago',
-      );
-    });
-
-    test('plural hours', () {
-      expect(
-        formatRelativeNoteTime(
-          now.subtract(const Duration(hours: 5)),
-          now: now,
-        ),
-        '5 hours ago',
-      );
-    });
-
-    test('singular day', () {
-      expect(
-        formatRelativeNoteTime(now.subtract(const Duration(days: 1)), now: now),
-        '1 day ago',
-      );
-    });
-
-    test('plural days', () {
-      expect(
-        formatRelativeNoteTime(now.subtract(const Duration(days: 3)), now: now),
-        '3 days ago',
-      );
-    });
-
-    test('falls back to the absolute timestamp beyond a week', () {
-      final then = now.subtract(const Duration(days: 8));
-      expect(formatRelativeNoteTime(then, now: now), formatNoteTimestamp(then));
-    });
-
-    test('falls back to the absolute timestamp for a future update time', () {
-      // Clock skew between server and client can put updatedAt slightly (or
-      // not so slightly) ahead of "now" — the negative diff must not read
-      // as "just now".
-      final future = now.add(const Duration(hours: 3));
-      expect(
-        formatRelativeNoteTime(future, now: now),
-        formatNoteTimestamp(future),
-      );
-    });
-  });
-
   group('note row content', () {
     testWidgets('shows a relative time and no version number', (tester) async {
       final mock = MockClient((request) async {
@@ -432,7 +335,7 @@ void main() {
       expect(find.textContaining('v1'), findsNothing);
     });
 
-    testWidgets('shows the folder path trailing the title', (tester) async {
+    testWidgets('shows the folder path in the metadata line', (tester) async {
       final mock = MockClient((request) async {
         return _page(<Object?>[
           _metaJson(id: '01H', title: 'Weekend Trip', path: 'Personal/Trip'),
@@ -509,7 +412,9 @@ void main() {
       expect(find.text('Leaving Friday evening'), findsOneWidget);
     });
 
-    testWidgets('shows a chip per tag', (tester) async {
+    testWidgets('shows each tag as a plain "#tag" label, not a Chip', (
+      tester,
+    ) async {
       final mock = MockClient((request) async {
         return _page(<Object?>[
           _metaJson(id: '01H', tags: ['travel', 'urgent']),
@@ -524,11 +429,47 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.widgetWithText(Chip, 'travel'), findsOneWidget);
-      expect(find.widgetWithText(Chip, 'urgent'), findsOneWidget);
+      expect(find.text('#travel'), findsOneWidget);
+      expect(find.text('#urgent'), findsOneWidget);
+      expect(find.byType(Chip), findsNothing);
+      expect(find.byType(InputChip), findsNothing);
+
+      final theme = Theme.of(tester.element(find.text('#travel')));
+      final label = tester.widget<Text>(find.text('#travel'));
+      expect(label.style?.fontSize, theme.textTheme.labelSmall?.fontSize);
+      expect(label.style?.color, theme.colorScheme.onSurfaceVariant);
     });
 
-    testWidgets('shows no tag chips when the note has no tags', (tester) async {
+    testWidgets('hides the path when the list is scoped to that folder', (
+      tester,
+    ) async {
+      final mock = MockClient((request) async {
+        return _page(<Object?>[
+          _metaJson(id: '01H', title: 'In Alpha', path: 'Projects/Alpha'),
+          _metaJson(id: '02H', title: 'Elsewhere', path: 'Projects/Beta'),
+        ]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.tile.01H.path')), findsOneWidget);
+
+      await ctrl.selectFolder('Projects/Alpha');
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('notes.tile.01H.path')), findsNothing);
+      // A note the server returned from a subfolder still shows where it is.
+      expect(find.byKey(const Key('notes.tile.02H.path')), findsOneWidget);
+    });
+
+    testWidgets('shows no tag labels when the note has no tags', (
+      tester,
+    ) async {
       final mock = MockClient((request) async {
         return _page(<Object?>[_metaJson(id: '01H')]);
       });
@@ -542,6 +483,39 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(Chip), findsNothing);
+      expect(find.textContaining('#'), findsNothing);
+    });
+
+    testWidgets('the row matching selectedNoteId renders selected', (
+      tester,
+    ) async {
+      final mock = MockClient((request) async {
+        return _page(<Object?>[
+          _metaJson(id: '01H', title: 'open'),
+          _metaJson(id: '02H', title: 'other'),
+        ]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(controller: ctrl, selectedNoteId: '01H'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      ListTile tile(String id) =>
+          tester.widget<ListTile>(find.byKey(Key('notes.tile.$id')));
+      expect(tile('01H').selected, isTrue);
+      expect(tile('02H').selected, isFalse);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+      expect(tile('01H').selected, isFalse);
     });
   });
 
@@ -620,7 +594,7 @@ void main() {
     testWidgets(
       'hovering a row on a wide screen reveals a delete button that works',
       (tester) async {
-        tester.view.physicalSize = const Size(1200, 800);
+        tester.view.physicalSize = const Size(800, 800);
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
         final calls = <String>[];
@@ -705,7 +679,7 @@ void main() {
     testWidgets(
       'on a wide screen, a labelled New note action replaces the FAB',
       (tester) async {
-        tester.view.physicalSize = const Size(1200, 800);
+        tester.view.physicalSize = const Size(800, 800);
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
         final mock = MockClient((request) async {
@@ -723,17 +697,21 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(FloatingActionButton), findsNothing);
-        expect(find.text('New note'), findsOneWidget);
-
-        await tester.tap(find.text('New note'));
-        await tester.pump();
+        expect(find.byKey(const Key('notes.create.toolbar')), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(AppBar),
+            matching: find.text('New note'),
+          ),
+          findsOneWidget,
+        );
       },
     );
 
     testWidgets('the wide New note action invokes onCreateNote when tapped', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.physicalSize = const Size(800, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final mock = MockClient((request) async {
@@ -754,7 +732,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('New note'));
+      await tester.tap(find.byKey(const Key('notes.create.toolbar')));
       await tester.pump();
 
       expect(created, isTrue);
@@ -794,7 +772,7 @@ void main() {
       expect(find.byKey(const Key('notes.bottomNav.account')), findsOneWidget);
     });
 
-    testWidgets('hides the AppBar hamburger and old icon actions', (
+    testWidgets('hides the AppBar hamburger and the toolbar actions', (
       tester,
     ) async {
       await setNarrow(tester);
@@ -808,13 +786,10 @@ void main() {
           home: NotesListScreen(
             controller: ctrl,
             sidebar: const Text('SIDEBAR'),
-            appBarActions: [
-              IconButton(
-                key: const Key('shell.refresh'),
-                icon: const Icon(Icons.refresh),
-                onPressed: () {},
-              ),
-            ],
+            onCreateNote: () {},
+            onUploadFile: () {},
+            onSearch: () {},
+            onAccount: () {},
           ),
         ),
       );
@@ -822,6 +797,13 @@ void main() {
 
       expect(find.byIcon(Icons.menu), findsNothing);
       expect(find.byKey(const Key('shell.refresh')), findsNothing);
+      expect(find.byKey(const Key('shell.search')), findsNothing);
+      expect(find.byKey(const Key('shell.account')), findsNothing);
+      expect(find.byKey(const Key('notes.create.toolbar')), findsNothing);
+      expect(
+        find.byKey(const Key('notes.create.upload.toolbar')),
+        findsNothing,
+      );
     });
 
     testWidgets('tapping Search invokes onSearch', (tester) async {
@@ -900,7 +882,7 @@ void main() {
     });
 
     testWidgets('is absent on a wide layout', (tester) async {
-      tester.view.physicalSize = const Size(1200, 800);
+      tester.view.physicalSize = const Size(800, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final mock = MockClient((request) async => _page(<Object?>[]));
@@ -921,6 +903,486 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('notes.bottomNav.search')), findsNothing);
+    });
+  });
+
+  group('wide toolbar', () {
+    Future<void> setWide(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    }
+
+    testWidgets('renders every action in contract order with its callback', (
+      tester,
+    ) async {
+      await setWide(tester);
+      var refreshes = 0;
+      final mock = MockClient((request) async {
+        refreshes += 1;
+        return _page(<Object?>[]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+      final log = <String>[];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            onCreateNote: () => log.add('create'),
+            onUploadFile: () => log.add('upload'),
+            onSearch: () => log.add('search'),
+            onAccount: () => log.add('account'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(refreshes, 1);
+
+      const keys = [
+        'notes.create.toolbar',
+        'notes.create.upload.toolbar',
+        'shell.search',
+        'shell.refresh',
+        'shell.account',
+      ];
+      final xs = [
+        for (final k in keys) tester.getTopLeft(find.byKey(Key(k))).dx,
+      ];
+      for (var i = 1; i < xs.length; i++) {
+        expect(xs[i], greaterThan(xs[i - 1]), reason: '${keys[i]} order');
+      }
+      expect(find.byTooltip('Upload file'), findsOneWidget);
+      expect(find.byTooltip('Search'), findsOneWidget);
+      expect(find.byTooltip('Refresh'), findsOneWidget);
+      expect(find.byTooltip('Account'), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsNothing);
+
+      await tester.tap(find.byKey(const Key('notes.create.upload.toolbar')));
+      await tester.tap(find.byKey(const Key('shell.search')));
+      await tester.tap(find.byKey(const Key('shell.account')));
+      await tester.tap(find.byKey(const Key('shell.refresh')));
+      await tester.pumpAndSettle();
+
+      expect(log, ['upload', 'search', 'account']);
+      expect(refreshes, 2);
+    });
+
+    testWidgets('the upload action is reachable on wide layouts', (
+      tester,
+    ) async {
+      await setWide(tester);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+      var uploaded = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            onUploadFile: () => uploaded = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final button = tester.widget<IconButton>(
+        find.byKey(const Key('notes.create.upload.toolbar')),
+      );
+      expect((button.icon as Icon).icon, Icons.upload_file);
+      await tester.tap(find.byKey(const Key('notes.create.upload.toolbar')));
+      await tester.pump();
+      expect(uploaded, isTrue);
+    });
+
+    testWidgets('optional actions are omitted when their callback is null', (
+      tester,
+    ) async {
+      await setWide(tester);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('shell.refresh')), findsOneWidget);
+      expect(find.byKey(const Key('notes.create.toolbar')), findsNothing);
+      expect(
+        find.byKey(const Key('notes.create.upload.toolbar')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('shell.search')), findsNothing);
+      expect(find.byKey(const Key('shell.account')), findsNothing);
+    });
+  });
+
+  group('layout', () {
+    testWidgets('derives wide chrome from its own constraints at >= 600', (
+      tester,
+    ) async {
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      Widget app(double width) => MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: width,
+            height: 500,
+            child: NotesListScreen(
+              controller: ctrl,
+              sidebar: const Text('SIDEBAR'),
+              onSearch: () {},
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(app(599));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.bottomNav.search')), findsOneWidget);
+      expect(find.byKey(const Key('notes.sidebar.wide')), findsNothing);
+
+      await tester.pumpWidget(app(600));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.bottomNav.search')), findsNothing);
+      expect(find.byKey(const Key('notes.sidebar.wide')), findsOneWidget);
+    });
+
+    testWidgets('layout: wide overrides a narrow width', (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            layout: NotesListLayout.wide,
+            onCreateNote: () {},
+            onSearch: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('notes.create.toolbar')), findsOneWidget);
+      expect(find.byKey(const Key('shell.search')), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.byKey(const Key('notes.bottomNav.search')), findsNothing);
+    });
+
+    testWidgets('layout: narrow overrides a wide width', (tester) async {
+      tester.view.physicalSize = const Size(800, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            layout: NotesListLayout.narrow,
+            sidebar: const Text('SIDEBAR'),
+            onCreateNote: () {},
+            onSearch: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('notes.create')), findsOneWidget);
+      expect(find.byKey(const Key('notes.bottomNav.search')), findsOneWidget);
+      expect(find.byKey(const Key('notes.create.toolbar')), findsNothing);
+      expect(find.byKey(const Key('notes.sidebar.wide')), findsNothing);
+      expect(find.text('SIDEBAR'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('notes.bottomNav.folders')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.sidebar.drawer')), findsOneWidget);
+      expect(find.text('SIDEBAR'), findsOneWidget);
+    });
+
+    testWidgets('the inline sidebar sits in a resizable panel', (tester) async {
+      tester.view.physicalSize = const Size(800, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: ctrl,
+            sidebar: const Text('SIDEBAR'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final box = find.byKey(const Key('notes.sidebar.wide'));
+      expect(tester.getSize(box).width, PaneSizes.sidebarDefault);
+      expect(find.byType(VerticalDivider), findsNothing);
+
+      await _dragHandle(tester, 60);
+      expect(tester.getSize(box).width, PaneSizes.sidebarDefault + 60);
+
+      // Clamped at the shared maximum.
+      await _dragHandle(tester, 1000);
+      expect(tester.getSize(box).width, PaneSizes.sidebarMax);
+    });
+  });
+
+  group('title', () {
+    Future<NotesListController> pump(WidgetTester tester) async {
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+      return ctrl;
+    }
+
+    String title(WidgetTester tester) =>
+        tester.widget<Text>(find.byKey(const Key('notes.title'))).data!;
+
+    testWidgets('is "Notes" when unscoped', (tester) async {
+      await pump(tester);
+      expect(title(tester), 'Notes');
+    });
+
+    testWidgets('is the last path segment of the selected folder', (
+      tester,
+    ) async {
+      final ctrl = await pump(tester);
+      await ctrl.selectFolder('Projects/Alpha');
+      await tester.pumpAndSettle();
+      expect(title(tester), 'Alpha');
+
+      await ctrl.selectFolder('Inbox');
+      await tester.pumpAndSettle();
+      expect(title(tester), 'Inbox');
+    });
+
+    testWidgets('is "Root" for the vault root', (tester) async {
+      final ctrl = await pump(tester);
+      await ctrl.selectFolder('');
+      await tester.pumpAndSettle();
+      expect(title(tester), 'Root');
+    });
+  });
+
+  group('folder filter chip', () {
+    testWidgets('shows the scope and clears it via the delete icon', (
+      tester,
+    ) async {
+      final requestedPaths = <String?>[];
+      final mock = MockClient((request) async {
+        requestedPaths.add(request.url.queryParameters['path']);
+        return _page(<Object?>[_metaJson(id: '01H', title: 'hello')]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.filter.folder')), findsNothing);
+
+      await ctrl.selectFolder('Projects/Alpha');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.filter.folder')), findsOneWidget);
+      expect(find.text('Folder: Alpha'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('notes.filter.folder.clear')));
+      await tester.pumpAndSettle();
+
+      expect(ctrl.value.selectedPath, isNull);
+      expect(find.byKey(const Key('notes.filter.folder')), findsNothing);
+      expect(requestedPaths.last, isNull);
+    });
+
+    testWidgets('folder and tag chips render together', (tester) async {
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+      await ctrl.selectFolder('');
+      await ctrl.selectTag('urgent');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Folder: Root'), findsOneWidget);
+      expect(find.text('Tag: urgent'), findsOneWidget);
+    });
+  });
+
+  group('empty state', () {
+    Future<NotesListController> pump(
+      WidgetTester tester, {
+      VoidCallback? onCreateNote,
+    }) async {
+      final mock = MockClient((request) async => _page(<Object?>[]));
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(controller: ctrl, onCreateNote: onCreateNote),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return ctrl;
+    }
+
+    testWidgets('unscoped: "No notes yet" with a New note action', (
+      tester,
+    ) async {
+      var created = false;
+      await pump(tester, onCreateNote: () => created = true);
+
+      expect(find.byKey(const Key('notes.empty')), findsOneWidget);
+      expect(find.text('No notes yet'), findsOneWidget);
+      expect(find.byKey(const Key('notes.list')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('notes.empty.create')));
+      await tester.pump();
+      expect(created, isTrue);
+    });
+
+    testWidgets('unscoped without onCreateNote: no action button', (
+      tester,
+    ) async {
+      await pump(tester);
+      expect(find.byKey(const Key('notes.empty')), findsOneWidget);
+      expect(find.byKey(const Key('notes.empty.create')), findsNothing);
+    });
+
+    testWidgets('folder scope: "Nothing in <folder>" with New note', (
+      tester,
+    ) async {
+      final ctrl = await pump(tester, onCreateNote: () {});
+      await ctrl.selectFolder('Projects/Alpha');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Nothing in Alpha'), findsOneWidget);
+      expect(find.byKey(const Key('notes.empty.create')), findsOneWidget);
+      expect(find.byKey(const Key('notes.empty.clearFilter')), findsNothing);
+    });
+
+    testWidgets('tag scope: "No notes tagged #tag" with Clear filter', (
+      tester,
+    ) async {
+      final ctrl = await pump(tester, onCreateNote: () {});
+      await ctrl.selectTag('urgent');
+      await tester.pumpAndSettle();
+
+      expect(find.text('No notes tagged #urgent'), findsOneWidget);
+      expect(find.byKey(const Key('notes.empty.create')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('notes.empty.clearFilter')));
+      await tester.pumpAndSettle();
+      expect(ctrl.value.selectedTag, isNull);
+      expect(find.text('No notes yet'), findsOneWidget);
+    });
+
+    testWidgets('is not shown while loading or when a fetch failed', (
+      tester,
+    ) async {
+      var calls = 0;
+      final gate = Completer<void>();
+      final mock = MockClient((request) async {
+        calls += 1;
+        if (calls == 1) {
+          await gate.future;
+          return http.Response('', 503);
+        }
+        return _page(<Object?>[]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      // First frame: the initial fetch hasn't been issued yet.
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byKey(const Key('notes.empty')), findsNothing);
+      // Second frame: fetch in flight.
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byKey(const Key('notes.empty')), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.error')), findsOneWidget);
+      expect(find.byKey(const Key('notes.empty')), findsNothing);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notes.error')), findsNothing);
+      expect(find.byKey(const Key('notes.empty')), findsOneWidget);
+    });
+
+    testWidgets('pull-to-refresh still works over the empty state on narrow', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      var calls = 0;
+      final mock = MockClient((request) async {
+        calls += 1;
+        return _page(<Object?>[]);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      final ctrl = NotesListController(api: api);
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(home: NotesListScreen(controller: ctrl)),
+      );
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+
+      await tester.fling(
+        find.byKey(const Key('notes.empty')),
+        const Offset(0, 300),
+        1000,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+
+      expect(calls, 2);
     });
   });
 
@@ -952,7 +1414,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(noteCreated, isFalse);
-    expect(find.text('New note'), findsOneWidget);
+    expect(find.byKey(const Key('notes.create.note')), findsOneWidget);
+    expect(find.byKey(const Key('notes.create.folder')), findsOneWidget);
     expect(find.text('New folder'), findsOneWidget);
   });
 

@@ -50,10 +50,10 @@ class _FolderTreeSidebarState extends State<FolderTreeSidebar> {
               padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Folders',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                      style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
                   IconButton(
@@ -71,6 +71,7 @@ class _FolderTreeSidebarState extends State<FolderTreeSidebar> {
                 children: [
                   ListTile(
                     key: const Key('sidebar.allNotes'),
+                    shape: _selectedShape,
                     leading: const Icon(Icons.all_inbox),
                     title: const Text('All notes'),
                     selected: widget.selectedPath == null,
@@ -79,6 +80,7 @@ class _FolderTreeSidebarState extends State<FolderTreeSidebar> {
                   if (state.rootNoteCount != null)
                     ListTile(
                       key: const Key('sidebar.root'),
+                      shape: _selectedShape,
                       leading: const Icon(Icons.description_outlined),
                       title: const Text('(root)'),
                       trailing: Text('${state.rootNoteCount}'),
@@ -101,6 +103,13 @@ class _FolderTreeSidebarState extends State<FolderTreeSidebar> {
   }
 }
 
+/// Rounds the trailing edge of a highlighted tile the way a
+/// [NavigationDrawer] does, so the selection reads as a pill against the
+/// panel's straight leading edge.
+const ShapeBorder _selectedShape = RoundedRectangleBorder(
+  borderRadius: BorderRadius.horizontal(right: Radius.circular(24)),
+);
+
 class _FolderTile extends StatelessWidget {
   const _FolderTile({
     required this.node,
@@ -120,6 +129,7 @@ class _FolderTile extends StatelessWidget {
     if (node.children.isEmpty) {
       return ListTile(
         key: Key('sidebar.folder.${node.path}'),
+        shape: _selectedShape,
         contentPadding: EdgeInsets.only(left: 16 + indent, right: 16),
         title: Text(node.name),
         trailing: Text('${node.noteCount}'),
@@ -138,6 +148,7 @@ class _FolderTile extends StatelessWidget {
       children: [
         ListTile(
           key: Key('sidebar.folder.${node.path}.select'),
+          shape: _selectedShape,
           contentPadding: EdgeInsets.only(left: 32 + indent, right: 16),
           title: const Text('Open this folder'),
           selected: selectedPath == node.path,
