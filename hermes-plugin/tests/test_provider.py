@@ -5,6 +5,7 @@ import httpx
 import pytest
 import respx
 
+import robot_notes
 from robot_notes import SKILL_NAME, SKILL_PATH, RobotNotesConfig, RobotNotesProvider, register
 
 
@@ -101,6 +102,28 @@ def test_queue_prefetch_primes_cache_consumed_by_next_prefetch(provider):
     # only the second prefetch() call (cache already consumed) triggers a fresh search
     assert route.call_count == 2
     assert second == ""
+
+
+@respx.mock
+def test_queue_prefetch_spawns_via_spawn_context_thread(provider, monkeypatch):
+    """Background work must go through the host's spawn_context_thread (never a bare
+    threading.Thread) so contextvars -- profile home, the per-turn secret scope -- propagate;
+    proven here by monkeypatching the compat function and asserting it was the one called."""
+    respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": []}))
+    captured = {}
+    real_spawn_context_thread = robot_notes.spawn_context_thread
+
+    def fake_spawn_context_thread(target, *, name, **kwargs):
+        captured["name"] = name
+        captured["called"] = True
+        return real_spawn_context_thread(target, name=name, **kwargs)
+
+    monkeypatch.setattr(robot_notes, "spawn_context_thread", fake_spawn_context_thread)
+
+    provider.queue_prefetch("budget", session_id="session-1")
+    provider._prefetch_thread.join(timeout=2)
+
+    assert captured == {"name": "robot-notes-prefetch", "called": True}
 
 
 @respx.mock
@@ -207,7 +230,26 @@ def test_handle_tool_call_note_not_found_is_tool_error(provider):
 
     result = json.loads(provider.handle_tool_call("robotnotes_note", {"id": "missing"}))
 
-    assert result["error"] == "not_found"
+    # tool_error's shape: "error" carries the human-readable message, structured fields
+    # (here "code") ride alongside it rather than overloading "error" with a category name.
+    assert result["code"] == "not_found"
+    assert "error" in result
+
+
+def test_handle_tool_call_unavailable_is_tool_error():
+    provider = RobotNotesProvider()  # never initialize()'d, so there is no client
+
+    result = json.loads(provider.handle_tool_call("robotnotes_search", {"query": "budget"}))
+
+    assert result["code"] == "unavailable"
+    assert "error" in result
+
+
+def test_handle_tool_call_unknown_tool_is_tool_error(provider):
+    result = json.loads(provider.handle_tool_call("not_a_real_tool", {}))
+
+    assert result["code"] == "unknown_tool"
+    assert "error" in result
 
 
 @respx.mock
@@ -500,7 +542,7 @@ def test_handle_tool_call_remember_gated_for_non_primary_context(request, ctx_pr
 
     result = json.loads(provider.handle_tool_call("robotnotes_remember", {"title": "Fact", "content": "x"}))
 
-    assert result["error"] == "read_only"
+    assert result["code"] == "read_only"
 
 
 @pytest.mark.parametrize("ctx_provider", ["subagent_provider", "cron_provider"])
@@ -509,7 +551,7 @@ def test_handle_tool_call_forget_gated_for_non_primary_context(request, ctx_prov
 
     result = json.loads(provider.handle_tool_call("robotnotes_forget", {"id": "01NEW"}))
 
-    assert result["error"] == "read_only"
+    assert result["code"] == "read_only"
 
 
 @respx.mock

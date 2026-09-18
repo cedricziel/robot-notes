@@ -100,6 +100,9 @@ try:
     from tools.registry import tool_error  # type: ignore
 except ImportError:
 
-    def tool_error(message: Any) -> str:
-        """Fallback: ``'{"error": "<message>"}'`` with none of upstream's length bounding."""
-        return json.dumps({"error": str(message)})
+    def tool_error(message: Any, **extra: Any) -> str:
+        """Fallback: ``'{"error": "<message>", **extra}'`` with none of upstream's length
+        bounding. ``extra`` mirrors upstream's ``tools.registry.tool_error(message, **extra)``
+        so callers can pass structured fields (e.g. ``code=``, ``details=``) through either
+        implementation the same way."""
+        return json.dumps({"error": str(message), **extra})

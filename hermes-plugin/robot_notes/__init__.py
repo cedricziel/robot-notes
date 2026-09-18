@@ -14,7 +14,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from ._hermes_compat import MemoryProvider
+from ._hermes_compat import MemoryProvider, spawn_context_thread, tool_error
 from .client import ClientError, RobotNotesClient
 from .config import DEFAULT_ACTOR, RobotNotesConfig
 
@@ -57,13 +57,11 @@ def _sanitize_actor(actor: str) -> str:
 
 
 def _write_disabled_error() -> str:
-    return json.dumps(
-        {
-            "error": "read_only",
-            "message": "This agent context is read-only; writes are limited to the "
-            "primary agent context (this session is a subagent, cron, or flush "
-            "context).",
-        }
+    return tool_error(
+        "This agent context is read-only; writes are limited to the "
+        "primary agent context (this session is a subagent, cron, or flush "
+        "context).",
+        code="read_only",
     )
 
 
@@ -201,7 +199,11 @@ class RobotNotesProvider(MemoryProvider):
         """Runs the search off the caller's thread — this must return immediately so a
         per-turn call site never blocks on network latency; prefetch() picks up the
         result (if ready by then) on the following turn. A generation counter stops a
-        slow, superseded search from clobbering a faster, more recent one."""
+        slow, superseded search from clobbering a faster, more recent one.
+
+        Spawned via ``spawn_context_thread`` (never a bare ``threading.Thread``): under the
+        Hermes host, profile home and the per-turn secret scope live in contextvars, and only
+        that helper carries them onto the background thread."""
         self._prefetch_generation += 1
         generation = self._prefetch_generation
 
@@ -211,7 +213,7 @@ class RobotNotesProvider(MemoryProvider):
                 if generation == self._prefetch_generation:
                     self._prefetch_cache = result
 
-        thread = threading.Thread(target=_run, daemon=True)
+        thread = spawn_context_thread(_run, name="robot-notes-prefetch")
         self._prefetch_thread = thread
         thread.start()
 
@@ -241,16 +243,25 @@ class RobotNotesProvider(MemoryProvider):
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         if not self._client:
-            return json.dumps({"error": "unavailable"})
+            return tool_error("robot_notes provider is unavailable", code="unavailable")
         if tool_name in WRITE_TOOL_NAMES and not self._can_write():
             return _write_disabled_error()
         tool = next((t for t in self._tools if t["name"] == tool_name), None)
         if tool is None:
-            raise NotImplementedError(f"robot_notes does not handle tool {tool_name}")
+            return tool_error(f"robot_notes does not handle tool {tool_name}", code="unknown_tool")
         try:
             return tool["handler"](args)
         except ClientError as exc:
-            return json.dumps({"error": "not_found" if exc.not_found else "error", "message": str(exc)})
+            code = (
+                "not_found"
+                if exc.not_found
+                else "version_conflict"
+                if exc.version_conflict
+                else "network_error"
+                if exc.network_error
+                else "error"
+            )
+            return tool_error(str(exc), code=code)
 
     def _tool_search(self, args: Dict[str, Any]) -> str:
         return json.dumps({"items": self._client.search(args["query"])})
