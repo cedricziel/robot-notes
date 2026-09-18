@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from robot_notes.client import ClientError, RobotNotesClient
+from robot_notes.client import ClientError, ErrorKind, RobotNotesClient
 
 
 @pytest.fixture
@@ -221,6 +221,171 @@ def test_find_note_by_title_filter_miss_does_not_fall_back_to_scan(client):
     result = client.find_note_by_title("Missing", path="conversations/agent")
 
     assert result is None
+
+def test_create_note_path_conflict_raises_path_conflict_not_version_conflict(client):
+    """A 409 from `POST /notes` is a title/path collision, per API.md — it must
+    not be lumped in with the version-race 409 from `PUT /notes/{id}`."""
+    respx.post("https://notes.example.com/notes").mock(
+        return_value=httpx.Response(409, json={"error": "path_conflict"})
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.create_note(title="Inbox", content="hello", path="Hermes")
+
+    exc = exc_info.value
+    assert exc.path_conflict is True
+    assert exc.version_conflict is False
+    assert exc.kind is ErrorKind.PATH_CONFLICT
+    assert exc.code == "path_conflict"
+
+
+@respx.mock
+def test_update_note_path_conflict_raises_path_conflict(client):
+    """`PUT /notes/{id}` also returns 409 `path_conflict` (a rename/move that
+    collides with another note) alongside its 409 `version_conflict`."""
+    respx.put("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(409, json={"error": "path_conflict"})
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.update_note("01XYZ", version=1, content="x")
+
+    assert exc_info.value.kind is ErrorKind.PATH_CONFLICT
+
+
+@respx.mock
+def test_update_note_locked_raises_locked_with_holder(client):
+    respx.put("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(
+            423,
+            json={"error": "locked", "lock": {"holder": "alice", "expires_at": "2026-04-25T10:15:23Z"}},
+        )
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.update_note("01XYZ", version=1, content="x")
+
+    exc = exc_info.value
+    assert exc.locked is True
+    assert exc.kind is ErrorKind.LOCKED
+    assert exc.lock_holder == "alice"
+    assert exc.details["lock"]["expires_at"] == "2026-04-25T10:15:23Z"
+
+
+@respx.mock
+def test_401_raises_auth(client):
+    respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(401, json={"error": "unauthorized"})
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.search("budget")
+
+    exc = exc_info.value
+    assert exc.auth_error is True
+    assert exc.kind is ErrorKind.AUTH
+    assert exc.code == "unauthorized"
+
+
+@respx.mock
+def test_403_raises_auth(client):
+    respx.get("https://notes.example.com/search").mock(
+        return_value=httpx.Response(403, json={"error": "insufficient_scope"})
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.search("budget")
+
+    exc = exc_info.value
+    assert exc.auth_error is True
+    assert exc.code == "insufficient_scope"
+
+
+@respx.mock
+def test_error_body_flat_shape_is_parsed_into_code_and_details(client):
+    """The notes routes actually in production use the flat
+    ``{"error": "version_conflict", "current": {...}}`` shape, not the nested
+    envelope API.md documents — the client must handle both."""
+    respx.put("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(
+            409,
+            json={
+                "error": "version_conflict",
+                "current": {"id": "01XYZ", "version": 7, "content": "server copy"},
+            },
+        )
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.update_note("01XYZ", version=1, content="x")
+
+    exc = exc_info.value
+    assert exc.code == "version_conflict"
+    assert exc.current_version == 7
+    assert exc.current_content == "server copy"
+
+
+@respx.mock
+def test_error_body_nested_envelope_shape_is_parsed_into_code_and_details(client):
+    """The nested envelope documented in API.md
+    (``{"error": {"code", "message", "details"}}``) must also be understood."""
+    respx.put("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(
+            409,
+            json={
+                "error": {
+                    "code": "version_conflict",
+                    "message": "Note version has advanced; reload before saving.",
+                    "details": {"current_version": 9},
+                }
+            },
+        )
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.update_note("01XYZ", version=1, content="x")
+
+    exc = exc_info.value
+    assert exc.code == "version_conflict"
+    assert exc.server_message == "Note version has advanced; reload before saving."
+    assert exc.current_version == 9
+
+
+@respx.mock
+def test_write_note_with_retry_uses_current_version_from_error_body_without_a_get(client):
+    """When the 409 body already carries the current version, retry from it
+    directly instead of spending an extra GET round trip."""
+    get_route = respx.get("https://notes.example.com/notes/01XYZ")
+    put_route = respx.put("https://notes.example.com/notes/01XYZ").mock(
+        side_effect=[
+            httpx.Response(
+                409,
+                json={"error": "version_conflict", "current": {"id": "01XYZ", "version": 7}},
+            ),
+            httpx.Response(200, json={"id": "01XYZ", "version": 8}),
+        ]
+    )
+
+    result = client.write_note_with_retry("01XYZ", version=3, content="new content")
+
+    assert not get_route.called
+    assert put_route.call_count == 2
+    assert put_route.calls[1].request.headers["if-match"] == "7"
+    assert result["version"] == 8
+
+
+@respx.mock
+def test_write_note_with_retry_does_not_retry_path_conflict(client):
+    """A path conflict is a different problem than a version race — retrying
+    at a fresher version can never fix it, so it must surface immediately."""
+    route = respx.put("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(409, json={"error": "path_conflict"})
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.write_note_with_retry("01XYZ", version=1, content="x")
+
+    assert exc_info.value.path_conflict is True
     assert route.call_count == 1
 
 
@@ -303,6 +468,49 @@ def test_find_note_by_title_propagates_non_400_errors_from_filter_attempt(client
 
     with pytest.raises(ClientError):
         client.find_note_by_title("Session X", path="conversations/agent")
+
+def test_write_note_with_retry_does_not_retry_locked(client):
+    route = respx.put("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(423, json={"error": "locked", "lock": {"holder": "alice"}})
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.write_note_with_retry("01XYZ", version=1, content="x")
+
+    assert exc_info.value.locked is True
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_append_note_with_retry_does_not_retry_path_conflict(client):
+    respx.get("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(200, json={"id": "01XYZ", "version": 1, "content": "x"})
+    )
+    route = respx.put("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(409, json={"error": "path_conflict"})
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.append_note_with_retry("01XYZ", build_content=lambda current: current + "\nmore")
+
+    assert exc_info.value.path_conflict is True
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_append_note_with_retry_does_not_retry_locked(client):
+    respx.get("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(200, json={"id": "01XYZ", "version": 1, "content": "x"})
+    )
+    route = respx.put("https://notes.example.com/notes/01XYZ").mock(
+        return_value=httpx.Response(423, json={"error": "locked", "lock": {"holder": "bob"}})
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        client.append_note_with_retry("01XYZ", build_content=lambda current: current + "\nmore")
+
+    assert exc_info.value.locked is True
+    assert route.call_count == 1
 
 
 @respx.mock

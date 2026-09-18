@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ._hermes_compat import MemoryProvider, spawn_context_thread, tool_error
-from .client import ClientError, RobotNotesClient
+from .client import ClientError, ErrorKind, RobotNotesClient
 from .config import DEFAULT_ACTOR, RobotNotesConfig
 from .recall import RecallCache, RecallStatus, is_trivial_prompt
 from .transcript import build_transcript
@@ -47,6 +47,25 @@ _MARK_RE = re.compile(r"</?mark>")
 # Tool calls that write to the workspace; gated on _write_enabled. robotnotes_search,
 # robotnotes_list and robotnotes_note stay available in every agent context.
 WRITE_TOOL_NAMES = frozenset({"robotnotes_remember", "robotnotes_forget"})
+
+# Fallback error codes for ``handle_tool_call``, used only when the server's
+# response didn't carry an explicit ``code`` of its own (e.g. a network
+# failure never reaches the server at all).
+_FALLBACK_ERROR_CODES: Dict[ErrorKind, str] = {
+    ErrorKind.NOT_FOUND: "not_found",
+    ErrorKind.VERSION_CONFLICT: "version_conflict",
+    ErrorKind.PATH_CONFLICT: "path_conflict",
+    ErrorKind.LOCKED: "locked",
+    ErrorKind.AUTH: "unauthorized",
+    ErrorKind.NETWORK_ERROR: "network_error",
+    ErrorKind.OTHER: "error",
+}
+
+_PATH_CONFLICT_REMEMBER_MESSAGE = (
+    "A note with this title already exists at this path. Use robotnotes_search "
+    "or robotnotes_list to find it, then append to or update that note instead "
+    "of creating a duplicate."
+)
 
 
 def _sanitize_actor(actor: str) -> str:
@@ -258,16 +277,8 @@ class RobotNotesProvider(MemoryProvider):
         try:
             return tool["handler"](args)
         except ClientError as exc:
-            code = (
-                "not_found"
-                if exc.not_found
-                else "version_conflict"
-                if exc.version_conflict
-                else "network_error"
-                if exc.network_error
-                else "error"
-            )
-            return tool_error(str(exc), code=code)
+            payload = _tool_error_payload(exc, tool_name)
+            return tool_error(payload["message"], code=payload["error"], details=payload["details"])
 
     def _tool_search(self, args: Dict[str, Any]) -> str:
         return json.dumps({"items": self._client.search(args["query"])})
@@ -493,3 +504,19 @@ def _find_entry_index(entries: List[str], identifier: str) -> Optional[int]:
     if len({entries[i].strip() for i in contains}) > 1:
         return None
     return contains[0]
+
+
+def _tool_error_payload(exc: ClientError, tool_name: str) -> Dict[str, Any]:
+    """Builds the JSON error body ``handle_tool_call`` returns to the model: the
+    server's own ``code``/``message``/``details`` when it sent them (both the
+    nested API.md envelope and the flat notes-route shape are already folded
+    into ``exc`` by ``RobotNotesClient``), falling back to a kind-derived code
+    and this exception's own message when it didn't (e.g. a network error that
+    never reached the server). A ``PATH_CONFLICT`` on ``robotnotes_remember``
+    gets a message steering the model to search/append instead of retrying the
+    same create."""
+    code = exc.code or _FALLBACK_ERROR_CODES.get(exc.kind, "error")
+    message = exc.server_message or str(exc)
+    if exc.path_conflict and tool_name == "robotnotes_remember":
+        message = _PATH_CONFLICT_REMEMBER_MESSAGE
+    return {"error": code, "message": message, "details": exc.details}

@@ -12,16 +12,40 @@ import httpx
 class ErrorKind(Enum):
     NOT_FOUND = auto()
     VERSION_CONFLICT = auto()
+    PATH_CONFLICT = auto()
+    LOCKED = auto()
+    AUTH = auto()
     NETWORK_ERROR = auto()
     OTHER = auto()
 
 
 class ClientError(Exception):
-    """A robot-notes call failed for exactly one ``kind`` of reason."""
+    """A robot-notes call failed for exactly one ``kind`` of reason.
 
-    def __init__(self, message: str, *, kind: ErrorKind = ErrorKind.OTHER):
+    Carries whatever the server's error body actually said, on top of the
+    ``kind`` classification: ``code`` (the error string/code, e.g.
+    ``"path_conflict"``), ``server_message`` (a human-readable message, when
+    the server sent one), ``details`` (everything else the body carried —
+    ``current_version``/``current_content``, a lock ``holder``, etc.) and the
+    HTTP ``status``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: ErrorKind = ErrorKind.OTHER,
+        code: Optional[str] = None,
+        server_message: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        status: Optional[int] = None,
+    ):
         super().__init__(message)
         self.kind = kind
+        self.code = code
+        self.server_message = server_message
+        self.details: Dict[str, Any] = details or {}
+        self.status = status
 
     @property
     def not_found(self) -> bool:
@@ -32,8 +56,64 @@ class ClientError(Exception):
         return self.kind is ErrorKind.VERSION_CONFLICT
 
     @property
+    def path_conflict(self) -> bool:
+        return self.kind is ErrorKind.PATH_CONFLICT
+
+    @property
+    def locked(self) -> bool:
+        return self.kind is ErrorKind.LOCKED
+
+    @property
+    def auth_error(self) -> bool:
+        return self.kind is ErrorKind.AUTH
+
+    @property
     def network_error(self) -> bool:
         return self.kind is ErrorKind.NETWORK_ERROR
+
+    @property
+    def current_version(self) -> Optional[int]:
+        """The version the server says is current, from either envelope shape
+        (``details.current_version`` or the flat route's ``details.current.version``)
+        — lets a caller retry a lost race without an extra ``GET``."""
+        if "current_version" in self.details:
+            return self.details["current_version"]
+        current = self.details.get("current")
+        if isinstance(current, dict):
+            return current.get("version")
+        return None
+
+    @property
+    def current_content(self) -> Optional[str]:
+        if "current_content" in self.details:
+            return self.details["current_content"]
+        current = self.details.get("current")
+        if isinstance(current, dict):
+            return current.get("content")
+        return None
+
+    @property
+    def lock_holder(self) -> Optional[str]:
+        lock = self.details.get("lock")
+        if isinstance(lock, dict):
+            return lock.get("holder")
+        return None
+
+
+# Status codes whose meaning doesn't depend on the error ``code`` in the body.
+_STATUS_KINDS: Dict[int, ErrorKind] = {
+    404: ErrorKind.NOT_FOUND,
+    423: ErrorKind.LOCKED,
+    401: ErrorKind.AUTH,
+    403: ErrorKind.AUTH,
+}
+
+# 409 is overloaded: `POST /notes` and `PUT /notes/{id}` both use it for two
+# different conflicts, distinguished only by the error code in the body.
+_CONFLICT_CODE_KINDS: Dict[str, ErrorKind] = {
+    "version_conflict": ErrorKind.VERSION_CONFLICT,
+    "path_conflict": ErrorKind.PATH_CONFLICT,
+}
 
 
 class RobotNotesClient:
@@ -44,19 +124,58 @@ class RobotNotesClient:
     def close(self) -> None:
         self._http.close()
 
+    @staticmethod
+    def _parse_error_body(response: httpx.Response) -> tuple[Optional[str], Optional[str], Dict[str, Any]]:
+        """Parses a non-2xx body into ``(code, message, details)``, accepting either
+        the nested envelope documented in ``server/API.md``
+        (``{"error": {"code", "message", "details"}}``) or the flat shape the
+        notes routes actually send today (``{"error": "path_conflict", ...}``,
+        with any sibling keys — ``current``, ``lock``, etc. — folded into
+        ``details`` so callers can reach them uniformly)."""
+        try:
+            body = response.json()
+        except ValueError:
+            return None, None, {}
+        if not isinstance(body, dict):
+            return None, None, {}
+
+        error = body.get("error")
+        if isinstance(error, dict):
+            code = error.get("code")
+            message = error.get("message")
+            details = error.get("details")
+            return code, message, dict(details) if isinstance(details, dict) else {}
+        if isinstance(error, str):
+            details = {k: v for k, v in body.items() if k not in ("error", "message")}
+            return error, body.get("message"), details
+        return None, None, {}
+
     def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         try:
             response = self._http.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
             raise ClientError(f"{method} {path} failed: {exc}", kind=ErrorKind.NETWORK_ERROR) from exc
 
-        if response.status_code == 404:
-            raise ClientError(f"{method} {path}: not found", kind=ErrorKind.NOT_FOUND)
-        if response.status_code == 409:
-            raise ClientError(f"{method} {path}: version conflict", kind=ErrorKind.VERSION_CONFLICT)
-        if response.status_code >= 400:
-            raise ClientError(f"{method} {path}: HTTP {response.status_code}")
-        return response
+        if response.status_code < 400:
+            return response
+
+        status = response.status_code
+        code, server_message, details = self._parse_error_body(response)
+
+        if status == 409 and code in _CONFLICT_CODE_KINDS:
+            kind = _CONFLICT_CODE_KINDS[code]
+        else:
+            kind = _STATUS_KINDS.get(status, ErrorKind.OTHER)
+
+        message = server_message or code or f"HTTP {status}"
+        raise ClientError(
+            f"{method} {path}: {message}",
+            kind=kind,
+            code=code,
+            server_message=server_message,
+            details=details,
+            status=status,
+        )
 
     def search(self, query: str, *, limit: int = 20) -> List[Dict[str, Any]]:
         response = self._request("GET", "/search", params={"q": query, "limit": limit})
@@ -143,8 +262,12 @@ class RobotNotesClient:
         self, note_id: str, *, version: int, content: str, max_attempts: int = 3
     ) -> Dict[str, Any]:
         """Blind overwrite of fixed ``content`` at an already-known ``version`` — no read
-        before the first attempt. On a lost version race, re-reads only the version
-        (not the content, which this caller doesn't need) and retries."""
+        before the first attempt. Retries **only** on ``VERSION_CONFLICT`` — a
+        ``PATH_CONFLICT``, ``LOCKED`` or any other kind is a different problem that
+        retrying at a fresh version can't fix, so it's raised straight through. On a
+        lost version race, this prefers the server's own ``current_version`` (carried
+        on the ``409`` body) over an extra ``GET``, and only falls back to reading the
+        note when the server didn't say."""
         current_version = version
         last_error: Optional[ClientError] = None
         for _ in range(max_attempts):
@@ -154,7 +277,10 @@ class RobotNotesClient:
                 if not exc.version_conflict:
                     raise
                 last_error = exc
-                current_version = self.get_note(note_id)["version"]
+                if exc.current_version is not None:
+                    current_version = exc.current_version
+                else:
+                    current_version = self.get_note(note_id)["version"]
         raise last_error
 
     def append_note_with_retry(
@@ -162,9 +288,11 @@ class RobotNotesClient:
     ) -> Dict[str, Any]:
         """Read-modify-write with retry on a lost version race, mirroring robot-notes'
         own ``append_to_note`` semantics (read, write, retry up to 3x on conflict).
-        Use this only when ``build_content`` needs the note's current content —
-        callers that overwrite with fixed content should use ``write_note_with_retry``
-        instead and skip the read entirely."""
+        Retries **only** on ``VERSION_CONFLICT``; a ``PATH_CONFLICT``, ``LOCKED`` or
+        any other kind is raised straight through instead, since re-reading and
+        rewriting can't fix those. Use this only when ``build_content`` needs the
+        note's current content — callers that overwrite with fixed content should use
+        ``write_note_with_retry`` instead and skip the read entirely."""
         last_error: Optional[ClientError] = None
         for _ in range(max_attempts):
             note = self.get_note(note_id)
