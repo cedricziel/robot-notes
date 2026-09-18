@@ -208,7 +208,8 @@ The app SHALL provide a list view that pages through `GET /notes?sort=updated_de
 
 #### Scenario: Updated time is shown in local time
 
-- **GIVEN** a note whose `updated_at` is `2026-09-12T10:28:00Z`, more than a week ago
+- **GIVEN** a note whose `updated_at` is `2026-09-12T10:28:00Z`
+- **AND** the device's current time is `2026-10-01T09:00:00Z`, more than a week later
 - **WHEN** the list renders on a device in UTC+2
 - **THEN** the entry's metadata line SHALL show `2026-09-12 12:28` with no UTC marker
 

@@ -33,9 +33,12 @@ abstract final class Breakpoints {
   /// Lower bound (inclusive) of [WindowSizeClass.expanded].
   static const double expanded = 840;
 
-  /// Lower bound (inclusive) of [WindowSizeClass.large]. Chosen so the
-  /// three-pane shell always leaves the note pane at least as wide as the
-  /// reading column: 240 (folders) + 360 (list) + 600 (note).
+  /// Lower bound (inclusive) of [WindowSizeClass.large]. With the
+  /// three-pane shell's default folder sidebar ([PaneSizes.sidebarDefault],
+  /// 260) and list pane ([PaneSizes.listPane], 380), this leaves the note
+  /// pane at least 560 wide: enough for prose at a comfortable line length
+  /// even before the pane reaches the [PaneSizes.readingColumn] cap, which
+  /// only applies once the window is wider still.
   static const double large = 1200;
 
   static WindowSizeClass classify(double width) {
