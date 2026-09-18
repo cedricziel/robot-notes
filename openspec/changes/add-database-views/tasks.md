@@ -12,7 +12,7 @@ TDD throughout: each task names its failing widget or unit test first. Conventio
 ## 2. Routing and server shell fallback
 
 - [ ] 2.1 Add `GoRoute('/databases/:id')` inside the existing shell with `view` query parsing; failing router tests for deep link, setup redirect, close-to-list, and the list pane scoped to the source folder; unknown-view fallback rewriting the URL is tested in 5.1 once the controller exists; implement
-- [ ] 2.2 Add `GET /databases/{id}` to the server's dual-use path check with `Vary: Accept, Authorization`, keeping bare `GET /databases` API-only; failing server tests: browser-style request gets `index.html`, non-browser gets 401, bare list gets 401; implement
+- [x] 2.2 Add `GET /databases/{id}` to the server's dual-use path check with `Vary: Accept, Authorization`, keeping bare `GET /databases` API-only; failing server tests: browser-style request gets `index.html`, non-browser gets 401, bare list gets 401; implement
 
 ## 3. Controllers
 
