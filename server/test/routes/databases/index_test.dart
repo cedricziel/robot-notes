@@ -94,7 +94,8 @@ void main() {
         source: const DatabaseSource.folder('Projects'),
         path: 'Projects',
       );
-      await writes.create(title: 'Row 1', content: '', actor: 'a', path: 'Projects');
+      await writes.create(
+          title: 'Row 1', content: '', actor: 'a', path: 'Projects');
 
       final res = await route.onRequest(
         _ctx(method: HttpMethod.get, registry: registry, searchIndex: search),
@@ -151,7 +152,8 @@ void main() {
       final list = await route.onRequest(
         _ctx(method: HttpMethod.get, registry: registry, searchIndex: search),
       );
-      final items = (await list.json() as Map<String, dynamic>)['items'] as List;
+      final items =
+          (await list.json() as Map<String, dynamic>)['items'] as List;
       expect(items, hasLength(1));
     });
 

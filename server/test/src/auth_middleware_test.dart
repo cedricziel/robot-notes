@@ -465,8 +465,7 @@ void main() {
       expect(response.statusCode, HttpStatus.unauthorized);
     });
 
-    test('every new databases/notes-properties route requires auth',
-        () async {
+    test('every new databases/notes-properties route requires auth', () async {
       final cases = <(String, HttpMethod)>[
         ('/databases', HttpMethod.get),
         ('/databases', HttpMethod.post),
@@ -630,8 +629,7 @@ void main() {
         expect(response.statusCode, HttpStatus.ok);
       });
 
-      test(
-          'a notes:read token gets 200 on POST /databases/{id}/query',
+      test('a notes:read token gets 200 on POST /databases/{id}/query',
           () async {
         final token = await issueRestToken(scopes: {'notes:read'});
         final ctx = _ctx(
@@ -647,8 +645,7 @@ void main() {
         expect(response.statusCode, HttpStatus.ok);
       });
 
-      test(
-          'a notes:read token gets 403 on POST /databases/{id}/rows',
+      test('a notes:read token gets 403 on POST /databases/{id}/rows',
           () async {
         final token = await issueRestToken(scopes: {'notes:read'});
         final ctx = _ctx(

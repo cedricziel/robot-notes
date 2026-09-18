@@ -111,7 +111,8 @@ void main() {
     expect(res.statusCode, HttpStatus.created);
     final body = await res.json() as Map<String, dynamic>;
     expect(body['path'], 'Projects');
-    expect(File('${tmp.path}/content/Projects/Rewrite.md').existsSync(), isTrue);
+    expect(
+        File('${tmp.path}/content/Projects/Rewrite.md').existsSync(), isTrue);
     expect(body['properties'], {'status': 'Idea'});
   });
 

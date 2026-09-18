@@ -10,6 +10,5 @@ import 'package:server/src/search_index.dart' show kServerInterpretedKeys;
 /// server-interpreted set needs filtering here.
 Map<String, Object?> propertiesOf(Map<String, Object?> extra) => {
       for (final entry in extra.entries)
-        if (!kServerInterpretedKeys.contains(entry.key))
-          entry.key: entry.value,
+        if (!kServerInterpretedKeys.contains(entry.key)) entry.key: entry.value,
     };

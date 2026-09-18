@@ -49,8 +49,8 @@ RequestContext _ctx({
   return ctx;
 }
 
-Directory _tempDir() => Directory.systemTemp
-    .createTempSync('robot-notes-databases-id-route-test-');
+Directory _tempDir() =>
+    Directory.systemTemp.createTempSync('robot-notes-databases-id-route-test-');
 
 void main() {
   late Directory tmp;
@@ -207,8 +207,7 @@ void main() {
       },
     );
 
-    test('a body-only update preserves type/source/properties/views',
-        () async {
+    test('a body-only update preserves type/source/properties/views', () async {
       final note = await makeDb();
       final res = await route.onRequest(
         _ctx(
