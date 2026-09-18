@@ -12,6 +12,8 @@ void main() {
       expect(actions.shell.search, isNull);
       expect(actions.note.save, isNull);
       expect(actions.note.close, isNull);
+      expect(actions.database.newRow, isNull);
+      expect(actions.database.editSchema, isNull);
     });
 
     test('setShell installs handlers and notifies', () {
@@ -58,6 +60,22 @@ void main() {
 
       actions.clearNote(current);
       expect(actions.note.save, isNull);
+    });
+
+    test('database handlers follow the same owner rule', () {
+      final actions = AppMenuActions();
+      addTearDown(actions.dispose);
+      final old = Object();
+      final current = Object();
+      actions.setDatabase(old, DatabaseMenuHandlers(newRow: () {}));
+      actions.setDatabase(current, DatabaseMenuHandlers(editSchema: () {}));
+
+      actions.clearDatabase(old);
+      expect(actions.database.editSchema, isNotNull);
+      expect(actions.database.newRow, isNull);
+
+      actions.clearDatabase(current);
+      expect(actions.database.editSchema, isNull);
     });
 
     test('clearing an owner that never registered notifies nobody', () {

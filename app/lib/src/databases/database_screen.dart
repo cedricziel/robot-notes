@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
+import '../desktop/app_menu_actions.dart';
 import '../realtime/ws_client.dart';
 import '../widgets/adaptive.dart';
 import '../widgets/empty_state.dart';
@@ -60,6 +61,7 @@ class DatabaseScreen extends StatefulWidget {
 
 class _DatabaseScreenState extends State<DatabaseScreen> {
   String? _lastAnnouncedView;
+  AppMenuActions? _menuActions;
 
   @override
   void initState() {
@@ -75,7 +77,15 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _menuActions = AppMenuActionsScope.maybeOf(context);
+    _syncMenuActions();
+  }
+
+  @override
   void dispose() {
+    _menuActions?.clearDatabase(this);
     widget.controller.removeListener(_onControllerChanged);
     super.dispose();
   }
@@ -87,6 +97,27 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
       widget.onViewChanged?.call(name);
     }
     if (mounted) setState(() {});
+    _syncMenuActions();
+  }
+
+  /// Publishes this database's commands to the macOS menu bar while this
+  /// screen is the one in front, mirroring [NoteScreen]'s Note menu.
+  void _syncMenuActions() {
+    final actions = _menuActions;
+    if (actions == null || !mounted) return;
+    if (ModalRoute.of(context)?.isCurrent == false) {
+      actions.clearDatabase(this);
+      return;
+    }
+    final loaded = widget.controller.value.definition != null;
+    actions.setDatabase(
+      this,
+      DatabaseMenuHandlers(
+        newRow: loaded ? _promptNewRow : null,
+        editSchema: widget.onOpenSchemaEditor,
+        close: _close,
+      ),
+    );
   }
 
   void _close() {
@@ -97,6 +128,11 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
       Navigator.of(context).pop();
     }
   }
+
+  /// Pull-to-refresh for the table and list views: bypasses the
+  /// controller's cache so a pull always hits the server, matching
+  /// [NotesListScreen]'s own refresh.
+  Future<void> _refresh() => widget.controller.load(forceRefresh: true);
 
   Future<void> _promptNewRow() async {
     final title = await showDialog<String>(
@@ -288,6 +324,7 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
           onCommit: _onCellCommit,
           api: widget.controller.api,
           onOpenRow: widget.onOpenRow,
+          onRefresh: _refresh,
         );
       case ViewType.list:
         if (state.rows.isEmpty) {
@@ -305,6 +342,7 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
           isLoadingMore: state.isLoadingMore,
           onLoadMore: widget.controller.loadMore,
           onOpenRow: widget.onOpenRow,
+          onRefresh: _refresh,
         );
       case ViewType.board:
         final columns = state.columns ?? const <BoardColumn>[];

@@ -58,6 +58,7 @@ List<PlatformMenuItem> buildAppMenus(
 }) {
   final shell = actions.shell;
   final note = actions.note;
+  final database = actions.database;
   return <PlatformMenuItem>[
     PlatformMenu(
       label: 'robot-notes',
@@ -228,6 +229,28 @@ List<PlatformMenuItem> buildAppMenus(
           members: <PlatformMenuItem>[
             PlatformMenuItem(label: 'Move to Folder…', onSelected: note.move),
             PlatformMenuItem(label: 'Delete Note', onSelected: note.delete),
+          ],
+        ),
+      ],
+    ),
+    PlatformMenu(
+      label: 'Database',
+      menus: <PlatformMenuItem>[
+        PlatformMenuItemGroup(
+          members: <PlatformMenuItem>[
+            PlatformMenuItem(label: 'New Row', onSelected: database.newRow),
+            PlatformMenuItem(
+              label: 'Edit Schema…',
+              onSelected: database.editSchema,
+            ),
+          ],
+        ),
+        PlatformMenuItemGroup(
+          members: <PlatformMenuItem>[
+            PlatformMenuItem(
+              label: 'Close Database',
+              onSelected: database.close,
+            ),
           ],
         ),
       ],
