@@ -53,26 +53,77 @@ client-asserted.
 ### Optimistic concurrency
 
 `PUT /notes/{id}` requires `If-Match: <version>`. Writes fail closed:
-mismatch → `409 Conflict` with the current version and content;
-locked-by-someone-else → `423 Locked` with the current lock holder.
+mismatch → `409 Conflict` with `{"error": "version_conflict", "current": {...}}`
+(the full current note); locked-by-someone-else → `423 Locked` with
+`{"error": "locked", "lock": {"holder", "expires_at"}}`.
 
 ### Error envelope
 
-Every non-2xx response uses the same shape:
+Every non-2xx response is a **flat** JSON object: a top-level `error`
+string code, plus whatever sibling keys that code carries — never a
+nested `{"error": {"code", "message", "details"}}` object. `error` is
+always a bare string; test that shape, not its presence.
+
+```json
+{ "error": "not_found" }
+```
 
 ```json
 {
-  "error": {
-    "code": "version_conflict",
-    "message": "Note version has advanced; reload before saving.",
-    "details": { "current_version": 7 }
+  "error": "version_conflict",
+  "current": {
+    "id": "01HM2A...",
+    "title": "Meeting notes",
+    "path": "Projects/Alpha",
+    "content": "...",
+    "version": 7,
+    "created_at": "...",
+    "updated_at": "...",
+    "tags": ["urgent"]
   }
 }
 ```
 
-Common codes: `unauthorized`, `forbidden`, `not_found`,
-`version_conflict`, `locked`, `invalid_ttl`, `invite_consumed`,
-`invite_expired`, `validation_failed`, `internal_error`.
+```json
+{
+  "error": "locked",
+  "lock": { "holder": "alice", "expires_at": "2026-04-25T10:15:23Z" }
+}
+```
+
+Some codes carry a `message` string instead (validation-style
+failures):
+
+```json
+{ "error": "bad_request", "message": "limit must be a positive integer" }
+```
+
+Sibling keys by code:
+
+| Code                     | Sibling key(s)      | Emitted by                                                                                            |
+| ------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------ |
+| `path_conflict`          | —                     | `POST /notes`, `PUT /notes/{id}`, `POST /notes/files`                                                   |
+| `version_conflict`       | `current` (full note) | `PUT /notes/{id}`, `POST /notes/{id}/append`                                                            |
+| `locked`                 | `lock` (`holder`, `expires_at`) | `PUT /notes/{id}`, `DELETE /notes/{id}`, `POST /notes/{id}/append`, `POST`/`PUT`/`DELETE /notes/{id}/lock` |
+| `unauthorized`           | —                     | any authenticated endpoint, missing/mismatching credential                                              |
+| `insufficient_scope`     | —                     | any authenticated endpoint, OAuth token missing the required scope                                      |
+| `not_found`              | —                     | `GET`/`PUT`/`DELETE /notes/{id}`, `GET /notes/{id}/backlinks`, `GET /notes/{id}/links`, `PUT /notes/file-uploads/{token}` |
+| `lock_not_found`         | —                     | `PUT /notes/{id}/lock` (heartbeat with no active lock)                                                  |
+| `precondition_required`  | `message`             | `PUT /notes/{id}` (missing `If-Match`)                                                                  |
+| `bad_request`            | `message` (usually)   | malformed/invalid request body or query params, across most endpoints                                  |
+| `validation_failed`      | `message`             | `POST /notes/{id}/append` (missing/blank `content`)                                                     |
+| `missing_query`          | —                     | `GET /search` (`q` absent)                                                                              |
+| `empty_query`            | —                     | `GET /search` (`q` whitespace-only)                                                                     |
+| `invalid_query`          | —                     | `GET /search` (`q` not a valid FTS5 expression)                                                         |
+| `payload_too_large`      | —                     | `POST /notes/files`, `PUT /notes/file-uploads/{token}` (over the configured max size)                   |
+| `invalid_ttl`            | —                     | `POST /invites` (`ttl_seconds` out of range)                                                            |
+| `invite_not_found`       | —                     | `DELETE /invites/{token}`, `GET /invites/{token}/onboarding.txt` (missing, revoked, or expired token)   |
+| `invite_burned`          | —                     | `GET /invites/{token}/onboarding.txt` (already-consumed token)                                          |
+| `method_not_allowed`     | —                     | any endpoint, unsupported HTTP method                                                                   |
+
+No route currently emits `forbidden` or `internal_error`; an
+unhandled server error surfaces as dart_frog's own default 500
+response, not this envelope.
 
 ---
 
@@ -368,16 +419,16 @@ Read a note. Authenticated. Returns `200 OK`:
 }
 ```
 
-`lock` is omitted when no editor lock is held. `404 Not Found` if the
-id does not exist.
+`lock` is omitted when no editor lock is held. `404 Not Found`
+(`{"error": "not_found"}`) if the id does not exist.
 
 ---
 
 ### `GET /notes/{id}/backlinks`
 
 List notes whose content contains a `[[...]]` link resolving to this
-note, most-recently-updated first. Authenticated. `404 Not Found` if
-the id does not exist.
+note, most-recently-updated first. Authenticated. `404 Not Found`
+(`{"error": "not_found"}`) if the id does not exist.
 
 ```json
 {
@@ -394,7 +445,8 @@ the id does not exist.
 ### `GET /notes/{id}/links`
 
 List this note's own outgoing `[[...]]` links. Authenticated. `404 Not
-Found` if the id does not exist. `id` is present only when the link
+Found` (`{"error": "not_found"}`) if the id does not exist. `id` is
+present only when the link
 resolved to an existing note; an unresolved ("phantom") link has
 `resolved: false` and no `id`.
 
@@ -430,11 +482,14 @@ normal follow-up write (see "Links" in `STORAGE.md`).
 
 Failure modes:
 
-| Status            | Meaning                                                                                                                                   |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `400 Bad Request` | `If-Match` missing or malformed.                                                                                                          |
-| `409 Conflict`    | Version stale (`current_version`/`current_content`), or the resolved `path` collides with a different note (`{"error":"path_conflict"}`). |
-| `423 Locked`      | Another actor holds the editor lock. Body includes the current lock object.                                                               |
+| Status                       | Body                                                              | Meaning                                                          |
+| ---------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `428 Precondition Required`  | `{"error": "precondition_required", "message": "..."}`             | `If-Match` header missing.                                          |
+| `400 Bad Request`            | `{"error": "bad_request", "message": "..."}`                       | `If-Match` isn't an integer, body isn't JSON/a JSON object, or an invalid `path`/`title`/`content`. |
+| `404 Not Found`              | `{"error": "not_found"}`                                            | No note with this id.                                                |
+| `409 Conflict`               | `{"error": "version_conflict", "current": {...full note...}}`      | `If-Match` no longer matches the note's current version.             |
+| `409 Conflict`               | `{"error": "path_conflict"}`                                        | The resolved `path` collides with a different note.                  |
+| `423 Locked`                 | `{"error": "locked", "lock": {"holder", "expires_at"}}`             | Another actor holds the editor lock.                                  |
 
 Successful writes broadcast `changed { id, version, by, action }`,
 where `action` is `"moved"` when `path` changed (even alongside a
@@ -464,11 +519,13 @@ Successful response `200 OK` (same shape as `GET /notes/{id}` minus
 
 Failure modes:
 
-| Status                | Meaning                                                                 |
-| --------------------- | ------------------------------------------------------------------------ |
-| `400 Bad Request`     | Body isn't JSON, or `content` is missing/empty (`validation_failed`).  |
-| `404 Not Found`       | No note with this id.                                                  |
-| `423 Locked`          | Another actor holds the editor lock. Body includes the current lock object. |
+| Status                | Body                                                          | Meaning                                    |
+| --------------------- | ---------------------------------------------------------------- | --------------------------------------------- |
+| `400 Bad Request`     | `{"error": "bad_request", "message": "..."}`                     | Body isn't JSON, or isn't a JSON object.       |
+| `400 Bad Request`     | `{"error": "validation_failed", "message": "..."}`               | `content` is missing or blank.                 |
+| `404 Not Found`       | `{"error": "not_found"}`                                          | No note with this id.                          |
+| `409 Conflict`        | `{"error": "version_conflict", "current": {...full note...}}`    | Every retry attempt lost the version race.     |
+| `423 Locked`          | `{"error": "locked", "lock": {"holder", "expires_at"}}`           | Another actor holds the editor lock.           |
 
 Successful writes broadcast `changed { id, version, by, action: "updated" }`.
 
@@ -478,7 +535,9 @@ Successful writes broadcast `changed { id, version, by, action: "updated" }`.
 
 Delete a note. Authenticated. Returns `204 No Content`. Broadcasts
 `changed { id, version: <last>, by, action: "deleted" }`. Deleting a
-note while it is locked by someone else returns `423 Locked`.
+note while it is locked by someone else returns `423 Locked` with
+`{"error": "locked", "lock": {"holder", "expires_at"}}`. `404 Not
+Found` (`{"error": "not_found"}`) if the id does not exist.
 
 ---
 
@@ -494,21 +553,34 @@ Response `200 OK`:
 { "holder": "cedric", "expires_at": "2026-04-25T10:15:23Z" }
 ```
 
-If another actor holds the lock and it has not expired → `423 Locked`
-with the current lock object. The server never auto-steals — clients
-must wait for the TTL or for the holder to release.
+If another actor holds the lock and it has not expired → `423 Locked`:
+
+```json
+{
+  "error": "locked",
+  "lock": { "holder": "alice", "expires_at": "2026-04-25T10:15:23Z" }
+}
+```
+
+The server never auto-steals — clients must wait for the TTL or for
+the holder to release.
 
 Lock TTL is ~60s; clients SHOULD heartbeat at half-TTL.
 
 ### `PUT /notes/{id}/lock`
 
 Heartbeat the lock. Authenticated. Same actor only. Returns the
-refreshed `{ holder, expires_at }`. `423 Locked` if the caller does
-not own the lock.
+refreshed `{ holder, expires_at }`. `423 Locked`
+(`{"error": "locked", "lock": {...}}`) if a different actor holds it.
+`404 Not Found` (`{"error": "lock_not_found"}`) if no lock is
+currently held on this note (already released or expired).
 
 ### `DELETE /notes/{id}/lock`
 
-Release the lock. Authenticated. Same actor only. Returns `204 No Content`.
+Release the lock. Authenticated. Idempotent for the holder (and for
+anyone, once no lock is held). `423 Locked`
+(`{"error": "locked", "lock": {...}}`) if a different actor holds it.
+Returns `204 No Content`.
 
 Lock state changes broadcast `lock { id, state: "acquired"|"released", holder }`
 on the WebSocket.
@@ -523,7 +595,7 @@ Query parameters:
 
 | Param   | Type   | Default | Notes                                                                         |
 | ------- | ------ | ------- | ----------------------------------------------------------------------------- |
-| `q`     | string | —       | Required. Empty/whitespace returns `400 validation_failed`.                   |
+| `q`     | string | —       | Required — absent returns `400 {"error": "missing_query"}`; present but whitespace-only returns `400 {"error": "empty_query"}`. An invalid FTS5 expression returns `400 {"error": "invalid_query"}`. |
 | `limit` | int    | 20      | Clamped to `[1, 100]`.                                                        |
 | `path`  | string | —       | Restrict matches to notes whose `path` equals or is nested under this folder. |
 | `tag`   | string | —       | Restrict matches to notes carrying this tag.                                  |
@@ -601,8 +673,9 @@ Authenticated. Returns:
 ### `DELETE /invites/{token}`
 
 Revoke an invite. Authenticated. Returns `204 No Content`. Idempotent
-— deleting an already-consumed or already-revoked invite still
-returns `204`.
+for an already-consumed (burned) invite — its record still exists, so
+revoking it still returns `204`. An unknown or already-revoked token
+returns `404 Not Found` (`{"error": "invite_not_found"}`).
 
 ### `GET /invites/{token}/onboarding.txt`
 
@@ -616,9 +689,11 @@ ROBOT_NOTES_API_KEY=rn_your_secret
 ROBOT_NOTES_ACTOR=research-bot
 ```
 
-The first successful fetch sets `burned_at`; subsequent fetches
-return `410 Gone` with code `invite_consumed`. Expired invites
-return `410 Gone` with code `invite_expired`.
+The first successful fetch sets `burned_at`; subsequent fetches on
+that token return `410 Gone` with `{"error": "invite_burned"}`. A
+missing, revoked, or expired token returns `404 Not Found` with
+`{"error": "invite_not_found"}` (expiry is not distinguished from
+"never existed" on the wire).
 
 ---
 
