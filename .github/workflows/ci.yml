@@ -184,7 +184,8 @@ jobs:
       - uses: actions/checkout@v7
 
       # Same toolchain as the `dart` job: the server is a Dart Frog app and
-      # `dart_frog dev` (what `make run-server` uses) needs the SDK on PATH.
+      # building it (`dart_frog build` below, what `make run-server` and the
+      # server-builder Dockerfile stage use) needs the SDK on PATH.
       - name: Setup Flutter (provides Dart SDK)
         uses: subosito/flutter-action@v2
         with:
@@ -195,7 +196,7 @@ jobs:
       - name: Resolve workspace dependencies
         run: dart pub get
 
-      # dart_frog dev isn't a workspace dependency (it's a global dev tool,
+      # dart_frog_cli isn't a workspace dependency (it's a global dev tool,
       # same as the Dockerfile's server-builder stage activates it) — pin the
       # same major version for a reproducible renderer.
       - name: Install dart_frog_cli
@@ -203,35 +204,43 @@ jobs:
           dart pub global activate dart_frog_cli ^1.2.0
           echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
 
-      - name: Start robot-notes server
+      # Build the server the way production does (see server/Dockerfile):
+      # `dart_frog build` renders the production tree, then `dart build cli`
+      # runs Dart's build hooks so package:sqlite3 (3.x) bundles a native
+      # libsqlite3.so next to the binary. Starting the server with
+      # `dart_frog dev` instead (used here previously) skips build hooks
+      # entirely — package:sqlite3 then has no bundled library and no
+      # in-process fallback on this runner ("Couldn't resolve native
+      # function 'sqlite3_initialize' ... No available native assets").
+      - name: Build robot-notes server (production build)
         working-directory: server
+        run: |
+          dart_frog build
+          # The generated entrypoint (build/bin/server.dart) hardcodes
+          # `InternetAddress.anyIPv6`. GitHub-hosted Actions runners do not
+          # support IPv6 at all, so binding `::` fails outright ("Address
+          # family not supported by protocol"). The old
+          # `dart_frog dev --hostname 127.0.0.1` flag doesn't apply here --
+          # `--hostname` is a dev-server-only option that never reaches
+          # this generated file -- so patch the one line by hand to force
+          # IPv4 loopback instead, keeping the server bound to 127.0.0.1
+          # as before.
+          sed -i 's/InternetAddress\.anyIPv6/InternetAddress.loopbackIPv4/' build/bin/server.dart
+          cd build
+          dart pub get
+          dart build cli -o out
+
+      - name: Start robot-notes server
         run: |
           mkdir -p "$ROBOT_NOTES_DATA_DIR"
           # No --embedding-provider: semantic search (Ollama) stays disabled,
           # matching the default `make run-server` behavior — this job only
           # needs keyword search + the REST CRUD surface.
           #
-          # stdin is redirected from a regular file (an empty one), not
-          # /dev/null: dart_frog dev's hot-reload helper calls
-          # stdin.hasTerminal to decide whether to listen for the "press R
-          # to reload" keystroke, and that check can mistake a character
-          # device (which /dev/null is) for a real terminal, then crash
-          # trying to set raw/line mode on it ("Inappropriate ioctl for
-          # device"). A regular file isn't a character device, so
-          # hasTerminal correctly comes back false. See the same guard in
-          # `make test-hermes-plugin-e2e` (Makefile).
-          : > "$RUNNER_TEMP/robot-notes-server.stdin"
-          # --hostname 127.0.0.1 avoids dart_frog dev's default of binding
-          # the IPv6 wildcard address (`::`): GitHub-hosted Actions runners
-          # do not support IPv6, so that bind fails outright ("Address
-          # family not supported by protocol"). See the same flag in
-          # `make test-hermes-plugin-e2e` (Makefile).
-          # setsid puts dart_frog dev in its own process group, so "Stop
-          # robot-notes server" below can kill the whole group: dart_frog
-          # dev spawns the actual server as a child process, and killing
-          # just the dart_frog dev PID would leave that child running.
-          setsid nohup dart_frog dev --hostname 127.0.0.1 --port "$ROBOT_NOTES_PORT" \
-            > "$RUNNER_TEMP/robot-notes-server.log" 2>&1 < "$RUNNER_TEMP/robot-notes-server.stdin" &
+          # setsid puts the server in its own process group, so "Stop
+          # robot-notes server" below can kill the whole group.
+          setsid server/build/out/bundle/bin/server \
+            > "$RUNNER_TEMP/robot-notes-server.log" 2>&1 < /dev/null &
           echo $! > "$RUNNER_TEMP/robot-notes-server.pid"
 
       - name: Wait for the server to become healthy
