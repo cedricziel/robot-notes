@@ -183,8 +183,9 @@ void main() {
     });
   });
 
-  testWidgets('tapping Sign in on a mobile platform drives signInMobile',
-      (tester) async {
+  testWidgets('tapping Sign in on a mobile platform drives signInMobile', (
+    tester,
+  ) async {
     await withPlatform(TargetPlatform.iOS, () async {
       final store = InMemoryConfigStore();
       const signedInConfig = AppConfig(

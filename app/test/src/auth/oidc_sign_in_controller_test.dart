@@ -157,44 +157,41 @@ void main() {
       throw StateError('unexpected request: ${request.url}');
     };
 
-    test(
-      'completes successfully end to end against a fake browser-sheet '
-      'callback',
-      () async {
-        final mock = MockClient(tokenExchangeHandler());
-        String? capturedUrl;
-        String? capturedScheme;
-        final controller = OidcSignInController(
-          store: store,
-          clientFactory: () => mock,
-          launchUri: (_) async {},
-          webAuthenticate: ({required url, required callbackUrlScheme}) async {
-            capturedUrl = url;
-            capturedScheme = callbackUrlScheme;
-            final state = Uri.parse(url).queryParameters['state']!;
-            return '$kMobileOidcRedirectUri?code=auth-code-abc&state=$state';
-          },
-        );
+    test('completes successfully end to end against a fake browser-sheet '
+        'callback', () async {
+      final mock = MockClient(tokenExchangeHandler());
+      String? capturedUrl;
+      String? capturedScheme;
+      final controller = OidcSignInController(
+        store: store,
+        clientFactory: () => mock,
+        launchUri: (_) async {},
+        webAuthenticate: ({required url, required callbackUrlScheme}) async {
+          capturedUrl = url;
+          capturedScheme = callbackUrlScheme;
+          final state = Uri.parse(url).queryParameters['state']!;
+          return '$kMobileOidcRedirectUri?code=auth-code-abc&state=$state';
+        },
+      );
 
-        await controller.signInMobile('https://notes.example');
+      await controller.signInMobile('https://notes.example');
 
-        expect(capturedScheme, kMobileOidcCallbackScheme);
-        expect(
-          Uri.parse(capturedUrl!).queryParameters['redirect_uri'],
-          kMobileOidcRedirectUri,
-        );
-        if (controller.value case final OidcSignInFailed f) {
-          fail('sign-in failed: ${f.message}');
-        }
-        expect(controller.value, isA<OidcSignInSuccess>());
-        final config = (controller.value as OidcSignInSuccess).config;
-        expect(config.apiKey, 'access-token-xyz');
-        expect(config.oauthRefreshToken, 'refresh-token-xyz');
-        expect(config.actor, 'Alice Example');
-        expect(config.baseUrl, 'https://notes.example');
-        expect(await store.read(), equals(config));
-      },
-    );
+      expect(capturedScheme, kMobileOidcCallbackScheme);
+      expect(
+        Uri.parse(capturedUrl!).queryParameters['redirect_uri'],
+        kMobileOidcRedirectUri,
+      );
+      if (controller.value case final OidcSignInFailed f) {
+        fail('sign-in failed: ${f.message}');
+      }
+      expect(controller.value, isA<OidcSignInSuccess>());
+      final config = (controller.value as OidcSignInSuccess).config;
+      expect(config.apiKey, 'access-token-xyz');
+      expect(config.oauthRefreshToken, 'refresh-token-xyz');
+      expect(config.actor, 'Alice Example');
+      expect(config.baseUrl, 'https://notes.example');
+      expect(await store.read(), equals(config));
+    });
 
     test('a provider error is surfaced as a failure', () async {
       final mock = MockClient(tokenExchangeHandler());
@@ -243,10 +240,9 @@ void main() {
           store: store,
           clientFactory: () => mock,
           launchUri: (_) async {},
-          webAuthenticate:
-              ({required url, required callbackUrlScheme}) async {
-                throw Exception('user cancelled');
-              },
+          webAuthenticate: ({required url, required callbackUrlScheme}) async {
+            throw Exception('user cancelled');
+          },
         );
 
         await controller.signInMobile('https://notes.example');
