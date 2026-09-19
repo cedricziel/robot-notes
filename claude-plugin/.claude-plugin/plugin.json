@@ -1,6 +1,6 @@
 {
   "name": "robot-notes",
-  "version": "0.2.15",
+  "version": "0.1.4",
   "description": "Guidance for interacting with the robot-notes MCP server's note tools",
   "author": {
     "name": "Cedric Ziel"
