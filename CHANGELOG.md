@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.15](https://github.com/cedricziel/robot-notes/compare/v0.2.14...v0.2.15) (2026-09-19)
+
+
+### Features
+
+* **app,server:** add OIDC sign-in on iOS and Android via a browser sheet ([#291](https://github.com/cedricziel/robot-notes/issues/291)) ([3ccf0f1](https://github.com/cedricziel/robot-notes/commit/3ccf0f1ea9dc8cde3f7a782b827ed0e2dae0b65b))
+
 ## [0.2.14](https://github.com/cedricziel/robot-notes/compare/v0.2.13...v0.2.14) (2026-09-18)
 
 
