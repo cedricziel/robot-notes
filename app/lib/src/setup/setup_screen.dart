@@ -11,9 +11,11 @@ import '../widgets/status_strip.dart';
 import 'setup_controller.dart';
 
 /// First-run flow, split into two steps: pick a server, then log in.
-/// Step 1 is just the server URL and a Continue button. Step 2 offers — on
-/// web/desktop, when the entered server advertises OIDC support — a "Sign
-/// in" option, plus manual API-key entry as the always-available fallback.
+/// Step 1 is just the server URL and a Continue button. Step 2 offers,
+/// when the entered server advertises OIDC support, a "Sign in" option —
+/// via a loopback redirect on desktop, a same-origin reload on web, or a
+/// browser sheet (`ASWebAuthenticationSession`/Custom Tabs) on mobile —
+/// plus manual API-key entry as the always-available fallback.
 /// Renders the controllers' state directly: error banner on
 /// [SetupFailed]/[OidcSignInFailed], spinner on
 /// [SetupSubmitting]/[OidcSignInInProgress], and on success (either path)
@@ -50,11 +52,11 @@ class SetupScreen extends StatefulWidget {
   State<SetupScreen> createState() => _SetupScreenState();
 }
 
-/// Whether the current platform can run the app's own OAuth-client sign-in
-/// flow. Desktop and web only, per proposal.md - Non-goals (mobile is a
-/// follow-up: no loopback listener and no same-origin reload semantics
-/// there). Uses `defaultTargetPlatform` rather than `dart:io`'s
-/// `Platform` so this check compiles for web.
+/// Whether the current platform is a mobile one (Android/iOS), which
+/// signs in via a browser sheet ([OidcSignInController.signInMobile])
+/// rather than desktop's loopback listener or web's same-origin reload.
+/// Uses `defaultTargetPlatform` rather than `dart:io`'s `Platform` so this
+/// check compiles for web.
 bool _isMobilePlatform() =>
     !kIsWeb &&
     (defaultTargetPlatform == TargetPlatform.android ||
@@ -76,6 +78,7 @@ class _SetupScreenState extends State<SetupScreen> {
   _SetupStep _step = _SetupStep.server;
   _Reachability _reachability = _Reachability.idle;
   int _reachabilityGen = 0;
+  int _capabilitiesGen = 0;
 
   /// Whether the manual API-key/display-name fields have been expanded via
   /// the "Use an API key instead" disclosure. Only consulted when sign-in
@@ -136,10 +139,18 @@ class _SetupScreenState extends State<SetupScreen> {
     setState(() => _step = _SetupStep.server);
   }
 
+  /// Checks [_baseUrl]'s capabilities and updates [_capabilities]. Guarded
+  /// by a generation counter (mirroring [_checkReachability]'s) so a slow
+  /// response for a server the user has since typed past can't clobber the
+  /// capabilities of whatever they changed the field to in the meantime —
+  /// otherwise "Sign in" could show, and route [_signIn] into
+  /// `signInMobile`/`signInDesktop`/`startWebSignIn`, using a stale
+  /// server's OIDC support against the URL currently in the field.
   Future<void> _checkCapabilities() async {
-    if (_isMobilePlatform() || widget.oidcController == null) return;
+    if (widget.oidcController == null) return;
     final baseUrl = _baseUrl.text.trim();
     if (baseUrl.isEmpty) return;
+    final gen = ++_capabilitiesGen;
     final client = widget.capabilitiesClientFactory();
     final ServerCapabilities caps;
     try {
@@ -147,7 +158,7 @@ class _SetupScreenState extends State<SetupScreen> {
     } finally {
       client.close();
     }
-    if (!mounted) return;
+    if (!mounted || gen != _capabilitiesGen) return;
     setState(() => _capabilities = caps);
   }
 
@@ -208,11 +219,15 @@ class _SetupScreenState extends State<SetupScreen> {
     final baseUrl = _baseUrl.text.trim();
     // Web has no loopback listener to bind — it uses the same-origin
     // reload flow instead (see OidcSignInController.startWebSignIn).
+    // Mobile has neither a loopback listener nor a same-origin page to
+    // reload — it uses a browser sheet instead (signInMobile).
     if (kIsWeb) {
       await widget.oidcController?.startWebSignIn(
         baseUrl: baseUrl,
         redirectUri: Uri.base.origin,
       );
+    } else if (_isMobilePlatform()) {
+      await widget.oidcController?.signInMobile(baseUrl);
     } else {
       await widget.oidcController?.signInDesktop(baseUrl);
     }
@@ -338,9 +353,7 @@ class _SetupScreenState extends State<SetupScreen> {
     final oidcState = widget.oidcController?.value;
     final signingIn = oidcState is OidcSignInInProgress;
     final showSignIn =
-        widget.oidcController != null &&
-        !_isMobilePlatform() &&
-        _capabilities.supportsOidcLogin;
+        widget.oidcController != null && _capabilities.supportsOidcLogin;
     // Sign-in is the primary path when it's offered; manual key entry is
     // tucked behind a disclosure instead of competing for equal attention.
     // With no sign-in option, manual entry is the only path and always

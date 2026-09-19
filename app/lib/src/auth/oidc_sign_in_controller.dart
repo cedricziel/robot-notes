@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
@@ -9,6 +10,30 @@ import '../otel/otel_http_client.dart';
 import 'loopback_redirect.dart';
 import 'oauth_client.dart';
 import 'web_oauth_callback.dart';
+
+/// The app's own custom URL scheme, registered as its OAuth redirect on
+/// iOS and Android — there is no loopback listener to bind and no
+/// same-origin page to reload back into on mobile, unlike desktop and
+/// web. Matches the app's bundle id / application id (see
+/// `ios/Runner.xcodeproj` and `android/app/build.gradle.kts`) so it can't
+/// collide with another app's scheme on the same device, and must match
+/// the server's allowlisted mobile scheme in
+/// `server/routes/oauth/register.dart`.
+const String kMobileOidcCallbackScheme = 'com.cedricziel.robotnotes.app';
+
+/// The mobile OAuth redirect URI built from [kMobileOidcCallbackScheme].
+const String kMobileOidcRedirectUri =
+    '$kMobileOidcCallbackScheme://oauth/callback';
+
+/// Opens [url] in a system browser sheet (`ASWebAuthenticationSession` on
+/// iOS/macOS, Custom Tabs on Android) and resolves with the full callback
+/// URL once the provider redirects to [callbackUrlScheme]. Injected so
+/// tests never open a real browser sheet.
+typedef WebAuthenticate =
+    Future<String> Function({
+      required String url,
+      required String callbackUrlScheme,
+    });
 
 /// Sealed state machine for an in-progress or completed OIDC sign-in.
 sealed class OidcSignInState {
@@ -61,6 +86,7 @@ class OidcSignInController extends ValueNotifier<OidcSignInState> {
     required ConfigStore store,
     http.Client Function() clientFactory = tracingHttpClient,
     required this.launchUri,
+    this.webAuthenticate = FlutterWebAuth2.authenticate,
   }) : _store = store,
        _clientFactory = clientFactory,
        _oauthClient = OAuthClient(store: store, clientFactory: clientFactory),
@@ -72,6 +98,10 @@ class OidcSignInController extends ValueNotifier<OidcSignInState> {
 
   /// Opens the authorize URL for the user.
   final LaunchUri launchUri;
+
+  /// Opens the authorize URL in a browser sheet and captures the mobile
+  /// redirect. Only used by [signInMobile].
+  final WebAuthenticate webAuthenticate;
 
   /// Runs the desktop sign-in flow: registers (if needed), opens the
   /// authorize URL in the system browser, waits on a loopback listener
@@ -127,6 +157,62 @@ class OidcSignInController extends ValueNotifier<OidcSignInState> {
       value = OidcSignInFailed('Sign-in failed: $e');
     } finally {
       await loopback?.close();
+    }
+  }
+
+  /// Runs the mobile sign-in flow (iOS/Android): registers (if needed),
+  /// opens the authorize URL in a system browser sheet —
+  /// `ASWebAuthenticationSession` on iOS, Custom Tabs on Android, via
+  /// [webAuthenticate] — and exchanges the code captured from the
+  /// [kMobileOidcRedirectUri] callback. Neither a loopback listener
+  /// ([signInDesktop]) nor a same-origin reload ([startWebSignIn]) is
+  /// available on mobile, so the browser sheet intercepts the redirect
+  /// itself and hands the resulting URL straight back to the app.
+  Future<void> signInMobile(String baseUrl) async {
+    value = const OidcSignInInProgress();
+    try {
+      final clientId = await _oauthClient.ensureRegistered(
+        baseUrl: baseUrl,
+        redirectUri: kMobileOidcRedirectUri,
+      );
+      final verifier = generatePkceVerifier();
+      final state = generatePkceVerifier();
+      final authorizeUri = _oauthClient.buildAuthorizeUri(
+        baseUrl: baseUrl,
+        clientId: clientId,
+        redirectUri: kMobileOidcRedirectUri,
+        codeChallenge: pkceS256Challenge(verifier),
+        state: state,
+      );
+
+      final callbackUrl = await webAuthenticate(
+        url: authorizeUri.toString(),
+        callbackUrlScheme: kMobileOidcCallbackScheme,
+      );
+      final callback = extractWebOAuthCallback(Uri.parse(callbackUrl));
+
+      if (callback?.error != null) {
+        value = OidcSignInFailed('Sign-in was cancelled: ${callback!.error}.');
+        return;
+      }
+      if (callback?.code == null || callback?.state != state) {
+        value = const OidcSignInFailed(
+          'Sign-in response did not match this attempt.',
+        );
+        return;
+      }
+
+      final config = await _exchangeCode(
+        baseUrl: baseUrl,
+        clientId: clientId,
+        code: callback!.code!,
+        codeVerifier: verifier,
+        redirectUri: kMobileOidcRedirectUri,
+      );
+      await _store.write(config);
+      value = OidcSignInSuccess(config);
+    } on Object catch (e) {
+      value = OidcSignInFailed('Sign-in failed: $e');
     }
   }
 
