@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.14](https://github.com/cedricziel/robot-notes/compare/v0.2.13...v0.2.14) (2026-09-18)
+
+
+### Features
+
+* **app:** adaptive spinners for database screens ([#289](https://github.com/cedricziel/robot-notes/issues/289)) ([8af7a39](https://github.com/cedricziel/robot-notes/commit/8af7a399125215aae8995e3ed892eefdff034f31))
+* **app:** database property editors ([#279](https://github.com/cedricziel/robot-notes/issues/279)) ([3868470](https://github.com/cedricziel/robot-notes/commit/3868470f165b6b9cd3e5224929151ccbafc8af4a))
+* **app:** database schema editor, new-database form, and real PropertyEditor in the table view ([#285](https://github.com/cedricziel/robot-notes/issues/285)) ([6c64e0c](https://github.com/cedricziel/robot-notes/commit/6c64e0c7decc3e049a6b331e451342900d1fe0ef))
+* **app:** database screen — scaffold, table/list/board views, New row flow ([#281](https://github.com/cedricziel/robot-notes/issues/281)) ([f6620ae](https://github.com/cedricziel/robot-notes/commit/f6620ae8d6814ad810b9c2b3bc0d2b27c4b31b8f))
+* **app:** note property panel, database embeds, sidebar wrap-up ([#286](https://github.com/cedricziel/robot-notes/issues/286)) ([89ca4a6](https://github.com/cedricziel/robot-notes/commit/89ca4a6bf88a5c5b7b18e8cadcd4e183b37148e2))
+* **app:** pull-to-refresh and macOS menu bar for database screens ([#290](https://github.com/cedricziel/robot-notes/issues/290)) ([f592267](https://github.com/cedricziel/robot-notes/commit/f5922672e416c4c5e34d170c0105fafe89e5577d))
+* **databases:** add MCP tools for database CRUD, query, rows, and property patches ([#283](https://github.com/cedricziel/robot-notes/issues/283)) ([655546c](https://github.com/cedricziel/robot-notes/commit/655546c316ac18e047205c42cda3cd14316dbef7))
+* **databases:** REST routes for note properties and databases ([#284](https://github.com/cedricziel/robot-notes/issues/284)) ([bdbc38c](https://github.com/cedricziel/robot-notes/commit/bdbc38cd3dc05e5e4088962a260123e178ff7ac5))
+* **databases:** write path — Storage.patchExtra, NoteWriteService validation, rows, relations ([#282](https://github.com/cedricziel/robot-notes/issues/282)) ([2bab1ad](https://github.com/cedricziel/robot-notes/commit/2bab1ad5fed915bb12a60680fd49130669243cac))
+
+
+### Documentation
+
+* **openspec:** archive add-databases and add-database-views ([#288](https://github.com/cedricziel/robot-notes/issues/288)) ([5208a19](https://github.com/cedricziel/robot-notes/commit/5208a19de37b3701a88264493d724d5c16aea619))
+
 ## [0.2.13](https://github.com/cedricziel/robot-notes/compare/v0.2.12...v0.2.13) (2026-09-18)
 
 
