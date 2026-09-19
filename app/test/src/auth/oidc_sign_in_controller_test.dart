@@ -127,6 +127,136 @@ void main() {
     );
   });
 
+  group('OidcSignInController.signInMobile', () {
+    late InMemoryConfigStore store;
+
+    setUp(() {
+      store = InMemoryConfigStore();
+    });
+
+    Future<http.Response> Function(http.Request) tokenExchangeHandler({
+      String accessToken = 'access-token-xyz',
+      String refreshToken = 'refresh-token-xyz',
+      String actor = 'Alice Example',
+    }) => (request) async {
+      if (request.url.path == '/oauth/register') {
+        return http.Response(jsonEncode({'client_id': 'client-abc'}), 201);
+      }
+      if (request.url.path == '/oauth/token') {
+        return http.Response(
+          jsonEncode({
+            'access_token': accessToken,
+            'refresh_token': refreshToken,
+            'actor': actor,
+            'token_type': 'Bearer',
+            'expires_in': 3600,
+          }),
+          200,
+        );
+      }
+      throw StateError('unexpected request: ${request.url}');
+    };
+
+    test(
+      'completes successfully end to end against a fake browser-sheet '
+      'callback',
+      () async {
+        final mock = MockClient(tokenExchangeHandler());
+        String? capturedUrl;
+        String? capturedScheme;
+        final controller = OidcSignInController(
+          store: store,
+          clientFactory: () => mock,
+          launchUri: (_) async {},
+          webAuthenticate: ({required url, required callbackUrlScheme}) async {
+            capturedUrl = url;
+            capturedScheme = callbackUrlScheme;
+            final state = Uri.parse(url).queryParameters['state']!;
+            return '$kMobileOidcRedirectUri?code=auth-code-abc&state=$state';
+          },
+        );
+
+        await controller.signInMobile('https://notes.example');
+
+        expect(capturedScheme, kMobileOidcCallbackScheme);
+        expect(
+          Uri.parse(capturedUrl!).queryParameters['redirect_uri'],
+          kMobileOidcRedirectUri,
+        );
+        if (controller.value case final OidcSignInFailed f) {
+          fail('sign-in failed: ${f.message}');
+        }
+        expect(controller.value, isA<OidcSignInSuccess>());
+        final config = (controller.value as OidcSignInSuccess).config;
+        expect(config.apiKey, 'access-token-xyz');
+        expect(config.oauthRefreshToken, 'refresh-token-xyz');
+        expect(config.actor, 'Alice Example');
+        expect(config.baseUrl, 'https://notes.example');
+        expect(await store.read(), equals(config));
+      },
+    );
+
+    test('a provider error is surfaced as a failure', () async {
+      final mock = MockClient(tokenExchangeHandler());
+      final controller = OidcSignInController(
+        store: store,
+        clientFactory: () => mock,
+        launchUri: (_) async {},
+        webAuthenticate: ({required url, required callbackUrlScheme}) async {
+          final state = Uri.parse(url).queryParameters['state']!;
+          return '$kMobileOidcRedirectUri?error=access_denied&state=$state';
+        },
+      );
+
+      await controller.signInMobile('https://notes.example');
+
+      expect(controller.value, isA<OidcSignInFailed>());
+      expect(await store.read(), isNull);
+    });
+
+    test(
+      'a mismatched state is rejected without persisting anything',
+      () async {
+        final mock = MockClient(tokenExchangeHandler());
+        final controller = OidcSignInController(
+          store: store,
+          clientFactory: () => mock,
+          launchUri: (_) async {},
+          webAuthenticate: ({required url, required callbackUrlScheme}) async {
+            return '$kMobileOidcRedirectUri'
+                '?code=auth-code-abc&state=wrong-state';
+          },
+        );
+
+        await controller.signInMobile('https://notes.example');
+
+        expect(controller.value, isA<OidcSignInFailed>());
+        expect(await store.read(), isNull);
+      },
+    );
+
+    test(
+      'the user dismissing the browser sheet is surfaced as a failure',
+      () async {
+        final mock = MockClient(tokenExchangeHandler());
+        final controller = OidcSignInController(
+          store: store,
+          clientFactory: () => mock,
+          launchUri: (_) async {},
+          webAuthenticate:
+              ({required url, required callbackUrlScheme}) async {
+                throw Exception('user cancelled');
+              },
+        );
+
+        await controller.signInMobile('https://notes.example');
+
+        expect(controller.value, isA<OidcSignInFailed>());
+        expect(await store.read(), isNull);
+      },
+    );
+  });
+
   group('OidcSignInController.resumeWebSignInIfPending', () {
     late InMemoryConfigStore store;
 

@@ -82,8 +82,9 @@ provider" option next to the existing "paste the API key" form. A successful
 OIDC login grants the same full access as the static key — there are no
 per-user permission tiers. Leaving the three settings unset disables OIDC
 entirely and the server behaves exactly as before. OIDC sign-in is available
-on desktop and web builds of the app only; mobile keeps the manual key-entry
-flow for now.
+on every build of the app — desktop and web use a loopback redirect or a
+same-origin page reload respectively, while iOS and Android use a system
+browser sheet (`ASWebAuthenticationSession`/Custom Tabs) instead.
 
 #### Hybrid search (optional, additive)
 

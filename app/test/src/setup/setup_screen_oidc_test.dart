@@ -107,8 +107,8 @@ void main() {
     });
   });
 
-  testWidgets('shows no Sign in option on a mobile platform even when '
-      'supported', (tester) async {
+  testWidgets('shows a Sign in option on a mobile platform when supported '
+      '(via the browser-sheet flow)', (tester) async {
     await withPlatform(TargetPlatform.iOS, () async {
       await tester.pumpWidget(
         MaterialApp(
@@ -132,7 +132,7 @@ void main() {
       await tester.tap(find.byKey(const Key('setup.continue')));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('setup.signInWithOidc')), findsNothing);
+      expect(find.byKey(const Key('setup.signInWithOidc')), findsOneWidget);
     });
   });
 
@@ -182,19 +182,76 @@ void main() {
       expect(configured, signedInConfig);
     });
   });
+
+  testWidgets('tapping Sign in on a mobile platform drives signInMobile',
+      (tester) async {
+    await withPlatform(TargetPlatform.iOS, () async {
+      final store = InMemoryConfigStore();
+      const signedInConfig = AppConfig(
+        baseUrl: 'https://notes.example',
+        apiKey: 'access-token',
+        actor: 'Alice Example',
+        oauthClientId: 'client-1',
+        oauthRefreshToken: 'refresh-1',
+      );
+
+      final oidcController = _FakeOidcSignInController(store: store);
+
+      AppConfig? configured;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SetupScreen(
+            controller: setupController(oidcSupportedClient()),
+            onConfigured: (c) => configured = c,
+            oidcController: oidcController,
+            capabilitiesClientFactory: oidcSupportedClient,
+          ),
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('setup.baseUrl')),
+        'https://notes.example',
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.tap(find.byKey(const Key('setup.continue')));
+      await tester.pumpAndSettle();
+
+      oidcController.nextResult = signedInConfig;
+      await tester.tap(find.byKey(const Key('setup.signInWithOidc')));
+      await tester.pumpAndSettle();
+
+      expect(oidcController.mobileSignInCalls, 1);
+      expect(oidcController.desktopSignInCalls, 0);
+      expect(configured, signedInConfig);
+    });
+  });
 }
 
 /// A minimal fake standing in for a real [OidcSignInController]: calling
-/// [signInDesktop] immediately resolves to [nextResult] (set by the
-/// test) as a success, without touching any real network or socket.
+/// [signInDesktop] or [signInMobile] immediately resolves to [nextResult]
+/// (set by the test) as a success, without touching any real network,
+/// socket, or browser sheet. Tracks call counts so a test can assert which
+/// flow the screen actually drove for the platform it pinned.
 class _FakeOidcSignInController extends OidcSignInController {
   _FakeOidcSignInController({required super.store})
     : super(launchUri: (_) async {});
 
   AppConfig? nextResult;
+  int desktopSignInCalls = 0;
+  int mobileSignInCalls = 0;
 
   @override
   Future<void> signInDesktop(String baseUrl) async {
+    desktopSignInCalls++;
+    final result = nextResult;
+    if (result == null) return;
+    value = OidcSignInSuccess(result);
+  }
+
+  @override
+  Future<void> signInMobile(String baseUrl) async {
+    mobileSignInCalls++;
     final result = nextResult;
     if (result == null) return;
     value = OidcSignInSuccess(result);

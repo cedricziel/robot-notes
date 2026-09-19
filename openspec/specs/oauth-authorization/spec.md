@@ -54,7 +54,7 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 ### Requirement: Dynamic Client Registration mints public or confidential clients
 
-`POST /oauth/register` SHALL accept, without authentication, a JSON body per RFC 7591. `redirect_uris` SHALL be a non-empty array of absolute URIs, each either `https` or `http` with host `localhost`, `127.0.0.1`, or `[::1]`; otherwise the server SHALL respond 400 with `{ "error": "invalid_redirect_uri" }`. `token_endpoint_auth_method` SHALL default to `none` and SHALL be one of `none`, `client_secret_post`, `client_secret_basic`; `grant_types` (default `["authorization_code", "refresh_token"]`) and `response_types` (default `["code"]`) SHALL be subsets of the supported sets; any other value SHALL yield 400 `{ "error": "invalid_client_metadata" }`. The response SHALL be 201 with `Cache-Control: no-store` containing `client_id` (opaque, at least 128 bits of entropy), `client_id_issued_at`, the echoed `redirect_uris`, `client_name`, `token_endpoint_auth_method`, `grant_types`, `response_types`, and, for confidential methods only, a `client_secret` with `client_secret_expires_at: 0`. The registration SHALL be persisted so it survives restart.
+`POST /oauth/register` SHALL accept, without authentication, a JSON body per RFC 7591. `redirect_uris` SHALL be a non-empty array of absolute URIs, each either `https`, `http` with host `localhost`, `127.0.0.1`, or `[::1]`, or the app's own mobile custom scheme `com.cedricziel.robotnotes.app`; otherwise the server SHALL respond 400 with `{ "error": "invalid_redirect_uri" }`. `token_endpoint_auth_method` SHALL default to `none` and SHALL be one of `none`, `client_secret_post`, `client_secret_basic`; `grant_types` (default `["authorization_code", "refresh_token"]`) and `response_types` (default `["code"]`) SHALL be subsets of the supported sets; any other value SHALL yield 400 `{ "error": "invalid_client_metadata" }`. The response SHALL be 201 with `Cache-Control: no-store` containing `client_id` (opaque, at least 128 bits of entropy), `client_id_issued_at`, the echoed `redirect_uris`, `client_name`, `token_endpoint_auth_method`, `grant_types`, `response_types`, and, for confidential methods only, a `client_secret` with `client_secret_expires_at: 0`. The registration SHALL be persisted so it survives restart.
 
 #### Scenario: Public client registration
 
@@ -70,6 +70,16 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 - **WHEN** a client registers `redirect_uris: ["http://localhost:53421/callback"]`
 - **THEN** the response SHALL be 201
+
+#### Scenario: The app's mobile custom-scheme redirect is allowed
+
+- **WHEN** a client registers `redirect_uris: ["com.cedricziel.robotnotes.app://oauth/callback"]`
+- **THEN** the response SHALL be 201
+
+#### Scenario: An unrecognized custom-scheme redirect is rejected
+
+- **WHEN** a client registers `redirect_uris: ["some-other-app://callback"]`
+- **THEN** the response SHALL be 400 with `error == "invalid_redirect_uri"`
 
 #### Scenario: Plain http redirect is rejected
 

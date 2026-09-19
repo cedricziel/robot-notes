@@ -19,6 +19,14 @@ const List<String> _kSupportedGrantTypes = [
 const List<String> _kSupportedResponseTypes = ['code'];
 const List<String> _kLoopbackHosts = ['localhost', '127.0.0.1', '::1'];
 
+/// The app's own custom URL scheme, used as its OAuth redirect on iOS and
+/// Android — there is no loopback listener to bind and no same-origin page
+/// to reload back into on mobile, unlike desktop and web (see
+/// `app/lib/src/auth/oidc_sign_in_controller.dart`). Matches the app's
+/// bundle id / application id so it can't collide with another app's
+/// scheme on the same device.
+const String _kMobileAppScheme = 'com.cedricziel.robotnotes.app';
+
 /// Bounds on registrant-supplied fields, to keep a single malicious or
 /// buggy registration from writing an unreasonably large client record.
 const int _kMaxClientNameLength = 256;
@@ -159,7 +167,8 @@ _RedirectUrisResult _validateRedirectUris(Object? raw) {
       return const _RedirectUrisResult.error('invalid_redirect_uri');
     }
     final allowed = uri.scheme == 'https' ||
-        (uri.scheme == 'http' && _kLoopbackHosts.contains(uri.host));
+        (uri.scheme == 'http' && _kLoopbackHosts.contains(uri.host)) ||
+        uri.scheme == _kMobileAppScheme;
     if (!allowed) {
       return const _RedirectUrisResult.error('invalid_redirect_uri');
     }

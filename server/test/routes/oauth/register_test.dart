@@ -103,6 +103,38 @@ void main() {
     expect(res.statusCode, HttpStatus.created);
   });
 
+  test("allows the app's mobile custom-scheme redirect URI", () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'Mobile',
+          'redirect_uris': ['com.cedricziel.robotnotes.app://oauth/callback'],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.created);
+  });
+
+  test('rejects an unrecognized custom-scheme redirect URI', () async {
+    final res = await route.onRequest(
+      _ctx(
+        method: HttpMethod.post,
+        store: store,
+        body: {
+          'client_name': 'Bad scheme',
+          'redirect_uris': ['some-other-app://callback'],
+        },
+      ),
+    );
+
+    expect(res.statusCode, HttpStatus.badRequest);
+    final json = await res.json() as Map<String, dynamic>;
+    expect(json['error'], 'invalid_redirect_uri');
+  });
+
   test('rejects a plain http redirect URI', () async {
     final res = await route.onRequest(
       _ctx(
