@@ -78,6 +78,7 @@ class _SetupScreenState extends State<SetupScreen> {
   _SetupStep _step = _SetupStep.server;
   _Reachability _reachability = _Reachability.idle;
   int _reachabilityGen = 0;
+  int _capabilitiesGen = 0;
 
   /// Whether the manual API-key/display-name fields have been expanded via
   /// the "Use an API key instead" disclosure. Only consulted when sign-in
@@ -138,10 +139,18 @@ class _SetupScreenState extends State<SetupScreen> {
     setState(() => _step = _SetupStep.server);
   }
 
+  /// Checks [_baseUrl]'s capabilities and updates [_capabilities]. Guarded
+  /// by a generation counter (mirroring [_checkReachability]'s) so a slow
+  /// response for a server the user has since typed past can't clobber the
+  /// capabilities of whatever they changed the field to in the meantime —
+  /// otherwise "Sign in" could show, and route [_signIn] into
+  /// `signInMobile`/`signInDesktop`/`startWebSignIn`, using a stale
+  /// server's OIDC support against the URL currently in the field.
   Future<void> _checkCapabilities() async {
     if (widget.oidcController == null) return;
     final baseUrl = _baseUrl.text.trim();
     if (baseUrl.isEmpty) return;
+    final gen = ++_capabilitiesGen;
     final client = widget.capabilitiesClientFactory();
     final ServerCapabilities caps;
     try {
@@ -149,7 +158,7 @@ class _SetupScreenState extends State<SetupScreen> {
     } finally {
       client.close();
     }
-    if (!mounted) return;
+    if (!mounted || gen != _capabilitiesGen) return;
     setState(() => _capabilities = caps);
   }
 
