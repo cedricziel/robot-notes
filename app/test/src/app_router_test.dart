@@ -9,6 +9,10 @@ import 'package:app/src/desktop/app_menu_actions.dart';
 import 'package:app/src/desktop/app_menu_bar.dart';
 import 'package:app/src/files/picked_file.dart';
 import 'package:app/src/layout/breakpoints.dart';
+import 'package:app/src/lock/app_lock_controller.dart';
+import 'package:app/src/lock/app_lock_gate.dart';
+import 'package:app/src/lock/app_lock_prefs.dart';
+import 'package:app/src/lock/biometric_authenticator.dart';
 import 'package:app/src/notes/folder_tree_controller.dart';
 import 'package:app/src/notes/notes_list_controller.dart';
 import 'package:app/src/notes/notes_list_screen.dart';
@@ -24,6 +28,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import 'lock/fakes.dart';
 
 const _config = AppConfig(
   baseUrl: 'https://notes.example',
@@ -544,6 +550,73 @@ void main() {
         expect(wasReset, isTrue);
       },
     );
+
+    testWidgets('Account offers the app lock and turns it on after a prompt', (
+      tester,
+    ) async {
+      await setNarrow(tester);
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+      final auth = FakeBiometricAuthenticator();
+      final lock = AppLockController(
+        authenticator: auth,
+        prefs: InMemoryAppLockPrefs(),
+      );
+      addTearDown(lock.dispose);
+      await lock.load();
+
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          wrapContent: (c) => AppLockScope(controller: lock, child: c),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.bottomNav.account')));
+      await tester.pumpAndSettle();
+
+      final tile = find.byKey(const Key('account.appLock'));
+      expect(tile, findsOneWidget);
+      expect(tester.widget<SwitchListTile>(tile).value, isFalse);
+
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+
+      expect(auth.authenticateCalls, 1);
+      expect(lock.enabled, isTrue);
+      expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+    });
+
+    testWidgets('Account leaves the app lock out when it is unsupported', (
+      tester,
+    ) async {
+      await setNarrow(tester);
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+      final lock = AppLockController(
+        authenticator: FakeBiometricAuthenticator(
+          capability: LockCapability.unsupported,
+        ),
+        prefs: InMemoryAppLockPrefs(),
+      );
+      addTearDown(lock.dispose);
+      await lock.load();
+
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          wrapContent: (c) => AppLockScope(controller: lock, child: c),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('notes.bottomNav.account')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('account.sheet')), findsOneWidget);
+      expect(find.byKey(const Key('account.appLock')), findsNothing);
+    });
 
     testWidgets('cancelling the disconnect confirmation keeps the session', (
       tester,
