@@ -201,6 +201,54 @@ void main() {
     });
   });
 
+  group('disable() and persistence errors', () {
+    test('a load() that fails after disable() does not re-lock', () async {
+      final read = Completer<bool>();
+      final c = AppLockController(
+        authenticator: auth,
+        prefs: _SlowReadPrefs(read.future),
+      );
+
+      final loading = c.load();
+      await Future<void>.delayed(Duration.zero);
+      await c.disable();
+      read.completeError(StateError('storage unavailable'));
+      await loading;
+
+      expect(c.loaded, isTrue);
+      expect(c.locked, isFalse);
+    });
+
+    test('disable() unlocks even when the write fails', () async {
+      final c = AppLockController(
+        authenticator: auth,
+        prefs: _FailingWritePrefs(enabled: true),
+      );
+      await c.load();
+      expect(c.locked, isTrue);
+
+      await expectLater(c.disable(), throwsA(isA<StateError>()));
+
+      expect(c.enabled, isFalse);
+      expect(c.locked, isFalse);
+    });
+
+    test(
+      'a failed cleanup write does not lock an unsupported device',
+      () async {
+        auth.capability = LockCapability.unsupported;
+        final c = AppLockController(
+          authenticator: auth,
+          prefs: _FailingWritePrefs(enabled: true),
+        );
+        await c.load();
+
+        expect(c.enabled, isFalse);
+        expect(c.locked, isFalse);
+      },
+    );
+  });
+
   group('background during a prompt', () {
     test('cancelling the switch-off prompt still locks the app', () async {
       prefs = InMemoryAppLockPrefs(enabled: true);
@@ -306,4 +354,17 @@ class _ThrowingPrefs implements AppLockPrefs {
 
   @override
   Future<void> writeEnabled(bool enabled) async {}
+}
+
+class _FailingWritePrefs implements AppLockPrefs {
+  _FailingWritePrefs({required this.enabled});
+
+  final bool enabled;
+
+  @override
+  Future<bool> readEnabled() async => enabled;
+
+  @override
+  Future<void> writeEnabled(bool enabled) async =>
+      throw StateError('storage unavailable');
 }

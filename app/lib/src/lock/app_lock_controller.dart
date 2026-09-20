@@ -57,9 +57,13 @@ class AppLockController extends ChangeNotifier {
       var enabled = stored;
       if (enabled && !capability.supported) {
         // Biometrics and passcode were removed since the lock was set up;
-        // keeping it on would lock the user out for good.
+        // keeping it on would lock the user out for good. The stored
+        // setting is cleaned up best-effort: failing to write it must not
+        // lock the user out either, and the next start retries.
         enabled = false;
-        await _prefs.writeEnabled(false);
+        try {
+          await _prefs.writeEnabled(false);
+        } catch (_) {}
       }
       if (disablesAtStart == _disableCount) {
         _enabled = enabled;
@@ -67,8 +71,12 @@ class AppLockController extends ChangeNotifier {
       }
       _loadFailed = false;
     } catch (_) {
-      _loadFailed = true;
-      _locked = true;
+      // A disable() that ran meanwhile already settled the state; a stale
+      // failure must not re-lock what it cleared.
+      if (disablesAtStart == _disableCount) {
+        _loadFailed = true;
+        _locked = true;
+      }
     }
     _loaded = true;
     notifyListeners();
@@ -98,11 +106,13 @@ class AppLockController extends ChangeNotifier {
   /// case when the session was cleared before the gate mounted.
   Future<void> disable() async {
     _disableCount++;
-    await _prefs.writeEnabled(false);
-    if (!_enabled && !_locked) return;
+    // Runtime state first: the session is gone whether or not the stored
+    // setting can be cleared, so a write error must not leave it locked.
+    final changed = _enabled || _locked;
     _enabled = false;
     _locked = false;
-    notifyListeners();
+    if (changed) notifyListeners();
+    await _prefs.writeEnabled(false);
   }
 
   /// Locks the app if the lock is on. While a prompt is showing the lock
