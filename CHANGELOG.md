@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.17](https://github.com/cedricziel/robot-notes/compare/v0.2.16...v0.2.17) (2026-09-20)
+
+
+### Bug Fixes
+
+* **app:** keep the app lock from re-locking after disconnect ([#297](https://github.com/cedricziel/robot-notes/issues/297)) ([42cb61a](https://github.com/cedricziel/robot-notes/commit/42cb61a973c14c3b56ca8fccd49505a5d04cda5c))
+
+
+### Documentation
+
+* **openspec:** archive add-biometric-app-lock ([#296](https://github.com/cedricziel/robot-notes/issues/296)) ([5b6a787](https://github.com/cedricziel/robot-notes/commit/5b6a78726114b600872e51e9ee507d44add6ede6))
+
 ## [0.2.16](https://github.com/cedricziel/robot-notes/compare/v0.2.15...v0.2.16) (2026-09-20)
 
 
