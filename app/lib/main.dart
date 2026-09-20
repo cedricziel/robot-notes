@@ -11,6 +11,9 @@ import 'src/desktop/app_menu_bar.dart';
 import 'src/desktop/mac_window_chrome.dart';
 import 'src/desktop/tray_controller.dart';
 import 'src/desktop/window_chrome.dart';
+import 'src/lock/app_lock_controller.dart';
+import 'src/lock/app_lock_prefs.dart';
+import 'src/lock/biometric_authenticator.dart';
 import 'src/otel/otel_bootstrap.dart';
 import 'src/theme/app_theme.dart';
 import 'src/url_strategy.dart';
@@ -50,6 +53,10 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
   late final ConfigHolder _configHolder = ConfigHolder(_store);
   late final GoRouter _router = buildAppRouter(configHolder: _configHolder);
   final AppMenuActions _menuActions = AppMenuActions();
+  final AppLockController _appLock = AppLockController(
+    authenticator: LocalAuthBiometricAuthenticator(),
+    prefs: const SharedPreferencesAppLockPrefs(),
+  );
 
   // Tracks which server's OTel config is currently loaded so a ConfigHolder
   // notification that doesn't change the base URL (unrelated field edits;
@@ -60,6 +67,16 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
   void initState() {
     super.initState();
     _configHolder.addListener(_syncOtel);
+    _configHolder.addListener(_dropLockOnDisconnect);
+  }
+
+  /// Disconnecting wipes the notes the lock protected, and the setup screen
+  /// is not gated — leaving the lock on would only make the next sign-in
+  /// start with a biometric prompt for nothing.
+  void _dropLockOnDisconnect() {
+    if (_configHolder.loaded && _configHolder.config == null) {
+      unawaited(_appLock.disable());
+    }
   }
 
   void _syncOtel() {
@@ -72,7 +89,9 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
   @override
   void dispose() {
     _configHolder.removeListener(_syncOtel);
+    _configHolder.removeListener(_dropLockOnDisconnect);
     _configHolder.dispose();
+    _appLock.dispose();
     _router.dispose();
     _menuActions.dispose();
     super.dispose();
@@ -91,7 +110,11 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
         child: AppMenuActionsScope(
           actions: _menuActions,
           child: MacWindowChrome(
-            child: AppRouterShell(configHolder: _configHolder, child: child),
+            child: AppRouterShell(
+              configHolder: _configHolder,
+              appLock: _appLock,
+              child: child,
+            ),
           ),
         ),
       ),

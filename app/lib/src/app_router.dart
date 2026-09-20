@@ -21,6 +21,8 @@ import 'desktop/app_menu_actions.dart';
 import 'desktop/app_menu_bar.dart';
 import 'files/picked_file.dart';
 import 'layout/breakpoints.dart';
+import 'lock/app_lock_controller.dart';
+import 'lock/app_lock_gate.dart';
 import 'notes/folder_prompt.dart';
 import 'notes/folder_tree_controller.dart';
 import 'notes/folder_tree_sidebar.dart';
@@ -854,7 +856,8 @@ Future<void> _uploadFile(
 /// is using and the live connection state. Its "Disconnect" button closes
 /// the surface and hands off to the existing confirmation prompt.
 Future<void> _showAccount(BuildContext context, AppSession session) async {
-  final sheet = _AccountSheet(session: session);
+  // Scrolls so the sheet still fits short windows with the app-lock row.
+  final sheet = SingleChildScrollView(child: _AccountSheet(session: session));
   final bool? disconnect;
   if (Breakpoints.of(context) >= WindowSizeClass.medium) {
     disconnect = await showDialog<bool>(
@@ -889,56 +892,91 @@ class _AccountSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      key: const Key('account.sheet'),
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Text('Account', style: theme.textTheme.titleLarge),
-          ),
-          ListTile(
-            leading: const Icon(Icons.dns_outlined),
-            title: const Text('Server'),
-            subtitle: Text(session.baseUrl, key: const Key('account.server')),
-          ),
-          ListTile(
-            leading: const Icon(Icons.person_outline),
-            title: const Text('Display name'),
-            subtitle: Text(session.actor, key: const Key('account.actor')),
-          ),
-          ValueListenableBuilder<ConnectionStatus>(
-            valueListenable: session.connection,
-            builder: (context, status, _) {
-              final (IconData icon, String label) = switch (status) {
-                ConnectionStatus.connected => (
-                  Icons.cloud_done_outlined,
-                  'Connected',
-                ),
-                ConnectionStatus.reconnecting => (Icons.sync, 'Reconnecting…'),
-                ConnectionStatus.stale => (Icons.cloud_off, 'Connection lost'),
-              };
-              return ListTile(
-                leading: Icon(icon),
-                title: const Text('Connection'),
-                subtitle: Text(label, key: const Key('account.connection')),
-              );
-            },
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: FilledButton.tonalIcon(
-              key: const Key('account.disconnect'),
-              onPressed: () => Navigator.of(context).pop(true),
-              icon: const Icon(Icons.logout),
-              label: const Text('Disconnect'),
+    return SingleChildScrollView(
+      child: Padding(
+        key: const Key('account.sheet'),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Text('Account', style: theme.textTheme.titleLarge),
             ),
-          ),
-        ],
+            ListTile(
+              leading: const Icon(Icons.dns_outlined),
+              title: const Text('Server'),
+              subtitle: Text(session.baseUrl, key: const Key('account.server')),
+            ),
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: const Text('Display name'),
+              subtitle: Text(session.actor, key: const Key('account.actor')),
+            ),
+            ValueListenableBuilder<ConnectionStatus>(
+              valueListenable: session.connection,
+              builder: (context, status, _) {
+                final (IconData icon, String label) = switch (status) {
+                  ConnectionStatus.connected => (
+                    Icons.cloud_done_outlined,
+                    'Connected',
+                  ),
+                  ConnectionStatus.reconnecting => (
+                    Icons.sync,
+                    'Reconnecting…',
+                  ),
+                  ConnectionStatus.stale => (
+                    Icons.cloud_off,
+                    'Connection lost',
+                  ),
+                };
+                return ListTile(
+                  leading: Icon(icon),
+                  title: const Text('Connection'),
+                  subtitle: Text(label, key: const Key('account.connection')),
+                );
+              },
+            ),
+            const _AppLockTile(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: FilledButton.tonalIcon(
+                key: const Key('account.disconnect'),
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: const Icon(Icons.logout),
+                label: const Text('Disconnect'),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// The "App lock" switch in the account surface: require Face ID / Touch ID
+/// (or the device passcode) to open the app. Absent where the device can't
+/// authenticate the user, or where no lock is wired in.
+class _AppLockTile extends StatelessWidget {
+  const _AppLockTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final lock = AppLockScope.maybeOf(context);
+    if (lock == null || !lock.supported) return const SizedBox.shrink();
+    final method = lockMethodName(lock.kind, Theme.of(context).platform);
+    return SwitchListTile.adaptive(
+      key: const Key('account.appLock'),
+      secondary: const Icon(Icons.lock_outline),
+      title: const Text('App lock'),
+      subtitle: Text('Unlock robot-notes with $method'),
+      value: lock.enabled,
+      // The switch only flips once the prompt succeeds and the controller
+      // notifies; a cancelled prompt leaves it where it was.
+      onChanged: lock.authenticating
+          ? null
+          : (value) => unawaited(lock.setEnabled(value)),
     );
   }
 }
@@ -1419,11 +1457,17 @@ class AppRouterShell extends StatelessWidget {
   const AppRouterShell({
     required this.configHolder,
     required this.child,
+    this.appLock,
     super.key,
   });
 
   final ConfigHolder configHolder;
   final Widget? child;
+
+  /// When set, a connected session is gated behind it and the account
+  /// surface offers its switch. Not applied to the setup screen: there is
+  /// nothing to protect before a server is configured.
+  final AppLockController? appLock;
 
   @override
   Widget build(BuildContext context) {
@@ -1434,11 +1478,17 @@ class AppRouterShell extends StatelessWidget {
         if (!configHolder.loaded) return const _Splash();
         final config = configHolder.config;
         if (config == null) return content;
-        return SessionHost(
+        final session = SessionHost(
           key: ValueKey<AppConfig>(config),
           config: config,
           onReset: configHolder.reset,
           child: content,
+        );
+        final lock = appLock;
+        if (lock == null) return session;
+        return AppLockScope(
+          controller: lock,
+          child: AppLockGate(controller: lock, child: session),
         );
       },
     );

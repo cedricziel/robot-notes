@@ -55,6 +55,8 @@
 		<string>LaunchScreen</string>
 		<key>UIMainStoryboardFile</key>
 		<string>Main</string>
+		<key>NSFaceIDUsageDescription</key>
+		<string>robot-notes uses Face ID to unlock the app when App lock is on.</string>
 		<key>UISupportedInterfaceOrientations</key>
 		<array>
 			<string>UIInterfaceOrientationPortrait</string>
