@@ -6,7 +6,7 @@ The account surface SHALL offer an "App lock" switch wherever the device can aut
 
 While the lock is on, a connected session SHALL start locked, and SHALL lock whenever the app leaves the foreground. A locked app SHALL show only a lock screen — the notes, their state, and the realtime connection are kept but not shown, focusable, or exposed to assistive technology — and SHALL prompt for authentication when it opens or returns to the foreground. If that prompt is cancelled or fails, the lock screen SHALL stay and offer an "Unlock" button to try again. The system authentication sheet itself SHALL NOT cause the app to re-lock. On phones, the content SHALL also be covered while the app is inactive so the app-switcher snapshot does not show notes. Copy SHALL name the device's method ("Face ID", "Touch ID", "fingerprint", "face unlock") where known and fall back to "your device passcode".
 
-If the lock is on but the device can no longer authenticate its owner, the app SHALL turn the lock off rather than lock the user out. Disconnecting from the server SHALL turn the lock off.
+If the lock's setting or the device's capability cannot be read at startup, the app SHALL stay locked (not open) and SHALL retry the read when the user taps "Unlock"; only a confirmed absence of device authentication counts as unsupported. If the app leaves the foreground while a prompt for changing the switch is showing and that prompt then fails or is cancelled, the app SHALL lock. If the lock is on but the device can no longer authenticate its owner, the app SHALL turn the lock off rather than lock the user out. Disconnecting from the server SHALL turn the lock off.
 
 #### Scenario: Turning the lock on requires authentication
 
@@ -37,6 +37,18 @@ If the lock is on but the device can no longer authenticate its owner, the app S
 - **GIVEN** the app lock is on and the app is unlocked on a note
 - **WHEN** the app is sent to the background and brought back
 - **THEN** the lock screen SHALL be shown until the user authenticates, after which the same note SHALL be showing
+
+#### Scenario: Unreadable setting fails closed
+
+- **GIVEN** the app lock's stored setting cannot be read at startup
+- **WHEN** the app starts
+- **THEN** the lock screen SHALL be shown and the notes SHALL NOT be shown until the user taps "Unlock" and the setting can be read (and, if the lock is on, authentication succeeds)
+
+#### Scenario: Backgrounded during the switch-off prompt
+
+- **GIVEN** the app lock is on and the user has asked to turn it off
+- **WHEN** the app is sent to the background while the prompt is showing and the prompt is then cancelled
+- **THEN** the lock SHALL still be on and the app SHALL be locked
 
 #### Scenario: Unsupported device
 

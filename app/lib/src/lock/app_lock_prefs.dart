@@ -7,9 +7,9 @@ abstract class AppLockPrefs {
   Future<void> writeEnabled(bool enabled);
 }
 
-/// Production [AppLockPrefs] backed by `shared_preferences`. A storage
-/// failure reads as "off": the lock is a convenience guard, and refusing to
-/// open the app because prefs are unreadable would be worse.
+/// Production [AppLockPrefs] backed by `shared_preferences`. Errors
+/// propagate: an unreadable setting must not be read as "off", or a
+/// transient storage failure would open a locked app.
 class SharedPreferencesAppLockPrefs implements AppLockPrefs {
   const SharedPreferencesAppLockPrefs();
 
@@ -17,12 +17,8 @@ class SharedPreferencesAppLockPrefs implements AppLockPrefs {
 
   @override
   Future<bool> readEnabled() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(_key) ?? false;
-    } catch (_) {
-      return false;
-    }
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_key) ?? false;
   }
 
   @override

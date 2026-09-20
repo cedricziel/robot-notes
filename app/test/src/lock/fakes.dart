@@ -17,8 +17,15 @@ class FakeBiometricAuthenticator implements BiometricAuthenticator {
   /// When set, [authenticate] waits on it, so tests can act mid-prompt.
   Future<void>? gate;
 
+  /// When set, [checkCapability] throws it, like a transient platform error.
+  Object? capabilityError;
+
   @override
-  Future<LockCapability> checkCapability() async => capability;
+  Future<LockCapability> checkCapability() async {
+    final error = capabilityError;
+    if (error != null) throw error;
+    return capability;
+  }
 
   @override
   Future<bool> authenticate(String reason) async {

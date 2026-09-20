@@ -25,6 +25,12 @@ class AppLockController extends ChangeNotifier {
   bool _enabled = false;
   bool _locked = false;
   bool _authenticating = false;
+  bool _loadFailed = false;
+  bool _lockRequestedDuringPrompt = false;
+
+  /// Bumped by [disable] so a [load] that read the setting before it ran
+  /// can't restore the lock afterwards.
+  int _disableCount = 0;
   LockCapability _capability = LockCapability.unsupported;
   Future<bool>? _unlockInFlight;
 
@@ -37,21 +43,33 @@ class AppLockController extends ChangeNotifier {
   bool get supported => _capability.supported;
   BiometricKind get kind => _capability.kind;
 
+  /// Reads the setting and the device's capability. If either read fails
+  /// the app stays locked — an unknown state must not open a lock that may
+  /// be on — and [unlock] retries the load.
   Future<void> load() async {
-    final (capability, stored) = await (
-      _authenticator.checkCapability(),
-      _prefs.readEnabled(),
-    ).wait;
-    _capability = capability;
-    var enabled = stored;
-    if (enabled && !capability.supported) {
-      // Biometrics and passcode were removed since the lock was set up;
-      // keeping it on would lock the user out for good.
-      enabled = false;
-      await _prefs.writeEnabled(false);
+    final disablesAtStart = _disableCount;
+    try {
+      final (capability, stored) = await (
+        _authenticator.checkCapability(),
+        _prefs.readEnabled(),
+      ).wait;
+      _capability = capability;
+      var enabled = stored;
+      if (enabled && !capability.supported) {
+        // Biometrics and passcode were removed since the lock was set up;
+        // keeping it on would lock the user out for good.
+        enabled = false;
+        await _prefs.writeEnabled(false);
+      }
+      if (disablesAtStart == _disableCount) {
+        _enabled = enabled;
+        _locked = enabled;
+      }
+      _loadFailed = false;
+    } catch (_) {
+      _loadFailed = true;
+      _locked = true;
     }
-    _enabled = enabled;
-    _locked = enabled;
     _loaded = true;
     notifyListeners();
   }
@@ -62,6 +80,9 @@ class AppLockController extends ChangeNotifier {
   Future<bool> setEnabled(bool value) async {
     if (!_capability.supported || value == _enabled) return false;
     if (!await _prompt(value ? 'Turn on app lock' : 'Turn off app lock')) {
+      // The app was backgrounded while the prompt was up and the prompt
+      // was not passed: honour the lock that was suppressed meanwhile.
+      if (_lockRequestedDuringPrompt) lock();
       return false;
     }
     await _prefs.writeEnabled(value);
@@ -76,6 +97,7 @@ class AppLockController extends ChangeNotifier {
   /// it. Clears the stored setting even if [load] never ran, which is the
   /// case when the session was cleared before the gate mounted.
   Future<void> disable() async {
+    _disableCount++;
     await _prefs.writeEnabled(false);
     if (!_enabled && !_locked) return;
     _enabled = false;
@@ -83,11 +105,16 @@ class AppLockController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Locks the app if the lock is on. A no-op while a prompt is showing:
-  /// the system sheet itself sends the app through lifecycle changes, and
-  /// re-locking underneath it would loop.
+  /// Locks the app if the lock is on. While a prompt is showing the lock
+  /// is only remembered: the system sheet itself sends the app through
+  /// lifecycle changes, so re-locking underneath it would loop. A prompt
+  /// that then fails still locks (see [setEnabled]).
   void lock() {
-    if (!_enabled || _locked || _authenticating) return;
+    if (_authenticating) {
+      _lockRequestedDuringPrompt = true;
+      return;
+    }
+    if (!_enabled || _locked) return;
     _locked = true;
     notifyListeners();
   }
@@ -101,6 +128,11 @@ class AppLockController extends ChangeNotifier {
 
   Future<bool> _runUnlock() async {
     try {
+      if (_loadFailed) {
+        await load();
+        if (!_locked) return true;
+        if (_loadFailed) return false;
+      }
       final ok = await _prompt('Unlock robot-notes');
       if (ok) {
         _locked = false;
@@ -113,6 +145,7 @@ class AppLockController extends ChangeNotifier {
   }
 
   Future<bool> _prompt(String reason) async {
+    _lockRequestedDuringPrompt = false;
     _authenticating = true;
     notifyListeners();
     try {

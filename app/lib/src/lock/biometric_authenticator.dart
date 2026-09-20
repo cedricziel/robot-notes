@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:local_auth/local_auth.dart';
 
 /// Which biometric the device offers, for wording only ("Face ID" vs
@@ -23,6 +24,9 @@ class LockCapability {
 /// The device-owner check behind the app lock, kept behind an interface so
 /// widget tests never touch a platform channel.
 abstract class BiometricAuthenticator {
+  /// What the device can do. Throws on a transient platform error rather
+  /// than reporting "unsupported", so a hiccup can't be mistaken for a
+  /// device that has no lock to enforce.
   Future<LockCapability> checkCapability();
 
   /// Shows the system prompt. `false` on cancel, failure, or any platform
@@ -50,8 +54,8 @@ class LocalAuthBiometricAuthenticator implements BiometricAuthenticator {
           ? BiometricKind.fingerprint
           : BiometricKind.other;
       return LockCapability(supported: true, kind: kind);
-    } catch (_) {
-      // Web/Linux have no plugin implementation; treat that as "no lock".
+    } on MissingPluginException {
+      // Web/Linux have no plugin implementation: a known "no lock" platform.
       return LockCapability.unsupported;
     }
   }

@@ -182,4 +182,128 @@ void main() {
     await c.disable();
     expect(await prefs.readEnabled(), isFalse);
   });
+
+  group('disable() racing load()', () {
+    test('a slow load() does not bring the lock back', () async {
+      final read = Completer<bool>();
+      final slow = _SlowReadPrefs(read.future);
+      final c = AppLockController(authenticator: auth, prefs: slow);
+
+      final loading = c.load();
+      await Future<void>.delayed(Duration.zero);
+      await c.disable();
+      read.complete(true); // the value read before disable() cleared it
+      await loading;
+
+      expect(c.loaded, isTrue);
+      expect(c.enabled, isFalse);
+      expect(c.locked, isFalse);
+    });
+  });
+
+  group('background during a prompt', () {
+    test('cancelling the switch-off prompt still locks the app', () async {
+      prefs = InMemoryAppLockPrefs(enabled: true);
+      final c = build();
+      await c.load();
+      await c.unlock();
+      final release = Completer<void>();
+      auth
+        ..gate = release.future
+        ..result = false;
+
+      final pending = c.setEnabled(false);
+      await Future<void>.delayed(Duration.zero);
+      c.lock(); // the app was genuinely backgrounded meanwhile
+      release.complete();
+      await pending;
+
+      expect(c.enabled, isTrue);
+      expect(c.locked, isTrue);
+    });
+
+    test('a successful prompt is not undone by a lock during it', () async {
+      final c = build();
+      await c.load();
+      final release = Completer<void>();
+      auth.gate = release.future;
+
+      final pending = c.setEnabled(true);
+      await Future<void>.delayed(Duration.zero);
+      c.lock();
+      release.complete();
+      await pending;
+
+      expect(c.locked, isFalse);
+    });
+  });
+
+  group('startup failures fail closed', () {
+    test('a capability error locks and keeps the stored setting', () async {
+      prefs = InMemoryAppLockPrefs(enabled: true);
+      auth.capabilityError = StateError('channel hiccup');
+      final c = build();
+      await c.load();
+
+      expect(c.loaded, isTrue);
+      expect(c.locked, isTrue);
+      expect(await prefs.readEnabled(), isTrue);
+    });
+
+    test('a prefs read error locks', () async {
+      final c = AppLockController(authenticator: auth, prefs: _ThrowingPrefs());
+      await c.load();
+      expect(c.loaded, isTrue);
+      expect(c.locked, isTrue);
+    });
+
+    test('unlock() retries the load and opens a lock that is off', () async {
+      auth.capabilityError = StateError('channel hiccup');
+      final c = build();
+      await c.load();
+      expect(c.locked, isTrue);
+
+      auth.capabilityError = null;
+      expect(await c.unlock(), isTrue);
+      expect(c.locked, isFalse);
+      expect(c.enabled, isFalse);
+      expect(auth.authenticateCalls, 0, reason: 'the lock was never on');
+    });
+
+    test(
+      'unlock() retries the load and prompts for a lock that is on',
+      () async {
+        prefs = InMemoryAppLockPrefs(enabled: true);
+        auth.capabilityError = StateError('channel hiccup');
+        final c = build();
+        await c.load();
+
+        auth.capabilityError = null;
+        expect(await c.unlock(), isTrue);
+        expect(auth.authenticateCalls, 1);
+        expect(c.locked, isFalse);
+      },
+    );
+  });
+}
+
+class _SlowReadPrefs implements AppLockPrefs {
+  _SlowReadPrefs(this._read);
+
+  final Future<bool> _read;
+  bool? written;
+
+  @override
+  Future<bool> readEnabled() => _read;
+
+  @override
+  Future<void> writeEnabled(bool enabled) async => written = enabled;
+}
+
+class _ThrowingPrefs implements AppLockPrefs {
+  @override
+  Future<bool> readEnabled() async => throw StateError('storage unavailable');
+
+  @override
+  Future<void> writeEnabled(bool enabled) async {}
 }
