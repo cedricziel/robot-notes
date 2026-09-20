@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.16](https://github.com/cedricziel/robot-notes/compare/v0.2.15...v0.2.16) (2026-09-20)
+
+
+### Features
+
+* **app:** lock the app with Face ID / Touch ID via the account sheet ([#294](https://github.com/cedricziel/robot-notes/issues/294)) ([a8ae31c](https://github.com/cedricziel/robot-notes/commit/a8ae31cbecda709afd5f025f5e34f8b903001287))
+
 ## [0.2.15](https://github.com/cedricziel/robot-notes/compare/v0.2.14...v0.2.15) (2026-09-19)
 
 
