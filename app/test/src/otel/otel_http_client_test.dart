@@ -40,9 +40,9 @@ void main() {
       final data = h.processor.ended.single;
       expect(data.name, 'GET /notes');
       expect(data.kind, SpanKind.client);
-      expect(data.attributes['http.method'], 'GET');
-      expect(data.attributes['http.target'], '/notes');
-      expect(data.attributes['http.status_code'], 200);
+      expect(data.attributes['http.request.method'], 'GET');
+      expect(data.attributes['url.path'], '/notes');
+      expect(data.attributes['http.response.status_code'], 200);
       expect(data.statusCode, StatusCode.unset);
     });
 
@@ -58,7 +58,7 @@ void main() {
       final data = h.processor.ended.single;
       expect(data.name, 'GET /notes/:id/backlinks');
       expect(
-        data.attributes['http.target'],
+        data.attributes['url.path'],
         '/notes/01J8Z9K3QYN8V6R6ZC1E7S4G3M/backlinks',
       );
     });
@@ -121,7 +121,7 @@ void main() {
       await h.client.get(Uri.parse('https://notes.example.com/notes'));
 
       final data = h.processor.ended.single;
-      expect(data.attributes['http.status_code'], 503);
+      expect(data.attributes['http.response.status_code'], 503);
       expect(data.statusCode, StatusCode.error);
     });
 
