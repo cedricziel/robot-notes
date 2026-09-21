@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.18](https://github.com/cedricziel/robot-notes/compare/v0.2.17...v0.2.18) (2026-09-21)
+
+
+### Features
+
+* **otel:** capture HTTP headers on app and server spans ([#302](https://github.com/cedricziel/robot-notes/issues/302)) ([61c21e4](https://github.com/cedricziel/robot-notes/commit/61c21e4541d81922c842ad764e4c30e609013a95))
+
+
+### Bug Fixes
+
+* **app:** use the stable HTTP semantic-convention attribute names ([#305](https://github.com/cedricziel/robot-notes/issues/305)) ([2f8ba23](https://github.com/cedricziel/robot-notes/commit/2f8ba2386e3dc7d79f7f328b8bc56fa61c301ead))
+* **server:** use the stable HTTP semantic-convention attribute names ([#304](https://github.com/cedricziel/robot-notes/issues/304)) ([6a19e35](https://github.com/cedricziel/robot-notes/commit/6a19e35afefaf491379bb247fedb56287ff434fa))
+
 ## [0.2.17](https://github.com/cedricziel/robot-notes/compare/v0.2.16...v0.2.17) (2026-09-20)
 
 
