@@ -1,5 +1,5 @@
 import 'package:dart_frog/dart_frog.dart';
-import 'package:flutter_otel_api/flutter_otel_api.dart';
+import 'package:dart_otel_api/dart_otel_api.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/mcp/mcp_auth_middleware.dart';
 import 'package:server/src/mcp/mcp_handler.dart';

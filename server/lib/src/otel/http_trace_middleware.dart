@@ -1,5 +1,5 @@
 import 'package:dart_frog/dart_frog.dart';
-import 'package:flutter_otel_api/flutter_otel_api.dart';
+import 'package:dart_otel_api/dart_otel_api.dart';
 import 'package:shared/shared.dart';
 import 'package:shelf/shelf.dart' show HijackException;
 
@@ -27,6 +27,12 @@ import 'package:shelf/shelf.dart' show HijackException;
 /// than the raw request path, so per-note/per-invite IDs (ULIDs, tokens)
 /// don't explode span-name cardinality in the tracing backend; the raw
 /// path is still available verbatim as `http.target`.
+///
+/// Request and response headers are captured as
+/// `http.request.header.<key>` / `http.response.header.<key>` attributes per
+/// the OTel HTTP semantic conventions; credential-bearing header values
+/// (`Authorization`, `Cookie`, `Set-Cookie`, ...) are redacted — see
+/// [httpRequestHeaderAttributes].
 Middleware otelHttpTraceMiddleware(Tracer tracer) {
   return (handler) {
     return (context) async {
@@ -42,12 +48,15 @@ Middleware otelHttpTraceMiddleware(Tracer tracer) {
           'http.method': method,
           'http.target': request.uri.path,
           'http.route': route,
+          ...httpRequestHeaderAttributes(request.headers),
         },
       );
       return Span.runWithSpan(span, () async {
         try {
           final response = await handler(context);
-          span.setAttribute('http.status_code', response.statusCode);
+          span
+            ..setAttribute('http.status_code', response.statusCode)
+            ..setAttributes(httpResponseHeaderAttributes(response.headers));
           if (response.statusCode >= 500) {
             span.setStatus(StatusCode.error);
           }

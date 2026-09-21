@@ -1,8 +1,8 @@
 # flutter_otel's packages are unpublished (git-only), so its own version
-# constraints on its sibling packages (e.g. flutter_otel_exporter_otlp_http:
-# ^0.1.0 on flutter_otel_api) can't be resolved from pub.dev. These pin the
+# constraints on its sibling packages (e.g. dart_otel_exporter_otlp_http:
+# ^0.1.0 on dart_otel_api) can't be resolved from pub.dev. These pin the
 # pure-Dart siblings (needed by both server and app) to one commit; bump
-# alongside app/pubspec_overrides.yaml's flutter_otel_sdk override (same
+# alongside app/pubspec_overrides.yaml's dart_otel_sdk override (same
 # commit).
 #
 # This is a SEPARATE pubspec_overrides.yaml file rather than an inline
@@ -13,14 +13,14 @@
 # file, which is dart_frog's own documented/recommended pattern for exactly
 # this case, resolves correctly in both `dart pub get` and `dart_frog build`.
 #
-# flutter_otel_sdk itself is NOT overridden here, deliberately: pub pulls
+# dart_otel_sdk itself is NOT overridden here, deliberately: pub pulls
 # every dependency_overrides entry into the root package's own resolution
-# set even when nothing in scope requires it, and flutter_otel_sdk needs
+# set even when nothing in scope requires it, and dart_otel_sdk needs
 # the Flutter SDK — which server/Dockerfile's server-builder stage (a
 # plain `dart:*-sdk` image, no Flutter) doesn't have. That stage strips
 # `app` from the workspace but still resolves this root pubspec, so an
 # override here for a Flutter-only package breaks its `dart pub get`
-# even though the server itself never touches flutter_otel_sdk. Scoped
+# even though the server itself never touches dart_otel_sdk. Scoped
 # instead to app/pubspec_overrides.yaml, which is only ever resolved with
 # Flutter tooling (fastlane, the Docker web-builder stage).
 #
@@ -28,13 +28,13 @@
 # each COPY this file alongside pubspec.yaml — it isn't picked up
 # automatically just by being a sibling on disk in the build context.
 dependency_overrides:
-  flutter_otel_api:
+  dart_otel_api:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 5b7af474d13c9aad4bb1e5b5c6df8e445233eea6
-      path: packages/flutter_otel_api
-  flutter_otel_exporter_otlp_http:
+      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
+      path: packages/dart_otel_api
+  dart_otel_exporter_otlp_http:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 5b7af474d13c9aad4bb1e5b5c6df8e445233eea6
-      path: packages/flutter_otel_exporter_otlp_http
+      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
+      path: packages/dart_otel_exporter_otlp_http

@@ -10,9 +10,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dart_otel_api/dart_otel_api.dart';
+import 'package:dart_otel_sdk/dart_otel_sdk.dart' show SdkTracer;
 import 'package:fake_async/fake_async.dart';
-import 'package:flutter_otel_api/flutter_otel_api.dart';
-import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' show SdkTracer;
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/connection.dart';

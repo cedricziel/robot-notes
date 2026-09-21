@@ -1,15 +1,15 @@
-# flutter_otel_sdk is unpublished, so flutter_otel's own version constraint
+# dart_otel_sdk is unpublished, so flutter_otel's own version constraint
 # on it (^0.1.0) needs an override — scoped here rather than the workspace
-# root because flutter_otel_sdk requires the Flutter SDK, and app is the
+# root because dart_otel_sdk requires the Flutter SDK, and app is the
 # only workspace member ever resolved with Flutter tooling. See
 # pubspec_overrides.yaml (workspace root) for why a root-level override
 # would break server/Dockerfile's plain-Dart server-builder stage, and why
 # this is a separate file rather than an inline `dependency_overrides:`
-# block. Bump alongside the root's flutter_otel_api/
-# flutter_otel_exporter_otlp_http overrides (same commit).
+# block. Bump alongside the root's dart_otel_api/
+# dart_otel_exporter_otlp_http overrides (same commit).
 dependency_overrides:
-  flutter_otel_sdk:
+  dart_otel_sdk:
     git:
       url: https://github.com/cedricziel/flutter-otel
-      ref: 5b7af474d13c9aad4bb1e5b5c6df8e445233eea6
-      path: packages/flutter_otel_sdk
+      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
+      path: packages/dart_otel_sdk

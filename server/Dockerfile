@@ -48,8 +48,8 @@ WORKDIR /workspace
 # does — flutter doesn't need them either, and they pull packages we
 # haven't copied (`dart_pre_commit`).
 #
-# pubspec_overrides.yaml carries the flutter_otel_api/
-# flutter_otel_exporter_otlp_http git-dependency pins (see that file for
+# pubspec_overrides.yaml carries the dart_otel_api/
+# dart_otel_exporter_otlp_http git-dependency pins (see that file for
 # why it's separate from pubspec.yaml) and needs no stripping itself.
 #
 # pubspec.lock pins every transitive package to the versions CI tests

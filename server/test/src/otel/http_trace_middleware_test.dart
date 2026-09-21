@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
-import 'package:flutter_otel_sdk/flutter_otel_sdk.dart';
+import 'package:dart_otel_sdk/dart_otel_sdk.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/otel/http_trace_middleware.dart';
 import 'package:shelf/shelf.dart' show HijackException;
@@ -70,6 +70,34 @@ void main() {
         expect(data.attributes['http.route'], '/notes');
         expect(data.attributes['http.status_code'], 201);
         expect(data.statusCode, StatusCode.unset);
+      },
+    );
+
+    test(
+      'captures request and response headers per semconv, redacting secrets',
+      () async {
+        final h = _harness();
+        final ctx = _ctx(
+          headers: {
+            'Authorization': 'Bearer s3cret',
+            'Content-Type': 'application/json',
+          },
+        );
+
+        await h.middleware(
+          (_) async => Response(
+            headers: {'X-Request-Id': 'r1', 'Set-Cookie': 'sid=1'},
+          ),
+        )(ctx);
+
+        final attrs = h.processor.ended.single.attributes;
+        expect(attrs['http.request.header.content_type'], [
+          'application/json',
+        ]);
+        expect(attrs['http.request.header.authorization'], ['[REDACTED]']);
+        expect(attrs['http.response.header.x_request_id'], ['r1']);
+        expect(attrs['http.response.header.set_cookie'], ['[REDACTED]']);
+        expect(attrs.toString(), isNot(contains('s3cret')));
       },
     );
 

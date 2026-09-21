@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' hide LogRecord, Logger;
+import 'package:dart_otel_sdk/dart_otel_sdk.dart' hide LogRecord, Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/config.dart';

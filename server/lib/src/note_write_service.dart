@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
+import 'package:dart_otel_api/dart_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:server/src/databases/definition.dart';
