@@ -1,4 +1,4 @@
-import 'package:flutter_otel_api/flutter_otel_api.dart';
+import 'package:dart_otel_api/dart_otel_api.dart';
 import 'package:server/src/otel/otel_tracer_holder.dart';
 import 'package:test/test.dart';
 

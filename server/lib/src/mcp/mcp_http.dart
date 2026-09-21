@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
-import 'package:flutter_otel_api/flutter_otel_api.dart';
+import 'package:dart_otel_api/dart_otel_api.dart';
 
 /// Hostnames accepted as loopback origins regardless of scheme port, per
 /// the `mcp-server` spec's "Origin header is validated against the public

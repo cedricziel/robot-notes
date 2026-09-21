@@ -1,5 +1,5 @@
-import 'package:flutter_otel_exporter_otlp_http/flutter_otel_exporter_otlp_http.dart';
-import 'package:flutter_otel_sdk/flutter_otel_sdk.dart';
+import 'package:dart_otel_exporter_otlp_http/dart_otel_exporter_otlp_http.dart';
+import 'package:dart_otel_sdk/dart_otel_sdk.dart';
 import 'package:http/http.dart' as http;
 import 'package:server/src/config.dart';
 import 'package:shared/shared.dart';

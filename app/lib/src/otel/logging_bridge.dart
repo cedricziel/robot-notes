@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter_otel_api/flutter_otel_api.dart' as otel;
+import 'package:dart_otel_api/dart_otel_api.dart' as otel;
 import 'package:logging/logging.dart' as logging;
 
 /// Forwards every `package:logging` record emitted anywhere in the app to

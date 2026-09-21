@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter_otel_api/flutter_otel_api.dart';
-import 'package:flutter_otel_sdk/flutter_otel_sdk.dart' show SdkTracer;
+import 'package:dart_otel_api/dart_otel_api.dart';
+import 'package:dart_otel_sdk/dart_otel_sdk.dart' show SdkTracer;
 
 /// A [SpanProcessor] that just remembers every span passed to [onEnd], for
 /// a test to inspect once the traced code has run.

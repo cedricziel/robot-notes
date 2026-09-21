@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
-import 'package:flutter_otel_sdk/flutter_otel_sdk.dart';
+import 'package:dart_otel_sdk/dart_otel_sdk.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/otel/http_trace_middleware.dart';
 import 'package:shelf/shelf.dart' show HijackException;

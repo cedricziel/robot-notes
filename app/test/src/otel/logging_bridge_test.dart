@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:app/src/otel/logging_bridge.dart';
-import 'package:flutter_otel_api/flutter_otel_api.dart' as otel;
+import 'package:dart_otel_api/dart_otel_api.dart' as otel;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart' as logging;
 

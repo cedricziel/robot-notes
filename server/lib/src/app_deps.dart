@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter_otel_api/flutter_otel_api.dart' hide Logger;
+import 'package:dart_otel_api/dart_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';

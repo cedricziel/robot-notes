@@ -21,8 +21,8 @@ import 'package:app/src/realtime/ws_client.dart';
 import 'package:app/src/search/search_screen.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
-import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';

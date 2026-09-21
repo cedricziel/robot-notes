@@ -1,5 +1,5 @@
+import 'package:dart_otel_instrumentation_http/dart_otel_instrumentation_http.dart';
 import 'package:flutter_otel/flutter_otel.dart';
-import 'package:flutter_otel_instrumentation_http/flutter_otel_instrumentation_http.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared/shared.dart';
 

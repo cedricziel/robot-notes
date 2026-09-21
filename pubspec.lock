@@ -201,6 +201,42 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.3"
+  dart_otel_api:
+    dependency: "direct overridden"
+    description:
+      path: "packages/dart_otel_api"
+      ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      resolved-ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      url: "https://github.com/cedricziel/flutter-otel"
+    source: git
+    version: "0.1.0"
+  dart_otel_exporter_otlp_http:
+    dependency: "direct overridden"
+    description:
+      path: "packages/dart_otel_exporter_otlp_http"
+      ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      resolved-ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      url: "https://github.com/cedricziel/flutter-otel"
+    source: git
+    version: "0.1.0"
+  dart_otel_instrumentation_http:
+    dependency: transitive
+    description:
+      path: "packages/dart_otel_instrumentation_http"
+      ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      resolved-ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      url: "https://github.com/cedricziel/flutter-otel"
+    source: git
+    version: "0.1.0"
+  dart_otel_sdk:
+    dependency: "direct overridden"
+    description:
+      path: "packages/dart_otel_sdk"
+      ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      resolved-ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      url: "https://github.com/cedricziel/flutter-otel"
+    source: git
+    version: "0.1.0"
   dart_pre_commit:
     dependency: "direct dev"
     description:
@@ -367,35 +403,8 @@ packages:
     dependency: transitive
     description:
       path: "packages/flutter_otel"
-      ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      resolved-ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      url: "https://github.com/cedricziel/flutter-otel"
-    source: git
-    version: "0.1.0"
-  flutter_otel_api:
-    dependency: "direct overridden"
-    description:
-      path: "packages/flutter_otel_api"
-      ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      resolved-ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      url: "https://github.com/cedricziel/flutter-otel"
-    source: git
-    version: "0.1.0"
-  flutter_otel_exporter_otlp_http:
-    dependency: "direct overridden"
-    description:
-      path: "packages/flutter_otel_exporter_otlp_http"
-      ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      resolved-ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      url: "https://github.com/cedricziel/flutter-otel"
-    source: git
-    version: "0.1.0"
-  flutter_otel_instrumentation_http:
-    dependency: transitive
-    description:
-      path: "packages/flutter_otel_instrumentation_http"
-      ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      resolved-ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
+      ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      resolved-ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
       url: "https://github.com/cedricziel/flutter-otel"
     source: git
     version: "0.1.0"
@@ -403,17 +412,8 @@ packages:
     dependency: transitive
     description:
       path: "packages/flutter_otel_native"
-      ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      resolved-ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      url: "https://github.com/cedricziel/flutter-otel"
-    source: git
-    version: "0.1.0"
-  flutter_otel_sdk:
-    dependency: "direct overridden"
-    description:
-      path: "packages/flutter_otel_sdk"
-      ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
-      resolved-ref: d29ac9b2f78859d38d5a5cc44067a66d0d6d1c58
+      ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
+      resolved-ref: af341eaa2f66bfc35c9ace0496faaa12106e1a26
       url: "https://github.com/cedricziel/flutter-otel"
     source: git
     version: "0.1.0"
