@@ -48,7 +48,7 @@ bool isAllowedMcpOrigin(String origin, String? publicUrl) {
 /// Tags the current span (see `otelHttpTraceMiddleware`) with why `/mcp`
 /// rejected this request, so the reason is visible in tracing without
 /// having to capture the response body — the middleware's generic
-/// `http.status_code` attribute alone doesn't say which of several
+/// `http.response.status_code` attribute alone doesn't say which of several
 /// possible checks failed. The sole owner of the `mcp.error` attribute
 /// key; every rejection path in this file and in `routes/mcp/index.dart`
 /// calls this rather than setting the attribute directly.
