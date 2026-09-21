@@ -21,26 +21,10 @@ dependencies:
   file_picker: ^12.3.0
   flutter_markdown_plus: ^1.0.12
   markdown: ^7.3.1
-  flutter_otel:
-    git:
-      url: https://github.com/cedricziel/flutter-otel
-      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
-      path: packages/flutter_otel
-  dart_otel_api:
-    git:
-      url: https://github.com/cedricziel/flutter-otel
-      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
-      path: packages/dart_otel_api
-  dart_otel_instrumentation_http:
-    git:
-      url: https://github.com/cedricziel/flutter-otel
-      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
-      path: packages/dart_otel_instrumentation_http
-  flutter_otel_native:
-    git:
-      url: https://github.com/cedricziel/flutter-otel
-      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
-      path: packages/flutter_otel_native
+  flutter_otel: ^0.1.0
+  dart_otel_api: ^0.1.0
+  dart_otel_instrumentation_http: ^0.1.0
+  flutter_otel_native: ^0.1.0
   flutter_riverpod: ^3.4.3
   flutter_secure_storage: ^11.1.1
   flutter_web_auth_2: ^5.1.0
