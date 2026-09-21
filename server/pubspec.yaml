@@ -16,21 +16,9 @@ dependencies:
   crypto: ^3.0.6
   dart_frog: ^1.2.0
   dart_frog_web_socket: ^1.0.3
-  dart_otel_api:
-    git:
-      url: https://github.com/cedricziel/flutter-otel
-      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
-      path: packages/dart_otel_api
-  dart_otel_exporter_otlp_http:
-    git:
-      url: https://github.com/cedricziel/flutter-otel
-      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
-      path: packages/dart_otel_exporter_otlp_http
-  dart_otel_sdk:
-    git:
-      url: https://github.com/cedricziel/flutter-otel
-      ref: e31c5db91705f8d3264f66d28f58b5d03a9e25d7
-      path: packages/dart_otel_sdk
+  dart_otel_api: ^0.1.0
+  dart_otel_exporter_otlp_http: ^0.1.0
+  dart_otel_sdk: ^0.1.0
   http: ^1.5.0
   logging: ^1.3.0
   meta: ^1.16.0
