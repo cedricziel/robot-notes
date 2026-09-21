@@ -17,21 +17,21 @@ class _RecordingProcessor implements SpanProcessor {
   Future<void> shutdown() async {}
 }
 
-/// Bundles a fresh [TracingHttpClient] and the processor recording the
+/// Bundles a fresh [tracingHttpClient] and the processor recording the
 /// spans its tracer produces, so each test only states what differs.
-({_RecordingProcessor processor, TracingHttpClient client}) _harness(
+({_RecordingProcessor processor, http.Client client}) _harness(
   http.Client inner,
 ) {
   final processor = _RecordingProcessor();
   final tracer = SdkTracer(name: 'test', version: null, processor: processor);
   return (
     processor: processor,
-    client: TracingHttpClient(inner, tracerProvider: () => tracer),
+    client: tracingHttpClient(inner: inner, tracerProvider: () => tracer),
   );
 }
 
 void main() {
-  group('TracingHttpClient', () {
+  group('tracingHttpClient', () {
     test('starts a client-kind span with http attributes', () async {
       final h = _harness(MockClient((_) async => http.Response('', 200)));
 
@@ -81,6 +81,37 @@ void main() {
           captured?.headers['traceparent'],
           formatTraceparent(data.spanContext),
         );
+      },
+    );
+
+    test(
+      'captures headers per semconv without leaking the bearer token',
+      () async {
+        final h = _harness(
+          MockClient(
+            (_) async => http.Response(
+              '',
+              200,
+              headers: {'content-type': 'application/json'},
+            ),
+          ),
+        );
+
+        await h.client.get(
+          Uri.parse('https://notes.example.com/notes'),
+          headers: {
+            'Authorization': 'Bearer s3cret',
+            'Accept': 'application/json',
+          },
+        );
+
+        final attrs = h.processor.ended.single.attributes;
+        expect(attrs['http.request.header.accept'], ['application/json']);
+        expect(attrs['http.request.header.authorization'], ['[REDACTED]']);
+        expect(attrs['http.response.header.content_type'], [
+          'application/json',
+        ]);
+        expect(attrs.toString(), isNot(contains('s3cret')));
       },
     );
 
