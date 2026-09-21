@@ -74,6 +74,34 @@ void main() {
     );
 
     test(
+      'captures request and response headers per semconv, redacting secrets',
+      () async {
+        final h = _harness();
+        final ctx = _ctx(
+          headers: {
+            'Authorization': 'Bearer s3cret',
+            'Content-Type': 'application/json',
+          },
+        );
+
+        await h.middleware(
+          (_) async => Response(
+            headers: {'X-Request-Id': 'r1', 'Set-Cookie': 'sid=1'},
+          ),
+        )(ctx);
+
+        final attrs = h.processor.ended.single.attributes;
+        expect(attrs['http.request.header.content_type'], [
+          'application/json',
+        ]);
+        expect(attrs['http.request.header.authorization'], ['[REDACTED]']);
+        expect(attrs['http.response.header.x_request_id'], ['r1']);
+        expect(attrs['http.response.header.set_cookie'], ['[REDACTED]']);
+        expect(attrs.toString(), isNot(contains('s3cret')));
+      },
+    );
+
+    test(
       'normalizes a note ID segment into the span name and http.route',
       () async {
         final h = _harness();
