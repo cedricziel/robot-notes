@@ -16,9 +16,9 @@ import 'package:shelf/shelf.dart' show HijackException;
 /// The span is made [Span.current] for the duration of request handling
 /// (via [Span.runWithSpan]), so bridged `package:logging` records emitted
 /// while handling the request pick up its trace/span ID automatically —
-/// see `logging_bridge.dart`. `http.method`/`http.target`/`http.route`
-/// attributes are set on start, `http.status_code` on completion (with an
-/// error status for a 5xx response), and an unhandled exception is
+/// see `logging_bridge.dart`. `http.request.method`/`url.path`/`http.route`
+/// attributes are set on start, `http.response.status_code` on completion
+/// (with an error status for a 5xx response), and an unhandled exception is
 /// recorded (with an error status) before being rethrown. A
 /// [HijackException] — Shelf's control-flow signal for a WebSocket upgrade —
 /// is rethrown unrecorded instead, since it isn't a request error.
@@ -26,7 +26,7 @@ import 'package:shelf/shelf.dart' show HijackException;
 /// The span name and `http.route` attribute use [_routeTemplate] rather
 /// than the raw request path, so per-note/per-invite IDs (ULIDs, tokens)
 /// don't explode span-name cardinality in the tracing backend; the raw
-/// path is still available verbatim as `http.target`.
+/// path is still available verbatim as `url.path`.
 ///
 /// Request and response headers are captured as
 /// `http.request.header.<key>` / `http.response.header.<key>` attributes per
@@ -45,8 +45,8 @@ Middleware otelHttpTraceMiddleware(Tracer tracer) {
         kind: SpanKind.server,
         parentContext: parentContext,
         attributes: {
-          'http.method': method,
-          'http.target': request.uri.path,
+          'http.request.method': method,
+          'url.path': request.uri.path,
           'http.route': route,
           ...httpRequestHeaderAttributes(request.headers),
         },
@@ -55,7 +55,7 @@ Middleware otelHttpTraceMiddleware(Tracer tracer) {
         try {
           final response = await handler(context);
           span
-            ..setAttribute('http.status_code', response.statusCode)
+            ..setAttribute('http.response.status_code', response.statusCode)
             ..setAttributes(httpResponseHeaderAttributes(response.headers));
           if (response.statusCode >= 500) {
             span.setStatus(StatusCode.error);
