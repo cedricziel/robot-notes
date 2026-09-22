@@ -9,8 +9,8 @@ App Store Connect has no screenshots for "Robot Notes" yet, which blocks submitt
 - **NEW** Flutter integration test (`app/integration_test/screenshot_test.dart`) that points the app at the ephemeral server and walks Notes list → Note editor → Search → Database view, capturing a screenshot at each screen
 - **NEW** native `RunnerTests` runner (`app/ios/RunnerTests/RunnerTests.m`, a hosted unit-test bundle per `integration_test`'s iOS support, not a UI Testing Bundle) so the test can run on iOS at all; all three device captures (iPhone, iPad, Mac) run via `flutter drive` — only its driver script actually writes screenshot PNGs to disk, `flutter test` doesn't, on any platform
 - **MODIFIED** `app/lib/main.dart` gates `debugShowCheckedModeBanner` off behind a `SCREENSHOT_CAPTURE` dart-define, since profile/release builds (which hide it automatically) aren't buildable for the iOS/iPad Simulators capture runs on — normal debug builds are unaffected
-- **NEW** shared fastlane lane `capture_screenshots` that drives iPhone 17 Pro Max, iPad Pro 13", and macOS captures and collects PNGs into `app/fastlane/screenshots/en-US/`
-- **MODIFIED** `submit_to_app_store` (both `ios` and `mac` lanes) calls `capture_screenshots` before uploading, with `skip_screenshots: false` only on that submission upload — the routine `release` (TestFlight) lane is untouched, since screenshots only matter for the App Store listing and TestFlight releases ship many times a day
+- **NEW** shared fastlane lane `capture_app_store_screenshots` that drives iPhone 17 Pro Max, iPad Pro 13", and macOS captures and collects PNGs into `app/fastlane/screenshots/en-US/`
+- **MODIFIED** `submit_to_app_store` (both `ios` and `mac` lanes) calls `capture_app_store_screenshots` before uploading, with `skip_screenshots: false` only on that submission upload — the routine `release` (TestFlight) lane is untouched, since screenshots only matter for the App Store listing and TestFlight releases ship many times a day
 
 ## Capabilities
 
@@ -29,7 +29,7 @@ App Store Connect has no screenshots for "Robot Notes" yet, which blocks submitt
 
 ## Impact
 
-- `app/fastlane/Fastfile`: new `capture_screenshots` lane; `submit_to_app_store` lanes gain a call to it and flip `skip_screenshots`
+- `app/fastlane/Fastfile`: new `capture_app_store_screenshots` lane; `submit_to_app_store` lanes gain a call to it and flip `skip_screenshots`
 - `app/integration_test/screenshot_test.dart`: new
 - `app/ios/RunnerTests/RunnerTests.m` (replaces the scaffolded `RunnerTests.swift` placeholder) and `app/ios/Runner.xcodeproj`: modified to wire it in
 - `app/lib/main.dart`: one new dart-define-gated line

@@ -25,20 +25,20 @@
 - [x] 4.4 Verified iOS fully end-to-end: `flutter drive` on the iPhone 17 Pro Max simulator against a real seeded ephemeral server produced all 4 correctly-sized (1320×2868) PNGs with real content, on the second pass after fixing two things found on the first: (a) the debug build showed Flutter's red "DEBUG" banner — profile/release mode is unbuildable on iOS/iPad Simulators ("only supported for physical devices"), so `debugShowCheckedModeBanner` is now gated off by a `SCREENSHOT_CAPTURE` dart-define instead (`app/lib/main.dart`), never affecting normal dev builds; (b) the views fix above. **macOS not verified locally** — attempted via `flutter test -d macos` first, which hit a pre-existing local codesigning gap (this Mac's keychain lacks the "Apple Development: Created via API" cert that CI's `match`-populated keychain has) before ever reaching the point of running the test; fixing it would mean running `bootstrap_signing` against the shared private certs repo, which is out of scope for this change — defer macOS verification to the CI `apple` matrix job, which already has proper certs via the existing pipeline. Separately (see design.md), `flutter test -d macos` was later found to be the wrong invocation anyway — only `flutter drive` actually writes screenshot files to disk, on any platform — so macOS capture (once CI-verified) uses `flutter drive -d macos` like iPhone/iPad, not `flutter test -d macos`. `screenshot_test.dart` itself has no iOS-specific code, so the signing gap is a local environment issue, not a logic risk.
 - [x] 4.5 Commit: `test(app): add screenshot integration test for App Store capture`
 
-## 5. Fastlane `capture_screenshots` lane
+## 5. Fastlane `capture_app_store_screenshots` lane
 
-- [ ] 5.1 Add a shared (not per-platform) `capture_screenshots` lane to `app/fastlane/Fastfile`: start the ephemeral server, run the seed script, run iOS capture (`flutter drive` on iPhone 17 Pro Max), iPad capture (`flutter drive` on iPad Pro 13" M5), and macOS capture (`flutter drive -d macos` — not `flutter test -d macos`, see design.md), collecting PNGs into `app/fastlane/screenshots/en-US/` with ASC's expected filenames, then stop the ephemeral server in an `ensure` block so it always tears down
-- [ ] 5.2 Make any capture step's failure (simulator boot, server boot/health timeout, seed failure, test failure) raise and abort the lane — no catching-and-continuing
-- [ ] 5.3 Add `app/fastlane/screenshots/` to `.gitignore`
-- [ ] 5.4 Run `bundle exec fastlane capture_screenshots` locally end-to-end and manually eyeball the 3 produced screenshot sets
-- [ ] 5.5 Commit: `feat(app): add capture_screenshots fastlane lane`
+- [x] 5.1 Add a shared (not per-platform) `capture_app_store_screenshots` lane to `app/fastlane/Fastfile`: start the ephemeral server, run the seed script, run iOS capture (`flutter drive` on iPhone 17 Pro Max), iPad capture (`flutter drive` on iPad Pro 13" M5), and macOS capture (`flutter drive -d macos`), collecting PNGs into `app/fastlane/screenshots/en-US/`, then stop the ephemeral server in an `ensure` block so it always tears down. Also found and fixed mid-implementation: (a) `capture_screenshots` collides with a built-in fastlane action (alias for `capture_ios_screenshots`/`snapshot`) — renamed to `capture_app_store_screenshots`; (b) this Mac has more than one simulator per device name (one per installed iOS runtime), and naively picking the first match booted a _second_ redundant instance alongside an already-booted one, which caused a 30+ minute hang (4 simulators booted simultaneously) during the VM-service handshake — fixed by preferring an already-booted match in `screenshot_capture.rb`'s `simulator_by_name`
+- [x] 5.2 Make any capture step's failure (simulator boot, server boot/health timeout, seed failure, test failure) raise and abort the lane — no catching-and-continuing (verified for real: the macOS step's local codesigning failure below correctly aborted the lane and still ran the `ensure` teardown)
+- [x] 5.3 Add `app/fastlane/screenshots/` to `.gitignore`
+- [x] 5.4 Ran `bundle exec fastlane capture_app_store_screenshots` locally end-to-end. iPhone and iPad both fully succeeded (24.2s and 11.7s Xcode builds, "All tests passed!", 8 real PNGs at the correct 1320×2868 / 2064×2752 sizes — eyeballed both, real seeded content, correct wide-layout sidebar on iPad, no debug banner). macOS fails at the Xcode build step on the same pre-existing local codesigning gap noted in task 4.4 (not a lane bug) — expected to work in CI, which has proper certs.
+- [x] 5.5 Commit: `feat(app): add capture_app_store_screenshots fastlane lane`
 
 ## 6. Wire into submission
 
-- [ ] 6.1 In `submit_target` (shared implementation backing both `ios submit_to_app_store` and `mac submit_to_app_store`), call `capture_screenshots` before `upload_to_app_store`, and pass `skip_screenshots: false` on that call only
-- [ ] 6.2 Confirm `release_target` (the TestFlight lane) is untouched — no call to `capture_screenshots`, `skip_screenshots` stays as-is there
-- [ ] 6.3 Confirm `sync_metadata` (metadata-only lane, no binary) is untouched — still `skip_screenshots: true`
-- [ ] 6.4 Commit: `feat(app): capture and upload fresh screenshots on App Store submission`
+- [x] 6.1 In `submit_target` (shared implementation backing both `ios submit_to_app_store` and `mac submit_to_app_store`), call `capture_app_store_screenshots` before `upload_to_app_store`, and pass `skip_screenshots: false` on that call only
+- [x] 6.2 Confirmed `release_target` (the TestFlight lane) is untouched — no call to `capture_app_store_screenshots`, no `skip_screenshots` param there at all (verified by grep — only one call site, in `submit_target`)
+- [x] 6.3 Confirmed `sync_metadata` (metadata-only lane, no binary) is untouched — still `skip_screenshots: true` (verified by grep — the only other `skip_screenshots` occurrence)
+- [x] 6.4 Commit: `feat(app): capture and upload fresh screenshots on App Store submission`
 
 ## 7. Verification
 
