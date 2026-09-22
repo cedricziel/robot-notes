@@ -291,11 +291,20 @@ TestFlight long before Apple has looked at it:
 
 GitHub emits `release: released`; the workflow runs again with only the
 `apple` jobs in submit mode. They skip the build, attach that tag's
-TestFlight build to the App Store version, upload the listing metadata
-from `app/fastlane/metadata` with the release body as release notes,
-submit for review, and release automatically once Apple approves. Both
-platforms submit in the same run. The container jobs do not run on this
-event.
+TestFlight build to the App Store version, **capture fresh App Store
+screenshots** (`capture_app_store_screenshots`: boots a disposable
+robot-notes server seeded with fictional sample notes, drives it on
+the iPhone 17 Pro Max simulator, the iPad Pro 13" simulator, and
+macOS, adds roughly 3-5 minutes per platform), upload them along with
+the listing metadata from `app/fastlane/metadata` and the release body
+as release notes, submit for review, and release automatically once
+Apple approves. Both platforms submit in the same run. The container
+jobs do not run on this event.
+
+A failed screenshot capture (simulator boot, the disposable server not
+becoming healthy, or the capture test itself) fails the submission
+before anything is uploaded — it never falls back to stale or missing
+screenshots.
 
 Releases created as drafts by release-please and published by the
 workflow with `GITHUB_TOKEN` never fire this event themselves, so a
@@ -350,23 +359,21 @@ App Store Connect needs a few things that cannot be automated from the
 repo. Do these once in the App Store Connect UI before the first release
 is expected to pass review:
 
-1. Upload screenshots for iPhone, iPad, and Mac (the pipeline sets
-   `skip_screenshots`).
-2. Fill in the reviewer demo server URL and API key in
+1. Fill in the reviewer demo server URL and API key in
    `app/fastlane/metadata/review_information/notes.txt` and keep that
    server reachable while the app is in review.
-3. Keep the App Privacy answers ("Data Not Collected", published
+2. Keep the App Privacy answers ("Data Not Collected", published
    2026-09-12) current if the app ever starts collecting data. The
    fastlane action for this needs an Apple ID session, so it is a UI step.
 
 ### Troubleshooting
 
-| Symptom                                             | Likely cause                                                                             |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `match` fails with `Permission denied (publickey)`  | `MATCH_DEPLOY_KEY` missing or not the key registered on the certificates repo.           |
-| `match` fails to decrypt                            | `MATCH_PASSWORD` wrong.                                                                  |
-| Archive fails with `No profiles for ... were found` | Entitlements changed; run `bundle exec fastlane bootstrap_signing force:true` locally.   |
-| Upload rejected: build number already used          | Same commit uploaded twice; cut a new release.                                           |
-| `upload_to_app_store` fails on metadata             | A field in `app/fastlane/metadata` violates a length or content rule; check the message. |
-| Review rejected for missing demo credentials        | `review_information/notes.txt` still has placeholders.                                   |
-| Old tag fails in `pod` or `bundle` on a rerun        | The tag's `app/Gemfile` predates a toolchain fix; the job builds the tag's tree, not `main`. Cut a new release instead of rerunning. |
+| Symptom                                             | Likely cause                                                                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `match` fails with `Permission denied (publickey)`  | `MATCH_DEPLOY_KEY` missing or not the key registered on the certificates repo.                                                       |
+| `match` fails to decrypt                            | `MATCH_PASSWORD` wrong.                                                                                                              |
+| Archive fails with `No profiles for ... were found` | Entitlements changed; run `bundle exec fastlane bootstrap_signing force:true` locally.                                               |
+| Upload rejected: build number already used          | Same commit uploaded twice; cut a new release.                                                                                       |
+| `upload_to_app_store` fails on metadata             | A field in `app/fastlane/metadata` violates a length or content rule; check the message.                                             |
+| Review rejected for missing demo credentials        | `review_information/notes.txt` still has placeholders.                                                                               |
+| Old tag fails in `pod` or `bundle` on a rerun       | The tag's `app/Gemfile` predates a toolchain fix; the job builds the tag's tree, not `main`. Cut a new release instead of rerunning. |
