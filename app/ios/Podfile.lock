@@ -1,15 +1,21 @@
 PODS:
   - Flutter (1.0.0)
+  - flutter_otel_native (0.1.0):
+    - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
+  - flutter_otel_native (from `.symlinks/plugins/flutter_otel_native/ios`)
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
+  flutter_otel_native:
+    :path: ".symlinks/plugins/flutter_otel_native/ios"
 
 SPEC CHECKSUMS:
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
+  flutter_otel_native: e7a9d30b5739799868e42b6794098a46929fb123
 
 PODFILE CHECKSUM: 3ba3a73b1b12adcf321a227a745625fe0888cc82
 
