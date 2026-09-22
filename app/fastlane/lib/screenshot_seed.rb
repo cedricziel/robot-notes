@@ -75,6 +75,9 @@ class ScreenshotSeed
       "rating" => {type: "number", label: "Rating"},
       "favorite" => {type: "checkbox", label: "Favorite"},
     },
+    views: [
+      {name: "All books", type: "table"},
+    ],
     rows: [
       {title: "Deep Work", properties: {"status" => "Finished", "rating" => 5, "favorite" => true}},
       {title: "The Pragmatic Programmer", properties: {"status" => "Reading", "rating" => 4, "favorite" => false}},
@@ -98,6 +101,7 @@ class ScreenshotSeed
       title: DATABASE[:title],
       path: DATABASE[:path],
       properties: DATABASE[:properties],
+      views: DATABASE[:views],
     )
     database_id = database.fetch("id")
     DATABASE[:rows].each do |row|
