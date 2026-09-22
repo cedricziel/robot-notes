@@ -285,6 +285,8 @@ def submit_target(key, options)
 
   UI.header("Submitting #{APP_NAME} #{key} #{version} (#{build_number}) for review")
 
+  capture_app_store_screenshots
+
   # skip_binary_upload + build_number attaches the already-processed
   # TestFlight build to the version; deliver fails if that build is missing.
   upload_to_app_store(
@@ -297,7 +299,7 @@ def submit_target(key, options)
     submit_for_review: true,
     automatic_release: options[:auto_release].to_s != "false",
     force: true,
-    skip_screenshots: true,
+    skip_screenshots: false,
     skip_metadata: false,
     precheck_include_in_app_purchases: false,
     run_precheck_before_submit: false,
