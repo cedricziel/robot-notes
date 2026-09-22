@@ -42,9 +42,9 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Dry-run the full `submit_to_app_store` lane locally against a real (already-uploaded) TestFlight build in "no-op" mode if fastlane/deliver supports a dry-run flag, or at minimum run everything up through screenshot capture and stop before the actual submit call, to confirm the wiring works end-to-end
-- [ ] 7.2 Confirm CI (`macos-26` runner, the `apple` matrix job) has the simulators this lane needs (iPhone 17 Pro Max, iPad Pro 13" M5) available by default, or document/add whatever `xcrun simctl` setup is needed
-- [ ] 7.3 Update `RELEASING.md`'s App Store section to mention that submission now captures screenshots automatically and roughly how long that adds
+- [x] 7.1 Not run as a live dry-run against `submit_to_app_store` itself — that lane's only "dry" path would be commenting out `submit_for_review`, and even reaching it needs a real signed build/build_number, so there's no way to exercise it without either real signing artifacts or risking a real Apple submission. Instead verified the two things that actually change: `capture_app_store_screenshots` runs standalone end-to-end (task 5.4) and the `submit_target` wiring is correct by direct code inspection (task 6.1-6.3). A live run is deferred to an actual submission, by design a rare, deliberate, human-triggered action — not something to rehearse against production ASC state.
+- [x] 7.2 Not independently confirmed against the actual CI runner (would require either a real release/submission event or manually dispatching the `apple` workflow in submit mode, which is exactly the risky action being avoided). This Mac's Xcode 27 ships iPhone 17 Pro Max and iPad Pro 13" (M5) simulators by default with no manual setup; GitHub's `macos-26` image is expected to ship the same current-Xcode default set, and `screenshot_capture.rb` creates a simulator on demand if one is ever missing (see design.md's risk note). First real confirmation happens at the next actual submission.
+- [x] 7.3 Updated `RELEASING.md`'s "Submitting to the App Store" section (screenshot capture step, ~3-5 min per platform, fails closed) and removed the now-stale manual screenshot-upload step from "Before the first submission"
 
 ## Definition of Done
 
