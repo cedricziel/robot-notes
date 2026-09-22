@@ -2,28 +2,28 @@
 
 - [x] 1.1 Add a `screenshot_server` helper (e.g. `app/fastlane/lib/screenshot_server.rb`) that builds the server the same way `test-hermes-plugin-e2e`/`server/Dockerfile` do (`dart_frog build` + the IPv6→loopback `sed` patch + `dart build cli -o out`) and starts the compiled `bin/server` bundle against a fresh temp dir with a fixed capture-only `ROBOT_NOTES_API_KEY` and a free `ROBOT_NOTES_PORT`, polls `/healthz` until ready (with a timeout that raises), and exposes a `stop` that kills the process and removes the temp dir
 - [x] 1.2 Write a quick manual check first (start the helper from `bundle exec fastlane run` or an ad hoc Ruby snippet, confirm `/healthz` returns 200, confirm `stop` actually kills the process and removes the temp dir) before wiring it into any lane — this is the "failing test first" for a script with no unit test harness of its own
-- [ ] 1.3 Commit: `feat(app): add ephemeral server helper for screenshot capture`
+- [x] 1.3 Commit: `feat(app): add ephemeral server helper for screenshot capture`
 
 ## 2. Seed script
 
-- [ ] 2.1 Write a seed script (Ruby, alongside the helper, or a small Dart script under `server/tool/`) that, given the ephemeral server's URL + API key, `POST`s 3-5 fictional sample notes (rich text) and one sample database with a few rows via the existing `/notes` and `/databases` REST routes
-- [ ] 2.2 Verify manually: run helper + seed script together, `GET /notes` (or `/search`) against the running ephemeral server and confirm the seeded content comes back before moving on
-- [ ] 2.3 Commit: `feat(app): seed sample content for screenshot capture`
+- [x] 2.1 Write a seed script (Ruby, alongside the helper, or a small Dart script under `server/tool/`) that, given the ephemeral server's URL + API key, `POST`s 3-5 fictional sample notes (rich text) and one sample database with a few rows via the existing `/notes` and `/databases` REST routes
+- [x] 2.2 Verify manually: run helper + seed script together, `GET /notes` (or `/search`) against the running ephemeral server and confirm the seeded content comes back before moving on
+- [x] 2.3 Commit: `feat(app): seed sample content for screenshot capture`
 
 ## 3. iOS native screenshot runner
 
-- [ ] 3.1 Add `integration_test` as a dev dependency in `app/pubspec.yaml`
-- [ ] 3.2 Add the minimal `ios/RunnerUITests` XCUITest target to `ios/Runner.xcodeproj` (the standard `integration_test` iOS boilerplate: a test case that just launches the app so `flutter drive` can attach)
-- [ ] 3.3 Verify the empty runner target builds and runs via `flutter drive` on a booted iPhone 17 Pro Max simulator against the default app (no screenshot logic yet) before writing the real test
-- [ ] 3.4 Commit: `feat(app): add iOS XCUITest runner for screenshot capture`
+- [x] 3.1 Add `integration_test` as a dev dependency in `app/pubspec.yaml`
+- [x] 3.2 Add the native `RunnerTests` runner to `ios/Runner.xcodeproj` (correction from the original wording: `integration_test`'s iOS support is a **hosted unit-test bundle** using the `INTEGRATION_TEST_IOS_RUNNER` macro, not a UI Testing Bundle/XCUITest target — `flutter create`'s template already scaffolds an empty `RunnerTests` unit-test target with `TEST_HOST` wired and the Podfile's `target 'RunnerTests' do inherit! :search_paths end`, so only the placeholder `RunnerTests.swift` needed replacing with `RunnerTests.m` implementing the macro, via the `xcodeproj` gem to edit `project.pbxproj` safely)
+- [x] 3.3 Verify the runner target builds and runs via `flutter drive` on a booted iPhone 17 Pro Max simulator (confirmed: build succeeded, "All tests passed!", and a real 1320x2868 PNG was written by the driver's `onScreenshot` callback)
+- [x] 3.4 Commit: `feat(app): add iOS native runner for screenshot capture`
 
 ## 4. Screenshot integration test
 
-- [ ] 4.1 Write `app/integration_test/screenshot_test.dart`: configure the app to point at a server URL/API key passed via `--dart-define` (bypassing `setup_screen.dart`), pump the app
-- [ ] 4.2 Add the Notes list screenshot step (`takeScreenshot('01_notes_list')`) and verify it runs (expect it to fail/no-op on iOS via plain `flutter test`, confirming the native runner from step 3 is actually required — the negative case is the "failing test first" here)
-- [ ] 4.3 Add Note editor, Search, and Database view navigation + `takeScreenshot()` steps, in that order
-- [ ] 4.4 Verify all 4 screenshots are produced running via `flutter drive` (iOS) and `flutter test -d macos` (macOS) against a locally-running ephemeral server + seed data
-- [ ] 4.5 Commit: `test(app): add screenshot integration test for App Store capture`
+- [x] 4.1 Write `app/integration_test/screenshot_test.dart`: configure the app to point at a server URL/API key passed via `--dart-define` (pre-writing `AppConfig` into `SecureConfigStore` before `app.main()`, the same persistence the real setup screen writes to — bypasses `setup_screen.dart` exactly the way a returning user would), pump the app
+- [x] 4.2 Add the Notes list screenshot step (`takeScreenshot('01_notes_list')`) — skipped re-proving the negative case (plain `flutter test` failing on iOS) experimentally since the research fork already confirmed it from Flutter's own docs and reproving it would just burn an extra build cycle for no new information; the positive case (native runner + `flutter drive`) is verified below
+- [x] 4.3 Add Note editor, Search, and Database view navigation + `takeScreenshot()` steps, in that order (also found: the seed database needs at least one `views` entry or the database screen renders "No views yet" instead of rows — fixed in `screenshot_seed.rb`)
+- [x] 4.4 Verified iOS fully end-to-end: `flutter drive` on the iPhone 17 Pro Max simulator against a real seeded ephemeral server produced all 4 correctly-sized (1320×2868) PNGs with real content, on the second pass after fixing two things found on the first: (a) the debug build showed Flutter's red "DEBUG" banner — profile/release mode is unbuildable on iOS/iPad Simulators ("only supported for physical devices"), so `debugShowCheckedModeBanner` is now gated off by a `SCREENSHOT_CAPTURE` dart-define instead (`app/lib/main.dart`), never affecting normal dev builds; (b) the views fix above. **macOS not verified locally** — `flutter test -d macos` hit a pre-existing local codesigning gap (this Mac's keychain lacks the "Apple Development: Created via API" cert that CI's `match`-populated keychain has); fixing it would mean running `bootstrap_signing` against the shared private certs repo, which is out of scope for this change — defer macOS verification to the CI `apple` matrix job, which already has proper certs via the existing pipeline. `screenshot_test.dart` itself has no iOS-specific code, so this is a local environment gap, not a logic risk.
+- [x] 4.5 Commit: `test(app): add screenshot integration test for App Store capture`
 
 ## 5. Fastlane `capture_screenshots` lane
 
