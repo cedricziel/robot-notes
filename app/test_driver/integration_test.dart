@@ -9,6 +9,10 @@ import 'package:integration_test/integration_test_driver_extended.dart';
 
 Future<void> main() async {
   final outputDir = Platform.environment['SCREENSHOT_OUTPUT_DIR'];
+  // Distinguishes iPhone/iPad/Mac captures sharing one output directory
+  // (see app/fastlane/lib/screenshot_capture.rb) — e.g. "iphone" turns
+  // "01_notes_list" into "iphone_01_notes_list.png".
+  final prefix = Platform.environment['SCREENSHOT_PREFIX'];
   await integrationDriver(
     onScreenshot:
         (
@@ -16,12 +20,15 @@ Future<void> main() async {
           List<int> screenshotBytes, [
           Map<String, Object?>? args,
         ]) async {
+          final fileName = prefix == null
+              ? '$screenshotName.png'
+              : '${prefix}_$screenshotName.png';
           if (outputDir == null) {
-            await File('$screenshotName.png').writeAsBytes(screenshotBytes);
+            await File(fileName).writeAsBytes(screenshotBytes);
             return true;
           }
           await Directory(outputDir).create(recursive: true);
-          final path = '$outputDir${Platform.pathSeparator}$screenshotName.png';
+          final path = '$outputDir${Platform.pathSeparator}$fileName';
           await File(path).writeAsBytes(screenshotBytes);
           return true;
         },
