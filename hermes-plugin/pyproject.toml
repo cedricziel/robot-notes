@@ -1,6 +1,6 @@
 [project]
 name = "robot-notes-hermes-plugin"
-version = "0.2.18" # x-release-please-version
+version = "0.1.4" # x-release-please-version
 description = "Hermes Agent MemoryProvider plugin backed by a robot-notes workspace"
 requires-python = ">=3.10"
 dependencies = ["httpx>=0.27"]
