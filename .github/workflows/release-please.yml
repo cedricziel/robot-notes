@@ -5,9 +5,11 @@ name: release-please
 #   1. `release-please` job opens (and keeps in sync) a release PR that
 #      bumps the version and CHANGELOG based on conventional commits since
 #      the last release. Merging the PR cuts a `vX.Y.Z` tag + GitHub
-#      release in the same workflow run. The release is created as a draft
-#      (release-please-config.json) and published as a *pre-release* by the
-#      step below.
+#      *pre-release* in the same workflow run (`prerelease` in
+#      release-please-config.json). Never create it as a draft: a draft has
+#      no tag, and release-please builds the next release PR in the same
+#      run, so it would find no previous release and re-release the whole
+#      history.
 #   2. `build` job builds the container image per architecture on a native
 #      runner (no qemu) and pushes by digest. Native runners avoid the
 #      qemu-emulated Dart VM crash where `dart_frog build` aborts inside
@@ -74,20 +76,6 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-      # release-please creates the release as a draft (no tag, no events).
-      # Publishing it here as a pre-release with GITHUB_TOKEN creates the
-      # tag but emits no workflow-triggering event, so the only way to
-      # reach the App Store submit path is a human promoting the
-      # pre-release to a full release.
-      - name: Publish draft as pre-release
-        if: ${{ steps.release.outputs.release_created == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release edit "${{ steps.release.outputs.tag_name }}" \
-            --repo "${{ github.repository }}" \
-            --draft=false --prerelease
 
   # Resolve the tag once so every downstream job agrees on what we are
   # doing — the freshly-cut tag from release-please, the manually-supplied
