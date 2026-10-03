@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.19](https://github.com/cedricziel/robot-notes/compare/v0.2.18...v0.2.19) (2026-10-03)
+
+
+### Bug Fixes
+
+* **release:** create releases as pre-releases, not drafts ([#321](https://github.com/cedricziel/robot-notes/issues/321)) ([639761a](https://github.com/cedricziel/robot-notes/commit/639761a4e964c0beab66a19257b94f4615965016))
+
 ## [0.2.18](https://github.com/cedricziel/robot-notes/compare/v0.2.17...v0.2.18) (2026-09-21)
 
 
