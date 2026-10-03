@@ -81,8 +81,8 @@ The flow is fully driven by merging a release PR.
    _same run_:
    - creates a `vX.Y.Z` git tag,
    - creates a GitHub **pre-release** with the CHANGELOG entry as body
-     (release-please writes a draft; the workflow publishes it as a
-     pre-release),
+     (never a draft: a draft has no tag, so the next release PR, built in
+     the same run, would find no previous release),
    - builds and pushes the multi-arch image to ghcr.io (the `publish`
      job is gated on `release_created == true`, so routine pushes to
      `main` don't ship preview images),
@@ -297,9 +297,9 @@ submit for review, and release automatically once Apple approves. Both
 platforms submit in the same run. The container jobs do not run on this
 event.
 
-Releases created as drafts by release-please and published by the
-workflow with `GITHUB_TOKEN` never fire this event themselves, so a
-release can only reach App Store review through a human promotion.
+Creating a pre-release fires `published` and `prereleased`, never
+`released`, so a release can only reach App Store review through a human
+promotion.
 
 ### Re-running
 
