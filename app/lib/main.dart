@@ -20,6 +20,10 @@ import 'src/url_strategy.dart';
 
 export 'src/app_router.dart' show NoteRoute, blankNoteTitle, createBlankNote;
 
+/// Set only by `fastlane capture_screenshots`'s `--dart-define`, never by a
+/// developer build — see [_RobotNotesAppState.build].
+const bool _isScreenshotCapture = bool.fromEnvironment('SCREENSHOT_CAPTURE');
+
 Future<void> main() async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
   // Web leaves the semantics tree off until the user finds a hidden
@@ -101,6 +105,12 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
   Widget build(BuildContext context) {
     return MaterialApp.router(
       title: 'robot-notes',
+      // Suppressed only for App Store screenshot capture (see
+      // app/integration_test/screenshot_test.dart) — a real device debug
+      // build should keep the banner as a normal signal it isn't a release
+      // build. Profile/release mode (which hides it automatically) isn't
+      // buildable for the iOS/iPad Simulators screenshot capture runs on.
+      debugShowCheckedModeBanner: !_isScreenshotCapture,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       routerConfig: _router,

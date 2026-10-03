@@ -2,6 +2,10 @@ require "yaml"
 
 opt_out_usage
 
+require_relative "lib/screenshot_server"
+require_relative "lib/screenshot_seed"
+require_relative "lib/screenshot_capture"
+
 APP_IDENTIFIER = "com.cedricziel.robotnotes.app"
 APP_NAME       = "Robot Notes"
 TEAM_ID        = "WPW3QSLZ2F"
@@ -160,6 +164,24 @@ lane :bootstrap_signing do |options|
   )
 end
 
+desc "Capture fresh App Store screenshots (iPhone, iPad, Mac) against a disposable seeded server"
+lane :capture_app_store_screenshots do
+  output_dir = File.expand_path("screenshots/en-US", __dir__)
+  FileUtils.rm_rf(output_dir)
+  FileUtils.mkdir_p(output_dir)
+
+  server = ScreenshotServer.new(server_root: File.join(FLUTTER_ROOT, "..", "server"), ui: UI)
+  begin
+    server.start
+    ScreenshotSeed.new(base_url: server.base_url, api_key: server.api_key, ui: UI).seed!
+    ScreenshotCapture.capture_all!(flutter_root: FLUTTER_ROOT, server: server, output_dir: output_dir, ui: UI)
+  ensure
+    server.stop
+  end
+
+  UI.success("Captured screenshots into #{output_dir}")
+end
+
 desc "Upload App Store metadata (listing text, category, age rating) without a binary"
 lane :sync_metadata do
   api_key = load_app_store_connect_api_key
@@ -263,6 +285,8 @@ def submit_target(key, options)
 
   UI.header("Submitting #{APP_NAME} #{key} #{version} (#{build_number}) for review")
 
+  capture_app_store_screenshots
+
   # skip_binary_upload + build_number attaches the already-processed
   # TestFlight build to the version; deliver fails if that build is missing.
   upload_to_app_store(
@@ -275,7 +299,7 @@ def submit_target(key, options)
     submit_for_review: true,
     automatic_release: options[:auto_release].to_s != "false",
     force: true,
-    skip_screenshots: true,
+    skip_screenshots: false,
     skip_metadata: false,
     precheck_include_in_app_purchases: false,
     run_precheck_before_submit: false,

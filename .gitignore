@@ -44,6 +44,7 @@ server/data/
 **/fastlane/README.md
 **/fastlane/report.xml
 **/fastlane/test_output/
+**/fastlane/screenshots/
 **/.bundle/
 **/vendor/bundle/
 

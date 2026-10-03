@@ -1,0 +1,49 @@
+## Context
+
+`app/fastlane/Fastfile` already has `ios`/`mac` `build`, `release`, and `submit_to_app_store` lanes (see `openspec/changes/add-app-store-publishing`), plus a `sync_metadata` lane that today passes `skip_screenshots: true`, `skip_binary_upload: true` to `upload_to_app_store`. The server (`server/`) is a Dart Frog app with `POST /notes` and `POST /databases` REST routes, a single static bearer key read from `ROBOT_NOTES_API_KEY`, and reads `ROBOT_NOTES_DATA_DIR`/`ROBOT_NOTES_PORT` at startup — it needs no Docker to run. It does, however, need a real build: the `test-hermes-plugin-e2e` Makefile target (`Makefile:90-154`) documents that `dart_frog dev` (and a bare `dart run main.dart`) skip Dart's build hooks, which `package:sqlite3` (3.x) needs to bundle a native `libsqlite3` — that resolves by luck on most developer machines but fails outright on a bare CI runner. The proven fix already in this repo is `dart_frog build` + `dart build cli` (same production-parity compile `server/Dockerfile` uses), which produces a self-contained `bin/server` bundle. The screenshot ephemeral-server helper reuses that same build-and-run recipe rather than a bare `dart run`. The Flutter app (`app/`) has no `integration_test` dependency or `integration_test/` directory today; it asks for a server URL + API key on first launch (`app/lib/src/setup/setup_screen.dart`). App Store Connect currently has zero screenshots for "Robot Notes", which blocks submitting for review.
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- Produce real, representative App Store Connect screenshots (iPhone, iPad, Mac) with no manual screen-grabbing
+- Never expose or touch the maintainer's real notes/data while doing so
+- Keep the routine TestFlight release path exactly as fast as it is today
+
+**Non-Goals:**
+
+- Screenshot localization beyond `en-US`
+- A general-purpose Flutter screenshot-testing framework for other purposes (visual regression, etc.) — this is App Store Connect capture only
+- Solving the Apple reviewer demo-server problem (separate, explicitly out of scope per proposal.md)
+
+## Decisions
+
+**Run the server directly, not via Docker — but build it, don't `dart run` it raw.** GitHub-hosted `macos-26` runners (used by the `apple` CI matrix job) don't reliably support Linux containers the way Ubuntu runners do. The server already reads its config from plain env vars (`ROBOT_NOTES_DATA_DIR`, `ROBOT_NOTES_PORT`, `ROBOT_NOTES_API_KEY`), so no container runtime is needed. But it must be started the same way `test-hermes-plugin-e2e` and `server/Dockerfile` do — `dart_frog build` then `dart build cli` — not via `dart_frog dev` or a bare `dart run main.dart`, both of which skip the Dart build hooks `package:sqlite3` needs to bundle a native `libsqlite3`; that fails on a bare CI runner even though it happens to work on most developer machines.
+
+**Own the capture script instead of adopting `mmcc007/screenshots`.** That's the closest thing to a community standard for Flutter App Store screenshots, but it has 56+ open issues and no recent confirmed release — real risk of breaking against current Flutter/Xcode with no upstream fix available. A ~100-line fastlane lane plus one integration test file, built directly on tools already in the repo (fastlane, `flutter test`/`flutter drive`), is small enough to own and debug ourselves.
+
+**All three platforms capture via `flutter drive`, not `flutter test`.** Confirmed by inspecting `flutter_tools` directly: the `takeScreenshot()`/`reportData` write-to-disk mechanism (`writeResponseData`, the thing that actually produces a PNG file) lives entirely in `integration_test_driver(_extended).dart`, which only `flutter drive` invokes — `flutter test -d <device>`'s native desktop/mobile test runner has no code path that touches it at all, on any platform. An earlier version of this design assumed macOS could use plain `flutter test -d macos`; that would run the test and report "all tests passed" while silently producing zero screenshot files. So iPhone, iPad, and macOS all run through `flutter drive --driver=test_driver/integration_test.dart --target=integration_test/screenshot_test.dart -d <device>`, whose `onScreenshot` callback (`app/test_driver/integration_test.dart`) writes each PNG straight to disk on the host — no need to fish anything out of a device or an Xcode test result bundle.
+
+**Native `RunnerTests` runner needed only for iOS to build/run at all.** Confirmed via Flutter's own `integration_test` docs and its example app: iOS needs a **hosted unit-test bundle** target (`TEST_HOST` pointed at `Runner.app`, using the `INTEGRATION_TEST_IOS_RUNNER` Objective-C macro) — not a UI Testing Bundle/XCUITest target as originally assumed — or the test can't run on iOS at all, screenshots or not. In this repo, `flutter create`'s current template already scaffolds an empty `RunnerTests` unit-test target (`TEST_HOST` wired, `Podfile` already has `target 'RunnerTests' do inherit! :search_paths end`) — only its placeholder `RunnerTests.swift` needed replacing with an Objective-C `RunnerTests.m` implementing the macro. macOS doesn't need this native wrapper to run the test at all — but still needs `flutter drive`, not `flutter test`, to actually get screenshot files out (see above).
+
+**One device per required App Store Connect size class.** 2026 ASC accepts one screenshot set per device family at its largest size, auto-scaled to older listing pages: iPhone 17 Pro Max (6.9"), iPad Pro 13" (M5), and the Mac build itself. No multi-size matrix needed, which keeps the lane to exactly 3 capture runs.
+
+**Screenshot content and order come from a fixed seed + fixed navigation script**, not randomized or pulled from real usage: a few short, clearly-fictional notes (e.g. a reading list, a meeting-notes example), one sample database (e.g. a small reading tracker), captured in the order Notes list → Note editor → Search → Database view. This keeps output deterministic and reviewable — reruns should look the same modulo cosmetic UI changes.
+
+**Trigger only from `submit_to_app_store`, not `release`.** Release history shows TestFlight releases (`release` lane) firing many times a day; `submit_to_app_store` fires rarely (a handful of times ever). Booting 3 simulators/targets plus an ephemeral server on every TestFlight push would add real CI time and flakiness surface for a listing asset that only matters at submission time.
+
+**Fail closed on any capture error.** No fallback to previously-captured or previously-published screenshots — a broken capture step fails the lane before `upload_to_app_store` runs, so a bad or missing screenshot never ships silently.
+
+## Risks / Trade-offs
+
+- **[Risk] Simulator/Xcode drift between this Mac and the CI runner** could make capture pass locally but fail (or look different) in CI → Mitigation: dry-run locally first (already verified this Mac has Xcode 27 with the iPhone 17 Pro Max and iPad Pro 13" (M5) simulators available), then verify once against the actual `macos-26` CI image before relying on it for a real submission.
+- **[Risk] The one-time `submit_to_app_store` run becomes slower and has more failure surface** (3 simulators + a server + an integration test, all before the actual upload) → Mitigation: this is acceptable because submission is already a deliberate, infrequent, human-triggered action (`workflow_dispatch` or promoting a pre-release), not something on the hot path.
+- **[Risk] Flutter/Xcode version bumps could break the native `RunnerTests` target or `takeScreenshot()` behavior** → Mitigation: it's a small, self-owned target (not a third-party plugin), so it can be fixed in place; failures are loud (lane fails) rather than silent.
+- **[Trade-off] Sample data needs to be maintained by hand** (seed script content) as the app's UI evolves, rather than being generated from real usage → accepted, since realistic-but-fictional data is also what avoids leaking anything real into a public App Store listing.
+- **[Risk] macOS capture was not verified end-to-end locally** — this Mac's local keychain lacks a dev cert CI's `match`-populated keychain has ("Apple Development: Created via API"), so `flutter test -d macos` fails to build here. `screenshot_test.dart` has no iOS-specific code, so this is believed to be a local-only gap, not a logic risk → Mitigation: verify on the actual `apple` CI matrix job (task 7.1/7.2) before relying on it for a real submission; fixing the local gap would mean running `bootstrap_signing` against the shared private certs repo, out of scope here.
+- **[Risk] iOS/iPad Simulators can't build in profile/release mode** ("only supported for physical devices"), so `flutter drive`-based capture is stuck in debug mode, which shows Flutter's red debug banner by default → Mitigation: `debugShowCheckedModeBanner` is gated off by a `SCREENSHOT_CAPTURE` dart-define in `app/lib/main.dart`, applied only during capture, never during normal development.
+- **[Risk] A machine with more than one simulator per device name can hang capture for 30+ minutes** — observed locally: Xcode provisions one "iPhone 17 Pro Max"/"iPad Pro 13-inch (M5)" per installed iOS runtime (26.5 and 27.0 here), and naively booting whichever match comes first left 4 simulators running simultaneously, which stalled the VM-service handshake indefinitely rather than failing fast → Mitigation: `screenshot_capture.rb`'s `simulator_by_name` now prefers an already-booted match over booting a new one. CI runners typically provision one simulator per device type, so this is primarily a local-development risk, but the preference logic is a no-op (and harmless) if only one match ever exists.
+
+## Open Questions
+
+- Exact wording/content of the seeded sample notes and database (cosmetic, doesn't affect specs/approach/tasks — decide while implementing and adjust freely after eyeballing the captured PNGs).
