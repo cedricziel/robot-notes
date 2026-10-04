@@ -83,6 +83,26 @@ void main() {
     expect(persisted.body, contains('Private work'));
   });
 
+  test('write-only MCP grants discover vaults without reading notes', () async {
+    final allowed = await createVault('Allowed');
+    final denied = await createVault('Denied');
+    final grant = await completeOAuthFlow(
+        baseUrl: app.baseUrl,
+        apiKey: app.config.apiKey,
+        scope: 'notes:write',
+        vaultIds: {allowed});
+    final listed = await mcp(grant.accessToken, 'list_vaults');
+    expect(listed['isError'], isNot(true));
+    expect(jsonEncode(listed), contains(allowed));
+    expect(jsonEncode(listed), isNot(contains(denied)));
+    final read =
+        await mcp(grant.accessToken, 'list_notes', {'vault_id': allowed});
+    expect(read['structuredContent']['error'], 'insufficient_scope');
+    final created = await mcp(grant.accessToken, 'create_note',
+        {'vault_id': allowed, 'title': 'Write only', 'content': ''});
+    expect(created['isError'], isNot(true));
+  });
+
   test('MCP consent and refresh retain exact vault selection', () async {
     final allowed = await createVault('Allowed');
     final secondAllowed = await createVault('Also allowed');

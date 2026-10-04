@@ -76,7 +76,7 @@ class _VaultSwitcherState extends State<VaultSwitcher> {
         ],
       ),
     );
-    if (name == null) return;
+    if (!mounted || name == null) return;
     try {
       if (rename) {
         await widget.api.renameVault(widget.selectedId, name);

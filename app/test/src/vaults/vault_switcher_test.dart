@@ -83,6 +83,66 @@ void main() {
     expect(requests.last.headers['X-Vault-Id'], 'default');
   });
 
+  for (final rename in [false, true]) {
+    testWidgets(
+      'disposed switcher does not submit ${rename ? 'rename' : 'create'}',
+      (tester) async {
+        final visible = ValueNotifier(true);
+        addTearDown(visible.dispose);
+        final writes = <http.Request>[];
+        final api = RobotNotesClient(
+          config: const AppConfig(
+            baseUrl: 'https://notes.example',
+            apiKey: 'key',
+            actor: 'tester',
+          ),
+          httpClient: MockClient((request) async {
+            if (request.method != 'GET') writes.add(request);
+            return http.Response(
+              jsonEncode({
+                'can_manage': true,
+                'vaults': [
+                  {'id': 'default', 'name': 'Default'},
+                ],
+              }),
+              200,
+            );
+          }),
+        );
+        addTearDown(api.close);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ValueListenableBuilder(
+                valueListenable: visible,
+                builder: (context, value, child) => value
+                    ? VaultSwitcher(
+                        api: api,
+                        selectedId: 'default',
+                        onSelect: (_) {},
+                        canManage: true,
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byTooltip(rename ? 'Rename vault' : 'Create vault'),
+        );
+        await tester.pumpAndSettle();
+        visible.value = false;
+        await tester.pump();
+        await tester.enterText(find.byType(TextFormField), 'Projects');
+        await tester.tap(find.text('Save'));
+        await tester.pumpAndSettle();
+        expect(writes, isEmpty);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('restricted sessions do not show vault management actions', (
     tester,
   ) async {

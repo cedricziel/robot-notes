@@ -95,17 +95,43 @@ Future<UploadedFileResult?> uploadPickedFile(
 /// [GoRouter]'s `refreshListenable` re-evaluates redirects whenever the
 /// answer changes — first-run completing, or a manual disconnect.
 class ConfigHolder extends ChangeNotifier {
-  ConfigHolder(this._store) {
+  ConfigHolder(ConfigStore store) : _store = SerializedConfigStore(store) {
     unawaited(_load());
   }
 
   /// Starts already resolved, for tests that don't want to race a real
   /// [ConfigStore] read.
   ConfigHolder.seeded(this.config)
-    : _store = InMemoryConfigStore(),
+    : _store = SerializedConfigStore(InMemoryConfigStore()),
       loaded = true;
 
   final ConfigStore _store;
+  Future<void> _mutations = Future<void>.value();
+  int _sessionRevision = 0;
+
+  Future<T> _mutate<T>(Future<T> Function() action) {
+    final result = _mutations.then((_) => action());
+    _mutations = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return result;
+  }
+
+  Future<bool> selectVault(String id) {
+    final revision = _sessionRevision;
+    return _mutate(() async {
+      final current = config;
+      if (current == null || revision != _sessionRevision) return false;
+      final selected = current.withVault(id);
+      await _store.write(selected);
+      if (revision != _sessionRevision) return false;
+      config = selected;
+      notifyListeners();
+      return true;
+    });
+  }
+
   final OidcSessionRefresher _refresher = OidcSessionRefresher(
     clientFactory: tracingHttpClient,
   );
@@ -168,15 +194,19 @@ class ConfigHolder extends ChangeNotifier {
   }
 
   void set(AppConfig value) {
+    _sessionRevision++;
     config = value;
     loaded = true;
     notifyListeners();
   }
 
-  Future<void> reset() async {
-    await _store.clear();
-    config = null;
-    notifyListeners();
+  Future<void> reset() {
+    _sessionRevision++;
+    return _mutate(() async {
+      await _store.clear();
+      config = null;
+      notifyListeners();
+    });
   }
 
   @override
@@ -1491,11 +1521,19 @@ class AppRouterShell extends StatelessWidget {
           key: ValueKey<AppConfig>(config),
           config: config,
           onReset: configHolder.reset,
-          onVaultSelected: (id) {
-            final selected = config.withVault(id);
-            configHolder.set(selected);
-            unawaited(configHolder.store.write(selected));
-            GoRouter.of(context).go("/notes");
+          onVaultSelected: (id) async {
+            try {
+              final changed = await configHolder.selectVault(id);
+              if (!context.mounted || !changed) return;
+              GoRouter.of(context).go('/notes');
+            } on Object {
+              if (!context.mounted) return;
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                const SnackBar(
+                  content: Text('Could not save vault selection.'),
+                ),
+              );
+            }
           },
           child: content,
         );

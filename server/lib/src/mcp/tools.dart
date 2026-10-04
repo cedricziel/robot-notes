@@ -279,7 +279,9 @@ class McpToolRegistry {
 
     final requiredScope =
         tool.requiresWrite ? kScopeNotesWrite : kScopeNotesRead;
-    if (!principal.scopes.contains(requiredScope)) {
+    final canDiscoverVaults =
+        name == 'list_vaults' && principal.scopes.contains(kScopeNotesWrite);
+    if (!principal.scopes.contains(requiredScope) && !canDiscoverVaults) {
       return toolFail(kErrorInsufficientScope);
     }
 

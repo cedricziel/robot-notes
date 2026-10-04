@@ -65,6 +65,43 @@ abstract class ConfigStore {
   Future<void> clearPendingOidcLogin();
 }
 
+/// Serializes storage operations so multi-key writes cannot interleave with logout.
+class SerializedConfigStore implements ConfigStore {
+  SerializedConfigStore(this._delegate);
+  final ConfigStore _delegate;
+  Future<void> _pending = Future<void>.value();
+
+  Future<T> _run<T>(Future<T> Function() operation) {
+    final result = _pending.then((_) => operation());
+    _pending = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return result;
+  }
+
+  @override
+  Future<AppConfig?> read() => _run(_delegate.read);
+  @override
+  Future<void> write(AppConfig config) => _run(() => _delegate.write(config));
+  @override
+  Future<void> clear() => _run(_delegate.clear);
+  @override
+  Future<String?> readRegisteredOAuthClientId(String baseUrl) =>
+      _run(() => _delegate.readRegisteredOAuthClientId(baseUrl));
+  @override
+  Future<void> writeRegisteredOAuthClientId(String baseUrl, String clientId) =>
+      _run(() => _delegate.writeRegisteredOAuthClientId(baseUrl, clientId));
+  @override
+  Future<PendingOidcLogin?> readPendingOidcLogin() =>
+      _run(_delegate.readPendingOidcLogin);
+  @override
+  Future<void> writePendingOidcLogin(PendingOidcLogin login) =>
+      _run(() => _delegate.writePendingOidcLogin(login));
+  @override
+  Future<void> clearPendingOidcLogin() => _run(_delegate.clearPendingOidcLogin);
+}
+
 /// [ConfigStore] backed by `flutter_secure_storage`.
 ///
 /// On Apple platforms this uses the Keychain, on Android the Keystore /
