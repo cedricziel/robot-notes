@@ -222,7 +222,7 @@ class _SchemaEditorScreenState extends State<SchemaEditorScreen> {
               color: Theme.of(context).colorScheme.secondaryContainer,
             ),
           DatabaseSourceEditor(
-            initialSource: widget.definition.source,
+            initialSource: _source,
             onChanged: (source) => setState(() => _source = source),
           ),
           const Divider(height: 32),

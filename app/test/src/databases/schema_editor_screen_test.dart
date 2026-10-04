@@ -68,6 +68,28 @@ void main() {
         find.byKey(const Key('databaseSource.includeSubfolders')),
       );
       await tester.pump();
+      // ListView may dispose the source editor while editing lower sections.
+      await tester.drag(find.byType(ListView), const Offset(0, -1500));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView), const Offset(0, 1500));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('databaseSource.folder')),
+            )
+            .controller!
+            .text,
+        'Other',
+      );
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const Key('databaseSource.includeSubfolders')),
+            )
+            .value,
+        isFalse,
+      );
       await tester.tap(find.byKey(const Key('schemaEditor.save')));
       await tester.pumpAndSettle();
       final body = jsonDecode(captured!.body) as Map;
