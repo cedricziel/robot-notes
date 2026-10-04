@@ -131,6 +131,12 @@ class RobotNotesProvider(MemoryProvider):
         return self._config
 
     def initialize(self, session_id: str, **kwargs) -> None:
+        # Invalidate cached and in-flight recall before rebinding the server/vault.
+        old_client = self._client
+        self._client = None
+        self._recall_cache.clear()
+        if old_client:
+            old_client.close()
         self._config = RobotNotesConfig.load(kwargs.get("hermes_home"))
         self._session_id = session_id
         self._write_enabled = kwargs.get("agent_context", "") not in {"cron", "flush", "subagent"}
@@ -138,7 +144,10 @@ class RobotNotesProvider(MemoryProvider):
         self._platform = kwargs.get("platform") or ""
         self._agent_identity = kwargs.get("agent_identity") or ""
         self._client = RobotNotesClient(
-            base_url=self._config.base_url, api_key=self._config.api_key, actor=self._config.actor
+            base_url=self._config.base_url,
+            api_key=self._config.api_key,
+            actor=self._config.actor,
+            vault_id=self._config.vault_id,
         )
 
     def shutdown(self) -> None:
@@ -150,6 +159,7 @@ class RobotNotesProvider(MemoryProvider):
         if not self._load_config().native_tools:
             return (
                 "A shared robot-notes workspace is connected for automatic memory recall. "
+                f"Selected vault: {self._config.vault_id}. Automatic memory hooks use this vault. "
                 "Native note tools are disabled. Use the separately configured robot-notes "
                 "MCP tools, if available, for explicit note and database operations. "
                 "Search or list before creating; append to existing notes when appropriate. "
@@ -165,7 +175,8 @@ class RobotNotesProvider(MemoryProvider):
         return (
             "A shared robot-notes workspace is connected as external memory — notes are "
             "shared between humans and agents in this workspace, so writes here are "
-            "visible to others too. Tools:\n"
+            f"visible to others too. Selected vault: {self._config.vault_id if self._config else 'default'}. "
+            "All recall, tools, transcripts, and memory mirrors use this vault. Tools:\n"
             "- robotnotes_search(query, path?, limit?): keyword full-text search, not a "
             "wildcard — there is no query that means \"every note\".\n"
             "- robotnotes_list(path?, after?, limit?): paginated metadata (no content) "
@@ -220,20 +231,22 @@ class RobotNotesProvider(MemoryProvider):
         self._recall_cache.queue(session_id, query, self._search_and_format, spawn_thread=spawn_context_thread)
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        epoch = self._recall_cache.epoch
         if is_trivial_prompt(query):
-            return self._recall_cache.note_result("", 0)
+            return self._recall_cache.note_result("", 0, epoch=epoch)
         cached = self._recall_cache.consume(session_id, query)
         formatted, count = cached if cached is not None else self._search_and_format(query)
-        return self._recall_cache.note_result(formatted, count)
+        return self._recall_cache.note_result(formatted, count, epoch=epoch)
 
     def recall_status(self) -> Optional[RecallStatus]:
         return self._recall_cache.status("robot-notes")
 
     def _search_and_format(self, query: str) -> "tuple[str, int]":
-        if not self._client or not query:
+        client = self._client
+        if not client or not query:
             return "", 0
         try:
-            items = self._client.search(query, limit=5)
+            items = client.search(query, limit=5)
         except ClientError as exc:
             if exc.kind is ErrorKind.CIRCUIT_OPEN:
                 logger.debug("robot_notes: skipping search, %s", exc)
@@ -491,11 +504,12 @@ class RobotNotesProvider(MemoryProvider):
             {"key": "base_url", "description": "robot-notes server base URL", "required": True, "type": "text"},
             {
                 "key": "api_key",
-                "description": "robot-notes API key",
+                "description": "robot-notes API key or REST OAuth access token",
                 "required": True,
                 "secret": True,
                 "env_var": "ROBOT_NOTES_API_KEY",
             },
+            {"key": "vault_id", "description": "Vault ID (blank uses default)", "required": False, "type": "text"},
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
@@ -504,6 +518,7 @@ class RobotNotesProvider(MemoryProvider):
             base_url=str(values.get("base_url", "")),
             actor=str(values.get("actor") or existing.actor),
             native_tools=values.get("native_tools", existing.native_tools),
+            vault_id=str(values.get("vault_id", existing.vault_id) or "default"),
         ).save(hermes_home)
 
 

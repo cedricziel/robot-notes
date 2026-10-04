@@ -1,6 +1,6 @@
 name: robot_notes
 version: 0.2.18 # x-release-please-version
-description: "robot-notes — shared notes workspace as external memory (REST, static API key)."
+description: "robot-notes — shared notes workspace as external memory (REST bearer credential, configurable vault)."
 pip_dependencies:
   - httpx
 # Hooks this provider implements, per the memory-provider-plugin developer guide.

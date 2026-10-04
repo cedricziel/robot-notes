@@ -116,7 +116,7 @@ def test_save_writes_base_url_and_actor_but_not_api_key(tmp_path):
     config.save(str(tmp_path))
 
     saved = json.loads((tmp_path / "robot_notes.json").read_text(encoding="utf-8"))
-    assert saved == {"base_url": "https://notes.example.com", "actor": "hermes-bot"}
+    assert saved == {"base_url": "https://notes.example.com", "actor": "hermes-bot", "vault_id": "default"}
     assert "api_key" not in saved
     assert "secret-key" not in (tmp_path / "robot_notes.json").read_text(encoding="utf-8")
 
@@ -137,3 +137,16 @@ def test_native_tools_rejects_string_booleans(tmp_path):
     (tmp_path / "robot_notes.json").write_text(json.dumps({"native_tools": "false"}))
     with pytest.raises(ValueError, match="native_tools"):
         RobotNotesConfig.load(str(tmp_path))
+
+def test_vault_selection_round_trips_without_persisting_credential(tmp_path, monkeypatch):
+    monkeypatch.setenv(API_KEY_ENV_VAR, "scoped-rest-token")
+    RobotNotesConfig.create(base_url="https://notes.example.com", vault_id=" work ").save(str(tmp_path))
+    loaded = RobotNotesConfig.load(str(tmp_path))
+    assert loaded.vault_id == "work"
+    assert loaded.api_key == "scoped-rest-token"
+    assert "scoped-rest-token" not in (tmp_path / "robot_notes.json").read_text()
+
+
+def test_missing_or_blank_vault_defaults_to_default(tmp_path):
+    assert RobotNotesConfig.load(str(tmp_path)).vault_id == "default"
+    assert RobotNotesConfig.create(vault_id="   ").vault_id == "default"

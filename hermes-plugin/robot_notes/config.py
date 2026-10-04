@@ -14,6 +14,7 @@ from ._hermes_compat import get_secret
 CONFIG_FILENAME = "robot_notes.json"
 API_KEY_ENV_VAR = "ROBOT_NOTES_API_KEY"
 DEFAULT_ACTOR = "hermes"
+DEFAULT_VAULT_ID = "default"
 
 
 def _default_hermes_home() -> str:
@@ -26,6 +27,7 @@ class RobotNotesConfig:
     actor: str = DEFAULT_ACTOR
     api_key: str = ""
     native_tools: bool = True
+    vault_id: str = DEFAULT_VAULT_ID
 
     @property
     def missing_reason(self) -> Optional[str]:
@@ -40,13 +42,13 @@ class RobotNotesConfig:
         return self.missing_reason is None
 
     @classmethod
-    def create(cls, *, base_url: str = "", actor: str = "", api_key: str = "", native_tools: bool = True) -> "RobotNotesConfig":
+    def create(cls, *, base_url: str = "", actor: str = "", api_key: str = "", native_tools: bool = True, vault_id: str = DEFAULT_VAULT_ID) -> "RobotNotesConfig":
         """The one place ``base_url`` is normalized (trailing slash stripped) and
-        ``actor`` defaulted — every constructor path (``load()``, the setup wizard's
+        ``actor`` and ``vault_id`` defaulted — every constructor path (``load()``, the setup wizard's
         ``save_config()``) should go through this rather than repeating either rule."""
         if not isinstance(native_tools, bool):
             raise ValueError("native_tools must be a JSON boolean")
-        return cls(base_url=base_url.rstrip("/"), actor=actor or DEFAULT_ACTOR, api_key=api_key, native_tools=native_tools)
+        return cls(base_url=base_url.rstrip("/"), actor=actor or DEFAULT_ACTOR, api_key=api_key, native_tools=native_tools, vault_id=vault_id.strip() or DEFAULT_VAULT_ID)
 
     @classmethod
     def load(cls, hermes_home: Optional[str] = None) -> "RobotNotesConfig":
@@ -63,13 +65,14 @@ class RobotNotesConfig:
             actor=str(data.get("actor") or ""),
             api_key=get_secret(API_KEY_ENV_VAR, ""),
             native_tools=data.get("native_tools", True),
+            vault_id=str(data.get("vault_id") or DEFAULT_VAULT_ID),
         )
 
     def save(self, hermes_home: str) -> None:
         home = Path(hermes_home)
         home.mkdir(parents=True, exist_ok=True)
         path = home / CONFIG_FILENAME
-        payload = {"base_url": self.base_url, "actor": self.actor}
+        payload = {"base_url": self.base_url, "actor": self.actor, "vault_id": self.vault_id}
         if not self.native_tools:
             payload["native_tools"] = False
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

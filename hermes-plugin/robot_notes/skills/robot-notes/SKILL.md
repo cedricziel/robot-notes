@@ -14,6 +14,14 @@ Treat the workspace as
 a durable, multi-actor resource and follow the discipline below to avoid
 duplicating or corrupting other actors' work.
 
+## Vault boundary
+
+The provider's configured `vault_id` selects one vault (`default` when omitted).
+All tools, recall, session transcripts, and memory mirrors use that vault. Note
+IDs and folders from another vault are not interchangeable. A vault access error
+requires configuration or authorization to be corrected; do not retry against the
+default vault. Vault selection does not itself restrict a static API key's access.
+
 ## Where things live
 
 - Session transcripts are filed one note per session under

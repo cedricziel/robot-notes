@@ -94,14 +94,14 @@ echo "ROBOT_NOTES_API_KEY=rn_your_secret" >> ~/.hermes/.env
 
 ## Config
 
-`hermes memory setup` only prompts for `base_url` and the API key — the
-schema is kept minimal per the developer guide, and `actor` is optional with
-a sane default. Set it by hand in `robot_notes.json` (see below) if the
-default is not right for your setup.
+`hermes memory setup` prompts for `base_url`, the bearer credential, and an
+optional `vault_id` (blank uses `default`). The optional `actor` setting is
+configured directly in `robot_notes.json`.
 
 | Key        | Where                                | Description                          |
 | ---------- | ------------------------------------- | ------------------------------------ |
 | `base_url` | `robot_notes.json`                    | robot-notes server base URL          |
+| `vault_id` | `robot_notes.json`                    | Selected vault ID (default: `default`) |
 | `api_key`  | `ROBOT_NOTES_API_KEY` (env, secret)   | Bearer credential for every request  |
 
 ## `robot_notes.json` reference
@@ -113,12 +113,14 @@ the API key:
 | ---------- | -------- | --------- | -------------------------------------------------------------------- |
 | `base_url` | Yes      | —         | robot-notes server base URL, e.g. `https://notes.example.com`      |
 | `native_tools` | No | `true` | Set to JSON `false` to keep automatic memory hooks while using MCP for explicit operations. Restart Hermes after changing it. |
+| `vault_id` | No       | `default` | Stable vault ID, sent as `X-Vault-Id` on every request |
 | `actor`    | No       | `hermes`  | Actor name attributed to this agent's writes (sent as `X-Actor`); also scopes the per-session summary note under `conversations/<actor>/` |
 
 ```json
 {
   "base_url": "https://notes.example.com",
-  "actor": "hermes"
+  "actor": "hermes",
+  "vault_id": "default"
 }
 ```
 
@@ -183,10 +185,27 @@ static bearer key grants full server access. Automatic provider writes remain
 subject to their existing primary-context rule. Disabling native tools alone
 does not make the provider read-only.
 
+## Vault selection and authorization
+
+All recall queries, explicit tools, session transcripts, and memory mirrors use
+one configured vault. Use `GET /vaults` with your bearer credential to find its
+stable ID, then set `vault_id` during setup or in `robot_notes.json`. Restart or
+reinitialize the provider after changing it. Existing configurations continue to
+use `default`; invalid or unauthorized vaults return errors rather than falling
+back to another vault. Reinitialization clears recall caches and discards results
+from searches queued against the previous vault.
+
+`ROBOT_NOTES_API_KEY` can contain the server's static API key or a REST-resource
+OAuth access token. For restricted access, authorize a token against the server
+base URL with the selected vault and the required note read/write scopes. MCP
+resource tokens are not accepted by REST. The static API key grants access to all
+vaults; selecting `vault_id` only chooses the target. The plugin does not perform
+OAuth sign-in or refresh expired access tokens automatically.
+
 ## Data sent to the server
 
 Everything this plugin sends to robot-notes goes over the plain REST API
-above (bearer key + `X-Actor` header, no additional client). Nothing is sent
+above (bearer credential + `X-Actor` and `X-Vault-Id` headers, no additional client). Nothing is sent
 to any service other than the `base_url` configured above.
 
 - **Recall queries** — `prefetch`/`queue_prefetch` send the query text for

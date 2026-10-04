@@ -752,3 +752,26 @@ def test_delete_note_handles_empty_204_body(client):
     result = client.delete_note("01XYZ")
 
     assert result == {}
+
+
+@pytest.mark.parametrize("operation", [
+    lambda c: c.search("budget"),
+    lambda c: c.list_notes(),
+    lambda c: c.get_note("note"),
+    lambda c: c.create_note(title="Budget"),
+    lambda c: c.update_note("note", version=1, content="new"),
+    lambda c: c.append_note("note", "more"),
+    lambda c: c.delete_note("note"),
+])
+@respx.mock
+def test_selected_vault_is_sent_on_every_content_operation(operation):
+    route = respx.route().mock(return_value=httpx.Response(200, json={"items": [], "id": "note"}))
+    client = RobotNotesClient(base_url="https://notes.example.com", api_key="rest-token", actor="hermes", vault_id="work")
+    try:
+        operation(client)
+        assert route.calls.last.request.headers["x-vault-id"] == "work"
+        assert route.calls.last.request.headers["authorization"] == "Bearer rest-token"
+        if route.calls.last.request.method == "PUT":
+            assert route.calls.last.request.headers["if-match"] == "1"
+    finally:
+        client.close()

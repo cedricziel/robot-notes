@@ -894,7 +894,7 @@ def test_on_memory_write_replace_without_identifiable_old_falls_back_to_append(p
 def test_get_config_schema_declares_fields():
     schema = RobotNotesProvider().get_config_schema()
     keys = {field["key"] for field in schema}
-    assert keys == {"base_url", "api_key"}
+    assert keys == {"base_url", "api_key", "vault_id"}
     api_key_field = next(f for f in schema if f["key"] == "api_key")
     assert api_key_field["secret"] is True
 
@@ -1050,7 +1050,7 @@ def test_save_config_does_not_persist_api_key(tmp_path):
     )
 
     saved = json.loads((tmp_path / "robot_notes.json").read_text(encoding="utf-8"))
-    assert saved == {"base_url": "https://notes.example.com", "actor": "hermes-bot"}
+    assert saved == {"base_url": "https://notes.example.com", "actor": "hermes-bot", "vault_id": "default"}
 
 
 class _FakeCtxWithSkills:
@@ -1268,3 +1268,107 @@ def test_memory_only_still_gates_automatic_subagent_writes(memory_only_provider)
         memory_only_provider.on_memory_write("add", "memory", "new fact")
         memory_only_provider.on_session_end([{"role": "user", "content": "hello"}])
         assert not mock.calls
+
+def test_setup_saves_selected_vault(tmp_path):
+    provider = RobotNotesProvider()
+    provider.save_config({"base_url": "https://notes.example.com", "vault_id": "work"}, str(tmp_path))
+    assert RobotNotesConfig.load(str(tmp_path)).vault_id == "work"
+
+
+@respx.mock
+def test_reinitializing_vault_discards_cached_and_in_flight_recall(provider, tmp_path):
+    started, release = threading.Event(), threading.Event()
+
+    def slow_response(request):
+        assert request.headers["x-vault-id"] == "default"
+        started.set()
+        release.wait(timeout=5)
+        return httpx.Response(200, json={"items": [{"id": "old", "title": "Old vault", "snippet": "secret"}]})
+
+    route = respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": []}))
+    provider.queue_prefetch("cached plans", session_id="session-1")
+    provider._prefetch_thread.join(timeout=5)
+    route.mock(side_effect=slow_response)
+    provider._recall_cache.note_result("old vault recall", 1)
+    provider.queue_prefetch("project plans", session_id="session-1")
+    thread = provider._prefetch_thread
+    assert started.wait(timeout=5)
+    old_client = provider._client
+    try:
+        RobotNotesConfig.create(base_url="https://notes.example.com", vault_id="work").save(str(tmp_path))
+        provider.initialize("session-1", hermes_home=str(tmp_path))
+    finally:
+        release.set()
+        thread.join(timeout=5)
+    assert old_client._http.is_closed
+    assert provider.recall_status() is None
+    assert provider._recall_cache.consume("session-1", "project plans") is None
+    assert provider._recall_cache.consume("session-1", "cached plans") is None
+    route.mock(return_value=httpx.Response(200, json={"items": []}))
+    assert provider.prefetch("project plans", session_id="session-1") == ""
+    assert route.calls.last.request.headers["x-vault-id"] == "work"
+    assert "Selected vault: work" in provider.system_prompt_block()
+    provider.shutdown()
+
+
+@respx.mock
+def test_transcripts_and_memory_mirrors_use_selected_vault(provider, tmp_path):
+    RobotNotesConfig.create(base_url="https://notes.example.com", vault_id="work").save(str(tmp_path))
+    provider.initialize("session-1", hermes_home=str(tmp_path))
+    respx.get("https://notes.example.com/notes").mock(return_value=httpx.Response(200, json={"items": []}))
+    created = respx.post("https://notes.example.com/notes").mock(return_value=httpx.Response(201, json={"id": "note", "version": 1}))
+    provider.on_session_end([{"role": "user", "content": "project update"}])
+    provider.on_memory_write("add", "memory", "prefers tea")
+    assert len(created.calls) == 2
+    assert all(call.request.headers["x-vault-id"] == "work" for call in respx.calls)
+    provider.shutdown()
+
+
+@respx.mock
+def test_reinitializing_vault_discards_synchronous_recall(provider, tmp_path):
+    started, release = threading.Event(), threading.Event()
+    results = []
+
+    def slow_response(request):
+        assert request.headers["x-vault-id"] == "default"
+        started.set()
+        assert release.wait(timeout=5)
+        return httpx.Response(200, json={"items": [{"id": "old", "title": "Old secret", "snippet": "private data"}]})
+
+    route = respx.get("https://notes.example.com/search").mock(side_effect=slow_response)
+    thread = threading.Thread(target=lambda: results.append(provider.prefetch("budget", session_id="session-1")))
+    thread.start()
+    try:
+        assert started.wait(timeout=5)
+        RobotNotesConfig.create(base_url="https://notes.example.com", vault_id="work").save(str(tmp_path))
+        provider.initialize("session-1", hermes_home=str(tmp_path))
+    finally:
+        release.set()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert results == [""]
+    assert provider.recall_status() is None
+    route.mock(return_value=httpx.Response(200, json={"items": [{"id": "new", "title": "Work", "snippet": "current data"}]}))
+    assert "current data" in provider.prefetch("budget", session_id="session-1")
+    assert provider.recall_status() is not None
+    provider.shutdown()
+
+
+@respx.mock
+def test_recall_during_client_rebinding_cannot_use_old_vault(provider, tmp_path, monkeypatch):
+    old_client = provider._client
+    close = old_client.close
+    results = []
+    route = respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": [{"id": "old", "title": "Secret", "snippet": "private data"}]}))
+
+    def recall_during_close():
+        results.append(provider.prefetch("budget", session_id="session-1"))
+        close()
+
+    monkeypatch.setattr(old_client, "close", recall_during_close)
+    RobotNotesConfig.create(base_url="https://notes.example.com", vault_id="work").save(str(tmp_path))
+    provider.initialize("session-1", hermes_home=str(tmp_path))
+    assert results == [""]
+    assert not route.called
+    assert provider.recall_status() is None
+    provider.shutdown()
