@@ -438,3 +438,37 @@ See `CONTRIBUTING.md` for the full developer onboarding flow.
 ## License
 
 Apache 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+
+## Multiple vaults
+
+Use the app's vault picker to switch vaults. API-key sessions and app sign-ins with `vaults:manage` can also create
+and rename vaults. The selected vault is saved with the connection settings.
+Existing notes remain in the `default` vault; no files are moved on upgrade.
+Each additional vault has independent content, search, databases, locks,
+uploads, and realtime events under `<dataDir>/vaults/<vault-id>`.
+
+| Method | REST path | Behavior |
+| --- | --- | --- |
+| GET | `/vaults` | List vaults accessible to the credential |
+| POST | `/vaults` | Create with `{"name":"Work"}` (API key or `vaults:manage`) |
+| GET | `/vaults/{id}` | Read a vault's ID and name |
+| PATCH | `/vaults/{id}` | Rename with `{"name":"Projects"}` (API key or `vaults:manage`) |
+
+Send `X-Vault-Id: <id>` on content requests (`/notes`, `/search`, `/tags`,
+`/databases`). Omitting it selects `default`. The `vault_id` query parameter
+also selects a vault, including on `/ws` and token-authenticated upload URLs.
+If both are supplied, the header takes precedence. Invalid vault IDs return
+404; OAuth credentials outside their authorized vault set return 403.
+
+When connecting an MCP client through OAuth, select the vault checkboxes on
+the consent page. At least one vault must be selected. Both API-key consent
+and identity-provider sign-in preserve the exact selection. Agents call
+`list_vaults` to discover their permitted vaults and pass `vault_id` to each
+content tool. Omitted `vault_id` selects `default`, which must itself be
+authorized. Read/write scopes apply within that vault set. Refreshing a token
+never expands access, and newly created vaults require fresh consent. Legacy
+OAuth grants without vault information remain restricted to `default`.
+The static API key retains access to all vaults. App sign-in explicitly requests
+`vaults:manage`, which permits management and access to all current and future
+vaults through REST and WebSocket connections. This scope is rejected for MCP
+grants. Existing app OAuth sessions must sign in again to authorize it.

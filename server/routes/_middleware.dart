@@ -1,4 +1,6 @@
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/vault_registry.dart';
+import 'package:server/src/vault_middleware.dart';
 import 'package:server/src/actor_middleware.dart';
 import 'package:server/src/app_deps_holder.dart' as app_deps_holder;
 import 'package:server/src/auth_middleware.dart';
@@ -73,6 +75,7 @@ Handler middleware(Handler handler) {
       final config = config_holder.config;
       final deps = app_deps_holder.appDeps;
       return handler
+          .use(vaultSelection(deps.vaults!))
           .use(actorIdentity())
           .use(bearerAuth(configuredKey: config.apiKey))
           .use(wellKnownMiddleware())
@@ -96,6 +99,7 @@ Handler middleware(Handler handler) {
           .use(provider<Storage>((_) => deps.storage))
           .use(provider<FileStore>((_) => deps.fileStore))
           .use(provider<UploadSessionStore>((_) => deps.uploadSessions))
+          .use(provider<VaultRegistry>((_) => deps.vaults!))
           .use(provider<Clock>((_) => deps.clock))
           .use(provider<Config>((_) => config))
           .use(staticWebMiddleware(webDir: config.webDir))

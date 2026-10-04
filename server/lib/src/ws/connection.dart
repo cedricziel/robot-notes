@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:dart_otel_api/dart_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/actor.dart';
+import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
@@ -57,6 +58,7 @@ class WsConnection {
   /// the underlying socket.
   WsConnection({
     required this.id,
+    this.vaultId = 'default',
     required WsSink sink,
     required Broadcaster broadcaster,
     required PresenceTracker presence,
@@ -80,6 +82,9 @@ class WsConnection {
   /// Unique connection identifier — must be stable for the connection's
   /// lifetime so the broadcaster and presence tracker can correlate.
   final String id;
+
+  /// Vault selected at the WebSocket upgrade.
+  final String vaultId;
 
   final WsSink _sink;
   final Broadcaster _broadcaster;
@@ -219,6 +224,8 @@ class WsConnection {
     final record = await _tokenStore.lookupAccess(msg.key);
     if (record == null ||
         record.resource != _restResource ||
+        (!record.vaultIds.contains(vaultId) &&
+            !record.scopes.contains(kScopeVaultsManage)) ||
         !record.scopes.contains('notes:read')) {
       _log.fine('auth_failed for $id (bad key)');
       _close(kCloseAuthFailure, ErrorCode.authFailed.wire);

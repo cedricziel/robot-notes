@@ -91,6 +91,7 @@ class _ThrowingAfterIssueTokenStore extends TokenStore {
   Future<IssuedTokens> issue({
     required String clientId,
     required String actor,
+    Set<String> vaultIds = const {'default'},
     required Set<String> scopes,
     required String resource,
     required String grantId,
@@ -99,6 +100,7 @@ class _ThrowingAfterIssueTokenStore extends TokenStore {
     lastIssued = await super.issue(
       clientId: clientId,
       actor: actor,
+      vaultIds: vaultIds,
       scopes: scopes,
       resource: resource,
       grantId: grantId,

@@ -153,12 +153,18 @@ class RobotNotesClient {
   final AppConfig _config;
   final http.Client _http;
 
+  bool? _canManageVaults;
+
+  /// Management capability reported by the vault catalog endpoint.
+  bool get canManageVaults => _canManageVaults ?? !_config.isOidcSession;
+
   /// Closes the underlying [http.Client]. Safe to call multiple times.
   void close() => _http.close();
 
   Map<String, String> get _baseHeaders => <String, String>{
     'Authorization': 'Bearer ${_config.apiKey}',
     'X-Actor': _config.actor,
+    'X-Vault-Id': _config.vaultId,
   };
 
   Uri _uri(String path, [Map<String, String>? query]) {
@@ -167,6 +173,33 @@ class RobotNotesClient {
     return base.replace(
       queryParameters: <String, String>{...base.queryParameters, ...query},
     );
+  }
+
+  Future<List<Map<String, String>>> listVaults() async {
+    final res = await _http.get(_uri('/vaults'), headers: _baseHeaders);
+    final json = _ok(res);
+    _canManageVaults = json['can_manage'] as bool?;
+    return (json['vaults'] as List)
+        .map((v) => Map<String, String>.from(v as Map))
+        .toList();
+  }
+
+  Future<Map<String, String>> createVault(String name) async {
+    final res = await _http.post(
+      _uri('/vaults'),
+      headers: {..._baseHeaders, 'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name}),
+    );
+    return Map<String, String>.from(_ok(res));
+  }
+
+  Future<void> renameVault(String id, String name) async {
+    final res = await _http.patch(
+      _uri('/vaults/$id'),
+      headers: {..._baseHeaders, 'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name}),
+    );
+    _ok(res);
   }
 
   Future<NotePage> listNotes({

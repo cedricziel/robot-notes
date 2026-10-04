@@ -42,6 +42,9 @@ FutureOr<Response> onRequest(RequestContext context) {
     final sink = ChannelWsSink(channel);
     final conn = WsConnection(
       id: id,
+      vaultId: context.request.headers['x-vault-id'] ??
+          context.request.uri.queryParameters['vault_id'] ??
+          'default',
       sink: sink,
       broadcaster: broadcaster,
       presence: presence,

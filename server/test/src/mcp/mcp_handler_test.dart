@@ -116,7 +116,7 @@ void main() {
       final response = await handler.handle(_req('tools/list'), fullAccess);
       final result = response!['result']! as Map<String, Object?>;
       final tools = result['tools']! as List<Object?>;
-      expect(tools, hasLength(19));
+      expect(tools, hasLength(20));
       final byName = {
         for (final t in tools.cast<Map<String, Object?>>()) t['name']: t,
       };

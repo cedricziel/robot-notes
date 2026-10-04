@@ -24,6 +24,7 @@ import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/upload_sessions.dart';
 import 'package:server/src/vault_files.dart';
+import 'package:server/src/vault_registry.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
 import 'package:shared/shared.dart';
@@ -162,6 +163,7 @@ class AppDeps {
     Logger? logger,
     Tracer? tracer,
     HttpGet oidcHttpGet = httpGetViaHttpClient,
+    bool initializeVaults = true,
   }) async {
     final log = logger ?? Logger('app_deps');
     final contentDir = Directory('${config.dataDir}/content');
@@ -204,8 +206,10 @@ class AppDeps {
       for (final row in searchIndex.definitionsSource())
         if (metaIndex.get(row.id) != null) (metaIndex.get(row.id)!, row.extra),
     ]);
-    log.info('Bootstrapped DatabaseRegistry with ${registry.all.length} '
-        'definition(s)');
+    log.info(
+      'Bootstrapped DatabaseRegistry with ${registry.all.length} '
+      'definition(s)',
+    );
     final inviteStore = InviteStore(
       inviteDir: Directory('${config.dataDir}/invites'),
       clock: clock,
@@ -259,7 +263,7 @@ class AppDeps {
       registry: registry,
     );
 
-    return AppDeps(
+    final deps = AppDeps(
       storage: storage,
       metaIndex: metaIndex,
       searchIndex: searchIndex,
@@ -282,7 +286,15 @@ class AppDeps {
       uploadSessions: uploadSessions,
       maxUploadSizeBytes: config.maxUploadSizeBytes,
     );
+    if (initializeVaults) {
+      deps.vaults = VaultRegistry(root: deps, config: config);
+      await deps.vaults!.load();
+    }
+    return deps;
   }
+
+  /// Server-wide vault catalog; absent for single-vault test bundles.
+  VaultRegistry? vaults;
 
   /// Canonical filesystem-backed note store.
   final Storage storage;
@@ -368,6 +380,7 @@ class AppDeps {
   /// Releases long-lived resources. Tests use this between scenarios; the
   /// production server keeps a single [AppDeps] for its full lifetime.
   Future<void> close() async {
+    await vaults?.close();
     await _lockSub?.cancel();
     _lockSub = null;
     await broadcaster.close();

@@ -113,7 +113,7 @@ class OAuthClient {
         'response_type': 'code',
         'code_challenge': codeChallenge,
         'code_challenge_method': 'S256',
-        'scope': 'notes:read notes:write',
+        'scope': 'notes:read notes:write vaults:manage',
         'resource': baseUrl,
         'state': state,
       },

@@ -153,7 +153,10 @@ void main() {
       expect(uri.queryParameters['response_type'], 'code');
       expect(uri.queryParameters['code_challenge'], 'challenge-xyz');
       expect(uri.queryParameters['code_challenge_method'], 'S256');
-      expect(uri.queryParameters['scope'], 'notes:read notes:write');
+      expect(
+        uri.queryParameters['scope'],
+        'notes:read notes:write vaults:manage',
+      );
       expect(uri.queryParameters['resource'], 'https://notes.example');
       expect(uri.queryParameters['state'], 'state-123');
     });

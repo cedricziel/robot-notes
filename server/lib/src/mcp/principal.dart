@@ -22,6 +22,7 @@ class McpPrincipal {
     required this.actor,
     required this.scopes,
     required this.isStaticKey,
+    this.vaultIds = const {'default'},
   });
 
   /// Convenience constructor for the static API key, which is the root
@@ -29,11 +30,15 @@ class McpPrincipal {
   /// scopes, regardless of any caller-supplied header.
   const McpPrincipal.staticKey(this.actor)
       : scopes = const {kScopeNotesRead, kScopeNotesWrite},
-        isStaticKey = true;
+        isStaticKey = true,
+        vaultIds = const {};
 
   /// Actor name attributed to this call's writes: the `X-Actor` header for
   /// the static key, or the actor name captured at OAuth consent.
   final String actor;
+
+  /// Allowed vault IDs; static keys have access to all vaults.
+  final Set<String> vaultIds;
 
   /// Scopes granted to this call.
   final Set<String> scopes;

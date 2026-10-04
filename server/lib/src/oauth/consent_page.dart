@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:meta/meta.dart';
+import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oauth/authorize_request.dart';
 import 'package:shared/shared.dart';
 
@@ -9,6 +10,8 @@ import 'package:shared/shared.dart';
 const Map<String, String> _kScopeDescriptions = {
   'notes:read': 'Read notes and run searches across the workspace.',
   'notes:write': 'Create, edit, append to, and delete notes.',
+  kScopeVaultsManage:
+      'Create and rename vaults, and access all current and future vaults.',
 };
 
 /// The authorization parameters the consent form must round-trip to
@@ -26,9 +29,15 @@ class ConsentPageParams {
     required this.codeChallengeMethod,
     required this.scopes,
     required this.serverHost,
+    this.vaults = const [
+      {'id': 'default', 'name': 'Default'},
+    ],
     this.state,
     this.resource,
   });
+
+  /// Vaults presented for explicit authorization.
+  final List<Map<String, String>> vaults;
 
   /// The requesting client's id.
   final String clientId;
@@ -182,6 +191,7 @@ String _apiKeyForm(
   return '''
 <form method="post" action="${Routes.oauthAuthorize}">
 $hiddenFields
+${_vaultChoices(params)}
 <label for="api_key">Workspace API key</label>
 <input id="api_key" type="password" name="api_key" autocomplete="off" required>
 <label for="actor">Acting as</label>
@@ -205,21 +215,31 @@ String _signInLink(ConsentPageParams params, {required String cancelHref}) {
     if (params.resource != null) 'resource': params.resource!,
     if (params.state != null) 'state': params.state!,
   };
-  final query = queryParams.entries
-      .map(
-        (e) => '${Uri.encodeQueryComponent(e.key)}='
-            '${Uri.encodeQueryComponent(e.value)}',
-      )
-      .join('&');
-  final href = _esc.convert('${Routes.oauthOidcLogin}?$query');
+  final fields = queryParams.entries.map((e) => _hidden(e.key, e.value)).join();
   return '''
+<form method="get" action="${Routes.oauthOidcLogin}">
+$fields
+${_vaultChoices(params)}
 <div class="actions">
 <a class="cancel" href="$cancelHref">Cancel</a>
-<a class="sign-in" href="$href">Sign in with your identity provider</a>
+<button type="submit">Sign in with your identity provider</button>
 </div>
+</form>
 ''';
 }
 
 String _hidden(String name, String? value) => value == null
     ? ''
     : '<input type="hidden" name="$name" value="${_esc.convert(value)}">';
+
+String _vaultChoices(ConsentPageParams params) => params.scopes
+        .contains(kScopeVaultsManage)
+    ? '<p>This app will be able to manage and use all vaults, including vaults you create later.</p>${_hidden('vault_default', 'yes')}'
+    : '<fieldset><legend>Allow access to vaults</legend>' +
+        params.vaults
+            .map(
+              (v) =>
+                  '<label><input type="checkbox" name="vault_${_esc.convert(v['id']!)}" value="yes" ${v['id'] == 'default' ? 'checked' : ''}> ${_esc.convert(v['name']!)}</label>',
+            )
+            .join() +
+        '</fieldset>';

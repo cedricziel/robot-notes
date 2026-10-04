@@ -9,6 +9,7 @@ import 'package:shared/shared.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api/api_client.dart';
+import 'vaults/vault_switcher.dart';
 import 'api/api_exceptions.dart';
 import 'auth/oidc_session_refresher.dart';
 import 'auth/oidc_sign_in_controller.dart';
@@ -1359,11 +1360,13 @@ class SessionHost extends StatefulWidget {
   const SessionHost({
     required this.config,
     required this.onReset,
+    this.onVaultSelected = _ignoreVaultSelection,
     required this.child,
     super.key,
   });
 
   final AppConfig config;
+  final ValueChanged<String> onVaultSelected;
   final VoidCallback onReset;
   final Widget child;
 
@@ -1426,6 +1429,12 @@ class _SessionHostState extends State<SessionHost> {
       child: Column(
         children: [
           ConnectionBanner(status: _status),
+          VaultSwitcher(
+            api: _api,
+            selectedId: widget.config.vaultId,
+            onSelect: widget.onVaultSelected,
+            canManage: true,
+          ),
           Expanded(
             child: ValueListenableBuilder<ConnectionStatus>(
               valueListenable: _status,
@@ -1482,6 +1491,12 @@ class AppRouterShell extends StatelessWidget {
           key: ValueKey<AppConfig>(config),
           config: config,
           onReset: configHolder.reset,
+          onVaultSelected: (id) {
+            final selected = config.withVault(id);
+            configHolder.set(selected);
+            unawaited(configHolder.store.write(selected));
+            GoRouter.of(context).go("/notes");
+          },
           child: content,
         );
         final lock = appLock;
@@ -1505,3 +1520,5 @@ class _Splash extends StatelessWidget {
     );
   }
 }
+
+void _ignoreVaultSelection(String _) {}

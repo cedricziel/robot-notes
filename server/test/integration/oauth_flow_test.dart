@@ -86,6 +86,7 @@ void main() {
           'code_challenge_method': 'S256',
           'state': 'xyz-state',
           'resource': '${app.baseUrl}/mcp',
+          'vault_default': 'yes',
           'api_key': app.config.apiKey,
           'actor': 'desk-assistant',
         };

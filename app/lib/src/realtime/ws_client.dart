@@ -167,7 +167,11 @@ class RobotNotesWsClient {
   Uri get _wsUri {
     final base = Uri.parse(_config.baseUrl);
     final scheme = base.scheme == 'https' ? 'wss' : 'ws';
-    return base.replace(scheme: scheme, path: '/ws');
+    return base.replace(
+      scheme: scheme,
+      path: '/ws',
+      queryParameters: {'vault_id': _config.vaultId},
+    );
   }
 
   Future<void> _runLoop() async {

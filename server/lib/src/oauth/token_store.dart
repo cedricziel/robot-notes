@@ -160,6 +160,7 @@ class TokenStore {
   Future<IssuedTokens> issue({
     required String clientId,
     required String actor,
+    Set<String> vaultIds = const {'default'},
     required Set<String> scopes,
     required String resource,
     required String grantId,
@@ -170,6 +171,7 @@ class TokenStore {
         () => _issueLocked(
           clientId: clientId,
           actor: actor,
+          vaultIds: vaultIds,
           scopes: scopes,
           resource: resource,
           grantId: grantId,
@@ -180,6 +182,7 @@ class TokenStore {
   Future<IssuedTokens> _issueLocked({
     required String clientId,
     required String actor,
+    Set<String> vaultIds = const {'default'},
     required Set<String> scopes,
     required String resource,
     required String grantId,
@@ -199,6 +202,7 @@ class TokenStore {
       kind: OAuthTokenKind.access,
       clientId: clientId,
       actor: actor,
+      vaultIds: vaultIds,
       scopes: scopes,
       resource: resource,
       grantId: grantId,
@@ -214,6 +218,7 @@ class TokenStore {
         kind: OAuthTokenKind.refresh,
         clientId: clientId,
         actor: actor,
+        vaultIds: vaultIds,
         scopes: scopes,
         resource: resource,
         grantId: grantId,
@@ -260,10 +265,7 @@ class TokenStore {
   /// refresh token, or expired. Throws [RefreshReuseException] — after
   /// revoking every token of the grant — when [raw] was already rotated
   /// or revoked, since presenting a dead refresh token is a sign of theft.
-  Future<IssuedTokens> rotateRefresh(
-    String? raw, {
-    Set<String>? scopes,
-  }) async {
+  Future<IssuedTokens> rotateRefresh(String? raw, {Set<String>? scopes}) async {
     if (raw == null) throw const TokenNotFoundException();
     final hash = hashSecret(raw);
     final file = _fileFor(hash);
@@ -316,6 +318,7 @@ class TokenStore {
         return _issueLocked(
           clientId: record.clientId,
           actor: record.actor,
+          vaultIds: record.vaultIds,
           scopes: requestedScopes,
           resource: record.resource,
           grantId: record.grantId,

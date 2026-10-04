@@ -26,11 +26,13 @@ class AppConfig {
     required this.baseUrl,
     required this.apiKey,
     required this.actor,
+    this.vaultId = 'default',
     this.oauthClientId,
     this.oauthRefreshToken,
   });
 
   final String baseUrl;
+  final String vaultId;
   final String apiKey;
   final String actor;
   final String? oauthClientId;
@@ -49,6 +51,7 @@ class AppConfig {
         : trimmed;
     return AppConfig(
       baseUrl: stripped,
+      vaultId: vaultId,
       apiKey: apiKey,
       actor: actor.trim(),
       oauthClientId: oauthClientId,
@@ -56,8 +59,18 @@ class AppConfig {
     );
   }
 
+  AppConfig withVault(String id) => AppConfig(
+    baseUrl: baseUrl,
+    apiKey: apiKey,
+    actor: actor,
+    vaultId: id,
+    oauthClientId: oauthClientId,
+    oauthRefreshToken: oauthRefreshToken,
+  );
+
   Map<String, String> toJson() => {
     'base_url': baseUrl,
+    'vault_id': vaultId,
     'api_key': apiKey,
     'actor': actor,
     'oauth_client_id': ?oauthClientId,
@@ -66,6 +79,7 @@ class AppConfig {
 
   factory AppConfig.fromJson(Map<String, String> json) => AppConfig(
     baseUrl: json['base_url'] ?? '',
+    vaultId: json['vault_id'] ?? 'default',
     apiKey: json['api_key'] ?? '',
     actor: json['actor'] ?? '',
     oauthClientId: json['oauth_client_id'],
@@ -76,14 +90,21 @@ class AppConfig {
   bool operator ==(Object other) =>
       other is AppConfig &&
       other.baseUrl == baseUrl &&
+      other.vaultId == vaultId &&
       other.apiKey == apiKey &&
       other.actor == actor &&
       other.oauthClientId == oauthClientId &&
       other.oauthRefreshToken == oauthRefreshToken;
 
   @override
-  int get hashCode =>
-      Object.hash(baseUrl, apiKey, actor, oauthClientId, oauthRefreshToken);
+  int get hashCode => Object.hash(
+    baseUrl,
+    apiKey,
+    actor,
+    oauthClientId,
+    oauthRefreshToken,
+    vaultId,
+  );
 
   /// Intentionally redacts [apiKey] and [oauthRefreshToken] so no caller
   /// can `print(config)` a live credential.

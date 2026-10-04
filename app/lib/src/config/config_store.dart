@@ -103,6 +103,7 @@ class SecureConfigStore implements ConfigStore {
       baseUrl: baseUrl,
       apiKey: apiKey,
       actor: actor,
+      vaultId: await _storage.read(key: 'robot_notes.vault_id') ?? 'default',
       oauthClientId: await _storage.read(key: _keyOauthClientId),
       oauthRefreshToken: await _storage.read(key: _keyOauthRefreshToken),
     );
@@ -113,6 +114,7 @@ class SecureConfigStore implements ConfigStore {
     await _storage.write(key: _keyBaseUrl, value: config.baseUrl);
     await _storage.write(key: _keyApiKey, value: config.apiKey);
     await _storage.write(key: _keyActor, value: config.actor);
+    await _storage.write(key: 'robot_notes.vault_id', value: config.vaultId);
     if (config.oauthClientId != null) {
       await _storage.write(key: _keyOauthClientId, value: config.oauthClientId);
     } else {
@@ -133,6 +135,7 @@ class SecureConfigStore implements ConfigStore {
     await _storage.delete(key: _keyBaseUrl);
     await _storage.delete(key: _keyApiKey);
     await _storage.delete(key: _keyActor);
+    await _storage.delete(key: 'robot_notes.vault_id');
     await _storage.delete(key: _keyOauthClientId);
     await _storage.delete(key: _keyOauthRefreshToken);
   }

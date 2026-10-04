@@ -1415,6 +1415,7 @@ void main() {
     test('has exactly the nineteen note tools with object schemas', () {
       final names = registry.tools.map((t) => t.name).toSet();
       expect(names, {
+        'list_vaults',
         'list_notes',
         'get_note',
         'create_note',
@@ -1457,12 +1458,12 @@ void main() {
       expect(tool.inputSchema['required'], ['title']);
     });
 
-    test('list_databases declares no inputs', () {
+    test('list_databases accepts only optional vault selection', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'list_databases');
       expect(tool.inputSchema['required'], <String>[]);
       expect(
-        tool.inputSchema['properties'],
-        isEmpty,
+        (tool.inputSchema['properties'] as Map).keys,
+        ['vault_id'],
       );
     });
 

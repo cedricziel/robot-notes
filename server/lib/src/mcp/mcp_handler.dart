@@ -17,6 +17,8 @@ const String kDefaultProtocolVersion = '2025-06-18';
 
 const String _instructions =
     'Notes are shared memory between humans and agents in this workspace. '
+    'Call list_vaults to discover authorized vaults and pass vault_id to '
+    'content tools when selecting a vault other than default. '
     'Call search_notes before create_note to avoid making a duplicate of an '
     'existing note. Use append_to_note — not get_note followed by '
     'update_note — when you only need to add material to the end of an '

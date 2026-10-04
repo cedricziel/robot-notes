@@ -1,5 +1,8 @@
 import 'dart:io';
 
+import 'package:server/src/vault_registry.dart';
+import 'package:server/src/oauth/vault_consent.dart';
+
 import 'package:dart_frog/dart_frog.dart';
 import 'package:logging/logging.dart';
 import 'package:server/src/config.dart';
@@ -114,6 +117,10 @@ Future<Response> _submitConsent(
     );
   }
 
+  final vaultIds = selectedVaults(context, form);
+  if (vaultIds == null)
+    return oauthErrorPage('Select at least one valid vault.');
+
   final actorRaw = (form['actor'] ?? '').trim();
   final clientName = valid.client.clientName.trim();
   final actor = actorRaw.isNotEmpty
@@ -124,6 +131,7 @@ Future<Response> _submitConsent(
     context,
     valid: valid,
     actor: actor,
+    vaultIds: vaultIds,
   );
   return Response(
     statusCode: HttpStatus.found,
@@ -141,6 +149,7 @@ Response _renderConsent({
 }) {
   final html = renderConsentPage(
     ConsentPageParams(
+      vaults: context.read<VaultRegistry>().list(),
       clientId: client.clientId,
       clientName: client.clientName,
       redirectUri: redirectUri,
@@ -155,10 +164,7 @@ Response _renderConsent({
     errorMessage: errorMessage,
     oidcConfigured: context.read<Config>().oidc != null,
   );
-  return Response(
-    body: html,
-    headers: kOAuthHtmlHeaders,
-  );
+  return Response(body: html, headers: kOAuthHtmlHeaders);
 }
 
 Response _redirectWithError(
