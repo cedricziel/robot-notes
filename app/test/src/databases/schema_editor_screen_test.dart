@@ -21,13 +21,13 @@ DatabaseDefinition _definition({int version = 3}) => DatabaseDefinition(
   path: 'Projects/Projects.md',
   version: version,
   source: const DatabaseSource.folder('Projects'),
-  properties: {
-    'status': const PropertyDefinition(
+  properties: const {
+    'status': PropertyDefinition(
       type: PropertyType.select,
       options: ['Idea', 'Active'],
     ),
   },
-  views: [const ViewDefinition(name: 'All', type: ViewType.table)],
+  views: const [ViewDefinition(name: 'All', type: ViewType.table)],
   createdAt: DateTime.utc(2025),
   updatedAt: DateTime.utc(2025),
 );
@@ -36,6 +36,69 @@ Map<String, Object?> _definitionJson(DatabaseDefinition d) => d.toJson();
 
 void main() {
   group('SchemaEditorScreen', () {
+    testWidgets('editing the source saves the folder and subfolder setting', (
+      tester,
+    ) async {
+      http.Request? captured;
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode(_definitionJson(_definition(version: 4))),
+            200,
+          );
+        }),
+      );
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SchemaEditorScreen(
+            definition: _definition(),
+            api: api,
+            onSaved: (_) {},
+          ),
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const Key('databaseSource.folder')),
+        'Other',
+      );
+      await tester.tap(
+        find.byKey(const Key('databaseSource.includeSubfolders')),
+      );
+      await tester.pump();
+      // ListView may dispose the source editor while editing lower sections.
+      await tester.drag(find.byType(ListView), const Offset(0, -1500));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView), const Offset(0, 1500));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextFormField>(
+              find.byKey(const Key('databaseSource.folder')),
+            )
+            .controller!
+            .text,
+        'Other',
+      );
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const Key('databaseSource.includeSubfolders')),
+            )
+            .value,
+        isFalse,
+      );
+      await tester.tap(find.byKey(const Key('schemaEditor.save')));
+      await tester.pumpAndSettle();
+      final body = jsonDecode(captured!.body) as Map;
+      expect(body['source'], {'folder': 'Other', 'include_subfolders': false});
+      expect(body['properties'], contains('status'));
+      expect(body['views'], hasLength(1));
+      expect(captured!.headers['if-match'], '3');
+    });
+
     testWidgets('adding a property and saving sends PUT with If-Match', (
       tester,
     ) async {

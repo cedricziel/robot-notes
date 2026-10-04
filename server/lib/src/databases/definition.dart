@@ -43,7 +43,7 @@ bool isDatabaseDefinitionExtra(Map<String, Object?> extra) =>
 ///
 /// Throws [DefinitionFormatException] for structurally malformed data.
 /// Never throws for semantic issues (reserved key, missing `options`, ...);
-/// call [validateDefinition] on the result for those.
+/// call `validateDefinition` on the result for those.
 DatabaseDefinition parseDatabaseDefinition({
   required String id,
   required String title,

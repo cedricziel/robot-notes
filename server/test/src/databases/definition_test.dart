@@ -34,7 +34,7 @@ void main() {
         path: 'Projects',
         extra: {'type': 'database'},
       );
-      expect(def.source, DatabaseSource.folder('Projects'));
+      expect(def.source, const DatabaseSource.folder('Projects'));
       expect(def.source.includeSubfolders, isTrue);
       expect(def.properties, isEmpty);
       expect(def.views, isEmpty);
@@ -50,8 +50,10 @@ void main() {
           'source': {'folder': 'Work/Active', 'include_subfolders': false},
         },
       );
-      expect(def.source,
-          DatabaseSource.folder('Work/Active', includeSubfolders: false));
+      expect(
+        def.source,
+        const DatabaseSource.folder('Work/Active', includeSubfolders: false),
+      );
     });
 
     test('parses an explicit tag source', () {
@@ -64,7 +66,7 @@ void main() {
           'source': {'tag': 'project'},
         },
       );
-      expect(def.source, DatabaseSource.tag('project'));
+      expect(def.source, const DatabaseSource.tag('project'));
     });
 
     test('parses every property type', () {
@@ -163,8 +165,10 @@ void main() {
       expect(def.views[1].type, ViewType.board);
       expect(def.views[1].groupBy, 'status');
       expect(def.views[1].filter, isA<Condition>());
-      expect(def.views[1].sort,
-          [const SortSpec(property: 'status', direction: SortDirection.asc)]);
+      expect(
+        def.views[1].sort,
+        [const SortSpec(property: 'status', direction: SortDirection.asc)],
+      );
       expect(def.views[1].properties, ['status']);
     });
 
@@ -181,8 +185,8 @@ void main() {
     });
 
     test('threads through id, title, path, version, and timestamps', () {
-      final createdAt = DateTime.utc(2026, 1, 1);
-      final updatedAt = DateTime.utc(2026, 2, 1);
+      final createdAt = DateTime.utc(2026);
+      final updatedAt = DateTime.utc(2026, 2);
       final def = parseDatabaseDefinition(
         id: 'n1',
         title: 'Projects',

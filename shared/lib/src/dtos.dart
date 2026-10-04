@@ -1055,7 +1055,7 @@ bool _sourceCovers(
 }
 
 bool _pathUnder(String path, String folder, bool includeSubfolders) {
-  if (folder.isEmpty) return true;
+  if (folder.isEmpty) return includeSubfolders || path.isEmpty;
   if (path == folder) return true;
   if (!includeSubfolders) return false;
   return path.startsWith('$folder/');

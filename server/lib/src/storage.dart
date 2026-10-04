@@ -464,11 +464,11 @@ class Storage {
     });
   }
 
-  /// Merges [existing] (freshly read via [update]) with the caller's
+  /// Merges `existing` (freshly read via [update]) with the caller's
   /// [set]/[unset], runs the whole read-modify-write inside the same
   /// per-id mutex [update] uses (see [_withLock]) so a concurrent `PUT`
-  /// and a property patch serialize instead of racing, bumps [version] and
-  /// `updated_at`, and writes the file atomically. Never touches [content],
+  /// and a property patch serialize instead of racing, bumps `version` and
+  /// `updated_at`, and writes the file atomically. Never touches `content`,
   /// and needs no `ifMatch` — the mutex is what makes this safe, per the
   /// `add-databases` design's "Property patch is a new
   /// `NoteWriteService.patchProperties`" decision.

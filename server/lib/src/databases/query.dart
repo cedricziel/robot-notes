@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:meta/meta.dart';
+import 'package:server/src/search_index.dart' show SearchIndex;
 import 'package:shared/shared.dart';
 import 'package:sqlite3/sqlite3.dart';
 
@@ -113,7 +114,7 @@ _Sql _sql(String sql, [List<Object?> params = const []]) =>
 ///
 /// Deliberately decoupled from [DatabaseDefinition]: [run] takes a
 /// [DatabaseSource] to narrow rows and, for a `select`-typed `group_by`,
-/// an optional ordered [groupByOptions] list so zero-count buckets can be
+/// an optional ordered `groupByOptions` list so zero-count buckets can be
 /// emitted in declaration order — everything else it needs is either a
 /// built-in ([kBuiltinProperties]) or inferred from the JSON-decoded shape
 /// of a filter/sort value at compile time, never from a property's
@@ -175,7 +176,7 @@ class DatabaseQuery {
     final orderTerms = <String>[
       for (var i = 0; i < sort.length; i++) ...[
         'sort_val_$i IS NULL ASC',
-        'sort_val_$i ${sort[i].direction == SortDirection.asc ? 'ASC' : 'DESC'}',
+        'sort_val_$i ${sort[i].direction.name.toUpperCase()}',
       ],
       'note_id ASC',
     ];
@@ -188,7 +189,7 @@ class DatabaseQuery {
     ];
     final rows = _db.select(
       'SELECT m.note_id, m.title, m.path, m.created_at, m.updated_at, '
-      "m.frontmatter_json${sortColumns.join('')} "
+      'm.frontmatter_json${sortColumns.join()} '
       'FROM note_meta m '
       'WHERE ${where.sql} '
       'ORDER BY ${orderTerms.join(', ')} '
@@ -285,7 +286,7 @@ class DatabaseQuery {
   _Sql _sourceClause(DatabaseSource source) {
     final folder = source.folder;
     if (folder != null) {
-      if (folder.isEmpty) {
+      if (folder.isEmpty && source.includeSubfolders) {
         // Vault root with subfolders included covers every note.
         return _sql('1 = 1');
       }
@@ -299,7 +300,8 @@ class DatabaseQuery {
     }
     final tag = source.tag!;
     return _sql(
-      'EXISTS (SELECT 1 FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE p.note_id = '
+      'EXISTS (SELECT 1 FROM note_properties p INDEXED BY '
+      'note_properties_note_id_key_idx WHERE p.note_id = '
       "m.note_id AND p.key = 'tags' AND lower(p.text_value) = lower(?))",
       [tag],
     );
@@ -308,9 +310,9 @@ class DatabaseQuery {
   /// Task 3.7: combinators nested to any depth.
   _Sql _compileFilter(Filter filter) {
     return switch (filter) {
-      Condition c => _compileCondition(c),
-      And a => _compileCombinator(a.and, 'AND'),
-      Or o => _compileCombinator(o.or, 'OR'),
+      final Condition c => _compileCondition(c),
+      final And a => _compileCombinator(a.and, 'AND'),
+      final Or o => _compileCombinator(o.or, 'OR'),
     };
   }
 
@@ -375,7 +377,7 @@ class DatabaseQuery {
       case FilterOp.neq:
         final day = _dayOfIso('$value');
         return _sql(
-          "substr($column, 1, 10) != ?",
+          'substr($column, 1, 10) != ?',
           [day ?? '$value'],
         );
       case FilterOp.gt:
@@ -401,40 +403,46 @@ class DatabaseQuery {
     switch (op) {
       case FilterOp.isEmpty:
         return _sql(
-          'NOT EXISTS (SELECT 1 FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE '
+          'NOT EXISTS (SELECT 1 FROM note_properties p INDEXED BY '
+          'note_properties_note_id_key_idx WHERE '
           'p.note_id = m.note_id AND p.key = ? AND ${_nonEmptyPredicate()})',
           [key],
         );
       case FilterOp.isNotEmpty:
         return _sql(
-          'EXISTS (SELECT 1 FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE '
+          'EXISTS (SELECT 1 FROM note_properties p INDEXED BY '
+          'note_properties_note_id_key_idx WHERE '
           'p.note_id = m.note_id AND p.key = ? AND ${_nonEmptyPredicate()})',
           [key],
         );
       case FilterOp.neq:
         final eq = _eqPredicate(value);
         return _sql(
-          'NOT EXISTS (SELECT 1 FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE '
+          'NOT EXISTS (SELECT 1 FROM note_properties p INDEXED BY '
+          'note_properties_note_id_key_idx WHERE '
           'p.note_id = m.note_id AND p.key = ? AND (${eq.sql}))',
           [key, ...eq.params],
         );
       case FilterOp.eq:
         final eq = _eqPredicate(value);
         return _sql(
-          'EXISTS (SELECT 1 FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE '
+          'EXISTS (SELECT 1 FROM note_properties p INDEXED BY '
+          'note_properties_note_id_key_idx WHERE '
           'p.note_id = m.note_id AND p.key = ? AND (${eq.sql}))',
           [key, ...eq.params],
         );
       case FilterOp.contains:
         return _sql(
-          'EXISTS (SELECT 1 FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE '
+          'EXISTS (SELECT 1 FROM note_properties p INDEXED BY '
+          'note_properties_note_id_key_idx WHERE '
           'p.note_id = m.note_id AND p.key = ? AND '
           'instr(lower(p.text_value), lower(?)) > 0)',
           [key, '$value'],
         );
       case FilterOp.notContains:
         return _sql(
-          'NOT EXISTS (SELECT 1 FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE '
+          'NOT EXISTS (SELECT 1 FROM note_properties p INDEXED BY '
+          'note_properties_note_id_key_idx WHERE '
           'p.note_id = m.note_id AND p.key = ? AND '
           'instr(lower(p.text_value), lower(?)) > 0)',
           [key, '$value'],
@@ -446,14 +454,16 @@ class DatabaseQuery {
         final cmp = _cmp(op);
         if (value is num) {
           return _sql(
-            'EXISTS (SELECT 1 FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE '
+            'EXISTS (SELECT 1 FROM note_properties p INDEXED BY '
+            'note_properties_note_id_key_idx WHERE '
             'p.note_id = m.note_id AND p.key = ? AND p.num_value $cmp ?)',
             [key, value.toDouble()],
           );
         }
         final bound = _instantBound(op, '$value');
         return _sql(
-          'EXISTS (SELECT 1 FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE '
+          'EXISTS (SELECT 1 FROM note_properties p INDEXED BY '
+          'note_properties_note_id_key_idx WHERE '
           'p.note_id = m.note_id AND p.key = ? AND p.date_value $cmp ?)',
           [key, bound],
         );
@@ -467,7 +477,7 @@ class DatabaseQuery {
 
   static _Sql _eqPredicate(Object? value) {
     if (value is bool) {
-      return _sql('p.bool_value = ?', [value ? 1 : 0]);
+      return _sql('p.bool_value = ?', [if (value) 1 else 0]);
     }
     if (value is num) {
       return _sql('p.num_value = ?', [value.toDouble()]);
@@ -545,7 +555,8 @@ class DatabaseQuery {
           'END, '
           'CASE WHEN bool_value IS NOT NULL THEN CAST(bool_value AS TEXT) '
           'END) '
-          'FROM note_properties p INDEXED BY note_properties_note_id_key_idx WHERE p.note_id = m.note_id AND '
+          'FROM note_properties p INDEXED BY note_properties_note_id_key_idx '
+          'WHERE p.note_id = m.note_id AND '
           'p.key = ? ORDER BY ordinal LIMIT 1)',
           [property],
         );
