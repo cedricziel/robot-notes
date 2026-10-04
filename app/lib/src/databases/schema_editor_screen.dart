@@ -3,6 +3,7 @@ import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import 'database_source_editor.dart';
 
 /// The property key rule the spec requires client-side, before
 /// `PUT /databases/{id}` is even attempted: `^[a-z][a-z0-9_]*$`.
@@ -40,6 +41,7 @@ class SchemaEditorScreen extends StatefulWidget {
 }
 
 class _SchemaEditorScreenState extends State<SchemaEditorScreen> {
+  late DatabaseSource? _source = widget.definition.source;
   late int _baseVersion = widget.definition.version;
   late final List<_PropertyRow> _properties = [
     for (final entry in widget.definition.properties.entries)
@@ -125,7 +127,7 @@ class _SchemaEditorScreenState extends State<SchemaEditorScreen> {
   ];
 
   Future<void> _save() async {
-    if (!_keysValid || _saving) return;
+    if (!_keysValid || _source == null || _saving) return;
     setState(() {
       _saving = true;
       _error = null;
@@ -134,6 +136,7 @@ class _SchemaEditorScreenState extends State<SchemaEditorScreen> {
       final updated = await widget.api.updateDatabase(
         id: widget.definition.id,
         ifMatch: _baseVersion,
+        source: _source,
         properties: _buildProperties(),
         views: _buildViews(),
       );
@@ -189,7 +192,9 @@ class _SchemaEditorScreenState extends State<SchemaEditorScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: FilledButton(
               key: const Key('schemaEditor.save'),
-              onPressed: _keysValid && !_saving ? _save : null,
+              onPressed: _keysValid && _source != null && !_saving
+                  ? _save
+                  : null,
               child: _saving
                   ? const SizedBox(
                       width: 16,
@@ -216,6 +221,11 @@ class _SchemaEditorScreenState extends State<SchemaEditorScreen> {
               message: _conflictNotice!,
               color: Theme.of(context).colorScheme.secondaryContainer,
             ),
+          DatabaseSourceEditor(
+            initialSource: widget.definition.source,
+            onChanged: (source) => setState(() => _source = source),
+          ),
+          const Divider(height: 32),
           Text('Properties', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           for (final row in _properties)

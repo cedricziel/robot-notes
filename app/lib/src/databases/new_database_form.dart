@@ -3,6 +3,7 @@ import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import 'database_source_editor.dart';
 import 'schema_editor_screen.dart' show propertyKeyPattern;
 
 /// A full-screen "New database" form, per the `flutter-client` spec's
@@ -31,16 +32,12 @@ class NewDatabaseForm extends StatefulWidget {
   State<NewDatabaseForm> createState() => _NewDatabaseFormState();
 }
 
-enum _SourceKind { folder, tag }
-
 class _NewDatabaseFormState extends State<NewDatabaseForm> {
   final _titleController = TextEditingController();
-  late final _folderController = TextEditingController(
-    text: widget.initialFolder ?? '',
-  );
-  final _tagController = TextEditingController();
   final _pathController = TextEditingController();
-  _SourceKind _sourceKind = _SourceKind.folder;
+  late DatabaseSource? _source = widget.initialFolder == null
+      ? null
+      : DatabaseSource.folder(widget.initialFolder!);
 
   final List<_NewPropertyRow> _properties = [_NewPropertyRow()];
   final _viewNameController = TextEditingController(text: 'All');
@@ -65,6 +62,7 @@ class _NewDatabaseFormState extends State<NewDatabaseForm> {
   bool get _canSubmit =>
       !_submitting &&
       _titleController.text.trim().isNotEmpty &&
+      _source != null &&
       _keysValid &&
       _viewNameController.text.trim().isNotEmpty;
 
@@ -74,15 +72,6 @@ class _NewDatabaseFormState extends State<NewDatabaseForm> {
 
   void _removeProperty(_NewPropertyRow row) {
     setState(() => _properties.remove(row));
-  }
-
-  DatabaseSource? _buildSource() {
-    if (_sourceKind == _SourceKind.tag) {
-      final tag = _tagController.text.trim();
-      return tag.isEmpty ? null : DatabaseSource.tag(tag);
-    }
-    final folder = _folderController.text.trim();
-    return folder.isEmpty ? null : DatabaseSource.folder(folder);
   }
 
   Future<void> _submit() async {
@@ -110,7 +99,7 @@ class _NewDatabaseFormState extends State<NewDatabaseForm> {
       final definition = await widget.api.createDatabase(
         title: _titleController.text.trim(),
         path: path.isEmpty ? null : path,
-        source: _buildSource(),
+        source: _source,
         properties: properties,
         views: [view],
       );
@@ -188,47 +177,15 @@ class _NewDatabaseFormState extends State<NewDatabaseForm> {
             controller: _pathController,
             decoration: const InputDecoration(
               labelText: 'Definition note location (optional)',
-              hintText: 'Defaults to the source folder, or the vault root',
+              hintText:
+                  'Defaults to the vault root; separate from the row source',
             ),
           ),
           const SizedBox(height: 16),
-          Text('Source', style: Theme.of(context).textTheme.titleSmall),
-          RadioGroup<_SourceKind>(
-            groupValue: _sourceKind,
-            onChanged: (v) {
-              if (v != null) setState(() => _sourceKind = v);
-            },
-            child: Row(
-              children: [
-                Expanded(
-                  child: RadioListTile<_SourceKind>(
-                    key: const Key('newDatabase.source.folder'),
-                    title: const Text('Folder'),
-                    value: _SourceKind.folder,
-                  ),
-                ),
-                Expanded(
-                  child: RadioListTile<_SourceKind>(
-                    key: const Key('newDatabase.source.tag'),
-                    title: const Text('Tag'),
-                    value: _SourceKind.tag,
-                  ),
-                ),
-              ],
-            ),
+          DatabaseSourceEditor(
+            initialSource: _source,
+            onChanged: (source) => setState(() => _source = source),
           ),
-          if (_sourceKind == _SourceKind.folder)
-            TextFormField(
-              key: const Key('newDatabase.folder'),
-              controller: _folderController,
-              decoration: const InputDecoration(labelText: 'Folder'),
-            )
-          else
-            TextFormField(
-              key: const Key('newDatabase.tag'),
-              controller: _tagController,
-              decoration: const InputDecoration(labelText: 'Tag'),
-            ),
           const Divider(height: 32),
           Text('Properties', style: Theme.of(context).textTheme.titleSmall),
           for (final row in _properties)

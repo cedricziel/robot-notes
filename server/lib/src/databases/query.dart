@@ -285,7 +285,7 @@ class DatabaseQuery {
   _Sql _sourceClause(DatabaseSource source) {
     final folder = source.folder;
     if (folder != null) {
-      if (folder.isEmpty) {
+      if (folder.isEmpty && source.includeSubfolders) {
         // Vault root with subfolders included covers every note.
         return _sql('1 = 1');
       }

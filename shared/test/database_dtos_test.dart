@@ -343,6 +343,13 @@ void main() {
           updatedAt: DateTime.utc(2026, 1, 1),
         );
 
+    test('root without subfolders only covers root notes', () {
+      final def = folderDef(
+          id: 'db1', defPath: '', folder: '', includeSubfolders: false);
+      expect(coveringDatabases('', const [], [def]), [def]);
+      expect(coveringDatabases('Projects', const [], [def]), isEmpty);
+    });
+
     test('matches a note under the folder prefix with subfolders', () {
       final def = folderDef(
         id: 'db1',

@@ -36,6 +36,47 @@ Map<String, Object?> _definitionJson(DatabaseDefinition d) => d.toJson();
 
 void main() {
   group('SchemaEditorScreen', () {
+    testWidgets('editing the source saves the folder and subfolder setting', (
+      tester,
+    ) async {
+      http.Request? captured;
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode(_definitionJson(_definition(version: 4))),
+            200,
+          );
+        }),
+      );
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SchemaEditorScreen(
+            definition: _definition(),
+            api: api,
+            onSaved: (_) {},
+          ),
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const Key('databaseSource.folder')),
+        'Other',
+      );
+      await tester.tap(
+        find.byKey(const Key('databaseSource.includeSubfolders')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('schemaEditor.save')));
+      await tester.pumpAndSettle();
+      final body = jsonDecode(captured!.body) as Map;
+      expect(body['source'], {'folder': 'Other', 'include_subfolders': false});
+      expect(body['properties'], contains('status'));
+      expect(body['views'], hasLength(1));
+      expect(captured!.headers['if-match'], '3');
+    });
+
     testWidgets('adding a property and saving sends PUT with If-Match', (
       tester,
     ) async {

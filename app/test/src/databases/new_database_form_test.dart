@@ -61,12 +61,23 @@ void main() {
         'Projects',
       );
       await tester.enterText(
-        find.byKey(const Key('newDatabase.folder')),
+        find.byKey(const Key('databaseSource.folder')),
         'Projects',
       );
       await tester.enterText(
         find.byKey(const Key('newDatabase.property.0.key')),
         'status',
+      );
+      await tester.enterText(
+        find.byKey(const Key('databaseSource.folder')),
+        'Projects',
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('newDatabase.view.name')),
+        150,
+        scrollable: find.byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+        ),
       );
       await tester.enterText(
         find.byKey(const Key('newDatabase.view.name')),
@@ -86,6 +97,42 @@ void main() {
       expect((body['properties'] as Map)['status'], {'type': 'text'});
       expect((body['views'] as List).single, {'name': 'All', 'type': 'table'});
       expect(created?.id, '01D');
+    });
+
+    testWidgets('blank source cannot silently create a vault-wide database', (
+      tester,
+    ) async {
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((_) async => http.Response('', 500)),
+      );
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NewDatabaseForm(api: api, onCreated: (_) {}),
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const Key('newDatabase.title')),
+        'Projects',
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('newDatabase.submit')))
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.byKey(const Key('databaseSource.kind')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Vault root').last);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('newDatabase.submit')))
+            .onPressed,
+        isNotNull,
+      );
     });
 
     testWidgets('selecting the select type reveals an options field', (
@@ -147,6 +194,17 @@ void main() {
         'Projects',
       );
       await tester.enterText(
+        find.byKey(const Key('databaseSource.folder')),
+        'Projects',
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('newDatabase.view.name')),
+        150,
+        scrollable: find.byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+        ),
+      );
+      await tester.enterText(
         find.byKey(const Key('newDatabase.view.name')),
         'All',
       );
@@ -155,6 +213,13 @@ void main() {
       await tester.tap(find.byKey(const Key('newDatabase.submit')));
       await tester.pumpAndSettle();
 
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('newDatabase.error')),
+        -150,
+        scrollable: find.byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
+        ),
+      );
       expect(find.byKey(const Key('newDatabase.error')), findsOneWidget);
       expect(find.text('status: unknown option'), findsOneWidget);
       expect(created, isFalse);

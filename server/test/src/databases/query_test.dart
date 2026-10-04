@@ -83,6 +83,14 @@ void main() {
       expect(page.items.map((r) => r.id).toSet(), {'a'});
     });
 
+    test('root source without subfolders only includes root notes', () {
+      upsertRow('root', path: '');
+      upsertRow('nested', path: 'Projects');
+      const source = DatabaseSource.folder('', includeSubfolders: false);
+      expect(query.run(source: source).items.map((r) => r.id), ['root']);
+      expect(query.rowCount(source: source), 1);
+    });
+
     test('tag source matches by computed tag regardless of folder', () {
       upsertRow('a', path: 'Projects', tags: {'project'});
       upsertRow('b', path: 'Other', tags: {'project'});
