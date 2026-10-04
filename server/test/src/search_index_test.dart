@@ -663,7 +663,7 @@ void main() {
           title: 'Projects',
           content: 'a database of projects',
           updatedAt: DateTime.utc(2026, 2),
-          createdAt: DateTime.utc(2026, 1),
+          createdAt: DateTime.utc(2026),
           isDefinition: true,
           extra: const {
             'type': 'database',
@@ -675,7 +675,7 @@ void main() {
         expect(row['created_at'], '2026-01-01T00:00:00.000Z');
         expect(row['updated_at'], '2026-02-01T00:00:00.000Z');
         expect(row['is_definition'], 1);
-        final decoded = jsonDecode(row['frontmatter_json'] as String) as Map;
+        final decoded = jsonDecode(row['frontmatter_json']! as String) as Map;
         expect(decoded['type'], 'database');
         expect(decoded['source'], {'folder': 'Projects'});
       },
@@ -697,7 +697,9 @@ void main() {
       expect(row['created_at'], _testStamp.toIso8601String());
       expect(row['is_definition'], 0);
       expect(
-          jsonDecode(row['frontmatter_json'] as String), <String, Object?>{});
+        jsonDecode(row['frontmatter_json']! as String),
+        <String, Object?>{},
+      );
     });
 
     test('upsert writes a text property row for a string value', () async {
@@ -930,7 +932,7 @@ void main() {
           title: 'Projects',
           content: '',
           updatedAt: DateTime.utc(2026, 2),
-          createdAt: DateTime.utc(2026, 1),
+          createdAt: DateTime.utc(2026),
           isDefinition: true,
           extra: const {
             'type': 'database',

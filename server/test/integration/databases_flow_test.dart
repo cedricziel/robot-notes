@@ -249,8 +249,7 @@ void main() {
     // validation (a `select` property with duplicate options) directly to
     // disk, bypassing the write path's own validation — the same way an
     // externally-edited vault file could arrive.
-    final noteFile = File('${app.tmpDir.path}/content/Broken.md');
-    noteFile.writeAsStringSync('''
+    File('${app.tmpDir.path}/content/Broken.md').writeAsStringSync('''
 ---
 id: "broken-def-1"
 title: "Broken"

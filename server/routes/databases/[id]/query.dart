@@ -168,7 +168,7 @@ Future<Response> onRequest(RequestContext context, String id) async {
 /// references a known property with an applicable operator.
 String? _invalidFilterProperty(Filter filter, DatabaseDefinition def) {
   switch (filter) {
-    case Condition c:
+    case final Condition c:
       final declared = def.properties[c.property];
       final type = declared?.type ?? builtinPropertyType(c.property);
       if (type == null) {

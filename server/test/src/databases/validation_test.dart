@@ -15,7 +15,7 @@ DatabaseDefinition _def({
     title: title,
     path: 'Projects',
     version: 1,
-    source: source ?? DatabaseSource.folder('Projects'),
+    source: source ?? const DatabaseSource.folder('Projects'),
     properties: properties,
     views: views,
     createdAt: DateTime.utc(2026),
@@ -90,7 +90,9 @@ void main() {
       );
       final violations = validateDefinition(def);
       expect(
-          violations.map((v) => v.path), contains('properties.status.options'));
+        violations.map((v) => v.path),
+        contains('properties.status.options'),
+      );
     });
 
     test('select with duplicate options is rejected', () {
@@ -107,8 +109,8 @@ void main() {
     });
 
     test(
-        'unknown type cannot occur post-parse but multi_select without options is rejected',
-        () {
+        'unknown type cannot occur post-parse but multi_select '
+        'without options is rejected', () {
       final def = _def(
         properties: {
           'labels': const PropertyDefinition(type: PropertyType.multiSelect),
@@ -143,7 +145,10 @@ void main() {
         },
         views: const [
           ViewDefinition(
-              name: 'Kanban', type: ViewType.board, groupBy: 'status'),
+            name: 'Kanban',
+            type: ViewType.board,
+            groupBy: 'status',
+          ),
         ],
       );
       final violations = validateDefinition(def);
@@ -162,7 +167,9 @@ void main() {
       );
       final violations = validateDefinition(def);
       expect(
-          violations.map((v) => v.path), contains('views[0].filter.property'));
+        violations.map((v) => v.path),
+        contains('views[0].filter.property'),
+      );
     });
 
     test('filter with an inapplicable operator is rejected', () {
@@ -195,7 +202,10 @@ void main() {
             name: 'All',
             type: ViewType.table,
             filter: Condition(
-                property: 'status', op: FilterOp.isEmpty, value: 'Idea'),
+              property: 'status',
+              op: FilterOp.isEmpty,
+              value: 'Idea',
+            ),
           ),
         ],
       );
@@ -210,7 +220,10 @@ void main() {
             name: 'Recent',
             type: ViewType.table,
             filter: Condition(
-                property: 'updated_at', op: FilterOp.gte, value: '2026-01-01'),
+              property: 'updated_at',
+              op: FilterOp.gte,
+              value: '2026-01-01',
+            ),
           ),
         ],
       );
@@ -221,7 +234,9 @@ void main() {
       final def = _def(
         properties: {
           'status': const PropertyDefinition(
-              type: PropertyType.select, options: ['Idea']),
+            type: PropertyType.select,
+            options: ['Idea'],
+          ),
         },
         views: const [
           ViewDefinition(
@@ -235,17 +250,21 @@ void main() {
         ],
       );
       final violations = validateDefinition(def);
-      expect(violations.map((v) => v.path),
-          contains('views[0].filter.or[1].property'));
+      expect(
+        violations.map((v) => v.path),
+        contains('views[0].filter.or[1].property'),
+      );
     });
   });
 
   group('validateProperties', () {
     test('text accepted, wrong type rejected', () {
       final covering = [
-        _def(properties: {
-          'summary': const PropertyDefinition(type: PropertyType.text)
-        }),
+        _def(
+          properties: {
+            'summary': const PropertyDefinition(type: PropertyType.text),
+          },
+        ),
       ];
       expect(validateProperties(covering, {'summary': 'hello'}), isEmpty);
       expect(validateProperties(covering, {'summary': 5}), isNotEmpty);
@@ -253,9 +272,11 @@ void main() {
 
     test('number rejects a string form', () {
       final covering = [
-        _def(properties: {
-          'budget': const PropertyDefinition(type: PropertyType.number)
-        }),
+        _def(
+          properties: {
+            'budget': const PropertyDefinition(type: PropertyType.number),
+          },
+        ),
       ];
       expect(validateProperties(covering, {'budget': 12}), isEmpty);
       expect(validateProperties(covering, {'budget': 12.5}), isEmpty);
@@ -264,9 +285,11 @@ void main() {
 
     test('checkbox requires a bool', () {
       final covering = [
-        _def(properties: {
-          'done': const PropertyDefinition(type: PropertyType.checkbox)
-        }),
+        _def(
+          properties: {
+            'done': const PropertyDefinition(type: PropertyType.checkbox),
+          },
+        ),
       ];
       expect(validateProperties(covering, {'done': true}), isEmpty);
       expect(validateProperties(covering, {'done': 'yes'}), isNotEmpty);
@@ -274,13 +297,17 @@ void main() {
 
     test('date accepts a day or a timestamp', () {
       final covering = [
-        _def(properties: {
-          'due': const PropertyDefinition(type: PropertyType.date)
-        }),
+        _def(
+          properties: {
+            'due': const PropertyDefinition(type: PropertyType.date),
+          },
+        ),
       ];
       expect(validateProperties(covering, {'due': '2026-10-01'}), isEmpty);
-      expect(validateProperties(covering, {'due': '2026-10-01T09:00:00Z'}),
-          isEmpty);
+      expect(
+        validateProperties(covering, {'due': '2026-10-01T09:00:00Z'}),
+        isEmpty,
+      );
       expect(validateProperties(covering, {'due': 'not-a-date'}), isNotEmpty);
     });
 
@@ -289,7 +316,9 @@ void main() {
         _def(
           properties: {
             'status': const PropertyDefinition(
-                type: PropertyType.select, options: ['Idea', 'Active', 'Done']),
+              type: PropertyType.select,
+              options: ['Idea', 'Active', 'Done'],
+            ),
           },
         ),
       ];
@@ -302,52 +331,66 @@ void main() {
         _def(
           properties: {
             'labels': const PropertyDefinition(
-                type: PropertyType.multiSelect, options: ['Urgent', 'Blocked']),
+              type: PropertyType.multiSelect,
+              options: ['Urgent', 'Blocked'],
+            ),
           },
         ),
       ];
       expect(
-          validateProperties(covering, {
-            'labels': ['Urgent']
-          }),
-          isEmpty);
+        validateProperties(covering, {
+          'labels': ['Urgent'],
+        }),
+        isEmpty,
+      );
       expect(
-          validateProperties(covering, {
-            'labels': ['Nope']
-          }),
-          isNotEmpty);
+        validateProperties(covering, {
+          'labels': ['Nope'],
+        }),
+        isNotEmpty,
+      );
       expect(validateProperties(covering, {'labels': 'Urgent'}), isNotEmpty);
     });
 
     test('relation must be a list of wikilink strings', () {
       final covering = [
-        _def(properties: {
-          'owner': const PropertyDefinition(type: PropertyType.relation)
-        }),
+        _def(
+          properties: {
+            'owner': const PropertyDefinition(type: PropertyType.relation),
+          },
+        ),
       ];
       expect(
-          validateProperties(covering, {
-            'owner': ['[[Alice]]']
-          }),
-          isEmpty);
+        validateProperties(covering, {
+          'owner': ['[[Alice]]'],
+        }),
+        isEmpty,
+      );
       expect(
-          validateProperties(covering, {
-            'owner': ['Alice']
-          }),
-          isNotEmpty);
+        validateProperties(covering, {
+          'owner': ['Alice'],
+        }),
+        isNotEmpty,
+      );
     });
 
     test('url must parse as absolute http(s)', () {
       final covering = [
-        _def(properties: {
-          'link': const PropertyDefinition(type: PropertyType.url)
-        }),
+        _def(
+          properties: {
+            'link': const PropertyDefinition(type: PropertyType.url),
+          },
+        ),
       ];
-      expect(validateProperties(covering, {'link': 'https://example.com'}),
-          isEmpty);
+      expect(
+        validateProperties(covering, {'link': 'https://example.com'}),
+        isEmpty,
+      );
       expect(validateProperties(covering, {'link': 'not a url'}), isNotEmpty);
-      expect(validateProperties(covering, {'link': 'ftp://example.com'}),
-          isNotEmpty);
+      expect(
+        validateProperties(covering, {'link': 'ftp://example.com'}),
+        isNotEmpty,
+      );
     });
 
     test('reserved keys are rejected', () {
@@ -360,33 +403,43 @@ void main() {
       final covering = [_def()];
       expect(validateProperties(covering, {'title': 'X'}), isNotEmpty);
       expect(
-          validateProperties(covering, {
-            'tags': ['x']
-          }),
-          isNotEmpty);
-      expect(validateProperties(covering, {'created_at': '2026-01-01'}),
-          isNotEmpty);
+        validateProperties(covering, {
+          'tags': ['x'],
+        }),
+        isNotEmpty,
+      );
+      expect(
+        validateProperties(covering, {'created_at': '2026-01-01'}),
+        isNotEmpty,
+      );
     });
 
     test('a nested map value is rejected regardless of type', () {
       final covering = [
-        _def(properties: {
-          'summary': const PropertyDefinition(type: PropertyType.text)
-        }),
+        _def(
+          properties: {
+            'summary': const PropertyDefinition(type: PropertyType.text),
+          },
+        ),
       ];
       expect(
-          validateProperties(covering, {
-            'summary': {'nested': 1}
-          }),
-          isNotEmpty);
+        validateProperties(covering, {
+          'summary': {'nested': 1},
+        }),
+        isNotEmpty,
+      );
     });
 
     test('null means unset and is never a violation', () {
       final covering = [
-        _def(properties: {
-          'status': const PropertyDefinition(
-              type: PropertyType.select, options: ['Idea'])
-        }),
+        _def(
+          properties: {
+            'status': const PropertyDefinition(
+              type: PropertyType.select,
+              options: ['Idea'],
+            ),
+          },
+        ),
       ];
       expect(validateProperties(covering, {'status': null}), isEmpty);
     });
@@ -394,24 +447,37 @@ void main() {
     test('a key not declared by any covering database is accepted as free-form',
         () {
       final covering = [
-        _def(properties: {
-          'status': const PropertyDefinition(
-              type: PropertyType.select, options: ['Idea'])
-        }),
+        _def(
+          properties: {
+            'status': const PropertyDefinition(
+              type: PropertyType.select,
+              options: ['Idea'],
+            ),
+          },
+        ),
       ];
       expect(validateProperties(covering, {'mood': 'great'}), isEmpty);
     });
 
     test('a key declared by two databases is validated against both', () {
       final covering = [
-        _def(id: 'db1', properties: {
-          'status': const PropertyDefinition(
-              type: PropertyType.select, options: ['Idea'])
-        }),
-        _def(id: 'db2', properties: {
-          'status': const PropertyDefinition(
-              type: PropertyType.select, options: ['Active'])
-        }),
+        _def(
+          properties: {
+            'status': const PropertyDefinition(
+              type: PropertyType.select,
+              options: ['Idea'],
+            ),
+          },
+        ),
+        _def(
+          id: 'db2',
+          properties: {
+            'status': const PropertyDefinition(
+              type: PropertyType.select,
+              options: ['Active'],
+            ),
+          },
+        ),
       ];
       // "Idea" satisfies db1 but not db2.
       final violations = validateProperties(covering, {'status': 'Idea'});
@@ -426,18 +492,20 @@ void main() {
           id: 'projects-db',
           properties: {
             'owner': PropertyDefinition(
-                type: PropertyType.relation, database: peopleDb.id),
+              type: PropertyType.relation,
+              database: peopleDb.id,
+            ),
           },
         ),
       ];
 
       test('a target that is a row of the constrained database is accepted',
           () {
-        final alice = _note(title: 'Alice');
+        final alice = _note();
         final violations = validateProperties(
           covering,
           {
-            'owner': ['[[Alice]]']
+            'owner': ['[[Alice]]'],
           },
           resolveTitle: (title) => title == 'Alice' ? alice : null,
           isRowOf: (note, dbId) => note.id == alice.id && dbId == peopleDb.id,
@@ -451,7 +519,7 @@ void main() {
         final violations = validateProperties(
           covering,
           {
-            'owner': ['[[Budget]]']
+            'owner': ['[[Budget]]'],
           },
           resolveTitle: (title) => title == 'Budget' ? budget : null,
           isRowOf: (note, dbId) => false,
@@ -463,7 +531,7 @@ void main() {
         final violations = validateProperties(
           covering,
           {
-            'owner': ['[[Nobody]]']
+            'owner': ['[[Nobody]]'],
           },
           resolveTitle: (title) => null,
           isRowOf: (note, dbId) => false,
@@ -475,7 +543,7 @@ void main() {
           'without a resolver/row-check, a constrained relation is still accepted',
           () {
         final violations = validateProperties(covering, {
-          'owner': ['[[Alice]]']
+          'owner': ['[[Alice]]'],
         });
         expect(violations, isEmpty);
       });

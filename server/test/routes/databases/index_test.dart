@@ -95,7 +95,11 @@ void main() {
         path: 'Projects',
       );
       await writes.create(
-          title: 'Row 1', content: '', actor: 'a', path: 'Projects');
+        title: 'Row 1',
+        content: '',
+        actor: 'a',
+        path: 'Projects',
+      );
 
       final res = await route.onRequest(
         _ctx(method: HttpMethod.get, registry: registry, searchIndex: search),

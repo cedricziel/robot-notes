@@ -647,8 +647,8 @@ void main() {
     });
 
     test(
-      'a body-only update on a definition preserves type/source/properties/'
-      'views',
+      'a body-only update on a definition '
+      'preserves type/source/properties/views',
       () async {
         final s = await _stack(tmp);
         addTearDown(s.search.close);

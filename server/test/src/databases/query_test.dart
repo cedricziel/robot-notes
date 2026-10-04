@@ -62,7 +62,7 @@ void main() {
 
   group('source narrowing (3.5)', () {
     test('folder source with subfolders includes nested notes', () {
-      upsertRow('a', path: 'Projects');
+      upsertRow('a');
       upsertRow('b', path: 'Projects/Sub');
       upsertRow('c', path: 'Other');
 
@@ -71,7 +71,7 @@ void main() {
     });
 
     test('folder source without subfolders excludes nested notes', () {
-      upsertRow('a', path: 'Projects');
+      upsertRow('a');
       upsertRow('b', path: 'Projects/Sub');
 
       final page = query.run(
@@ -85,32 +85,32 @@ void main() {
 
     test('root source without subfolders only includes root notes', () {
       upsertRow('root', path: '');
-      upsertRow('nested', path: 'Projects');
+      upsertRow('nested');
       const source = DatabaseSource.folder('', includeSubfolders: false);
       expect(query.run(source: source).items.map((r) => r.id), ['root']);
       expect(query.rowCount(source: source), 1);
     });
 
     test('tag source matches by computed tag regardless of folder', () {
-      upsertRow('a', path: 'Projects', tags: {'project'});
+      upsertRow('a', tags: {'project'});
       upsertRow('b', path: 'Other', tags: {'project'});
-      upsertRow('c', path: 'Projects', tags: {});
+      upsertRow('c', tags: {});
 
       final page = query.run(source: const DatabaseSource.tag('project'));
       expect(page.items.map((r) => r.id).toSet(), {'a', 'b'});
     });
 
     test('definition notes are always excluded', () {
-      upsertRow('a', path: 'Projects');
-      upsertDefinition('def', path: 'Projects');
+      upsertRow('a');
+      upsertDefinition('def');
 
       final page = query.run(source: const DatabaseSource.folder('Projects'));
       expect(page.items.map((r) => r.id), ['a']);
     });
 
     test('excludeIds removes specific note ids on top of source', () {
-      upsertRow('a', path: 'Projects');
-      upsertRow('b', path: 'Projects');
+      upsertRow('a');
+      upsertRow('b');
 
       final page = query.run(
         source: const DatabaseSource.folder('Projects'),
@@ -256,8 +256,8 @@ void main() {
     });
 
     test('built-in updated_at supports range comparison', () {
-      upsertRow('a', updatedAt: DateTime.utc(2026, 1, 1));
-      upsertRow('b', updatedAt: DateTime.utc(2026, 6, 1));
+      upsertRow('a', updatedAt: DateTime.utc(2026));
+      upsertRow('b', updatedAt: DateTime.utc(2026, 6));
 
       final page = query.run(
         source: const DatabaseSource.folder('Projects'),
@@ -310,9 +310,9 @@ void main() {
 
   group('sort (3.8)', () {
     test('sorts by built-in updated_at descending', () {
-      upsertRow('a', updatedAt: DateTime.utc(2026, 1, 1));
-      upsertRow('b', updatedAt: DateTime.utc(2026, 3, 1));
-      upsertRow('c', updatedAt: DateTime.utc(2026, 2, 1));
+      upsertRow('a', updatedAt: DateTime.utc(2026));
+      upsertRow('b', updatedAt: DateTime.utc(2026, 3));
+      upsertRow('c', updatedAt: DateTime.utc(2026, 2));
 
       final page = query.run(
         source: const DatabaseSource.folder('Projects'),
@@ -376,14 +376,12 @@ void main() {
 
       final page1 = query.run(
         source: const DatabaseSource.folder('Projects'),
-        limit: 50,
       );
       expect(page1.items, hasLength(50));
       expect(page1.nextCursor, isNotNull);
 
       final page2 = query.run(
         source: const DatabaseSource.folder('Projects'),
-        limit: 50,
         after: page1.nextCursor,
       );
       expect(page2.items, hasLength(50));
@@ -391,7 +389,6 @@ void main() {
 
       final page3 = query.run(
         source: const DatabaseSource.folder('Projects'),
-        limit: 50,
         after: page2.nextCursor,
       );
       expect(page3.items, hasLength(20));
@@ -514,13 +511,14 @@ void main() {
           sort: const [
             SortSpec(property: 'budget', direction: SortDirection.asc),
           ],
-          limit: 50,
         );
         stopwatch.stop();
 
         // ignore: avoid_print
         print(
-            'benchmark: query over 5000 rows took ${stopwatch.elapsedMilliseconds}ms');
+          'benchmark: query over 5000 rows took '
+          '${stopwatch.elapsedMilliseconds}ms',
+        );
         expect(page.items, hasLength(50));
         expect(stopwatch.elapsed, lessThan(const Duration(seconds: 2)));
       },

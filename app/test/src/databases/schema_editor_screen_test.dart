@@ -21,13 +21,13 @@ DatabaseDefinition _definition({int version = 3}) => DatabaseDefinition(
   path: 'Projects/Projects.md',
   version: version,
   source: const DatabaseSource.folder('Projects'),
-  properties: {
-    'status': const PropertyDefinition(
+  properties: const {
+    'status': PropertyDefinition(
       type: PropertyType.select,
       options: ['Idea', 'Active'],
     ),
   },
-  views: [const ViewDefinition(name: 'All', type: ViewType.table)],
+  views: const [ViewDefinition(name: 'All', type: ViewType.table)],
   createdAt: DateTime.utc(2025),
   updatedAt: DateTime.utc(2025),
 );
