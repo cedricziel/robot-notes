@@ -68,6 +68,7 @@ class RecallCache:
         self._lock = threading.Lock()
         self._entries: Dict[Tuple[str, str], SearchResult] = {}
         self._generation = 0
+        self._epoch = 0
         self.thread: Optional[threading.Thread] = None
         self._last_count: Optional[int] = None
 
@@ -91,8 +92,9 @@ class RecallCache:
         background thread. It's injected rather than imported here so the single
         module-level name callers monkeypatch (``robot_notes.spawn_context_thread``)
         is the one actually invoked."""
-        self._generation += 1
-        generation = self._generation
+        with self._lock:
+            self._generation += 1
+            generation = self._generation
         key = (session_id, query)
 
         def _run() -> None:
@@ -110,10 +112,16 @@ class RecallCache:
         just one. Used on a session switch/reset, where a search queued before the
         switch (for the outgoing session, or another one sharing this provider
         instance) must not be allowed to land in the cache and get injected afterwards."""
-        self._generation += 1
-        self._last_count = None
         with self._lock:
+            self._generation += 1
+            self._epoch += 1
+            self._last_count = None
             self._entries.clear()
+
+    @property
+    def epoch(self) -> int:
+        with self._lock:
+            return self._epoch
 
     def consume(self, session_id: str, query: str) -> Optional[SearchResult]:
         """Pop and return the entry cached for this exact ``(session_id, query)`` pair,
@@ -123,13 +131,16 @@ class RecallCache:
         with self._lock:
             return self._entries.pop((session_id, query), None)
 
-    def note_result(self, formatted: str, count: int) -> str:
+    def note_result(self, formatted: str, count: int, *, epoch: Optional[int] = None) -> str:
         """Records the outcome of the most recent :meth:`~RobotNotesProvider.prefetch`
         call for :meth:`status`, and returns ``formatted`` unchanged so callers can wrap
         their return statement with this. An empty ``formatted`` means nothing was
         injected, which :meth:`status` reports as ``None`` rather than a zero count."""
-        self._last_count = count if formatted else None
-        return formatted
+        with self._lock:
+            if epoch is not None and epoch != self._epoch:
+                return ""
+            self._last_count = count if formatted else None
+            return formatted
 
     def status(self, provider_label: str) -> Optional[RecallStatus]:
         if self._last_count is None:

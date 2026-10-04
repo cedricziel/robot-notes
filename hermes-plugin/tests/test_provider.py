@@ -1322,3 +1322,33 @@ def test_transcripts_and_memory_mirrors_use_selected_vault(provider, tmp_path):
     assert len(created.calls) == 2
     assert all(call.request.headers["x-vault-id"] == "work" for call in respx.calls)
     provider.shutdown()
+
+
+@respx.mock
+def test_reinitializing_vault_discards_synchronous_recall(provider, tmp_path):
+    started, release = threading.Event(), threading.Event()
+    results = []
+
+    def slow_response(request):
+        assert request.headers["x-vault-id"] == "default"
+        started.set()
+        assert release.wait(timeout=5)
+        return httpx.Response(200, json={"items": [{"id": "old", "title": "Old secret", "snippet": "private data"}]})
+
+    route = respx.get("https://notes.example.com/search").mock(side_effect=slow_response)
+    thread = threading.Thread(target=lambda: results.append(provider.prefetch("budget", session_id="session-1")))
+    thread.start()
+    try:
+        assert started.wait(timeout=5)
+        RobotNotesConfig.create(base_url="https://notes.example.com", vault_id="work").save(str(tmp_path))
+        provider.initialize("session-1", hermes_home=str(tmp_path))
+    finally:
+        release.set()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert results == [""]
+    assert provider.recall_status() is None
+    route.mock(return_value=httpx.Response(200, json={"items": [{"id": "new", "title": "Work", "snippet": "current data"}]}))
+    assert "current data" in provider.prefetch("budget", session_id="session-1")
+    assert provider.recall_status() is not None
+    provider.shutdown()

@@ -229,11 +229,12 @@ class RobotNotesProvider(MemoryProvider):
         self._recall_cache.queue(session_id, query, self._search_and_format, spawn_thread=spawn_context_thread)
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
+        epoch = self._recall_cache.epoch
         if is_trivial_prompt(query):
-            return self._recall_cache.note_result("", 0)
+            return self._recall_cache.note_result("", 0, epoch=epoch)
         cached = self._recall_cache.consume(session_id, query)
         formatted, count = cached if cached is not None else self._search_and_format(query)
-        return self._recall_cache.note_result(formatted, count)
+        return self._recall_cache.note_result(formatted, count, epoch=epoch)
 
     def recall_status(self) -> Optional[RecallStatus]:
         return self._recall_cache.status("robot-notes")

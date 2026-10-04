@@ -113,7 +113,6 @@ the API key:
 | ---------- | -------- | --------- | -------------------------------------------------------------------- |
 | `base_url` | Yes      | —         | robot-notes server base URL, e.g. `https://notes.example.com`      |
 | `native_tools` | No | `true` | Set to JSON `false` to keep automatic memory hooks while using MCP for explicit operations. Restart Hermes after changing it. |
-
 | `vault_id` | No       | `default` | Stable vault ID, sent as `X-Vault-Id` on every request |
 | `actor`    | No       | `hermes`  | Actor name attributed to this agent's writes (sent as `X-Actor`); also scopes the per-session summary note under `conversations/<actor>/` |
 
