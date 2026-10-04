@@ -119,3 +119,21 @@ def test_save_writes_base_url_and_actor_but_not_api_key(tmp_path):
     assert saved == {"base_url": "https://notes.example.com", "actor": "hermes-bot"}
     assert "api_key" not in saved
     assert "secret-key" not in (tmp_path / "robot_notes.json").read_text(encoding="utf-8")
+
+
+def test_native_tools_defaults_enabled():
+    assert RobotNotesConfig.create().native_tools is True
+
+
+def test_native_tools_false_round_trips(tmp_path):
+    config = RobotNotesConfig.create(base_url="https://notes.example", native_tools=False)
+    config.save(str(tmp_path))
+    assert RobotNotesConfig.load(str(tmp_path)).native_tools is False
+    assert json.loads((tmp_path / "robot_notes.json").read_text())["native_tools"] is False
+
+
+def test_native_tools_rejects_string_booleans(tmp_path):
+    import pytest
+    (tmp_path / "robot_notes.json").write_text(json.dumps({"native_tools": "false"}))
+    with pytest.raises(ValueError, match="native_tools"):
+        RobotNotesConfig.load(str(tmp_path))
