@@ -130,11 +130,13 @@ class RobotNotesClient:
         base_url: str,
         api_key: str,
         actor: str,
+        vault_id: str = "default",
         recall_timeout: float = 3.0,
         write_timeout: float = 10.0,
         clock: Optional[Callable[[], float]] = None,
     ):
-        headers = {"Authorization": f"Bearer {api_key}", "X-Actor": actor}
+        headers = {"Authorization": f"Bearer {api_key}", "X-Actor": actor,
+                   "X-Vault-Id": vault_id.strip() or "default"}
         self._http = httpx.Client(base_url=base_url.rstrip("/"), headers=headers, timeout=write_timeout)
         self._recall_timeout = recall_timeout
         self._breaker = CircuitBreaker() if clock is None else CircuitBreaker(clock=clock)

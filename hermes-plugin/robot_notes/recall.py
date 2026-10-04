@@ -111,6 +111,7 @@ class RecallCache:
         switch (for the outgoing session, or another one sharing this provider
         instance) must not be allowed to land in the cache and get injected afterwards."""
         self._generation += 1
+        self._last_count = None
         with self._lock:
             self._entries.clear()
 
