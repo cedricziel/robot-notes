@@ -147,6 +147,21 @@ class RobotNotesProvider(MemoryProvider):
 
     def system_prompt_block(self) -> str:
         convo_path = self._conversations_path() if self._config else f"{CONVERSATIONS_ROOT}/<actor>"
+        if not self._load_config().native_tools:
+            return (
+                "A shared robot-notes workspace is connected for automatic memory recall. "
+                "Native note tools are disabled. Use the separately configured robot-notes "
+                "MCP tools, if available, for explicit note and database operations. "
+                "Search or list before creating; append to existing notes when appropriate. "
+                "Read a database definition before editing rows. Specify database sources "
+                "explicitly; a vault-root source with subfolders includes the entire vault. "
+                "Respect version conflicts and schema validation errors. "
+                f"Session transcripts are filed under {convo_path}. Built-in memory and "
+                f"user notes are mirrored into {MEMORY_NOTE['path']}/{MEMORY_NOTE['title']} "
+                f"and {USER_NOTE['path']}/{USER_NOTE['title']}. "
+                "The provider's context write restrictions apply to its own hooks; "
+                "MCP authorization and tool visibility are configured separately."
+            )
         return (
             "A shared robot-notes workspace is connected as external memory — notes are "
             "shared between humans and agents in this workspace, so writes here are "
@@ -236,9 +251,13 @@ class RobotNotesProvider(MemoryProvider):
     # -- Explicit tools ---------------------------------------------------
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
+        if not self._load_config().native_tools:
+            return []
         return [dict(schema) for schema in TOOL_SCHEMAS]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
+        if not self._load_config().native_tools:
+            return tool_error("Native robot-notes tools are disabled; use configured MCP tools.", code="tools_disabled")
         if not self._client:
             return tool_error("robot_notes provider is unavailable", code="unavailable")
         if tool_name in WRITE_TOOL_NAMES and not self._can_write():
@@ -480,9 +499,13 @@ class RobotNotesProvider(MemoryProvider):
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
-        RobotNotesConfig.create(base_url=str(values.get("base_url", "")), actor=str(values.get("actor") or "")).save(
-            hermes_home
-        )
+        existing = RobotNotesConfig.load(hermes_home)
+        RobotNotesConfig.create(
+            base_url=str(values.get("base_url", "")),
+            actor=str(values.get("actor") or existing.actor),
+            native_tools=values.get("native_tools", existing.native_tools),
+        ).save(hermes_home)
+
 
 
 def _find_entry_index(entries: List[str], identifier: str) -> Optional[int]:

@@ -112,6 +112,7 @@ the API key:
 | Key        | Required | Default   | Description                                                        |
 | ---------- | -------- | --------- | -------------------------------------------------------------------- |
 | `base_url` | Yes      | —         | robot-notes server base URL, e.g. `https://notes.example.com`      |
+| `native_tools` | No | `true` | Set to JSON `false` to keep automatic memory hooks while using MCP for explicit operations. Restart Hermes after changing it. |
 | `actor`    | No       | `hermes`  | Actor name attributed to this agent's writes (sent as `X-Actor`); also scopes the per-session summary note under `conversations/<actor>/` |
 
 ```json
@@ -120,6 +121,67 @@ the API key:
   "actor": "hermes"
 }
 ```
+
+## Memory provider with MCP tools
+
+For database work, keep this provider active for automatic recall, session
+transcripts, and built-in memory mirroring, and connect the server's existing
+MCP tools for explicit operations. No native database wrappers are needed.
+
+Set `$HERMES_HOME/robot_notes.json` to:
+
+```json
+{
+  "base_url": "https://notes.example.com",
+  "actor": "hermes",
+  "native_tools": false
+}
+```
+
+Keep `ROBOT_NOTES_API_KEY` configured for the provider's REST lifecycle hooks.
+`native_tools: false` hides its six native schemas, rejects direct native tool
+calls with `tools_disabled`, and removes native tool instructions from its
+prompt. It does not disable recall, transcripts, or mirroring, and it does not
+connect MCP automatically. Setup preserves this setting and your actor.
+The value must be a JSON boolean, not the string `"false"`.
+
+Separately configure the server in Hermes' `config.yaml`, for example using OAuth:
+
+```yaml
+mcp_servers:
+  robot_notes:
+    url: "https://notes.example.com/mcp"
+    auth: oauth
+```
+
+Use `hermes mcp login robot_notes` to authorize that connection. Static bearer
+headers are also supported by Hermes: configure `Authorization: Bearer <key>`
+and `X-Actor` using your installation's credential management. The provider's
+API key is not automatically copied into MCP configuration. Never commit a real
+key in a sample configuration. Restart Hermes after changing the provider
+setting; MCP configuration can be refreshed with `/reload-mcp`.
+
+Hermes exposes server tools as `mcp_<server_name>_<tool_name>`; with the name above,
+`query_database` becomes `mcp_robot_notes_query_database`. Optional
+`tools.include` lists use the unprefixed server names. For example, a read-only
+catalog can include `list_notes`, `get_note`, `search_notes`, `get_backlinks`,
+`list_databases`, `get_database`, and `query_database`.
+See [Hermes MCP documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp/)
+for authentication and filtering details.
+
+The server already provides all seven database tools: `list_databases`,
+`get_database`, `query_database`, `create_row`, `update_properties`,
+`create_database`, and `update_database`. The bundled skill covers both native
+and MCP names, source selection, typed properties, and version conflicts.
+[The full inventory](../TOOL_INVENTORY.md) covers other supported operations and
+possible native extensions.
+
+The provider's subagent/cron/flush write gate applies only to its own hooks and
+native tools. It does not constrain separately connected MCP tools. Use a
+read-only OAuth grant and/or MCP tool filtering for read-only workflows; the
+static bearer key grants full server access. Automatic provider writes remain
+subject to their existing primary-context rule. Disabling native tools alone
+does not make the provider read-only.
 
 ## Data sent to the server
 

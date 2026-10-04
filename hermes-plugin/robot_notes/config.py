@@ -25,6 +25,7 @@ class RobotNotesConfig:
     base_url: str = ""
     actor: str = DEFAULT_ACTOR
     api_key: str = ""
+    native_tools: bool = True
 
     @property
     def missing_reason(self) -> Optional[str]:
@@ -39,11 +40,13 @@ class RobotNotesConfig:
         return self.missing_reason is None
 
     @classmethod
-    def create(cls, *, base_url: str = "", actor: str = "", api_key: str = "") -> "RobotNotesConfig":
+    def create(cls, *, base_url: str = "", actor: str = "", api_key: str = "", native_tools: bool = True) -> "RobotNotesConfig":
         """The one place ``base_url`` is normalized (trailing slash stripped) and
         ``actor`` defaulted — every constructor path (``load()``, the setup wizard's
         ``save_config()``) should go through this rather than repeating either rule."""
-        return cls(base_url=base_url.rstrip("/"), actor=actor or DEFAULT_ACTOR, api_key=api_key)
+        if not isinstance(native_tools, bool):
+            raise ValueError("native_tools must be a JSON boolean")
+        return cls(base_url=base_url.rstrip("/"), actor=actor or DEFAULT_ACTOR, api_key=api_key, native_tools=native_tools)
 
     @classmethod
     def load(cls, hermes_home: Optional[str] = None) -> "RobotNotesConfig":
@@ -59,6 +62,7 @@ class RobotNotesConfig:
             base_url=str(data.get("base_url", "")),
             actor=str(data.get("actor") or ""),
             api_key=get_secret(API_KEY_ENV_VAR, ""),
+            native_tools=data.get("native_tools", True),
         )
 
     def save(self, hermes_home: str) -> None:
@@ -66,4 +70,6 @@ class RobotNotesConfig:
         home.mkdir(parents=True, exist_ok=True)
         path = home / CONFIG_FILENAME
         payload = {"base_url": self.base_url, "actor": self.actor}
+        if not self.native_tools:
+            payload["native_tools"] = False
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

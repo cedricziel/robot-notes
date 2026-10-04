@@ -1203,3 +1203,68 @@ def test_on_memory_write_still_warns_on_a_regular_failure(provider, caplog):
         provider.on_memory_write("add", "memory", "the user prefers dark mode")
 
     assert any(record.levelname == "WARNING" for record in caplog.records)
+
+
+@pytest.fixture
+def memory_only_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(json.dumps({
+        "base_url": "https://notes.example.com", "actor": "hermes-bot", "native_tools": False,
+    }))
+    p = RobotNotesProvider()
+    p.initialize("session-1", hermes_home=str(tmp_path))
+    yield p
+    p.shutdown()
+
+
+def test_memory_only_hides_tools_and_native_prompt(memory_only_provider):
+    assert memory_only_provider.get_tool_schemas() == []
+    block = memory_only_provider.system_prompt_block()
+    assert "robotnotes_" not in block
+    assert "MCP" in block
+    assert "conversations/hermes-bot" in block
+    assert "Hermes/Memory" in block
+
+
+def test_memory_only_rejects_direct_tool_dispatch(memory_only_provider):
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.post("https://notes.example.com/notes").mock(return_value=httpx.Response(201, json={}))
+        result = json.loads(memory_only_provider.handle_tool_call("robotnotes_remember", {"title": "Should not write", "content": "x"}))
+    assert result["code"] == "tools_disabled"
+    assert not route.called
+
+
+def test_memory_only_keeps_recall_and_memory_mirroring(memory_only_provider):
+    with respx.mock() as mock:
+        mock.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": [{"id": "1", "title": "Fact", "path": "", "snippet": "remember this"}]}))
+        assert "Fact" in memory_only_provider.prefetch("fact")
+        mock.get("https://notes.example.com/notes").mock(return_value=httpx.Response(200, json={"items": []}))
+        created = mock.post("https://notes.example.com/notes").mock(return_value=httpx.Response(201, json={"id": "2"}))
+        memory_only_provider.on_memory_write("add", "memory", "new fact")
+        assert json.loads(created.calls.last.request.content)["path"] == "Hermes"
+
+
+def test_setup_preserves_memory_only_setting_and_actor(tmp_path):
+    (tmp_path / "robot_notes.json").write_text(json.dumps({"base_url": "https://old.example", "actor": "custom", "native_tools": False}))
+    RobotNotesProvider().save_config({"base_url": "https://new.example"}, str(tmp_path))
+    saved = json.loads((tmp_path / "robot_notes.json").read_text())
+    assert saved["native_tools"] is False
+    assert saved["actor"] == "custom"
+
+
+def test_memory_only_keeps_session_transcripts(memory_only_provider):
+    with respx.mock() as mock:
+        mock.get("https://notes.example.com/notes").mock(return_value=httpx.Response(200, json={"items": []}))
+        created = mock.post("https://notes.example.com/notes").mock(return_value=httpx.Response(201, json={"id": "2"}))
+        memory_only_provider.on_session_end([{"role": "user", "content": "hello"}, {"role": "assistant", "content": "hi"}])
+        body = json.loads(created.calls.last.request.content)
+        assert body["path"] == "conversations/hermes-bot"
+        assert "hello" in body["content"]
+
+
+def test_memory_only_still_gates_automatic_subagent_writes(memory_only_provider):
+    memory_only_provider._write_enabled = False
+    with respx.mock() as mock:
+        memory_only_provider.on_memory_write("add", "memory", "new fact")
+        memory_only_provider.on_session_end([{"role": "user", "content": "hello"}])
+        assert not mock.calls
