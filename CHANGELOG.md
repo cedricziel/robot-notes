@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.19](https://github.com/cedricziel/robot-notes/compare/v0.2.18...v0.2.19) (2026-10-04)
+
+
+### Features
+
+* **hermes:** select vaults for external memory ([#325](https://github.com/cedricziel/robot-notes/issues/325)) ([233e0b9](https://github.com/cedricziel/robot-notes/commit/233e0b98f273c059b53c8da0134cb82a970f3f07))
+* support Hermes memory hooks alongside MCP tools ([#324](https://github.com/cedricziel/robot-notes/issues/324)) ([de25962](https://github.com/cedricziel/robot-notes/commit/de25962fcba5cd3d880ba165b4b9901b454c7b28))
+* support multiple vaults with scoped agent access ([#323](https://github.com/cedricziel/robot-notes/issues/323)) ([46f88b9](https://github.com/cedricziel/robot-notes/commit/46f88b995432610c7810ecf57e72a3fa85f82cb8))
+
+
+### Bug Fixes
+
+* make database row scope explicit and editable ([#322](https://github.com/cedricziel/robot-notes/issues/322)) ([484200f](https://github.com/cedricziel/robot-notes/commit/484200f814029dcdbc374073768f808301390b46))
+* **release:** create releases as pre-releases, not drafts ([#321](https://github.com/cedricziel/robot-notes/issues/321)) ([639761a](https://github.com/cedricziel/robot-notes/commit/639761a4e964c0beab66a19257b94f4615965016))
+
 ## [0.2.18](https://github.com/cedricziel/robot-notes/compare/v0.2.17...v0.2.18) (2026-09-21)
 
 
