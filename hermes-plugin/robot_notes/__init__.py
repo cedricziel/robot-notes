@@ -132,9 +132,11 @@ class RobotNotesProvider(MemoryProvider):
 
     def initialize(self, session_id: str, **kwargs) -> None:
         # Invalidate cached and in-flight recall before rebinding the server/vault.
+        old_client = self._client
+        self._client = None
         self._recall_cache.clear()
-        if self._client:
-            self._client.close()
+        if old_client:
+            old_client.close()
         self._config = RobotNotesConfig.load(kwargs.get("hermes_home"))
         self._session_id = session_id
         self._write_enabled = kwargs.get("agent_context", "") not in {"cron", "flush", "subagent"}
@@ -240,10 +242,11 @@ class RobotNotesProvider(MemoryProvider):
         return self._recall_cache.status("robot-notes")
 
     def _search_and_format(self, query: str) -> "tuple[str, int]":
-        if not self._client or not query:
+        client = self._client
+        if not client or not query:
             return "", 0
         try:
-            items = self._client.search(query, limit=5)
+            items = client.search(query, limit=5)
         except ClientError as exc:
             if exc.kind is ErrorKind.CIRCUIT_OPEN:
                 logger.debug("robot_notes: skipping search, %s", exc)

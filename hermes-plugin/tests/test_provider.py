@@ -1352,3 +1352,23 @@ def test_reinitializing_vault_discards_synchronous_recall(provider, tmp_path):
     assert "current data" in provider.prefetch("budget", session_id="session-1")
     assert provider.recall_status() is not None
     provider.shutdown()
+
+
+@respx.mock
+def test_recall_during_client_rebinding_cannot_use_old_vault(provider, tmp_path, monkeypatch):
+    old_client = provider._client
+    close = old_client.close
+    results = []
+    route = respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": [{"id": "old", "title": "Secret", "snippet": "private data"}]}))
+
+    def recall_during_close():
+        results.append(provider.prefetch("budget", session_id="session-1"))
+        close()
+
+    monkeypatch.setattr(old_client, "close", recall_during_close)
+    RobotNotesConfig.create(base_url="https://notes.example.com", vault_id="work").save(str(tmp_path))
+    provider.initialize("session-1", hermes_home=str(tmp_path))
+    assert results == [""]
+    assert not route.called
+    assert provider.recall_status() is None
+    provider.shutdown()
