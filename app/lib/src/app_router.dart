@@ -9,6 +9,7 @@ import 'package:shared/shared.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api/api_client.dart';
+import 'vaults/vault_switcher.dart';
 import 'api/api_exceptions.dart';
 import 'auth/oidc_session_refresher.dart';
 import 'auth/oidc_sign_in_controller.dart';
@@ -94,17 +95,43 @@ Future<UploadedFileResult?> uploadPickedFile(
 /// [GoRouter]'s `refreshListenable` re-evaluates redirects whenever the
 /// answer changes — first-run completing, or a manual disconnect.
 class ConfigHolder extends ChangeNotifier {
-  ConfigHolder(this._store) {
+  ConfigHolder(ConfigStore store) : _store = SerializedConfigStore(store) {
     unawaited(_load());
   }
 
   /// Starts already resolved, for tests that don't want to race a real
   /// [ConfigStore] read.
   ConfigHolder.seeded(this.config)
-    : _store = InMemoryConfigStore(),
+    : _store = SerializedConfigStore(InMemoryConfigStore()),
       loaded = true;
 
   final ConfigStore _store;
+  Future<void> _mutations = Future<void>.value();
+  int _sessionRevision = 0;
+
+  Future<T> _mutate<T>(Future<T> Function() action) {
+    final result = _mutations.then((_) => action());
+    _mutations = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return result;
+  }
+
+  Future<bool> selectVault(String id) {
+    final revision = _sessionRevision;
+    return _mutate(() async {
+      final current = config;
+      if (current == null || revision != _sessionRevision) return false;
+      final selected = current.withVault(id);
+      await _store.write(selected);
+      if (revision != _sessionRevision) return false;
+      config = selected;
+      notifyListeners();
+      return true;
+    });
+  }
+
   final OidcSessionRefresher _refresher = OidcSessionRefresher(
     clientFactory: tracingHttpClient,
   );
@@ -167,15 +194,19 @@ class ConfigHolder extends ChangeNotifier {
   }
 
   void set(AppConfig value) {
+    _sessionRevision++;
     config = value;
     loaded = true;
     notifyListeners();
   }
 
-  Future<void> reset() async {
-    await _store.clear();
-    config = null;
-    notifyListeners();
+  Future<void> reset() {
+    _sessionRevision++;
+    return _mutate(() async {
+      await _store.clear();
+      config = null;
+      notifyListeners();
+    });
   }
 
   @override
@@ -1359,11 +1390,13 @@ class SessionHost extends StatefulWidget {
   const SessionHost({
     required this.config,
     required this.onReset,
+    this.onVaultSelected = _ignoreVaultSelection,
     required this.child,
     super.key,
   });
 
   final AppConfig config;
+  final ValueChanged<String> onVaultSelected;
   final VoidCallback onReset;
   final Widget child;
 
@@ -1426,6 +1459,12 @@ class _SessionHostState extends State<SessionHost> {
       child: Column(
         children: [
           ConnectionBanner(status: _status),
+          VaultSwitcher(
+            api: _api,
+            selectedId: widget.config.vaultId,
+            onSelect: widget.onVaultSelected,
+            canManage: true,
+          ),
           Expanded(
             child: ValueListenableBuilder<ConnectionStatus>(
               valueListenable: _status,
@@ -1482,6 +1521,20 @@ class AppRouterShell extends StatelessWidget {
           key: ValueKey<AppConfig>(config),
           config: config,
           onReset: configHolder.reset,
+          onVaultSelected: (id) async {
+            try {
+              final changed = await configHolder.selectVault(id);
+              if (!context.mounted || !changed) return;
+              GoRouter.of(context).go('/notes');
+            } on Object {
+              if (!context.mounted) return;
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                const SnackBar(
+                  content: Text('Could not save vault selection.'),
+                ),
+              );
+            }
+          },
           child: content,
         );
         final lock = appLock;
@@ -1505,3 +1558,5 @@ class _Splash extends StatelessWidget {
     );
   }
 }
+
+void _ignoreVaultSelection(String _) {}

@@ -65,6 +65,43 @@ abstract class ConfigStore {
   Future<void> clearPendingOidcLogin();
 }
 
+/// Serializes storage operations so multi-key writes cannot interleave with logout.
+class SerializedConfigStore implements ConfigStore {
+  SerializedConfigStore(this._delegate);
+  final ConfigStore _delegate;
+  Future<void> _pending = Future<void>.value();
+
+  Future<T> _run<T>(Future<T> Function() operation) {
+    final result = _pending.then((_) => operation());
+    _pending = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return result;
+  }
+
+  @override
+  Future<AppConfig?> read() => _run(_delegate.read);
+  @override
+  Future<void> write(AppConfig config) => _run(() => _delegate.write(config));
+  @override
+  Future<void> clear() => _run(_delegate.clear);
+  @override
+  Future<String?> readRegisteredOAuthClientId(String baseUrl) =>
+      _run(() => _delegate.readRegisteredOAuthClientId(baseUrl));
+  @override
+  Future<void> writeRegisteredOAuthClientId(String baseUrl, String clientId) =>
+      _run(() => _delegate.writeRegisteredOAuthClientId(baseUrl, clientId));
+  @override
+  Future<PendingOidcLogin?> readPendingOidcLogin() =>
+      _run(_delegate.readPendingOidcLogin);
+  @override
+  Future<void> writePendingOidcLogin(PendingOidcLogin login) =>
+      _run(() => _delegate.writePendingOidcLogin(login));
+  @override
+  Future<void> clearPendingOidcLogin() => _run(_delegate.clearPendingOidcLogin);
+}
+
 /// [ConfigStore] backed by `flutter_secure_storage`.
 ///
 /// On Apple platforms this uses the Keychain, on Android the Keystore /
@@ -103,6 +140,7 @@ class SecureConfigStore implements ConfigStore {
       baseUrl: baseUrl,
       apiKey: apiKey,
       actor: actor,
+      vaultId: await _storage.read(key: 'robot_notes.vault_id') ?? 'default',
       oauthClientId: await _storage.read(key: _keyOauthClientId),
       oauthRefreshToken: await _storage.read(key: _keyOauthRefreshToken),
     );
@@ -113,6 +151,7 @@ class SecureConfigStore implements ConfigStore {
     await _storage.write(key: _keyBaseUrl, value: config.baseUrl);
     await _storage.write(key: _keyApiKey, value: config.apiKey);
     await _storage.write(key: _keyActor, value: config.actor);
+    await _storage.write(key: 'robot_notes.vault_id', value: config.vaultId);
     if (config.oauthClientId != null) {
       await _storage.write(key: _keyOauthClientId, value: config.oauthClientId);
     } else {
@@ -133,6 +172,7 @@ class SecureConfigStore implements ConfigStore {
     await _storage.delete(key: _keyBaseUrl);
     await _storage.delete(key: _keyApiKey);
     await _storage.delete(key: _keyActor);
+    await _storage.delete(key: 'robot_notes.vault_id');
     await _storage.delete(key: _keyOauthClientId);
     await _storage.delete(key: _keyOauthRefreshToken);
   }

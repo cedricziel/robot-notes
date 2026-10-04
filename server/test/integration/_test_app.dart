@@ -6,6 +6,8 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'package:server/src/vault_registry.dart';
+import 'package:server/src/vault_middleware.dart';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:dart_otel_api/dart_otel_api.dart';
@@ -39,6 +41,8 @@ import '../../routes/databases/[id]/index.dart' as databases_id_route;
 import '../../routes/databases/[id]/query.dart' as databases_id_query_route;
 import '../../routes/databases/[id]/rows.dart' as databases_id_rows_route;
 import '../../routes/databases/index.dart' as databases_index_route;
+import '../../routes/vaults/index.dart' as vaults_route;
+import '../../routes/vaults/[id]/index.dart' as vault_id_route;
 import '../../routes/healthz.dart' as healthz_route;
 import '../../routes/index.dart' as root_index;
 import '../../routes/invites/[token]/index.dart' as invites_token_route;
@@ -49,6 +53,7 @@ import '../../routes/mcp/index.dart' as mcp_route;
 import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
 import '../../routes/notes/[id]/properties.dart' as notes_id_properties_route;
+import '../../routes/notes/file-uploads/[token].dart' as upload_route;
 import '../../routes/notes/index.dart' as notes_index_route;
 import '../../routes/oauth/authorize.dart' as oauth_authorize_route;
 import '../../routes/oauth/oidc/callback.dart' as oauth_oidc_callback_route;
@@ -78,7 +83,9 @@ Future<HttpServer> startTestServer({
   required AppDeps deps,
   required Config config,
   HttpPostForm httpPostForm = httpPostFormViaHttpClient,
-}) {
+}) async {
+  deps.vaults ??= VaultRegistry(root: deps, config: config);
+  await deps.vaults!.load();
   otel_tracer_holder.setOtelTracerProvider(_testTracerProvider);
 
   // Unlike the `.use()` chain in routes/_middleware.dart (where the last
@@ -93,6 +100,7 @@ Future<HttpServer> startTestServer({
       .addMiddleware(wellKnownMiddleware())
       .addMiddleware(bearerAuth(configuredKey: config.apiKey))
       .addMiddleware(actorIdentity())
+      .addMiddleware(provider<VaultRegistry>((_) => deps.vaults!))
       .addMiddleware(provider<PresenceTracker>((_) => deps.presence))
       .addMiddleware(provider<Broadcaster>((_) => deps.broadcaster))
       .addMiddleware(provider<LockManager>((_) => deps.lockManager))
@@ -113,7 +121,8 @@ Future<HttpServer> startTestServer({
       .addMiddleware(provider<NoteWriteService>((_) => deps.noteWriteService))
       .addMiddleware(provider<DatabaseRegistry>((_) => deps.registry))
       .addMiddleware(provider<Storage>((_) => deps.storage))
-      .addMiddleware(provider<Clock>((_) => deps.clock));
+      .addMiddleware(provider<Clock>((_) => deps.clock))
+      .addMiddleware(vaultSelection(deps.vaults!));
 
   // `/mcp` gets its own middleware nesting via the shared [mcpChain],
   // mirroring routes/mcp/_middleware.dart: the McpHandler provider and
@@ -129,6 +138,7 @@ Future<HttpServer> startTestServer({
   );
 
   final root = Router()
+    ..all('/notes/file-uploads/<token>', upload_route.onRequest)
     ..mount('/notes/<id>/lock', _lockMount)
     ..mount('/notes/<id>/properties', _notesIdPropertiesMount)
     ..mount('/notes/<id>', _notesIdMount)
@@ -140,6 +150,8 @@ Future<HttpServer> startTestServer({
     ..mount('/invites/<token>/onboarding.txt', _onboardingMount)
     ..mount('/invites/<token>', _invitesTokenMount)
     ..mount('/invites', _invitesIndexMount)
+    ..all('/vaults', vaults_route.onRequest)
+    ..all('/vaults/<id>', vault_id_route.onRequest)
     ..all('/healthz', healthz_route.onRequest)
     ..all('/search', search_route.onRequest)
     ..all('/ws', ws_route.onRequest)

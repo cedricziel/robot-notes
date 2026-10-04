@@ -149,7 +149,7 @@ Future<AuthorizeValidation> validateAuthorizeRequest(
 
   final scopeParam = params['scope'];
   final requestedScopes = (scopeParam == null || scopeParam.trim().isEmpty)
-      ? kOAuthScopes.toSet()
+      ? kOAuthNoteScopes.toSet()
       : scopeParam.split(' ').where((s) => s.isNotEmpty).toSet();
   if (requestedScopes.isEmpty ||
       !requestedScopes.every(kOAuthScopes.contains)) {
@@ -176,6 +176,11 @@ Future<AuthorizeValidation> validateAuthorizeRequest(
     );
   }
 
+  if (resource == mcpResource && requestedScopes.contains(kScopeVaultsManage)) {
+    return AuthorizeRedirectError(
+        redirectUri: redirectUri, error: 'invalid_scope', state: state);
+  }
+
   return AuthorizeValid(
     client: client,
     redirectUri: redirectUri,
@@ -196,11 +201,13 @@ Future<String> mintAuthorizationCodeRedirect(
   RequestContext context, {
   required AuthorizeValid valid,
   required String actor,
+  Set<String> vaultIds = const {'default'},
 }) async {
   final code = await context.read<CodeStore>().mint(
         clientId: valid.client.clientId,
         redirectUri: valid.redirectUri,
         codeChallenge: valid.codeChallenge,
+        vaultIds: vaultIds,
         scopes: valid.scopes,
         resource: valid.resource,
         actor: actor,

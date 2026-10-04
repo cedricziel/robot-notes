@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'package:server/src/oauth/metadata.dart';
 
 /// How a REST/WebSocket request authenticated, as decided by `bearerAuth`
 /// (`lib/src/auth_middleware.dart`).
@@ -19,7 +20,12 @@ enum RestAuthKind {
 /// tell how the request authenticated without re-deriving it.
 @immutable
 class RestPrincipal {
-  const RestPrincipal._(this.kind, {this.actor, this.scopes});
+  const RestPrincipal._(
+    this.kind, {
+    this.actor,
+    this.scopes,
+    this.vaultIds = const {'default'},
+  });
 
   /// The exempt-path principal.
   const RestPrincipal.exempt() : this._(RestAuthKind.exempt);
@@ -32,7 +38,25 @@ class RestPrincipal {
   const RestPrincipal.oauth({
     required String actor,
     required Set<String> scopes,
-  }) : this._(RestAuthKind.oauthToken, actor: actor, scopes: scopes);
+    Set<String> vaultIds = const {'default'},
+  }) : this._(
+          RestAuthKind.oauthToken,
+          actor: actor,
+          scopes: scopes,
+          vaultIds: vaultIds,
+        );
+
+  /// Whether this credential can manage all current and future vaults.
+  bool get canManageVaults =>
+      kind == RestAuthKind.staticKey ||
+      (kind == RestAuthKind.oauthToken &&
+          (scopes?.contains(kScopeVaultsManage) ?? false));
+
+  /// Whether the grant permits access to a vault.
+  bool canAccessVault(String id) => canManageVaults || vaultIds.contains(id);
+
+  /// Vault IDs authorized by the OAuth grant.
+  final Set<String> vaultIds;
 
   /// Which credential authenticated the request.
   final RestAuthKind kind;

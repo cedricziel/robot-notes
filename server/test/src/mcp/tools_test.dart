@@ -1244,6 +1244,17 @@ void main() {
       expect(_structured(result)['error'], kErrorInsufficientScope);
     });
 
+    test('vault discovery accepts write scope but rejects no scopes', () async {
+      final allowed = await call('list_vaults', {}, writeOnly);
+      expect(allowed['isError'], isNot(true));
+      final denied = await call(
+          'list_vaults',
+          {},
+          const McpPrincipal(
+              actor: 'unscoped', scopes: {}, isStaticKey: false));
+      expect(_structured(denied)['error'], kErrorInsufficientScope);
+    });
+
     test('the static-key principal passes both scope checks', () async {
       final readResult = await call('list_notes', {});
       expect(readResult['isError'], isNull);
@@ -1415,6 +1426,7 @@ void main() {
     test('has exactly the nineteen note tools with object schemas', () {
       final names = registry.tools.map((t) => t.name).toSet();
       expect(names, {
+        'list_vaults',
         'list_notes',
         'get_note',
         'create_note',
@@ -1457,12 +1469,12 @@ void main() {
       expect(tool.inputSchema['required'], ['title']);
     });
 
-    test('list_databases declares no inputs', () {
+    test('list_databases accepts only optional vault selection', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'list_databases');
       expect(tool.inputSchema['required'], <String>[]);
       expect(
-        tool.inputSchema['properties'],
-        isEmpty,
+        (tool.inputSchema['properties'] as Map).keys,
+        ['vault_id'],
       );
     });
 

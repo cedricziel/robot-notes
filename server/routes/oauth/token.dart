@@ -104,6 +104,7 @@ Future<Response> _exchangeCode(
         final issued = await tokenStore.issue(
           clientId: client.clientId,
           actor: record.actor,
+          vaultIds: record.vaultIds,
           scopes: record.scopes,
           resource: record.resource,
           grantId: record.grantId,
@@ -116,9 +117,7 @@ Future<Response> _exchangeCode(
       }
     });
   } on CodeReusedException catch (e) {
-    _log.warning(
-      'Authorization code reused for grant ${e.grantId}; revoking',
-    );
+    _log.warning('Authorization code reused for grant ${e.grantId}; revoking');
     await context.read<TokenStore>().revokeGrant(e.grantId);
     return oauthError(HttpStatus.badRequest, 'invalid_grant');
   } on CodeNotFoundException {

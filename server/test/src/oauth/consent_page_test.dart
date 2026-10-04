@@ -112,7 +112,7 @@ void main() {
         final html = renderConsentPage(_params(), oidcConfigured: true);
         expect(html, isNot(contains('name="api_key"')));
         expect(html, isNot(contains('type="password"')));
-        expect(html, contains('href="${Routes.oauthOidcLogin}'));
+        expect(html, contains('action="${Routes.oauthOidcLogin}'));
       });
 
       test('the sign-in link forwards every authorization parameter', () {
@@ -120,29 +120,19 @@ void main() {
           _params(state: 'xyz', resource: 'https://notes.example/mcp'),
           oidcConfigured: true,
         );
-        expect(html, contains('client_id=client-123'));
-        expect(
-          html,
-          contains('redirect_uri=${Uri.encodeQueryComponent(
-            'https://agent.example/callback',
-          )}'),
-        );
-        expect(html, contains('response_type=code'));
-        expect(html, contains('code_challenge=challenge-abc'));
-        expect(html, contains('code_challenge_method=S256'));
-        expect(html, contains('state=xyz'));
-        expect(
-          html,
-          contains('scope=${Uri.encodeQueryComponent(
-            'notes:read notes:write',
-          )}'),
-        );
-        expect(
-          html,
-          contains(
-            'resource=${Uri.encodeQueryComponent('https://notes.example/mcp')}',
-          ),
-        );
+        for (final entry in {
+          'client_id': 'client-123',
+          'redirect_uri': 'https://agent.example/callback',
+          'response_type': 'code',
+          'code_challenge': 'challenge-abc',
+          'code_challenge_method': 'S256',
+          'state': 'xyz',
+          'scope': 'notes:read notes:write',
+          'resource': 'https://notes.example/mcp',
+        }.entries) {
+          expect(html, contains('name="${entry.key}" value="${entry.value}"'));
+        }
+        expect(html, contains('name="vault_default"'));
       });
 
       test('omits state from the sign-in link when absent', () {

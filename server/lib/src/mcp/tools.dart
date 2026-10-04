@@ -133,7 +133,7 @@ class McpInvalidParamsException implements Exception {
   String toString() => 'McpInvalidParamsException: $message';
 }
 
-/// Registry of the nineteen fixed note tools exposed over `/mcp`.
+/// Registry of vault discovery and the nineteen content tools over `/mcp`.
 ///
 /// Built once per server from [AppDeps] via [McpToolRegistry.forDeps];
 /// tests may also build one directly from a hand-picked [List] of
@@ -145,7 +145,69 @@ class McpToolRegistry {
         _byName = {for (final tool in tools) tool.name: tool};
 
   /// Builds the nineteen note tools wired to [deps]'s services.
-  factory McpToolRegistry.forDeps(AppDeps deps) => McpToolRegistry([
+  factory McpToolRegistry.forDeps(AppDeps deps) {
+    final catalog = McpToolRegistry._singleVault(deps);
+    final vaults = deps.vaults;
+    if (vaults == null) return catalog;
+    return McpToolRegistry([
+      McpTool(
+        name: 'list_vaults',
+        description:
+            'List vaults authorized for this connection. Pass vault_id to content tools.',
+        inputSchema: const {
+          'type': 'object',
+          'properties': <String, Object?>{},
+          'required': <String>[]
+        },
+        annotations: const {'title': 'List vaults', 'readOnlyHint': true},
+        requiresWrite: false,
+        handler: (args, principal) async => toolOk({
+          'vaults': [
+            for (final vault in vaults.list())
+              if (principal.isStaticKey ||
+                  principal.vaultIds.contains(vault['id']))
+                vault,
+          ],
+        }),
+      ),
+      for (final tool in catalog.tools)
+        McpTool(
+          name: tool.name,
+          description: tool.description,
+          inputSchema: {
+            ...tool.inputSchema,
+            'properties': {
+              ...tool.inputSchema['properties']! as Map<String, Object?>,
+              'vault_id': {
+                'type': 'string',
+                'description': 'Target vault ID. Defaults to default.',
+              },
+            },
+          },
+          annotations: tool.annotations,
+          requiresWrite: tool.requiresWrite,
+          handler: (args, principal) async {
+            final id = args['vault_id'] as String? ?? 'default';
+            if (!principal.isStaticKey && !principal.vaultIds.contains(id))
+              return toolFail('vault_access_denied');
+            if (!vaults.contains(id)) return toolFail('vault_not_found');
+            final selected = McpToolRegistry._singleVault(
+              await vaults.open(id),
+              vaultId: id,
+            );
+            return selected.call(
+              tool.name,
+              {...args}..remove('vault_id'),
+              principal,
+            );
+          },
+        ),
+    ]);
+  }
+
+  factory McpToolRegistry._singleVault(AppDeps deps,
+          {String vaultId = 'default'}) =>
+      McpToolRegistry([
         _listNotesTool(deps.metaIndex),
         _getNoteTool(deps.storage, deps.lockManager),
         _searchNotesTool(deps.searchIndex),
@@ -156,7 +218,8 @@ class McpToolRegistry {
         _moveNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
         _getBacklinksTool(deps.metaIndex, deps.linkIndex, deps.storage),
         _createFolderTool(deps.storage, deps.metaIndex),
-        _requestUploadTool(deps.uploadSessions, deps.maxUploadSizeBytes),
+        _requestUploadTool(deps.uploadSessions, deps.maxUploadSizeBytes,
+            vaultId: vaultId),
         _finalizeUploadTool(
           deps.uploadSessions,
           deps.fileStore,
@@ -167,9 +230,7 @@ class McpToolRegistry {
         _getDatabaseTool(deps.noteWriteService.registry),
         _createDatabaseTool(deps.noteWriteService),
         _updateDatabaseTool(
-          deps.noteWriteService.registry,
-          deps.noteWriteService,
-        ),
+            deps.noteWriteService.registry, deps.noteWriteService),
         _queryDatabaseTool(
           deps.noteWriteService.registry,
           deps.searchIndex,
@@ -218,7 +279,9 @@ class McpToolRegistry {
 
     final requiredScope =
         tool.requiresWrite ? kScopeNotesWrite : kScopeNotesRead;
-    if (!principal.scopes.contains(requiredScope)) {
+    final canDiscoverVaults =
+        name == 'list_vaults' && principal.scopes.contains(kScopeNotesWrite);
+    if (!principal.scopes.contains(requiredScope) && !canDiscoverVaults) {
       return toolFail(kErrorInsufficientScope);
     }
 
@@ -251,21 +314,15 @@ class McpToolRegistry {
           }
         case 'integer':
           if (value is! int) {
-            throw McpInvalidParamsException(
-              '${entry.key} must be an integer',
-            );
+            throw McpInvalidParamsException('${entry.key} must be an integer');
           }
           final minimum = rawSchema['minimum'] as int?;
           final maximum = rawSchema['maximum'] as int?;
           if (minimum != null && value < minimum) {
-            throw McpInvalidParamsException(
-              '${entry.key} must be >= $minimum',
-            );
+            throw McpInvalidParamsException('${entry.key} must be >= $minimum');
           }
           if (maximum != null && value > maximum) {
-            throw McpInvalidParamsException(
-              '${entry.key} must be <= $maximum',
-            );
+            throw McpInvalidParamsException('${entry.key} must be <= $maximum');
           }
         case 'number':
           if (value is! num) {
@@ -438,7 +495,7 @@ McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
           'limit': {
             'type': 'integer',
             'minimum': 1,
-            'maximum': kMaxSearchLimit,
+            'maximum': kMaxSearchLimit
           },
           'path': {'type': 'string'},
           'tag': {'type': 'string'},
@@ -535,10 +592,8 @@ McpTool _createNoteTool(NoteWriteService writes) => McpTool(
         } on InvalidPathException catch (e) {
           return toolFail(kErrorValidationFailed, message: e.message);
         } on PropertyValidationException catch (e) {
-          return toolFail(
-            kErrorValidationFailed,
-            message: e.violations.join('; '),
-          );
+          return toolFail(kErrorValidationFailed,
+              message: e.violations.join('; '));
         }
       },
     );
@@ -623,10 +678,8 @@ McpTool _updateNoteTool(
         } on VersionConflictException catch (e) {
           return _versionConflictFail(e.current, principal);
         } on PropertyValidationException catch (e) {
-          return toolFail(
-            kErrorValidationFailed,
-            message: e.violations.join('; '),
-          );
+          return toolFail(kErrorValidationFailed,
+              message: e.violations.join('; '));
         }
       },
     );
@@ -811,7 +864,7 @@ McpTool _getBacklinksTool(
                 {
                   'id': entry.id,
                   'title': entry.title,
-                  'snippet': entry.snippet,
+                  'snippet': entry.snippet
                 },
             ],
           });
@@ -867,8 +920,9 @@ McpTool _createFolderTool(Storage storage, MetaIndex metaIndex) => McpTool(
 
 McpTool _requestUploadTool(
   UploadSessionStore uploadSessions,
-  int maxUploadSizeBytes,
-) =>
+  int maxUploadSizeBytes, {
+  String vaultId = 'default',
+}) =>
     McpTool(
       name: 'request_upload',
       description:
@@ -907,7 +961,8 @@ McpTool _requestUploadTool(
           maxBytes: maxUploadSizeBytes,
         );
         return toolOk({
-          'upload_url': '/notes/file-uploads/${reserved.token}',
+          'upload_url': '/notes/file-uploads/${reserved.token}'
+              '${vaultId == 'default' ? '' : '?vault_id=$vaultId'}',
           'token': reserved.token,
           'expires_at': reserved.expiresAt.toIso8601String(),
         });
@@ -1191,10 +1246,9 @@ McpTool _createDatabaseTool(NoteWriteService writes) => McpTool(
         }
         final path = (args['path'] as String?) ?? '';
         final content = (args['content'] as String?) ?? '';
-        final source = _parseSource(
-              (args['source'] as Map?)?.cast<String, Object?>(),
-            ) ??
-            DatabaseSource.folder(path);
+        final source =
+            _parseSource((args['source'] as Map?)?.cast<String, Object?>()) ??
+                DatabaseSource.folder(path);
         final properties = _parsePropertyDefinitions(
           (args['properties'] as Map?)?.cast<String, Object?>(),
         );
@@ -1211,10 +1265,8 @@ McpTool _createDatabaseTool(NoteWriteService writes) => McpTool(
           );
           return toolOk(_definitionJson(note));
         } on DefinitionValidationException catch (e) {
-          return toolFail(
-            kErrorValidationFailed,
-            message: e.violations.join('; '),
-          );
+          return toolFail(kErrorValidationFailed,
+              message: e.violations.join('; '));
         } on PathConflictException {
           return toolFail(kErrorPathConflict);
         } on InvalidPathException catch (e) {
@@ -1284,10 +1336,8 @@ McpTool _updateDatabaseTool(
         } on NoteNotFoundException {
           return toolFail(ErrorCode.notFound.wire);
         } on DefinitionValidationException catch (e) {
-          return toolFail(
-            kErrorValidationFailed,
-            message: e.violations.join('; '),
-          );
+          return toolFail(kErrorValidationFailed,
+              message: e.violations.join('; '));
         } on PathConflictException {
           return toolFail(kErrorPathConflict);
         } on FormatException catch (e) {
@@ -1450,10 +1500,8 @@ McpTool _queryDatabaseTool(
           if (filter != null) {
             final errors = _validateQueryFilter(filter, def);
             if (errors.isNotEmpty) {
-              return toolFail(
-                kErrorValidationFailed,
-                message: errors.join('; '),
-              );
+              return toolFail(kErrorValidationFailed,
+                  message: errors.join('; '));
             }
           }
           if (groupBy != null &&
@@ -1550,10 +1598,8 @@ McpTool _createRowTool(NoteWriteService writes) => McpTool(
         } on PathOutsideSourceException catch (e) {
           return toolFail(kErrorValidationFailed, message: e.toString());
         } on PropertyValidationException catch (e) {
-          return toolFail(
-            kErrorValidationFailed,
-            message: e.violations.join('; '),
-          );
+          return toolFail(kErrorValidationFailed,
+              message: e.violations.join('; '));
         } on PathConflictException {
           return toolFail(kErrorPathConflict);
         } on InvalidPathException catch (e) {
@@ -1605,10 +1651,8 @@ McpTool _updatePropertiesTool(NoteWriteService writes) => McpTool(
         } on NoteNotFoundException {
           return toolFail(ErrorCode.notFound.wire);
         } on PropertyValidationException catch (e) {
-          return toolFail(
-            kErrorValidationFailed,
-            message: e.violations.join('; '),
-          );
+          return toolFail(kErrorValidationFailed,
+              message: e.violations.join('; '));
         }
       },
     );

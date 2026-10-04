@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:server/src/vault_registry.dart';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
@@ -12,6 +13,8 @@ import 'package:test/test.dart';
 import '../../../../routes/oauth/oidc/login.dart' as route;
 
 class _MockRequestContext extends Mock implements RequestContext {}
+
+class _MockVaultRegistry extends Mock implements VaultRegistry {}
 
 class _MockRequest extends Mock implements Request {}
 
@@ -47,6 +50,12 @@ RequestContext _ctx({
   OidcDiscoveryDocument? discovery,
 }) {
   final ctx = _MockRequestContext();
+  final vaults = _MockVaultRegistry();
+  when(vaults.list).thenReturn([
+    {'id': 'default', 'name': 'Default'}
+  ]);
+  when(() => vaults.contains('default')).thenReturn(true);
+  when(() => ctx.read<VaultRegistry>()).thenReturn(vaults);
   final req = _MockRequest();
   when(() => req.method).thenReturn(HttpMethod.get);
   when(() => req.uri).thenReturn(
@@ -90,6 +99,7 @@ void main() {
   });
 
   Map<String, String> validQuery() => {
+        'vault_default': 'yes',
         'client_id': client.client.clientId,
         'redirect_uri': client.client.redirectUris.first,
         'response_type': 'code',

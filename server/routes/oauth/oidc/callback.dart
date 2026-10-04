@@ -90,8 +90,9 @@ Future<Response> onRequest(RequestContext context) async {
   final actor = claims.name ?? claims.email ?? claims.sub;
 
   final consentRequest = pending.consentRequest;
-  final client =
-      await context.read<ClientStore>().get(consentRequest['client_id']!);
+  final client = await context.read<ClientStore>().get(
+        consentRequest['client_id']!,
+      );
   if (client == null) {
     return oauthErrorPage('The original client is no longer registered.');
   }
@@ -109,6 +110,7 @@ Future<Response> onRequest(RequestContext context) async {
     context,
     valid: valid,
     actor: actor,
+    vaultIds: (consentRequest['vault_ids'] ?? 'default').split(',').toSet(),
   );
   return Response(
     statusCode: HttpStatus.found,

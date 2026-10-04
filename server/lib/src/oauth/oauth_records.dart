@@ -96,6 +96,7 @@ class AuthorizationCode {
     required this.grantId,
     required this.createdAt,
     required this.expiresAt,
+    this.vaultIds = const {'default'},
     this.consumedAt,
     this.revokedAt,
   });
@@ -108,6 +109,9 @@ class AuthorizationCode {
         redirectUri: json['redirect_uri'] as String,
         codeChallenge: json['code_challenge'] as String,
         scopes: _stringList(json['scopes']).toSet(),
+        vaultIds: json['vault_ids'] == null
+            ? const {'default'}
+            : _stringList(json['vault_ids']).toSet(),
         resource: json['resource'] as String,
         actor: json['actor'] as String,
         grantId: json['grant_id'] as String,
@@ -128,6 +132,9 @@ class AuthorizationCode {
 
   /// PKCE `code_challenge` supplied at `/oauth/authorize`.
   final String codeChallenge;
+
+  /// Explicit vaults authorized by this grant.
+  final Set<String> vaultIds;
 
   /// Granted scopes.
   final Set<String> scopes;
@@ -170,6 +177,7 @@ class AuthorizationCode {
         clientId: clientId,
         redirectUri: redirectUri,
         codeChallenge: codeChallenge,
+        vaultIds: vaultIds,
         scopes: scopes,
         resource: resource,
         actor: actor,
@@ -186,6 +194,7 @@ class AuthorizationCode {
         clientId: clientId,
         redirectUri: redirectUri,
         codeChallenge: codeChallenge,
+        vaultIds: vaultIds,
         scopes: scopes,
         resource: resource,
         actor: actor,
@@ -203,6 +212,7 @@ class AuthorizationCode {
         'redirect_uri': redirectUri,
         'code_challenge': codeChallenge,
         'scopes': scopes.toList()..sort(),
+        'vault_ids': vaultIds.toList()..sort(),
         'resource': resource,
         'actor': actor,
         'grant_id': grantId,
@@ -243,6 +253,7 @@ class OAuthToken {
     required this.createdAt,
     required this.expiresAt,
     this.revokedAt,
+    this.vaultIds = const {'default'},
     this.rotatedAt,
   });
 
@@ -253,6 +264,9 @@ class OAuthToken {
         clientId: json['client_id'] as String,
         actor: json['actor'] as String,
         scopes: _stringList(json['scopes']).toSet(),
+        vaultIds: json['vault_ids'] == null
+            ? const {'default'}
+            : _stringList(json['vault_ids']).toSet(),
         resource: json['resource'] as String,
         grantId: json['grant_id'] as String,
         createdAt: _parseUtc(json['created_at']),
@@ -272,6 +286,9 @@ class OAuthToken {
 
   /// Actor name every call made with this token writes under.
   final String actor;
+
+  /// Explicit vaults authorized by this grant.
+  final Set<String> vaultIds;
 
   /// Granted scopes.
   final Set<String> scopes;
@@ -310,6 +327,7 @@ class OAuthToken {
         kind: kind,
         clientId: clientId,
         actor: actor,
+        vaultIds: vaultIds,
         scopes: scopes,
         resource: resource,
         grantId: grantId,
@@ -325,6 +343,7 @@ class OAuthToken {
         kind: kind,
         clientId: clientId,
         actor: actor,
+        vaultIds: vaultIds,
         scopes: scopes,
         resource: resource,
         grantId: grantId,
@@ -341,6 +360,7 @@ class OAuthToken {
         'client_id': clientId,
         'actor': actor,
         'scopes': scopes.toList()..sort(),
+        'vault_ids': vaultIds.toList()..sort(),
         'resource': resource,
         'grant_id': grantId,
         'created_at': createdAt.toUtc().toIso8601String(),

@@ -1,8 +1,14 @@
 import 'package:server/src/public_url.dart';
 import 'package:shared/shared.dart';
 
-/// OAuth scopes the server grants: read-only and read/write note access.
-const List<String> kOAuthScopes = ['notes:read', 'notes:write'];
+/// Content scopes available to agent connections.
+const List<String> kOAuthNoteScopes = ['notes:read', 'notes:write'];
+
+/// Explicit permission to manage and access all current and future vaults.
+const String kScopeVaultsManage = 'vaults:manage';
+
+/// Scopes supported by the authorization server.
+const List<String> kOAuthScopes = [...kOAuthNoteScopes, kScopeVaultsManage];
 
 /// Builds the RFC 9728 protected-resource metadata document for the given
 /// public [base] URL. Identical for `/.well-known/oauth-protected-resource`
@@ -11,7 +17,7 @@ Map<String, Object?> protectedResourceMetadata(String base) => {
       'resource': mcpResourceUrl(base),
       'authorization_servers': [base],
       'bearer_methods_supported': ['header'],
-      'scopes_supported': kOAuthScopes,
+      'scopes_supported': kOAuthNoteScopes,
       'resource_name': 'robot-notes',
     };
 

@@ -57,7 +57,11 @@ Middleware bearerAuth({required String configuredKey}) {
       }
       return handler(
         context.provide<RestPrincipal>(
-          () => RestPrincipal.oauth(actor: record.actor, scopes: record.scopes),
+          () => RestPrincipal.oauth(
+            actor: record.actor,
+            scopes: record.scopes,
+            vaultIds: record.vaultIds,
+          ),
         ),
       );
     };
@@ -173,10 +177,7 @@ String? extractBearerToken(String? header) {
 }
 
 Response _unauthorized() {
-  return Response.json(
-    statusCode: 401,
-    body: const {'error': 'unauthorized'},
-  );
+  return Response.json(statusCode: 401, body: const {'error': 'unauthorized'});
 }
 
 Response _insufficientScope() {

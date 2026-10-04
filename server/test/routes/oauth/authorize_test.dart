@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:server/src/vault_registry.dart';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:logging/logging.dart';
@@ -14,6 +15,8 @@ import 'package:test/test.dart';
 import '../../../routes/oauth/authorize.dart' as route;
 
 class _MockRequestContext extends Mock implements RequestContext {}
+
+class _MockVaultRegistry extends Mock implements VaultRegistry {}
 
 class _MockRequest extends Mock implements Request {}
 
@@ -37,6 +40,13 @@ RequestContext _ctx({
   ConsentThrottle? consentThrottle,
 }) {
   final ctx = _MockRequestContext();
+  final vaults = _MockVaultRegistry();
+  when(vaults.list).thenReturn([
+    {'id': 'default', 'name': 'Default'}
+  ]);
+  when(() => vaults.contains(any())).thenAnswer(
+      (invocation) => invocation.positionalArguments.first == 'default');
+  when(() => ctx.read<VaultRegistry>()).thenReturn(vaults);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   final uri = rawQuery != null
@@ -101,6 +111,7 @@ void main() {
     String? resource,
   }) =>
       {
+        'vault_default': 'yes',
         'client_id': client.client.clientId,
         'redirect_uri': client.client.redirectUris.first,
         'response_type': 'code',
@@ -110,6 +121,25 @@ void main() {
         if (scope != null) 'scope': scope,
         if (resource != null) 'resource': resource,
       };
+
+  test('rejects empty or unknown vault consent without minting a code',
+      () async {
+    for (final selection in [
+      <String, String>{},
+      {'vault_unknown': 'yes'}
+    ]) {
+      final form = validQuery()..remove('vault_default');
+      form.addAll({...selection, 'api_key': _apiKey});
+      final res = await route.onRequest(_ctx(
+        method: HttpMethod.post,
+        clientStore: clientStore,
+        codeStore: codeStore,
+        formBody: _formEncode(form),
+      ));
+      expect(res.statusCode, 400);
+      expect(res.headers['location'], isNull);
+    }
+  });
 
   group('GET /oauth/authorize', () {
     test('renders the consent page for a valid request', () async {
@@ -279,6 +309,19 @@ void main() {
       expect(body, contains('Desk Assistant'));
     });
 
+    test('vault management is rejected for the MCP resource', () async {
+      final res = await route.onRequest(_ctx(
+        method: HttpMethod.get,
+        clientStore: clientStore,
+        codeStore: codeStore,
+        queryParameters:
+            validQuery(scope: 'notes:read notes:write vaults:manage'),
+      ));
+      expect(res.statusCode, 302);
+      expect(Uri.parse(res.headers['location']!).queryParameters['error'],
+          'invalid_scope');
+    });
+
     test('unknown scope redirects with invalid_scope', () async {
       final res = await route.onRequest(
         _ctx(
@@ -440,6 +483,7 @@ void main() {
         responseTypes: ['code'],
       );
       final form = {
+        'vault_default': 'yes',
         'client_id': withQuery.client.clientId,
         'redirect_uri': withQuery.client.redirectUris.first,
         'response_type': 'code',

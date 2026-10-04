@@ -11,6 +11,7 @@ const _alwaysApiPrefixes = <String>{
   Routes.healthz,
   Routes.otelConfig,
   Routes.ws,
+  '/vaults',
   Routes.invites,
   Routes.mcp,
   Routes.tags,

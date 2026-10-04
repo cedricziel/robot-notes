@@ -83,6 +83,7 @@ class OidcSessionRefresher {
         baseUrl: config.baseUrl,
         apiKey: accessToken,
         actor: config.actor,
+        vaultId: config.vaultId,
         oauthClientId: config.oauthClientId,
         oauthRefreshToken: refreshToken,
       );

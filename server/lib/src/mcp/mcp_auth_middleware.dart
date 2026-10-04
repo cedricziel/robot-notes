@@ -31,8 +31,9 @@ const String _protectedResourceMcpPath =
 Middleware mcpAuth() {
   return (handler) {
     return (context) async {
-      final supplied =
-          extractBearerToken(context.request.headers['authorization']);
+      final supplied = extractBearerToken(
+        context.request.headers['authorization'],
+      );
       if (supplied == null) {
         return _unauthorized(context, credentialSupplied: false);
       }
@@ -55,6 +56,7 @@ Middleware mcpAuth() {
       final principal = McpPrincipal(
         actor: record.actor,
         scopes: record.scopes,
+        vaultIds: record.vaultIds,
         isStaticKey: false,
       );
       return handler(context.provide<McpPrincipal>(() => principal));

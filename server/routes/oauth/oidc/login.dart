@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:server/src/oauth/vault_consent.dart';
+
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/oauth/authorize_request.dart';
@@ -53,6 +55,9 @@ Response _startLogin(
   AuthorizeValid valid,
   OidcConfig oidcConfig,
 ) {
+  final vaultIds = selectedVaults(context, context.request.uri.queryParameters);
+  if (vaultIds == null)
+    return oauthErrorPage('Select at least one valid vault.');
   final discovery = context.read<OidcDiscoveryDocument?>();
   if (discovery == null) {
     // Config.oidc != null guarantees AppDeps.bootstrap already resolved
@@ -68,6 +73,7 @@ Response _startLogin(
   final pendingLoginStore = context.read<PendingLoginStore>();
   final pending = pendingLoginStore.start(
     consentRequest: {
+      'vault_ids': vaultIds.join(','),
       'client_id': valid.client.clientId,
       'redirect_uri': valid.redirectUri,
       'code_challenge': valid.codeChallenge,
