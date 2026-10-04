@@ -534,7 +534,7 @@ class SearchIndex {
       path,
       createdAt.toUtc().toIso8601String(),
       updatedAt.toUtc().toIso8601String(),
-      isDefinition ? 1 : 0,
+      if (isDefinition) 1 else 0,
       jsonEncode(
         extra,
         toEncodable: (o) => o is DateTime ? o.toUtc().toIso8601String() : o,

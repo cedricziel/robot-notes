@@ -224,7 +224,7 @@ void main() {
     expect(res.statusCode, HttpStatus.ok);
   });
 
-  test('ignores another actor\'s editor lock', () async {
+  test("ignores another actor's editor lock", () async {
     final note = await storage.create(title: 't', content: 'c');
     meta.upsert(note.toSummary());
     await lockManager.acquire(noteId: note.id, actor: 'alice');
@@ -233,7 +233,6 @@ void main() {
       _ctx(
         method: HttpMethod.patch,
         writes: writes,
-        actor: const Actor('bob'),
         body: {
           'set': {'status': 'Active'},
         },
@@ -252,7 +251,6 @@ void main() {
       _ctx(
         method: HttpMethod.patch,
         writes: writes,
-        actor: const Actor('bob'),
         body: {
           'set': {'status': 'Active'},
         },

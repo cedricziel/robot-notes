@@ -231,7 +231,7 @@ void main() {
       db.id,
     );
     final body = await res.json() as Map<String, dynamic>;
-    expect((body['items'] as List), hasLength(2));
+    expect(body['items'] as List, hasLength(2));
     expect(body['next_cursor'], isNotNull);
   });
 
@@ -259,7 +259,7 @@ void main() {
       db.id,
     );
     final body = await res.json() as Map<String, dynamic>;
-    expect((body['items'] as List), hasLength(1));
+    expect(body['items'] as List, hasLength(1));
   });
 
   test('unknown view returns 400 validation_failed', () async {

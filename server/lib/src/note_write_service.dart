@@ -17,8 +17,9 @@ import 'package:server/src/tags.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
 
-/// Thrown by [NoteWriteService.create]/[update]/[patchProperties]/
-/// [createRow] when caller-supplied property values fail
+/// Thrown by [NoteWriteService.create], [NoteWriteService.update],
+/// [NoteWriteService.patchProperties], or [NoteWriteService.createRow]
+/// when caller-supplied property values fail
 /// [validateProperties]. Never thrown for rename propagation or any other
 /// internal rewrite — see the `add-databases` design's "Validation ... runs
 /// only on caller-supplied values" decision.
@@ -34,7 +35,8 @@ class PropertyValidationException implements Exception {
   String toString() => 'PropertyValidationException: ${violations.join('; ')}';
 }
 
-/// Thrown by [NoteWriteService.createDatabase]/[updateDatabase] when the
+/// Thrown by [NoteWriteService.createDatabase] or
+/// [NoteWriteService.updateDatabase] when the
 /// assembled definition fails structural parsing or [validateDefinition].
 @immutable
 class DefinitionValidationException implements Exception {
@@ -69,8 +71,8 @@ class PathOutsideSourceException implements Exception {
       '"$folder"';
 }
 
-/// Thrown by [NoteWriteService.createRow]/[updateDatabase] when the named
-/// database id has no registered definition.
+/// Thrown by [NoteWriteService.createRow]/[NoteWriteService.updateDatabase]
+/// when the named database id has no registered definition.
 @immutable
 class DatabaseNotFoundException implements Exception {
   /// Creates an exception naming the unresolved database [id].
@@ -651,7 +653,9 @@ class NoteWriteService {
           throw PropertyValidationException([
             for (final key in overlap)
               PropertyViolation(
-                  key: key, reason: 'key is in both set and unset'),
+                key: key,
+                reason: 'key is in both set and unset',
+              ),
           ]);
         }
         final badKeys = {...set.keys, ...unset}.where(

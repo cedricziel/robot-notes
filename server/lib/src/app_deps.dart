@@ -201,15 +201,15 @@ class AppDeps {
       tracer: tracer,
       embeddingProvider: embeddingProvider,
     );
-    final registry = DatabaseRegistry(logger: Logger('databases.registry'));
-    registry.rebuild([
-      for (final row in searchIndex.definitionsSource())
-        if (metaIndex.get(row.id) != null) (metaIndex.get(row.id)!, row.extra),
-    ]);
-    log.info(
-      'Bootstrapped DatabaseRegistry with ${registry.all.length} '
-      'definition(s)',
-    );
+    final registry = DatabaseRegistry(logger: Logger('databases.registry'))
+      ..rebuild([
+        for (final row in searchIndex.definitionsSource())
+          if (metaIndex.get(row.id) != null)
+            (metaIndex.get(row.id)!, row.extra),
+      ]);
+    log.info('Bootstrapped DatabaseRegistry with ${registry.all.length} '
+        'definition(s)');
+
     final inviteStore = InviteStore(
       inviteDir: Directory('${config.dataDir}/invites'),
       clock: clock,

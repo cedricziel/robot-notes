@@ -31,7 +31,7 @@ const Set<String> kBuiltinKeys = {
   'path',
   'tags',
   'created_at',
-  'updated_at'
+  'updated_at',
 };
 
 /// Property key pattern per spec: lowercase ASCII, starting with a letter,
@@ -184,7 +184,7 @@ List<DefinitionViolation> validateDefinition(DatabaseDefinition def) {
       violations.add(
         DefinitionViolation(
           path: keyPath,
-          reason: 'key must match ^[a-z][a-z0-9_]*\$ and be at most '
+          reason: r'key must match ^[a-z][a-z0-9_]*$ and be at most '
               '$kMaxPropertyKeyLength characters',
         ),
       );
@@ -231,7 +231,9 @@ List<DefinitionViolation> validateDefinition(DatabaseDefinition def) {
     if (view.name.isEmpty) {
       violations.add(
         DefinitionViolation(
-            path: '$viewPath.name', reason: 'name must not be empty'),
+          path: '$viewPath.name',
+          reason: 'name must not be empty',
+        ),
       );
     } else if (!seenViewNames.add(view.name.toLowerCase())) {
       violations.add(
@@ -280,7 +282,7 @@ void _validateFilter(
   String path,
 ) {
   switch (filter) {
-    case Condition condition:
+    case final Condition condition:
       final declared = def.properties[condition.property];
       final type = declared?.type ?? builtinPropertyType(condition.property);
       if (type == null) {

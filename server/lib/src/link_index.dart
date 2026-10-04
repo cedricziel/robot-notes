@@ -68,8 +68,11 @@ class LinkIndex {
   /// `add-databases` design's "Relations feed the link index" decision).
   /// Called on every create and update, so the index never drifts from
   /// what's actually on disk.
-  void upsert(NoteId id, String content,
-      {List<LinkEdge> extraLinks = const []}) {
+  void upsert(
+    NoteId id,
+    String content, {
+    List<LinkEdge> extraLinks = const [],
+  }) {
     _bySource[id] = [
       for (final link in parseLinks(content))
         LinkEdge(targetTitle: link.targetTitle, alias: link.alias),

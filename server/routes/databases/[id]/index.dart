@@ -92,7 +92,8 @@ Future<Response> _update(RequestContext context, String id) async {
   try {
     if (raw.containsKey('source') && raw['source'] != null) {
       source = DatabaseSource.fromJson(
-          (raw['source'] as Map).cast<String, dynamic>());
+        (raw['source'] as Map).cast<String, dynamic>(),
+      );
     }
     if (raw.containsKey('properties') && raw['properties'] != null) {
       final propertiesJson = (raw['properties'] as Map).cast<String, dynamic>();

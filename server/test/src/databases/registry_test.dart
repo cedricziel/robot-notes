@@ -127,13 +127,14 @@ void main() {
     test('remove unregisters a database', () {
       final registry = DatabaseRegistry();
       final summary = _summary(id: 'db1', title: 'Projects', path: 'Projects');
-      registry.upsert(summary, {
-        'type': 'database',
-        'views': [
-          {'name': 'All', 'type': 'table'},
-        ],
-      });
-      registry.remove('db1');
+      registry
+        ..upsert(summary, {
+          'type': 'database',
+          'views': [
+            {'name': 'All', 'type': 'table'},
+          ],
+        })
+        ..remove('db1');
       expect(registry.get('db1'), isNull);
     });
 

@@ -215,6 +215,17 @@ FutureOr<Response> _onboardingMount(RequestContext context, String token) {
 /// Convenience around an [HttpServer] running [startTestServer]. Holds the
 /// server, the [AppDeps] that back it, and a base URL for HTTP clients.
 class TestApp {
+  /// Wraps an [HttpServer]/[AppDeps]/[Config] already built by hand (e.g.
+  /// a test that needs to reopen the same [dataDir] after closing a first
+  /// [TestApp], to exercise a restart) into the same convenience surface
+  /// [start] returns.
+  TestApp.wrap(
+    HttpServer server,
+    AppDeps deps,
+    Config config,
+    Directory dataDir,
+  ) : this._(server, deps, config, dataDir);
+
   TestApp._(this.server, this.deps, this.config, this.tmpDir);
 
   final HttpServer server;
@@ -254,18 +265,6 @@ class TestApp {
     );
     return TestApp._(server, deps, config, tmpDir);
   }
-
-  /// Wraps an [HttpServer]/[AppDeps]/[Config] already built by hand (e.g.
-  /// a test that needs to reopen the same [dataDir] after closing a first
-  /// [TestApp], to exercise a restart) into the same convenience surface
-  /// [start] returns.
-  static TestApp wrap(
-    HttpServer server,
-    AppDeps deps,
-    Config config,
-    Directory dataDir,
-  ) =>
-      TestApp._(server, deps, config, dataDir);
 
   String get baseUrl => 'http://${server.address.host}:${server.port}';
 

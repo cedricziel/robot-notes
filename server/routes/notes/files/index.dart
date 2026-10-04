@@ -28,7 +28,11 @@ Future<Response> onRequest(RequestContext context) async {
       return _list(context);
     case HttpMethod.post:
       return _upload(context);
-    default:
+    case HttpMethod.delete:
+    case HttpMethod.head:
+    case HttpMethod.options:
+    case HttpMethod.patch:
+    case HttpMethod.put:
       return Response.json(
         statusCode: HttpStatus.methodNotAllowed,
         body: const {'error': 'method_not_allowed'},

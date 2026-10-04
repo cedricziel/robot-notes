@@ -486,7 +486,7 @@ class RobotNotesClient {
         if (filter != null) 'filter': filter.toJson(),
         if (sort != null) 'sort': sort.map((s) => s.toJson()).toList(),
         'group_by': ?groupBy,
-        if (limit != null) 'limit': limit,
+        'limit': ?limit,
         'after': ?after,
       }),
     );
@@ -510,7 +510,7 @@ class RobotNotesClient {
       },
       body: jsonEncode(<String, Object?>{
         'title': title,
-        if (properties != null) 'properties': properties,
+        'properties': ?properties,
         'content': ?content,
         'path': ?path,
       }),

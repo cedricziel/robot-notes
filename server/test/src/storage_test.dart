@@ -911,7 +911,7 @@ void main() {
         content: 'body',
         properties: {
           'status': 'todo',
-          'tags': ['work']
+          'tags': ['work'],
         },
       );
       final updated = await storage.update(
@@ -922,13 +922,13 @@ void main() {
       );
       expect(updated.extra, {
         'status': 'todo',
-        'tags': ['work']
+        'tags': ['work'],
       });
     });
 
     test(
-      'supplied properties replaces property keys but keeps tags/type/'
-      'source/views',
+      'supplied properties replaces property keys '
+      'but keeps tags/type/source/views',
       () async {
         final storage = _storage(
           tmp,
