@@ -294,6 +294,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('mounted compact Search refreshes recent notes with the list', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(390, 844));
+    var title = 'Before refresh';
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((request) async {
+        if (request.method == 'GET' && request.url.path == '/notes') {
+          return http.Response(
+            jsonEncode({
+              'items': [_noteJson(title: title)],
+              'limit': 50,
+            }),
+            200,
+          );
+        }
+        return _fakeBackend(request);
+      }),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('shell.tab.search')));
+    await tester.pumpAndSettle();
+    expect(find.text('Before refresh'), findsOneWidget);
+    final session = AppSession.of(tester.element(find.byType(SearchScreen)));
+    title = 'After refresh';
+    await session.list.refresh();
+    await tester.pumpAndSettle();
+    expect(find.text('After refresh'), findsOneWidget);
+    expect(find.text('Before refresh'), findsNothing);
+  });
+
   group('responsive device regression matrix', () {
     const cases = [
       (

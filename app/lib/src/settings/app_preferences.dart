@@ -35,8 +35,14 @@ class AppPreferences extends ChangeNotifier {
     _revision++;
     themeMode = mode;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('appearance.theme', mode.name);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!await prefs.setString('appearance.theme', mode.name)) {
+        debugPrint('Could not save device preferences: appearance.theme');
+      }
+    } catch (error) {
+      debugPrint('Could not save device preferences: $error');
+    }
   }
 
   Future<void> setSidebarWidth(double width) async {
@@ -44,8 +50,14 @@ class AppPreferences extends ChangeNotifier {
     _revision++;
     sidebarWidth = width.clamp(200, 420);
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble('workspace.sidebarWidth', sidebarWidth);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!await prefs.setDouble('workspace.sidebarWidth', sidebarWidth)) {
+        debugPrint('Could not save device preferences: workspace.sidebarWidth');
+      }
+    } catch (error) {
+      debugPrint('Could not save device preferences: $error');
+    }
   }
 
   @override

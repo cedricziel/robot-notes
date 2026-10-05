@@ -30,3 +30,11 @@ Android SDK is absent locally. Native Linux/Windows require their host toolchain
 The maintained workflow is [.agents/skills/verify-project-local/SKILL.md](../../.agents/skills/verify-project-local/SKILL.md). Temporary credentials, server data, and runtime logs are excluded from Git.
 
 Cleanup completed: browser credentials cleared via Disconnect, viewport override reset, verification tabs closed, dev processes stopped, temporary data removed, and the simulator started for this run shut down.
+
+## CodeRabbit follow-up
+
+All three findings were reproduced and fixed: compact Search now observes list updates; keyboard selection follows note identity and discards obsolete result keys; preference writes catch initialization/write failures and log rejected writes. The 90 affected router/search/preferences tests passed, and the updated web release build and Wasm dry run succeeded. Targeted search/preferences analysis reported no issues.
+
+A fresh throwaway instance served the updated real app. An app edit was saved and confirmed through the server API at version 2. With compact Search mounted and the original recent note selected, a second note was created on the server: it appeared immediately without changing destinations, the original note remained highlighted, and Enter opened the original note. No browser errors/warnings were captured.
+
+[Live updated Search evidence](live-review-search.jpg). The disposable credentials were cleared through Disconnect; browser sizing was reset and the verification tab and server were stopped.

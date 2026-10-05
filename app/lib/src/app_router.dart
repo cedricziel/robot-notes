@@ -518,11 +518,14 @@ class _AppShellState extends State<_AppShell> {
             const SizedBox.shrink(),
           if (_visitedDestinations.contains(2))
             SafeArea(
-              child: SearchScreen(
-                controller: _destinationSearch!,
-                autofocus: _compactDestination == 2,
-                recentNotes: session.list.value.items,
-                onResultTap: (id) => unawaited(context.push('/notes/$id')),
+              child: ValueListenableBuilder<NotesListState>(
+                valueListenable: session.list,
+                builder: (context, listState, _) => SearchScreen(
+                  controller: _destinationSearch!,
+                  autofocus: _compactDestination == 2,
+                  recentNotes: listState.items,
+                  onResultTap: (id) => unawaited(context.push('/notes/$id')),
+                ),
               ),
             )
           else

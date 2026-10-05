@@ -55,7 +55,7 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   late final TextEditingController _input;
   late final FocusNode _inputFocus = FocusNode(onKeyEvent: _onKey);
-  int _selected = -1;
+  String? _selectedId;
   final Map<String, GlobalKey> _resultKeys = {};
 
   List<String> get _visibleIds => widget.controller.value.query.trim().isEmpty
@@ -76,11 +76,13 @@ class _SearchScreenState extends State<SearchScreen> {
     if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
         event.logicalKey == LogicalKeyboardKey.arrowUp) {
       final down = event.logicalKey == LogicalKeyboardKey.arrowDown;
-      setState(
-        () =>
-            _selected = (_selected + (down ? 1 : -1)).clamp(0, ids.length - 1),
+      final currentIndex = ids.indexOf(_selectedId ?? '');
+      final nextIndex = (currentIndex + (down ? 1 : -1)).clamp(
+        0,
+        ids.length - 1,
       );
-      final selectedContext = _resultKeys[ids[_selected]]?.currentContext;
+      setState(() => _selectedId = ids[nextIndex]);
+      final selectedContext = _resultKeys[_selectedId]?.currentContext;
       if (selectedContext != null) {
         Scrollable.ensureVisible(
           selectedContext,
@@ -92,22 +94,22 @@ class _SearchScreenState extends State<SearchScreen> {
       return KeyEventResult.handled;
     }
     if (event.logicalKey == LogicalKeyboardKey.enter &&
-        _selected >= 0 &&
-        _selected < ids.length) {
-      widget.onResultTap?.call(ids[_selected]);
+        _selectedId != null &&
+        ids.contains(_selectedId)) {
+      widget.onResultTap?.call(_selectedId!);
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
   }
 
   void _queryChanged(String query) {
-    setState(() => _selected = -1);
+    setState(() => _selectedId = null);
     widget.controller.setQuery(query);
   }
 
   Widget _selection(String id, int index, Widget child) {
     final scheme = Theme.of(context).colorScheme;
-    final selected = index == _selected;
+    final selected = id == _selectedId;
     return Padding(
       key: _resultKeys.putIfAbsent(id, GlobalKey.new),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -214,6 +216,9 @@ class _SearchScreenState extends State<SearchScreen> {
     return ValueListenableBuilder<SearchState>(
       valueListenable: widget.controller,
       builder: (context, state, _) {
+        final visibleIds = _visibleIds.toSet();
+        _resultKeys.removeWhere((id, _) => !visibleIds.contains(id));
+        if (!visibleIds.contains(_selectedId)) _selectedId = null;
         final trimmedQuery = state.query.trim();
         if (trimmedQuery.isEmpty) {
           if (widget.recentNotes.isEmpty) {
