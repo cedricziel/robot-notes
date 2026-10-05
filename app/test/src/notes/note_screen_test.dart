@@ -9,7 +9,7 @@ import 'package:app/src/notes/note_screen.dart';
 import 'package:app/src/realtime/ws_client.dart';
 import 'package:app/src/widgets/status_strip.dart';
 import 'package:flutter/gestures.dart' show kDoubleTapMinTime;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -182,6 +182,10 @@ Future<void> _pumpConflict(
 Future<void> _pumpViewer(
   WidgetTester tester, {
   required String content,
+  String title = 'hello',
+  Map<String, Object?> properties = const {},
+  Brightness brightness = Brightness.light,
+  double textScale = 1,
   List<String> tags = const <String>[],
   String path = '',
   int version = 1,
@@ -202,15 +206,17 @@ Future<void> _pumpViewer(
       return http.Response(jsonEncode(_lockJson()), 200);
     }
     return http.Response(
-      jsonEncode(
-        _noteJson(
+      jsonEncode(<String, Object?>{
+        ..._noteJson(
+          title: title,
           content: content,
           tags: tags,
           path: path,
           version: version,
           updatedAt: updatedAt,
         ),
-      ),
+        'properties': properties,
+      }),
       200,
     );
   });
@@ -226,6 +232,12 @@ Future<void> _pumpViewer(
 
   await tester.pumpWidget(
     MaterialApp(
+      theme: ThemeData(brightness: brightness),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
       home: NoteScreen(
         controller: ctrl,
         onOpenNote: onOpenNote,
@@ -265,6 +277,67 @@ void main() {
     expect(find.byKey(const Key('note.edit')), findsOneWidget);
     expect(find.byTooltip('Back'), findsOneWidget);
     expect(find.byTooltip('Edit'), findsOneWidget);
+  });
+
+  testWidgets(
+    'roomy reader labels Edit and scrolls properties with the title',
+    (tester) async {
+      _setWindow(tester, 1200);
+      await _pumpViewer(
+        tester,
+        content: 'A note body',
+        properties: {'custom': 'value'},
+      );
+
+      expect(
+        tester.widget(find.byKey(const Key('note.edit'))),
+        isA<OutlinedButton>(),
+      );
+      final scroll = find.byKey(const Key('note.scroll'));
+      for (final key in ['note.title', 'note.metadata', 'note.propertyPanel']) {
+        expect(
+          find.ancestor(of: find.byKey(Key(key)), matching: scroll),
+          findsOneWidget,
+        );
+      }
+      expect(
+        tester.getTopLeft(find.byKey(const Key('note.title'))).dy,
+        lessThan(tester.getTopLeft(find.byKey(const Key('note.metadata'))).dy),
+      );
+      await tester.tap(find.byKey(const Key('note.propertyPanel.toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('note.edit')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(_contentField), findsOneWidget);
+      expect(
+        find.byKey(const Key('note.propertyPanel.undeclared.custom')),
+        findsNothing,
+        reason: 'the property panel retains its state when editing starts',
+      );
+    },
+  );
+
+  testWidgets('compact dark reader wraps long titles and enlarged text', (
+    tester,
+  ) async {
+    _setWindow(tester, 360);
+    await _pumpViewer(
+      tester,
+      title: 'A longer note title that remains readable on a small display',
+      content: 'A note body',
+      properties: {'A longer property label': 'A longer property value'},
+      brightness: Brightness.dark,
+      textScale: 2,
+    );
+
+    expect(
+      tester.widget(find.byKey(const Key('note.edit'))),
+      isA<IconButton>(),
+    );
+    expect(find.byKey(const Key('note.title')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.scrollUntilVisible(find.byKey(const Key('note.body')), 160);
+    expect(find.byKey(const Key('note.body')).hitTestable(), findsOneWidget);
   });
 
   group('presentation', () {
@@ -510,9 +583,9 @@ void main() {
       await _pumpEditor(tester);
 
       final title = tester.widget<TextField>(find.byKey(_titleField));
-      final headline = Theme.of(
-        tester.element(find.byKey(_titleField)),
-      ).textTheme.headlineSmall;
+      final headline = Theme.of(tester.element(find.byKey(_titleField)))
+          .textTheme
+          .headlineSmall;
       expect(title.style?.fontSize, headline?.fontSize);
     });
   });
@@ -2151,12 +2224,12 @@ void main() {
     );
 
     testWidgets(
-      'collapses to a compact pill instead of a full panel when empty',
+      'collapses to a compact line instead of a full panel when empty',
       (tester) async {
         await _pumpViewer(tester, content: 'hello');
 
         // No separate "Backlinks" heading claiming footer space when
-        // there's nothing to show — just the compact empty-state pill.
+        // there's nothing to show — just the compact empty-state line.
         expect(find.text('Backlinks'), findsNothing);
         expect(find.byKey(const Key('note.backlinks.empty')), findsOneWidget);
       },

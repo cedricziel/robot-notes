@@ -4,12 +4,79 @@ import 'package:app/src/config/app_config.dart';
 import 'package:app/src/config/config_store.dart';
 import 'package:app/src/setup/setup_controller.dart';
 import 'package:app/src/setup/setup_screen.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  for (final baseUrl in [
+    'http://localhost:8099',
+    'http://127.0.0.1:8099',
+    'http://[::1]:8099',
+  ]) {
+    testWidgets('Continue accepts the local server $baseUrl', (tester) async {
+      final controller = SetupController(
+        store: InMemoryConfigStore(),
+        clientFactory: () => MockClient((_) async => http.Response('', 200)),
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SetupScreen(
+            controller: controller,
+            onConfigured: (_) {},
+            capabilitiesClientFactory: () =>
+                MockClient((_) async => http.Response('{"status":"ok"}', 200)),
+          ),
+        ),
+      );
+
+      await tester.enterText(find.byKey(const Key('setup.baseUrl')), baseUrl);
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('setup.continue')))
+            .onPressed,
+        isNotNull,
+      );
+      await tester.tap(find.byKey(const Key('setup.continue')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('setup.apiKey')), findsOneWidget);
+      expect(find.text(baseUrl), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+    'Continue rejects deceptive, credential-bearing and malformed URLs',
+    (tester) async {
+      final controller = SetupController(store: InMemoryConfigStore());
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SetupScreen(controller: controller, onConfigured: (_) {}),
+        ),
+      );
+      for (final baseUrl in [
+        'http://localhost.example:8099',
+        'http://user:password@localhost:8099',
+        'https://user:password@notes.example',
+        'https://',
+      ]) {
+        await tester.enterText(find.byKey(const Key('setup.baseUrl')), baseUrl);
+        await tester.pump();
+        expect(
+          tester
+              .widget<FilledButton>(find.byKey(const Key('setup.continue')))
+              .onPressed,
+          isNull,
+          reason: baseUrl,
+        );
+      }
+    },
+  );
+
   testWidgets('step 1 shows only the server URL field and a Continue button', (
     tester,
   ) async {

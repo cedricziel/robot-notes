@@ -1,5 +1,6 @@
-import 'package:flutter/cupertino.dart' show CupertinoSliverRefreshControl;
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoSliverRefreshControl;
+import 'package:material_ui/material_ui.dart';
 import 'package:shared/shared.dart';
 
 import '../widgets/adaptive.dart';

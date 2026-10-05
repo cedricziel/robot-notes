@@ -88,9 +88,8 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       final redirectUri = launched!.queryParameters['redirect_uri']!;
       await http.get(
-        Uri.parse(
-          redirectUri,
-        ).replace(queryParameters: {'error': 'access_denied'}),
+        Uri.parse(redirectUri)
+            .replace(queryParameters: {'error': 'access_denied'}),
       );
 
       await signInFuture;

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared/shared.dart';
 
 import 'database_controller.dart';
@@ -91,9 +91,8 @@ class _BoardColumnWidget extends StatelessWidget {
           key: Key('database.board.column.${column.label}'),
           decoration: BoxDecoration(
             color: highlighted
-                ? Theme.of(
-                    context,
-                  ).colorScheme.primaryContainer.withValues(alpha: 0.3)
+                ? Theme.of(context).colorScheme.primaryContainer
+                      .withValues(alpha: 0.3)
                 : Theme.of(context).colorScheme.surfaceContainerLow,
             borderRadius: BorderRadius.circular(8),
           ),

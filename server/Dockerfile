@@ -37,14 +37,15 @@
 #     | grep -i docker-content-digest
 FROM --platform=$BUILDPLATFORM ghcr.io/cirruslabs/flutter:3.44.0@sha256:46691e311715845de03a3ba4753a475476936805b29431b1f00f1816981033f8 AS web-builder
 
-# Cirrus has no 3.47 image yet. Pin the SDK to the 3.47.2 revision used by
-# CI so tray_manager 0.7's Flutter >=3.47 requirement is met reproducibly.
-RUN flutter_sdk_dir="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")" \
- && git -C "$flutter_sdk_dir" fetch --depth 1 origin refs/tags/3.47.2:refs/tags/3.47.2 \
- && git -C "$flutter_sdk_dir" checkout --detach d3b14c876900e553bc736ca19295fc09e3853e8e \
- && rm -f "$flutter_sdk_dir/bin/cache/flutter.version.json" \
- && flutter --version \
- && flutter --version --machine | grep -Eq '"frameworkVersion": "3\.47\.2"'
+# Cirrus has not published a 3.47.2 image yet. Keep its immutable base and
+# upgrade the SDK to the verified Flutter 3.47.2 release commit, matching CI.
+# material_ui 1.5.0 and cupertino_ui 1.1.1 require Flutter >=3.47/Dart >=3.13.
+# Clone afresh because the base image's bundled Git pack/index is inconsistent.
+ENV FLUTTER_VERSION=3.47.2
+RUN rm -rf "$FLUTTER_ROOT" \
+ && git clone --depth 1 --branch 3.47.2 --no-checkout https://github.com/flutter/flutter.git "$FLUTTER_ROOT" \
+ && git -C "$FLUTTER_ROOT" checkout --detach d3b14c876900e553bc736ca19295fc09e3853e8e \
+ && flutter precache --web
 
 WORKDIR /workspace
 
@@ -59,10 +60,10 @@ WORKDIR /workspace
 #
 # pubspec.lock pins every transitive package to the versions CI tests
 # against. Without it `flutter pub get` here resolves fresh, and a newly
-# published transitive (material_ui 1.3.0 needed a `meta` newer than the
-# 3.44.0 SDK bundles) can break `flutter build web` with no change in
-# this repo. Pub treats the lock as the preferred resolution and only
-# deviates where the stripped workspace or the SDK forces it.
+# published transitive can require a newer SDK dependency and break
+# `flutter build web` with no change in this repo. Pub treats the lock
+# as the preferred resolution and only deviates where the stripped
+# workspace or the SDK forces it.
 COPY pubspec.yaml pubspec.lock ./
 RUN sed -i '/^  - server$/d' pubspec.yaml \
  && sed -i '/^dev_dependencies:$/,$d' pubspec.yaml \

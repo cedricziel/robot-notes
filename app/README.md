@@ -9,28 +9,23 @@ before working here.
 
 ## Running against a server
 
-The app reads its base URL, API key, and actor identity at startup. Pass them
-in via `--dart-define` (handy for both `flutter run` and `flutter build`):
+Run `flutter run` and connect through the setup screen with the server URL,
+API key, and display name (or OIDC sign-in when offered). The app restores
+its saved configuration on later launches. Remote servers require HTTPS;
+HTTP is accepted only for `localhost`, `127.0.0.1`, and `[::1]`.
+
+For disposable local verification, build the current web client and start
+the project helper from the repository root:
 
 ```sh
-flutter run \
-  --dart-define=ROBOT_NOTES_BASE_URL=http://127.0.0.1:8080 \
-  --dart-define=ROBOT_NOTES_API_KEY=rn_your_secret \
-  --dart-define=ROBOT_NOTES_ACTOR=cedric
+(cd app && flutter build web --no-pub)
+.agents/skills/verify-project-local/scripts/start.sh
 ```
 
-For desktop/release builds bake those values into the bundle the same way:
-
-```sh
-flutter build macos \
-  --dart-define=ROBOT_NOTES_BASE_URL=https://notes.example.com \
-  --dart-define=ROBOT_NOTES_API_KEY=rn_your_secret \
-  --dart-define=ROBOT_NOTES_ACTOR=cedric
-```
-
-Without the defines the app starts on its setup screen, where the same three
-values can be entered by hand (or, when the server offers it, replaced by an
-OIDC sign-in). See the root README for how to start the server itself.
+Open its printed URL, connect with its disposable API key, and exercise a
+real edit/save/reload against the temporary server. Stop with Ctrl-C to
+remove the temporary data. The maintained [verify-project-local skill](../.agents/skills/verify-project-local/SKILL.md)
+defines the runtime, responsive, and cleanup checks.
 
 ## Tests, analysis, formatting
 
@@ -52,7 +47,7 @@ which maps the window width to a Material 3 window size class:
 
 | Size class | Width  | What you get                                                                                                                                                                                                                      |
 | ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| compact    | < 600  | Phone chrome: bottom navigation (Search / Folders / Account), a floating action menu, the folder tree in a drawer, search as a top sheet, editor preview off by default.                                                          |
+| compact    | < 600  | Phone workspace: persistent Notes / Databases / Search / Settings destinations, compose and folder/upload toolbar actions, the folder tree in a drawer, editor preview off by default. Search retains its query between destinations; Cmd/Ctrl+K opens an overlay (a bottom sheet on iOS).                                                          |
 | medium+    | ≥ 600  | Wide chrome (medium ≥ 600, expanded ≥ 840): toolbar actions (New note, Upload file, Search, Refresh, Account) instead of the FAB, an inline resizable folder sidebar, search as a centered palette, editor preview on by default. Notes still open as full-screen pages. |
 | large      | ≥ 1200 | Three-pane shell: resizable folder sidebar, notes list, and the open note side by side. `/` shows a "Select a note" placeholder in the note pane; the list highlights the open note.                                              |
 
@@ -70,7 +65,7 @@ Cmd on macOS, Ctrl elsewhere.
 | Cmd/Ctrl + N                       | New note in the currently selected folder                    |
 | Cmd/Ctrl + K, Cmd/Ctrl + Shift + F | Open search                                                  |
 | Cmd + R, F5                        | Refresh the notes list                                       |
-| Cmd/Ctrl + ,                       | Open the account surface                                     |
+| Cmd/Ctrl + ,                       | Open Settings                                     |
 | Cmd/Ctrl + E                       | Enter edit mode on the open note (also: double-tap the body) |
 | Cmd/Ctrl + S                       | Save the note being edited                                   |
 | Esc                                | Close the note, the search overlay, or the account sheet     |
@@ -135,3 +130,42 @@ and the front note register their handlers there, and
 
 Behaviour is specified in `openspec/specs/flutter-client/spec.md` at the repo
 root; new work goes through an OpenSpec change under `openspec/changes/`.
+
+## Workspace appearance
+
+The app uses neutral content surfaces, indigo inset selections and compact
+rounded rectangular controls, with platform fonts and coherent light/dark
+themes. Settings offers System / Light / Dark appearance; this preference and
+the wide-workspace sidebar width are saved on the device. Settings retains
+server details, connection state, app lock and disconnect. On desktop it opens
+in a dialog; on compact screens it has its own destination.
+
+The reader groups properties beneath the document title and metadata. These
+properties scroll with the note and retain their editor state when entering
+edit mode. Search supports Up/Down and Enter, including results below the
+visible viewport. Sidebar resizing supports arrow keys and semantic
+increase/decrease actions as well as dragging.
+
+Rendered examples with seeded preview data are in `../docs/design/`. The
+platform-aware redesign proposal records scope and remaining native
+integrations in `../openspec/changes/redesign-platform-aware-workspace/`.
+
+### UI packages and platform support
+
+The client uses the official `material_ui` and `cupertino_ui` packages.
+Building requires Flutter >=3.47.0 and Dart ^3.13.0. Android, iOS, macOS,
+Windows, Linux, and web share the same application; adaptive controls and
+platform-specific integrations retain their existing target checks.
+
+A temporary `MaterialUiCompatibilityBridge` at the app root supplies legacy
+Flutter themes and localizations to `flutter_markdown_plus`, which has not yet
+migrated. Markdown styles are built explicitly from our current theme; remove
+the bridge when all dependencies use the standalone packages.
+
+Responsive layout follows available logical width rather than device names or
+orientation locks. iPhone and Android phones, tablets in portrait/landscape,
+and resized desktop/browser windows use the same breakpoints. Router-level
+regressions cover representative phone, tablet, Linux, Mac, and compact browser
+viewports plus live rotation/resizing with an open note and retained search.
+These tests verify widget layout and state; they do not replace native device
+and browser release validation.

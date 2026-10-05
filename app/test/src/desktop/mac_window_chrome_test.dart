@@ -1,7 +1,7 @@
 import 'package:app/src/desktop/mac_window_chrome.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Runs [body] with the target platform pinned, resetting it inline (not

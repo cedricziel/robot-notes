@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Wraps the current selection in [value] with [marker] on both sides
 /// (e.g. `**` for bold, `*` for italic). With a non-empty selection, the

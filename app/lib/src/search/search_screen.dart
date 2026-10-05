@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
@@ -30,6 +31,7 @@ class SearchScreen extends StatefulWidget {
     required this.controller,
     this.onResultTap,
     this.onClose,
+    this.autofocus = true,
     this.recentNotes = const <NoteMeta>[],
     super.key,
   });
@@ -40,6 +42,7 @@ class SearchScreen extends StatefulWidget {
   /// Invoked by the header's close button. `null` hides the button (the
   /// host is expected to provide its own dismissal, e.g. a scrim tap).
   final VoidCallback? onClose;
+  final bool autofocus;
 
   /// Shown as a "Recent" section while the query is empty. `null`/empty
   /// falls back to the plain "Type to search." hint.
@@ -50,8 +53,89 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
-  final TextEditingController _input = TextEditingController();
-  final FocusNode _inputFocus = FocusNode();
+  late final TextEditingController _input;
+  late final FocusNode _inputFocus = FocusNode(onKeyEvent: _onKey);
+  int _selected = -1;
+  final Map<String, GlobalKey> _resultKeys = {};
+
+  List<String> get _visibleIds => widget.controller.value.query.trim().isEmpty
+      ? widget.recentNotes.take(8).map((note) => note.id).toList()
+      : widget.controller.value.hits.map((hit) => hit.id).toList();
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.escape &&
+        widget.onClose != null) {
+      widget.onClose!();
+      return KeyEventResult.handled;
+    }
+    final ids = _visibleIds;
+    if (ids.isEmpty) return KeyEventResult.ignored;
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
+        event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      final down = event.logicalKey == LogicalKeyboardKey.arrowDown;
+      setState(
+        () =>
+            _selected = (_selected + (down ? 1 : -1)).clamp(0, ids.length - 1),
+      );
+      final selectedContext = _resultKeys[ids[_selected]]?.currentContext;
+      if (selectedContext != null) {
+        Scrollable.ensureVisible(
+          selectedContext,
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 120),
+        );
+      }
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.enter &&
+        _selected >= 0 &&
+        _selected < ids.length) {
+      widget.onResultTap?.call(ids[_selected]);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _queryChanged(String query) {
+    setState(() => _selected = -1);
+    widget.controller.setQuery(query);
+  }
+
+  Widget _selection(String id, int index, Widget child) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = index == _selected;
+    return Padding(
+      key: _resultKeys.putIfAbsent(id, GlobalKey.new),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      child: Material(
+        color: selected ? scheme.primaryContainer : scheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: selected ? scheme.primary : Colors.transparent,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Semantics(selected: selected, child: child),
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _input = TextEditingController(text: widget.controller.value.query);
+  }
+
+  @override
+  void didUpdateWidget(SearchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.autofocus && !oldWidget.autofocus) _inputFocus.requestFocus();
+  }
 
   @override
   void dispose() {
@@ -62,7 +146,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _clear() {
     _input.clear();
-    widget.controller.setQuery('');
+    _queryChanged('');
     _inputFocus.requestFocus();
   }
 
@@ -93,8 +177,8 @@ class _SearchScreenState extends State<SearchScreen> {
               key: const Key('search.input'),
               controller: _input,
               focusNode: _inputFocus,
-              autofocus: true,
-              onChanged: widget.controller.setQuery,
+              autofocus: widget.autofocus,
+              onChanged: _queryChanged,
               decoration: const InputDecoration(
                 hintText: 'Search notes…',
                 border: InputBorder.none,
@@ -141,6 +225,7 @@ class _SearchScreenState extends State<SearchScreen> {
           return _RecentSection(
             notes: widget.recentNotes,
             onTap: widget.onResultTap,
+            selectionBuilder: _selection,
           );
         }
         final error = state.error;
@@ -193,19 +278,23 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
             Expanded(
-              child: ListView.separated(
+              child: SingleChildScrollView(
                 key: const Key('search.results'),
-                itemCount: state.hits.length,
-                separatorBuilder: (_, _) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final hit = state.hits[index];
-                  return _HitTile(
-                    hit: hit,
-                    onTap: widget.onResultTap == null
-                        ? null
-                        : () => widget.onResultTap!(hit.id),
-                  );
-                },
+                child: Column(
+                  children: [
+                    for (var index = 0; index < state.hits.length; index++)
+                      _selection(
+                        state.hits[index].id,
+                        index,
+                        _HitTile(
+                          hit: state.hits[index],
+                          onTap: widget.onResultTap == null
+                              ? null
+                              : () => widget.onResultTap!(state.hits[index].id),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -254,7 +343,12 @@ class _SyntaxHint extends StatelessWidget {
 /// Fills the empty state before the user types anything: a short list of
 /// recently-updated notes, so search never opens to a blank page.
 class _RecentSection extends StatelessWidget {
-  const _RecentSection({required this.notes, this.onTap});
+  const _RecentSection({
+    required this.notes,
+    this.onTap,
+    required this.selectionBuilder,
+  });
+  final Widget Function(String, int, Widget) selectionBuilder;
 
   final List<NoteMeta> notes;
   final ValueChanged<String>? onTap;
@@ -266,24 +360,38 @@ class _RecentSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final shown = notes.take(_maxShown).toList(growable: false);
-    return ListView(
+    return SingleChildScrollView(
       key: const Key('search.recent'),
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-          child: Text('Recent', style: Theme.of(context).textTheme.labelMedium),
-        ),
-        for (final note in shown)
-          ListTile(
-            key: Key('search.recent.${note.id}'),
-            title: Text(note.title.isEmpty ? '(untitled)' : note.title),
-            trailing: Text(
-              formatNoteTimestamp(note.updatedAt),
-              style: Theme.of(context).textTheme.bodySmall,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text(
+              'Recent',
+              style: Theme.of(context).textTheme.labelMedium,
             ),
-            onTap: onTap == null ? null : () => onTap!(note.id),
           ),
-      ],
+          for (var index = 0; index < shown.length; index++)
+            selectionBuilder(
+              shown[index].id,
+              index,
+              ListTile(
+                key: Key('search.recent.${shown[index].id}'),
+                title: Text(
+                  shown[index].title.isEmpty
+                      ? '(untitled)'
+                      : shown[index].title,
+                ),
+                trailing: Text(
+                  formatNoteTimestamp(shown[index].updatedAt),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                onTap: onTap == null ? null : () => onTap!(shown[index].id),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -322,6 +430,7 @@ class _SnippetText extends StatelessWidget {
     final spans = parseSnippet(snippet, context);
     return RichText(
       key: const Key('search.snippet'),
+      textScaler: MediaQuery.textScalerOf(context),
       text: TextSpan(
         style: DefaultTextStyle.of(context).style,
         children: spans,

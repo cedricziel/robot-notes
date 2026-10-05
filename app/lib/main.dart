@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import 'src/app_router.dart';
@@ -16,6 +16,7 @@ import 'src/lock/app_lock_prefs.dart';
 import 'src/lock/biometric_authenticator.dart';
 import 'src/otel/otel_bootstrap.dart';
 import 'src/theme/app_theme.dart';
+import 'src/settings/app_preferences.dart';
 import 'src/url_strategy.dart';
 
 export 'src/app_router.dart' show NoteRoute, blankNoteTitle, createBlankNote;
@@ -53,6 +54,7 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
   late final ConfigHolder _configHolder = ConfigHolder(_store);
   late final GoRouter _router = buildAppRouter(configHolder: _configHolder);
   final AppMenuActions _menuActions = AppMenuActions();
+  final AppPreferences _preferences = AppPreferences();
   final AppLockController _appLock = AppLockController(
     authenticator: LocalAuthBiometricAuthenticator(),
     prefs: const SharedPreferencesAppLockPrefs(),
@@ -66,6 +68,7 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
   @override
   void initState() {
     super.initState();
+    unawaited(_preferences.load());
     _configHolder.addListener(_syncOtel);
     _configHolder.addListener(_dropLockOnDisconnect);
   }
@@ -94,26 +97,39 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
     _appLock.dispose();
     _router.dispose();
     _menuActions.dispose();
+    _preferences.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
-      title: 'robot-notes',
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      routerConfig: _router,
-      builder: (context, child) => AppMenuBar(
-        actions: _menuActions,
-        onCloseWindow: widget.onCloseWindow,
-        child: AppMenuActionsScope(
-          actions: _menuActions,
-          child: MacWindowChrome(
-            child: AppRouterShell(
-              configHolder: _configHolder,
-              appLock: _appLock,
-              child: child,
+    return ListenableBuilder(
+      listenable: _preferences,
+      builder: (context, _) => MaterialApp.router(
+        title: 'Robot Notes',
+        themeMode: _preferences.themeMode,
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        routerConfig: _router,
+        // flutter_markdown_plus still reads legacy Flutter themes. Remove this
+        // bridge when that dependency migrates to material_ui.
+        // ignore: deprecated_member_use
+        builder: (context, child) => MaterialUiCompatibilityBridge(
+          child: AppPreferencesScope(
+            preferences: _preferences,
+            child: AppMenuBar(
+              actions: _menuActions,
+              onCloseWindow: widget.onCloseWindow,
+              child: AppMenuActionsScope(
+                actions: _menuActions,
+                child: MacWindowChrome(
+                  child: AppRouterShell(
+                    configHolder: _configHolder,
+                    appLock: _appLock,
+                    child: child,
+                  ),
+                ),
+              ),
             ),
           ),
         ),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Semantic tone of a [StatusStrip]; maps to a [ColorScheme] container pair
 /// so every strip in the app picks its colors the same way.

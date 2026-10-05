@@ -1,5 +1,5 @@
 import 'package:app/main.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Smoke test: the app boots without crashing and renders the splash while

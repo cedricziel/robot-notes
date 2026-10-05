@@ -31,9 +31,8 @@ jobs:
       - uses: actions/checkout@v7
 
       # Pinned to match developer machines (3.47.x ships Dart 3.13). The
-      # workspace pubspecs declare sdk: ^3.6, so any Flutter 3.27+ would
-      # technically resolve, but pinning to the version we actually use
-      # locally avoids "works on my machine" surprises.
+      # client uses standalone material_ui and cupertino_ui packages,
+      # which require Flutter >=3.47.0 and Dart ^3.13.0.
       - name: Setup Flutter (provides Dart SDK)
         uses: subosito/flutter-action@v2
         with:

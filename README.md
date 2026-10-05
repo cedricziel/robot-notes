@@ -20,8 +20,8 @@ This repo is a single Dart pub workspace.
 
 ## Quickstart
 
-Requirements: Dart `^3.6.0`, Flutter `>=3.27.0` (3.41 recommended — that's
-what CI runs against and what bundles Dart 3.11).
+Requirements: Dart `^3.13.0`, Flutter `>=3.47.0` for the full workspace.
+CI uses Flutter 3.47.2, which bundles Dart 3.13.
 
 ```sh
 # Install workspace deps + the pre-commit hook
@@ -108,24 +108,13 @@ get a vector from their opening rather than none at all.
 
 ### Pointing the Flutter app at a server
 
-The app reads its base URL, API key, and actor identity at startup. Pass them
-in via `--dart-define` (handy for both `flutter run` and `flutter build`):
+Run `cd app && flutter run`, then use the setup screen to enter the server
+URL, API key, and display name, or sign in with OIDC when the server offers
+it. The app restores its saved configuration on later launches. HTTPS is
+required for remote servers; exact loopback hosts also accept HTTP.
 
-```sh
-flutter run \
-  --dart-define=ROBOT_NOTES_BASE_URL=http://127.0.0.1:8080 \
-  --dart-define=ROBOT_NOTES_API_KEY=rn_your_secret \
-  --dart-define=ROBOT_NOTES_ACTOR=cedric
-```
-
-For desktop/release builds bake those values into the bundle the same way:
-
-```sh
-flutter build macos \
-  --dart-define=ROBOT_NOTES_BASE_URL=https://notes.example.com \
-  --dart-define=ROBOT_NOTES_API_KEY=rn_your_secret \
-  --dart-define=ROBOT_NOTES_ACTOR=cedric
-```
+For a disposable server with the real web app connected locally, follow
+the maintained [verify-project-local skill](.agents/skills/verify-project-local/SKILL.md).
 
 See [`app/README.md`](app/README.md) for the app's own test/analyze
 commands, its layout breakpoints, and keyboard shortcuts.

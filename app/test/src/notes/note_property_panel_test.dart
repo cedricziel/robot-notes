@@ -1,6 +1,6 @@
 import 'package:app/src/notes/note_property_panel.dart';
 import 'package:app/src/notes/property_panel_prefs.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared/shared.dart';
 
@@ -46,6 +46,37 @@ Future<void> _pump(
 
 void main() {
   group('NotePropertyPanel', () {
+    testWidgets('property drafts survive responsive row changes', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(600, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await _pump(
+        tester,
+        properties: {'status': 'todo'},
+        coveringDefinitions: [
+          _definition(
+            properties: {
+              'status': const PropertyDefinition(type: PropertyType.text),
+            },
+          ),
+        ],
+        onCommit: (key, patch) async => null,
+      );
+      final field = find.byKey(const Key('property_editor.text.field'));
+      await tester.enterText(field, 'unsubmitted draft');
+      final controller = tester.widget<TextField>(field).controller;
+
+      for (final width in [390.0, 600.0]) {
+        tester.view.physicalSize = Size(width, 800);
+        await tester.pumpAndSettle();
+        expect(tester.widget<TextField>(field).controller, same(controller));
+        expect(controller!.text, 'unsubmitted draft');
+        expect(tester.takeException(), isNull);
+      }
+    });
+
     testWidgets('declared properties use typed editors in definition order', (
       tester,
     ) async {

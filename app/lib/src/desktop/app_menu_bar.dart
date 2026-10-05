@@ -69,7 +69,7 @@ List<PlatformMenuItem> buildAppMenus(
         PlatformMenuItemGroup(
           members: <PlatformMenuItem>[
             PlatformMenuItem(
-              label: 'Account…',
+              label: 'Settings…',
               shortcut: const SingleActivator(
                 LogicalKeyboardKey.comma,
                 meta: true,

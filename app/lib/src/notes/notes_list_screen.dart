@@ -1,7 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/cupertino.dart' show CupertinoSliverRefreshControl;
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoIcons, CupertinoSliverRefreshControl;
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:shared/shared.dart';
 
@@ -51,6 +52,7 @@ class NotesListScreen extends StatefulWidget {
     this.sidebar,
     this.layout,
     this.selectedNoteId,
+    this.showCompactNavigation = true,
     super.key,
   });
 
@@ -96,6 +98,11 @@ class NotesListScreen extends StatefulWidget {
   /// The note currently open beside the list (three-pane shell); its row
   /// renders selected. `null` highlights nothing.
   final String? selectedNoteId;
+
+  /// Whether standalone compact chrome should include the action strip and
+  /// floating create menu. A compact shell supplies its own destinations and
+  /// uses the app bar's compose and overflow actions instead.
+  final bool showCompactNavigation;
 
   @override
   State<NotesListScreen> createState() => _NotesListScreenState();
@@ -199,6 +206,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
           builder: (context, state, _) {
             return Scaffold(
               key: _scaffoldKey,
+              backgroundColor: Theme.of(context).colorScheme.surface,
               appBar: AppBar(
                 title: Text(
                   _titleFor(state.selectedPath),
@@ -210,7 +218,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
                 // Wide layouts never have a drawer, so this has no effect
                 // on them.
                 automaticallyImplyLeading: isWide,
-                actions: isWide ? _toolbarActions() : const [],
+                actions: isWide
+                    ? _toolbarActions()
+                    : widget.showCompactNavigation
+                    ? const []
+                    : _compactToolbarActions(),
               ),
               drawer: sidebar == null || showSidebarInline
                   ? null
@@ -218,10 +230,13 @@ class _NotesListScreenState extends State<NotesListScreen> {
                       key: const Key('notes.sidebar.drawer'),
                       child: sidebar,
                     ),
-              floatingActionButton: widget.onCreateNote == null || isWide
+              floatingActionButton:
+                  widget.onCreateNote == null ||
+                      isWide ||
+                      !widget.showCompactNavigation
                   ? null
                   : _buildCreateMenu(),
-              bottomNavigationBar: isWide
+              bottomNavigationBar: isWide || !widget.showCompactNavigation
                   ? null
                   : _BottomNav(
                       hasFolders: sidebar != null,
@@ -263,7 +278,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
           child: TextButton.icon(
             key: const Key('notes.create.toolbar'),
             onPressed: widget.onCreateNote,
-            icon: const Icon(Icons.add),
+            icon: Icon(_icon(Icons.add, CupertinoIcons.add)),
             label: const Text('New note'),
           ),
         ),
@@ -271,70 +286,119 @@ class _NotesListScreenState extends State<NotesListScreen> {
         IconButton(
           key: const Key('notes.create.upload.toolbar'),
           tooltip: 'Upload file',
-          icon: const Icon(Icons.upload_file),
+          icon: Icon(
+            _icon(Icons.upload_file_outlined, CupertinoIcons.arrow_up_doc),
+          ),
           onPressed: widget.onUploadFile,
         ),
       if (widget.onSearch != null)
         IconButton(
           key: const Key('shell.search'),
           tooltip: 'Search',
-          icon: const Icon(Icons.search),
+          icon: Icon(_icon(Icons.search, CupertinoIcons.search)),
           onPressed: widget.onSearch,
         ),
       IconButton(
         key: const Key('shell.refresh'),
         tooltip: 'Refresh',
-        icon: const Icon(Icons.refresh),
+        icon: Icon(_icon(Icons.refresh, CupertinoIcons.arrow_clockwise)),
         onPressed: widget.controller.refresh,
       ),
       if (widget.onAccount != null)
         IconButton(
           key: const Key('shell.account'),
-          tooltip: 'Account',
-          icon: const Icon(Icons.account_circle),
+          tooltip: 'Settings',
+          icon: Icon(_icon(Icons.settings_outlined, CupertinoIcons.gear)),
           onPressed: widget.onAccount,
         ),
       const SizedBox(width: 4),
     ];
   }
 
-  Widget _buildCreateMenu() {
+  IconData _icon(IconData material, IconData apple) =>
+      useCupertino(context) ? apple : material;
+
+  List<Widget> _compactToolbarActions() => [
+    if (widget.onCreateNote != null)
+      IconButton(
+        key: const Key('notes.create.toolbar'),
+        tooltip: 'New note',
+        icon: Icon(_icon(Icons.edit_outlined, CupertinoIcons.square_pencil)),
+        onPressed: widget.onCreateNote,
+      ),
+    if (widget.onCreateFolder != null ||
+        widget.onUploadFile != null ||
+        widget.sidebar != null)
+      _buildCreateMenu(compact: true),
+    const SizedBox(width: 8),
+  ];
+
+  Widget _buildCreateMenu({bool compact = false}) {
     return MenuAnchor(
       key: const Key('notes.create.menu'),
       menuChildren: [
-        MenuItemButton(
-          key: const Key('notes.create.note'),
-          leadingIcon: const Icon(Icons.note_add_outlined),
-          onPressed: widget.onCreateNote,
-          child: const Text('New note'),
-        ),
+        if (compact && widget.sidebar != null)
+          MenuItemButton(
+            key: const Key('notes.sidebar.open'),
+            leadingIcon: Icon(
+              _icon(Icons.folder_outlined, CupertinoIcons.folder),
+            ),
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+            child: const Text('Folders'),
+          ),
+        if (widget.onCreateNote != null)
+          MenuItemButton(
+            key: const Key('notes.create.note'),
+            leadingIcon: Icon(
+              _icon(Icons.note_add_outlined, CupertinoIcons.doc),
+            ),
+            onPressed: widget.onCreateNote,
+            child: const Text('New note'),
+          ),
         if (widget.onCreateFolder != null)
           MenuItemButton(
             key: const Key('notes.create.folder'),
-            leadingIcon: const Icon(Icons.create_new_folder_outlined),
+            leadingIcon: Icon(
+              _icon(
+                Icons.create_new_folder_outlined,
+                CupertinoIcons.folder_badge_plus,
+              ),
+            ),
             onPressed: widget.onCreateFolder,
             child: const Text('New folder'),
           ),
         if (widget.onUploadFile != null)
           MenuItemButton(
             key: const Key('notes.create.upload'),
-            leadingIcon: const Icon(Icons.upload_file_outlined),
+            leadingIcon: Icon(
+              _icon(Icons.upload_file_outlined, CupertinoIcons.arrow_up_doc),
+            ),
             onPressed: widget.onUploadFile,
             child: const Text('Upload file'),
           ),
       ],
       builder: (context, menuController, child) {
+        void toggleMenu() {
+          if (menuController.isOpen) {
+            menuController.close();
+          } else {
+            menuController.open();
+          }
+        }
+
+        if (compact) {
+          return IconButton(
+            key: const Key('notes.create.more'),
+            tooltip: 'More actions',
+            icon: Icon(_icon(Icons.more_horiz, CupertinoIcons.ellipsis)),
+            onPressed: toggleMenu,
+          );
+        }
         return FloatingActionButton(
           key: const Key('notes.create'),
           tooltip: 'Create',
-          onPressed: () {
-            if (menuController.isOpen) {
-              menuController.close();
-            } else {
-              menuController.open();
-            }
-          },
-          child: const Icon(Icons.add),
+          onPressed: toggleMenu,
+          child: Icon(_icon(Icons.add, CupertinoIcons.add)),
         );
       },
     );
@@ -350,6 +414,37 @@ class _NotesListScreenState extends State<NotesListScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (!wide && !widget.showCompactNavigation && widget.onSearch != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                key: const Key('notes.search.field'),
+                onPressed: widget.onSearch,
+                style: TextButton.styleFrom(
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerLow,
+                  foregroundColor: Theme.of(context)
+                      .colorScheme
+                      .onSurfaceVariant,
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                ),
+                icon: Icon(
+                  Theme.of(context).platform == TargetPlatform.iOS
+                      ? CupertinoIcons.search
+                      : Icons.search,
+                  size: 18,
+                ),
+                label: const Text('Search notes…'),
+              ),
+            ),
+          ),
         _buildFilterBar(state),
         if (error != null)
           ErrorStrip(
@@ -373,7 +468,13 @@ class _NotesListScreenState extends State<NotesListScreen> {
                   SliverList.separated(
                     itemCount:
                         state.items.length + (state.isLoadingMore ? 1 : 0),
-                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    separatorBuilder: (context, _) => Divider(
+                      height: 1,
+                      indent: 24,
+                      endIndent: 24,
+                      color: Theme.of(context).colorScheme.outlineVariant
+                          .withValues(alpha: 0.55),
+                    ),
                     itemBuilder: (context, index) {
                       if (index >= state.items.length) {
                         return const Padding(
@@ -561,25 +662,32 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final apple = useCupertino(context);
     return BottomAppBar(
+      elevation: 0,
+      height: 66,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      color: Theme.of(context).colorScheme.surface,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _BottomNavItem(
             itemKey: const Key('notes.bottomNav.search'),
-            icon: Icons.search,
+            icon: apple ? CupertinoIcons.search : Icons.search,
             label: 'Search',
             onTap: onSearch,
           ),
           _BottomNavItem(
             itemKey: const Key('notes.bottomNav.folders'),
-            icon: Icons.folder_outlined,
+            icon: apple ? CupertinoIcons.folder : Icons.folder_outlined,
             label: 'Folders',
             onTap: hasFolders ? onFolders : null,
           ),
           _BottomNavItem(
             itemKey: const Key('notes.bottomNav.account'),
-            icon: Icons.account_circle_outlined,
+            icon: apple
+                ? CupertinoIcons.person_crop_circle
+                : Icons.account_circle_outlined,
             label: 'Account',
             onTap: onAccount,
           ),
@@ -604,16 +712,29 @@ class _BottomNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = onTap == null
+        ? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)
+        : theme.colorScheme.onSurfaceVariant;
     return InkWell(
       key: itemKey,
+      borderRadius: BorderRadius.circular(8),
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon),
-            Text(label, style: Theme.of(context).textTheme.labelSmall),
+            Icon(icon, size: 22, color: color),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ],
         ),
       ),
@@ -670,6 +791,22 @@ class _NoteTileState extends State<_NoteTile> {
     final tile = ListTile(
       key: Key('notes.tile.${note.id}'),
       selected: widget.selected,
+      selectedColor: theme.colorScheme.onSurface,
+      selectedTileColor: theme.colorScheme.primaryContainer,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      minVerticalPadding: 10,
+      titleTextStyle: theme.textTheme.titleSmall?.copyWith(
+        color: theme.colorScheme.onSurface,
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        height: 1.3,
+      ),
+      subtitleTextStyle: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+        fontSize: 13,
+        height: 1.4,
+      ),
       title: Text(
         note.title.isEmpty ? '(untitled)' : note.title,
         maxLines: 1,
@@ -679,9 +816,16 @@ class _NoteTileState extends State<_NoteTile> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (note.excerpt.isNotEmpty)
-            Text(note.excerpt, maxLines: 1, overflow: TextOverflow.ellipsis),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                note.excerpt,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           Padding(
-            padding: const EdgeInsets.only(top: 2),
+            padding: const EdgeInsets.only(top: 6),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -720,7 +864,12 @@ class _NoteTileState extends State<_NoteTile> {
           ? IconButton(
               key: Key('notes.tile.${note.id}.hoverDelete'),
               tooltip: 'Delete note',
-              icon: const Icon(Icons.delete_outline),
+              icon: Icon(
+                useCupertino(context)
+                    ? CupertinoIcons.trash
+                    : Icons.delete_outline,
+                size: 18,
+              ),
               onPressed: widget.onDelete,
             )
           : null,
@@ -741,7 +890,15 @@ class _NoteTileState extends State<_NoteTile> {
           child: child,
         );
       },
-      child: tile,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        child: Material(
+          color: Colors.transparent,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          child: tile,
+        ),
+      ),
     );
     final row = !widget.wide
         ? menu

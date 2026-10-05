@@ -4,7 +4,7 @@ import 'package:app/src/lock/app_lock_controller.dart';
 import 'package:app/src/lock/app_lock_gate.dart';
 import 'package:app/src/lock/app_lock_prefs.dart';
 import 'package:app/src/lock/biometric_authenticator.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fakes.dart';
