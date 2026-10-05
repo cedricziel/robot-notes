@@ -1118,6 +1118,44 @@ void main() {
       },
     );
 
+    test(
+      'caps the echoed query in the invalid-query warning (log hygiene)',
+      () async {
+        final logger = Logger.detached('search-test')..level = Level.ALL;
+        final index = await _open(tmp, logger: logger);
+        addTearDown(index.close);
+        final records = <LogRecord>[];
+        final sub = logger.onRecord.listen(records.add);
+        addTearDown(sub.cancel);
+
+        final longPrompt =
+            '"unterminated ${'very long prompt text ' * 20}secret tail';
+        await expectLater(
+          index.search(longPrompt),
+          throwsA(isA<InvalidSearchQueryException>()),
+        );
+
+        expect(records, isNotEmpty);
+        expect(
+          records.any((r) => r.message.contains(longPrompt)),
+          isFalse,
+          reason: 'the full query must never be logged',
+        );
+        expect(
+          records.any(
+            (r) => r.message.contains('very long prompt text ' * 6),
+          ),
+          isFalse,
+          reason: 'the warning echoes only a bounded preview',
+        );
+        // The preview is still identifiable.
+        expect(
+          records.any((r) => r.message.contains('unterminated')),
+          isTrue,
+        );
+      },
+    );
+
     test('starts a search.query span naming the hit count', () async {
       final processor = _RecordingSpanProcessor();
       final tracer = SdkTracer(

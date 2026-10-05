@@ -220,8 +220,17 @@ class InvalidSearchQueryException implements Exception {
   /// SQLite's error message.
   final String reason;
 
+  /// [original] capped for display — [toString] (and thereby log lines)
+  /// must not leak whole prompts/notes, only enough to identify the
+  /// query shape (see issue #333).
+  static const int _maxPreviewChars = 100;
+
+  String get _preview => original.length <= _maxPreviewChars
+      ? original
+      : '${original.substring(0, _maxPreviewChars)}…';
+
   @override
-  String toString() => 'InvalidSearchQueryException($original): $reason';
+  String toString() => 'InvalidSearchQueryException($_preview): $reason';
 }
 
 /// FTS5-backed full-text search index.
@@ -756,7 +765,11 @@ class SearchIndex {
       span.setAttribute('search.hit_count', hits.length);
       return hits;
     } on SqliteException catch (e, st) {
-      _log.warning('Invalid search query "$query": ${e.message}');
+      // Cap the echoed query (issue #333): failed searches log whole
+      // prompts otherwise.
+      final preview =
+          query.length > 100 ? '${query.substring(0, 100)}…' : query;
+      _log.warning('Invalid search query "$preview": ${e.message}');
       final exception = InvalidSearchQueryException(
         original: query,
         reason: e.message,
