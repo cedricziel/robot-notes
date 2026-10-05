@@ -1069,22 +1069,27 @@ class SearchIndex {
   }
 
   /// Neutralizes punctuation that trips FTS5's query-string parser but
-  /// carries no FTS5 meaning (e.g. a sentence-ending `?` or an apostrophe
-  /// in "isn't"), by replacing it with a space. FTS5 syntax characters
-  /// (`"`, `*`, `(`, `)`, `:`) are preserved so deliberate phrase/prefix/
-  /// column-filter queries are untouched. [search] only tries this as a
-  /// fallback after the raw query fails to parse, so genuine syntax
-  /// errors (e.g. an unterminated quote) still surface as
+  /// carries no FTS5 meaning (e.g. a sentence-ending `?`, an apostrophe in
+  /// "isn't", or the `[`/`(` of a pasted Markdown link) by replacing it
+  /// with a space. Only the FTS5 syntax characters that are safe to keep
+  /// in an arbitrary user string are preserved: `"` (phrase quoting, only
+  /// breaks when *unbalanced*, in which case sanitizing can't recover
+  /// either) and `*` (prefix queries). `:` and the parentheses are
+  /// deliberately NOT preserved: a bare word before `:` is parsed as a
+  /// column filter ("no such column: turn") and an unbalanced `(`/`)`
+  /// from pasted Markdown is unrecoverable as-is. [search] only tries
+  /// this as a fallback after the raw query fails to parse, so genuine
+  /// syntax errors (e.g. an unterminated quote) still surface as
   /// [InvalidSearchQueryException].
   static final RegExp _ftsUnsafeChars = RegExp(
-    r'[^\p{L}\p{N}\s"*():]',
+    r'[^\p{L}\p{N}\s"*]',
     unicode: true,
   );
 
-  static String _sanitizeFtsQuery(String query) =>
-      _ftsUnsafeChars.hasMatch(query)
-          ? query.replaceAll(_ftsUnsafeChars, ' ').trim()
-          : query;
+  static String _sanitizeFtsQuery(String query) {
+    if (!_ftsUnsafeChars.hasMatch(query)) return query;
+    return query.replaceAll(_ftsUnsafeChars, ' ').trim();
+  }
 
   /// Returns every note flagged `is_definition = 1` in `note_meta` — every
   /// note whose frontmatter carried `type: database` at its last

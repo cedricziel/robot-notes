@@ -1062,6 +1062,39 @@ void main() {
     });
 
     test(
+      'recovers from a pasted Markdown link that breaks raw FTS5 syntax',
+      () async {
+        final index = await seed({
+          'n1': ('Note', 'dashboard https merch amazon com dashboard'),
+        });
+        // Raw query contains `[`, `(`, `)`, `:` — none of which survive a
+        // valid FTS5 expression (issue #332: `syntax error near "["`).
+        // Seed content so every sanitized token matches (FTS5 MATCH is a
+        // conjunction), proving the fallback actually searched.
+        final hits = await index
+            .search('[dashboard](https://merch.amazon.com/dashboard)');
+        expect(hits.map((h) => h.id), contains('n1'));
+      },
+    );
+
+    test(
+      'recovers from free-text that a `:` turns into a column filter',
+      () async {
+        final index = await seed({
+          'n1': ('Note', 'user correction during the turn nein'),
+        });
+        // Raw query parses the token before `:` as an FTS5 column name
+        // ("no such column: turn"), so it must be caught by the
+        // sanitized fallback rather than surfacing as
+        // InvalidSearchQueryException. Content is seeded so every
+        // sanitized token matches (FTS5 MATCH is a conjunction).
+        final hits =
+            await index.search('User correction during the turn: nein');
+        expect(hits.map((h) => h.id), contains('n1'));
+      },
+    );
+
+    test(
       'logs a warning naming the bad query on invalid FTS5 syntax',
       () async {
         final logger = Logger.detached('search-test')..level = Level.ALL;
