@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:math' show min;
 
 import 'package:flutter/foundation.dart' show ValueListenable, kIsWeb;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoIcons;
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:go_router/go_router.dart';
 import 'package:shared/shared.dart';
@@ -36,6 +37,7 @@ import 'realtime/connection_status.dart';
 import 'realtime/ws_client.dart';
 import 'search/search_controller.dart';
 import 'search/search_screen.dart';
+import 'settings/app_preferences.dart';
 import 'setup/setup_controller.dart';
 import 'setup/setup_screen.dart';
 import 'widgets/adaptive.dart';
@@ -375,6 +377,9 @@ class _AppShell extends StatefulWidget {
 
 class _AppShellState extends State<_AppShell> {
   double _sidebarWidth = PaneSizes.sidebarDefault;
+  int _compactDestination = 0;
+  final Set<int> _visitedDestinations = {0};
+  NotesSearchController? _destinationSearch;
   AppMenuActions? _menuActions;
 
   @override
@@ -399,6 +404,7 @@ class _AppShellState extends State<_AppShell> {
   @override
   void dispose() {
     _menuActions?.clearShell(this);
+    _destinationSearch?.dispose();
     super.dispose();
   }
 
@@ -475,7 +481,123 @@ class _AppShellState extends State<_AppShell> {
         // usual; the scope never steals it back.
         child: FocusScope(
           autofocus: true,
-          child: large ? _buildThreePane(context, session) : widget.child,
+          child: large
+              ? _buildThreePane(context, session)
+              : Breakpoints.of(context) == WindowSizeClass.compact &&
+                    widget.location.path == '/'
+              ? _buildCompactWorkspace(context, session)
+              : widget.child,
+        ),
+      ),
+    );
+  }
+
+  void _selectDestination(int index) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _compactDestination = index;
+      _visitedDestinations.add(index);
+    });
+  }
+
+  Widget _buildCompactWorkspace(BuildContext context, AppSession session) {
+    _destinationSearch ??= NotesSearchController(api: session.api);
+    final apple = Theme.of(context).platform == TargetPlatform.iOS;
+    return Scaffold(
+      key: const Key('shell.compact'),
+      body: IndexedStack(
+        index: _compactDestination,
+        children: [
+          widget.child,
+          if (_visitedDestinations.contains(1))
+            _DatabaseLibrary(
+              session: session,
+              onCreate: () => unawaited(_openNewDatabaseForm(context, session)),
+            )
+          else
+            const SizedBox.shrink(),
+          if (_visitedDestinations.contains(2))
+            SafeArea(
+              child: ValueListenableBuilder<NotesListState>(
+                valueListenable: session.list,
+                builder: (context, listState, _) => SearchScreen(
+                  controller: _destinationSearch!,
+                  autofocus: _compactDestination == 2,
+                  recentNotes: listState.items,
+                  onResultTap: (id) => unawaited(context.push('/notes/$id')),
+                ),
+              ),
+            )
+          else
+            const SizedBox.shrink(),
+          if (_visitedDestinations.contains(3))
+            Scaffold(
+              appBar: AppBar(title: const Text('Settings')),
+              body: _AccountSheet(session: session, embedded: true),
+            )
+          else
+            const SizedBox.shrink(),
+        ],
+      ),
+      bottomNavigationBar: Theme(
+        data: Theme.of(context).copyWith(
+          navigationBarTheme: NavigationBarThemeData(
+            height: 64,
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            surfaceTintColor: Colors.transparent,
+            indicatorColor: Colors.transparent,
+            labelTextStyle: WidgetStateProperty.resolveWith(
+              (states) => TextStyle(
+                fontSize: 11,
+                fontWeight: states.contains(WidgetState.selected)
+                    ? FontWeight.w600
+                    : FontWeight.w400,
+                color: states.contains(WidgetState.selected)
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            iconTheme: WidgetStateProperty.resolveWith(
+              (states) => IconThemeData(
+                size: 22,
+                color: states.contains(WidgetState.selected)
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+        child: NavigationBar(
+          key: const Key('shell.destinations'),
+          selectedIndex: _compactDestination,
+          onDestinationSelected: _selectDestination,
+          destinations: [
+            NavigationDestination(
+              key: const Key('shell.tab.notes'),
+              icon: Icon(
+                apple ? CupertinoIcons.doc_text : Icons.description_outlined,
+              ),
+              selectedIcon: Icon(
+                apple ? CupertinoIcons.doc_text_fill : Icons.description,
+              ),
+              label: 'Notes',
+            ),
+            NavigationDestination(
+              key: const Key('shell.tab.databases'),
+              icon: Icon(apple ? CupertinoIcons.table : Icons.storage_outlined),
+              label: 'Databases',
+            ),
+            NavigationDestination(
+              key: const Key('shell.tab.search'),
+              icon: Icon(apple ? CupertinoIcons.search : Icons.search),
+              label: 'Search',
+            ),
+            NavigationDestination(
+              key: const Key('shell.tab.settings'),
+              icon: Icon(apple ? CupertinoIcons.gear : Icons.settings_outlined),
+              label: 'Settings',
+            ),
+          ],
         ),
       ),
     );
@@ -488,87 +610,193 @@ class _AppShellState extends State<_AppShell> {
       valueListenable: session.list,
       builder: (context, listState, _) {
         final selectedPath = listState.selectedPath;
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ResizablePanel(
-              width: _sidebarWidth,
-              minWidth: PaneSizes.sidebarMin,
-              maxWidth: PaneSizes.sidebarMax,
-              onWidthChanged: (w) => setState(() => _sidebarWidth = w),
-              child: Material(
-                key: const Key('shell.sidebar'),
-                color: scheme.surfaceContainerLow,
-                // The Material itself paints all the way up under a macOS
-                // unified title bar (so the sidebar's background extends
-                // behind the traffic lights); only its content — starting
-                // with the "Folders" header — insets below it.
-                child: SafeArea(
-                  bottom: false,
-                  child: ValueListenableBuilder<DatabasesState>(
-                    valueListenable: session.databases,
-                    builder: (context, dbState, _) => FolderTreeSidebar(
-                      controller: session.tree,
-                      selectedPath: selectedPath,
-                      onSelect: session.list.selectFolder,
-                      onCreateFolder: () => unawaited(
-                        _createFolder(
-                          context,
-                          session,
-                          initialPath: selectedPath,
-                        ),
-                      ),
-                      databases: dbState.items,
-                      onSelectDatabase: (id) => context.go('/databases/$id'),
-                      onNewDatabase: () => unawaited(
-                        _openNewDatabaseForm(
-                          context,
-                          session,
-                          initialFolder: selectedPath,
-                        ),
+        return ColoredBox(
+          color: scheme.surface,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ResizablePanel(
+                width:
+                    AppPreferencesScope.maybeOf(context)?.sidebarWidth ??
+                    _sidebarWidth,
+                minWidth: PaneSizes.sidebarMin,
+                maxWidth: PaneSizes.sidebarMax,
+                onWidthChanged: (w) {
+                  setState(() => _sidebarWidth = w);
+                  final prefs = AppPreferencesScope.maybeOf(context);
+                  if (prefs != null) unawaited(prefs.setSidebarWidth(w));
+                },
+                child: Material(
+                  key: const Key('shell.sidebar'),
+                  color: scheme.surfaceContainerLow,
+                  // The Material itself paints all the way up under a macOS
+                  // unified title bar (so the sidebar's background extends
+                  // behind the traffic lights); only its content — starting
+                  // with the "Folders" header — insets below it.
+                  child: SafeArea(
+                    bottom: false,
+                    child: ValueListenableBuilder<DatabasesState>(
+                      valueListenable: session.databases,
+                      builder: (context, dbState, _) => Column(
+                        children: [
+                          Expanded(
+                            child: FolderTreeSidebar(
+                              controller: session.tree,
+                              selectedPath: selectedPath,
+                              onSelect: session.list.selectFolder,
+                              onCreateFolder: () => unawaited(
+                                _createFolder(
+                                  context,
+                                  session,
+                                  initialPath: selectedPath,
+                                ),
+                              ),
+                              databases: dbState.items,
+                              onSelectDatabase: (id) =>
+                                  context.go('/databases/$id'),
+                              onNewDatabase: () => unawaited(
+                                _openNewDatabaseForm(
+                                  context,
+                                  session,
+                                  initialFolder: selectedPath,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: ListTile(
+                              key: const Key('shell.settings'),
+                              leading: const Icon(
+                                CupertinoIcons.gear,
+                                size: 20,
+                              ),
+                              title: const Text('Settings'),
+                              onTap: () =>
+                                  unawaited(_showAccount(context, session)),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-            SizedBox(
-              width: PaneSizes.listPane,
-              // A nested messenger so app-level SnackBars surface once, in
-              // the note pane, instead of in every Scaffold of the shell.
-              child: ScaffoldMessenger(
-                child: NotesListScreen(
-                  key: const Key('shell.list'),
-                  controller: session.list,
-                  layout: NotesListLayout.wide,
-                  selectedNoteId: selectedNoteId,
-                  onNoteTap: (id) => context.go('/notes/$id'),
-                  onCreateNote: () => unawaited(
-                    _createNote(context, session, path: selectedPath ?? ''),
-                  ),
-                  onCreateFolder: () => unawaited(
-                    _createFolder(context, session, initialPath: selectedPath),
-                  ),
-                  onUploadFile: () => unawaited(
-                    _uploadFile(
-                      context,
-                      session,
-                      pickFile: widget.pickFile,
-                      path: selectedPath ?? '',
+              SizedBox(
+                width: PaneSizes.listPane,
+                // A nested messenger so app-level SnackBars surface once, in
+                // the note pane, instead of in every Scaffold of the shell.
+                child: ScaffoldMessenger(
+                  child: NotesListScreen(
+                    key: const Key('shell.list'),
+                    controller: session.list,
+                    layout: NotesListLayout.wide,
+                    selectedNoteId: selectedNoteId,
+                    onNoteTap: (id) => context.go('/notes/$id'),
+                    onCreateNote: () => unawaited(
+                      _createNote(context, session, path: selectedPath ?? ''),
                     ),
+                    onCreateFolder: () => unawaited(
+                      _createFolder(
+                        context,
+                        session,
+                        initialPath: selectedPath,
+                      ),
+                    ),
+                    onUploadFile: () => unawaited(
+                      _uploadFile(
+                        context,
+                        session,
+                        pickFile: widget.pickFile,
+                        path: selectedPath ?? '',
+                      ),
+                    ),
+                    onSearch: () => unawaited(_openSearch(context, session)),
+                    onAccount: () => unawaited(_showAccount(context, session)),
                   ),
-                  onSearch: () => unawaited(_openSearch(context, session)),
-                  onAccount: () => unawaited(_showAccount(context, session)),
                 ),
               ),
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(child: widget.child),
-          ],
+              const VerticalDivider(width: 1),
+              Expanded(child: widget.child),
+            ],
+          ),
         );
       },
     );
   }
+}
+
+/// A real destination for databases, rather than a drawer-only action.
+class _DatabaseLibrary extends StatelessWidget {
+  const _DatabaseLibrary({required this.session, required this.onCreate});
+  final AppSession session;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Databases'),
+      actions: [
+        IconButton(
+          tooltip: 'New database',
+          onPressed: onCreate,
+          icon: const Icon(CupertinoIcons.plus),
+        ),
+      ],
+    ),
+    body: ValueListenableBuilder<DatabasesState>(
+      valueListenable: session.databases,
+      builder: (context, state, _) {
+        if (state.isLoading && state.items.isEmpty) {
+          return const Center(child: CircularProgressIndicator.adaptive());
+        }
+        return Column(
+          children: [
+            if (state.error != null)
+              ErrorStrip(
+                message: describeError(
+                  state.error!,
+                  fallback: 'Could not load databases.',
+                ),
+                onRetry: session.databases.refresh,
+              ),
+            Expanded(
+              child: state.items.isEmpty
+                  ? EmptyState(
+                      icon: CupertinoIcons.table,
+                      title: 'Your structured notes',
+                      message: 'Create a database to organize notes with properties and views.',
+                      action: FilledButton(
+                        onPressed: onCreate,
+                        child: const Text('New database'),
+                      ),
+                    )
+                  : RefreshIndicator.adaptive(
+                      onRefresh: session.databases.refresh,
+                      child: ListView.builder(
+                        itemCount: state.items.length,
+                        itemBuilder: (context, index) {
+                          final database = state.items[index];
+                          return ListTile(
+                            leading: const Icon(CupertinoIcons.table),
+                            title: Text(database.title),
+                            trailing: const Icon(
+                              CupertinoIcons.chevron_right,
+                              size: 16,
+                            ),
+                            onTap: () => unawaited(
+                              context.push('/databases/${database.id}'),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+            ),
+          ],
+        );
+      },
+    ),
+  );
 }
 
 /// The `/` route. Inside the three-pane shell the list already lives in
@@ -602,6 +830,8 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
     valueListenable: session.list,
     builder: (context, listState, _) {
       return NotesListScreen(
+        showCompactNavigation:
+            Breakpoints.of(context) != WindowSizeClass.compact,
         controller: session.list,
         onNoteTap: (id) => unawaited(context.push('/notes/$id')),
         onCreateNote: () => unawaited(
@@ -618,7 +848,15 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
             path: listState.selectedPath ?? '',
           ),
         ),
-        onSearch: () => unawaited(_openSearch(context, session)),
+        onSearch: () {
+          if (Breakpoints.of(context) == WindowSizeClass.compact) {
+            context
+                .findAncestorStateOfType<_AppShellState>()
+                ?._selectDestination(2);
+          } else {
+            unawaited(_openSearch(context, session));
+          }
+        },
         onAccount: () => unawaited(_showAccount(context, session)),
         sidebar: ValueListenableBuilder<DatabasesState>(
           valueListenable: session.databases,
@@ -702,12 +940,37 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
       );
       return;
     }
+    if (Theme.of(context).platform == TargetPlatform.iOS) {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        builder: (ctx) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+          child: SizedBox(
+            height:
+                MediaQuery.sizeOf(ctx).height * 0.85 -
+                MediaQuery.viewInsetsOf(ctx).bottom,
+            child: SearchScreen(
+              controller: controller,
+              recentNotes: session.list.value.items,
+              onResultTap: (id) => openResult(ctx, id),
+              onClose: () => Navigator.of(ctx).pop(),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     await showGeneralDialog<void>(
       context: context,
       barrierLabel: 'Search',
       barrierDismissible: true,
       barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 200),
+      transitionDuration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 200),
       pageBuilder: (ctx, animation, secondaryAnimation) {
         return SafeArea(
           child: Align(
@@ -916,9 +1179,10 @@ Future<void> _showAccount(BuildContext context, AppSession session) async {
 /// Body of the account bottom sheet / dialog. Pops with `true` when the
 /// user asks to disconnect; the caller runs the confirmation.
 class _AccountSheet extends StatelessWidget {
-  const _AccountSheet({required this.session});
+  const _AccountSheet({required this.session, this.embedded = false});
 
   final AppSession session;
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
@@ -933,7 +1197,43 @@ class _AccountSheet extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Text('Account', style: theme.textTheme.titleLarge),
+              child: Text(
+                embedded ? 'Appearance' : 'Settings',
+                style: theme.textTheme.titleLarge,
+              ),
+            ),
+            if (AppPreferencesScope.maybeOf(context) case final preferences?)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: DropdownButtonFormField<ThemeMode>(
+                  key: const Key('settings.theme'),
+                  initialValue: preferences.themeMode,
+                  decoration: const InputDecoration(labelText: 'Appearance'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: ThemeMode.system,
+                      child: Text('System'),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.light,
+                      child: Text('Light'),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.dark,
+                      child: Text('Dark'),
+                    ),
+                  ],
+                  onChanged: (mode) {
+                    if (mode != null) unawaited(preferences.setThemeMode(mode));
+                  },
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+              child: Text('Account', style: theme.textTheme.titleMedium),
             ),
             ListTile(
               leading: const Icon(Icons.dns_outlined),
@@ -974,7 +1274,13 @@ class _AccountSheet extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: FilledButton.tonalIcon(
                 key: const Key('account.disconnect'),
-                onPressed: () => Navigator.of(context).pop(true),
+                onPressed: () {
+                  if (embedded) {
+                    unawaited(_confirmReset(context, session));
+                  } else {
+                    Navigator.of(context).pop(true);
+                  }
+                },
                 icon: const Icon(Icons.logout),
                 label: const Text('Disconnect'),
               ),
@@ -1080,6 +1386,9 @@ class _NotePage extends StatelessWidget {
       // directly (replacing this route, like a search-result tap does).
       onTagTap: (tag) {
         unawaited(session.list.selectTag(tag));
+        context.findAncestorStateOfType<_AppShellState>()?._selectDestination(
+          0,
+        );
         context.go('/');
       },
       databases: session.databases,

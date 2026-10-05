@@ -1,6 +1,7 @@
 import 'package:app/src/widgets/resizable_panel.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Hosts the panel the way the shell does: width state lives in the
@@ -63,6 +64,20 @@ void main() {
     addTearDown(tester.view.reset);
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: host)));
   }
+
+  testWidgets('resize handle is keyboard operable and clamped', (tester) async {
+    await pump(tester, const _Host(initial: 260));
+    final focus = find.ancestor(of: handle, matching: find.byType(Focus)).first;
+    Focus.of(tester.element(find.descendant(of: focus, matching: handle)))
+        .requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(tester.getSize(pane).width, 280);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+    expect(tester.getSize(pane).width, 260);
+  });
 
   testWidgets('lays the child out at the given width with a handle after it', (
     tester,

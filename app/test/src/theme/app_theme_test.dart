@@ -1,6 +1,9 @@
 import 'package:app/src/theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+// Legacy imports intentionally verify interop with unmigrated dependencies.
+import 'package:flutter/material.dart' as legacy;
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -15,6 +18,48 @@ void main() {
   });
 
   group('AppTheme', () {
+    test('uses neutral surfaces and a clear indigo accent', () {
+      final light = AppTheme.light(platform: TargetPlatform.macOS);
+      final dark = AppTheme.dark(platform: TargetPlatform.macOS);
+
+      expect(light.scaffoldBackgroundColor, const Color(0xFFF5F6F9));
+      expect(light.colorScheme.surface, Colors.white);
+      expect(light.colorScheme.primary, const Color(0xFF3659E3));
+      expect(light.colorScheme.surfaceTint, Colors.transparent);
+      expect(dark.scaffoldBackgroundColor, const Color(0xFF17191F));
+      expect(dark.colorScheme.surface, const Color(0xFF20232B));
+      expect(dark.colorScheme.onSurface, const Color(0xFFE8EBF2));
+    });
+
+    test(
+      'uses rounded rectangles for controls and panels on every platform',
+      () {
+        for (final platform in TargetPlatform.values) {
+          for (final theme in [
+            AppTheme.light(platform: platform),
+            AppTheme.dark(platform: platform),
+          ]) {
+            final buttonShape = theme.filledButtonTheme.style!.shape!.resolve(
+              {},
+            );
+            expect(buttonShape, isA<RoundedRectangleBorder>());
+            expect(
+              (buttonShape! as RoundedRectangleBorder).borderRadius,
+              BorderRadius.circular(8),
+            );
+            final cardShape = theme.cardTheme.shape! as RoundedRectangleBorder;
+            expect(cardShape.borderRadius, BorderRadius.circular(12));
+            expect(cardShape.side.color, theme.colorScheme.outlineVariant);
+            expect(theme.cardTheme.elevation, 0);
+            final inputBorder =
+                theme.inputDecorationTheme.focusedBorder! as OutlineInputBorder;
+            expect(inputBorder.borderRadius, BorderRadius.circular(8));
+            expect(inputBorder.borderSide.color, theme.colorScheme.primary);
+          }
+        }
+      },
+    );
+
     test('records the platform it was built for', () {
       expect(
         AppTheme.light(platform: TargetPlatform.macOS).platform,
@@ -51,9 +96,9 @@ void main() {
         isFalse,
       );
       expect(
-        AppTheme.light(
-          platform: TargetPlatform.android,
-        ).appBarTheme.centerTitle,
+        AppTheme.light(platform: TargetPlatform.android)
+            .appBarTheme
+            .centerTitle,
         isFalse,
       );
     });
@@ -76,6 +121,66 @@ void main() {
         AppTheme.codeFont(TargetPlatform.windows).fontFamilyFallback,
         contains('Consolas'),
       );
+    });
+
+    for (final platform in TargetPlatform.values) {
+      for (final dark in [false, true]) {
+        testWidgets('legacy Markdown theme bridge: $platform dark=$dark', (
+          tester,
+        ) async {
+          final theme = dark
+              ? AppTheme.dark(platform: platform)
+              : AppTheme.light(platform: platform);
+          legacy.ThemeData? dependencyTheme;
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: theme,
+              // Keep this regression until flutter_markdown_plus migrates.
+              builder: (context, child) =>
+                  // ignore: deprecated_member_use
+                  MaterialUiCompatibilityBridge(child: child!),
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) {
+                    dependencyTheme = legacy.Theme.of(context);
+                    return MarkdownBody(
+                      data: '**Readable** text\n\n- [x] Done\n\n> Quote',
+                      styleSheet: AppTheme.markdown(context),
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(dependencyTheme!.platform, platform);
+          expect(dependencyTheme!.brightness, theme.brightness);
+          expect(
+            dependencyTheme!.colorScheme.onSurface,
+            theme.colorScheme.onSurface,
+          );
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+
+    testWidgets('dark Markdown checkboxes use the visible accent', (
+      tester,
+    ) async {
+      Color? checkboxColor;
+      final theme = AppTheme.dark(platform: TargetPlatform.macOS);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Builder(
+            builder: (context) {
+              checkboxColor = AppTheme.markdown(context).checkbox?.color;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+      expect(checkboxColor, theme.colorScheme.primary);
     });
 
     testWidgets('the Markdown stylesheet follows the theme platform', (

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+
 import '../api/api_client.dart';
 
 /// Vault picker and management actions shared across the app's screens.

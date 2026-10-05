@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 
 /// A fixed-width side panel with a drag handle on its trailing edge, so the
 /// user can widen a folder tree that has deep paths or narrow one that is
@@ -31,11 +32,20 @@ class ResizablePanel extends StatefulWidget {
 class _ResizablePanelState extends State<ResizablePanel> {
   bool _dragging = false;
   bool _hovering = false;
+  bool _focused = false;
+
+  void _resize(double delta) {
+    final width = (widget.width + delta).clamp(
+      widget.minWidth,
+      widget.maxWidth,
+    );
+    if (width != widget.width) widget.onWidthChanged(width);
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final highlight = _dragging || _hovering;
+    final highlight = _dragging || _hovering || _focused;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -47,26 +57,54 @@ class _ResizablePanelState extends State<ResizablePanel> {
           cursor: SystemMouseCursors.resizeLeftRight,
           onEnter: (_) => setState(() => _hovering = true),
           onExit: (_) => setState(() => _hovering = false),
-          child: GestureDetector(
-            key: const Key('panel.resizeHandle'),
-            behavior: HitTestBehavior.opaque,
-            onHorizontalDragStart: (_) => setState(() => _dragging = true),
-            onHorizontalDragEnd: (_) => setState(() => _dragging = false),
-            onHorizontalDragCancel: () => setState(() => _dragging = false),
-            onHorizontalDragUpdate: (details) {
-              final next = (widget.width + details.delta.dx).clamp(
-                widget.minWidth,
-                widget.maxWidth,
-              );
-              if (next != widget.width) widget.onWidthChanged(next);
-            },
-            child: SizedBox(
-              width: ResizablePanel.handleWidth,
-              child: Center(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
-                  width: highlight ? 3 : 1,
-                  color: highlight ? scheme.primary : scheme.outlineVariant,
+          child: Semantics(
+            label: 'Sidebar width',
+            value: '${widget.width.round()}',
+            increasedValue:
+                '${(widget.width + 20).clamp(widget.minWidth, widget.maxWidth).round()}',
+            decreasedValue:
+                '${(widget.width - 20).clamp(widget.minWidth, widget.maxWidth).round()}',
+            onIncrease: () => _resize(20),
+            onDecrease: () => _resize(-20),
+            child: Focus(
+              onFocusChange: (focused) => setState(() => _focused = focused),
+              onKeyEvent: (_, event) {
+                if (event is KeyDownEvent || event is KeyRepeatEvent) {
+                  if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                    _resize(-20);
+                    return KeyEventResult.handled;
+                  }
+                  if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                    _resize(20);
+                    return KeyEventResult.handled;
+                  }
+                }
+                return KeyEventResult.ignored;
+              },
+              child: GestureDetector(
+                key: const Key('panel.resizeHandle'),
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragStart: (_) => setState(() => _dragging = true),
+                onHorizontalDragEnd: (_) => setState(() => _dragging = false),
+                onHorizontalDragCancel: () => setState(() => _dragging = false),
+                onHorizontalDragUpdate: (details) {
+                  final next = (widget.width + details.delta.dx).clamp(
+                    widget.minWidth,
+                    widget.maxWidth,
+                  );
+                  if (next != widget.width) widget.onWidthChanged(next);
+                },
+                child: SizedBox(
+                  width: ResizablePanel.handleWidth,
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 120),
+                      width: highlight ? 3 : 1,
+                      color: highlight ? scheme.primary : scheme.outlineVariant,
+                    ),
+                  ),
                 ),
               ),
             ),

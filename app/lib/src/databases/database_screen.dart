@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
@@ -208,8 +208,7 @@ class _DatabaseScreenState extends State<DatabaseScreen> {
           key: Key('database.notFound'),
           icon: Icons.search_off,
           title: 'Database not found',
-          message:
-              "This database doesn't exist, or you no longer have access to it.",
+          message: "This database doesn't exist, or you no longer have access to it.",
         );
       case DatabaseScreenMode.error:
         final def = state.definition;

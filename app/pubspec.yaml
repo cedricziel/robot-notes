@@ -8,7 +8,7 @@ publish_to: none
 version: 0.2.19 # x-release-please-version
 
 environment:
-  sdk: ^3.8.0
+  sdk: ^3.13.0
   flutter: ">=3.47.0"
 
 resolution: workspace
@@ -17,6 +17,9 @@ dependencies:
   flutter:
     sdk: flutter
   crypto: ^3.0.6
+  material_ui: ^1.5.0
+  cupertino_ui: ^1.1.1
+  cupertino_icons: ^1.0.8
   device_info_plus: ^13.3.0
   file_picker: ^13.1.0
   flutter_markdown_plus: ^1.0.12

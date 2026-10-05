@@ -18,9 +18,8 @@ void main() {
   group('checkCapability', () {
     test('reports the biometric kind on a supported device', () async {
       when(() => local.isDeviceSupported()).thenAnswer((_) async => true);
-      when(
-        () => local.getAvailableBiometrics(),
-      ).thenAnswer((_) async => [BiometricType.face]);
+      when(() => local.getAvailableBiometrics())
+          .thenAnswer((_) async => [BiometricType.face]);
 
       final cap = await authenticator.checkCapability();
       expect(cap.supported, isTrue);
@@ -38,9 +37,8 @@ void main() {
     });
 
     test('any other error is not mistaken for "unsupported"', () async {
-      when(
-        () => local.isDeviceSupported(),
-      ).thenThrow(PlatformException(code: 'boom'));
+      when(() => local.isDeviceSupported())
+          .thenThrow(PlatformException(code: 'boom'));
       expect(
         authenticator.checkCapability(),
         throwsA(isA<PlatformException>()),

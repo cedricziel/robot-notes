@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:app/src/app_router.dart';
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/config/config_store.dart';

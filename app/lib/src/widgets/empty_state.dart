@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Centered placeholder for a list with nothing in it: an icon, a short
 /// title, an optional explanation, and an optional call to action. Used

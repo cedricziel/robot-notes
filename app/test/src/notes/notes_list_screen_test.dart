@@ -7,7 +7,7 @@ import 'package:app/src/layout/breakpoints.dart';
 import 'package:app/src/notes/notes_list_controller.dart';
 import 'package:app/src/notes/notes_list_screen.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -931,6 +931,53 @@ void main() {
       );
     });
 
+    testWidgets(
+      'shell compact chrome keeps compose, folders and upload reachable',
+      (tester) async {
+        await setNarrow(tester);
+        final mock = MockClient((request) async => _page(<Object?>[]));
+        final ctrl = NotesListController(
+          api: RobotNotesClient(config: _config, httpClient: mock),
+        );
+        addTearDown(ctrl.dispose);
+        var created = 0;
+        var uploaded = 0;
+        var foldersCreated = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: NotesListScreen(
+              controller: ctrl,
+              showCompactNavigation: false,
+              sidebar: const Text('SIDEBAR'),
+              onCreateNote: () => created++,
+              onCreateFolder: () => foldersCreated++,
+              onUploadFile: () => uploaded++,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(BottomAppBar), findsNothing);
+        expect(find.byType(FloatingActionButton), findsNothing);
+        await tester.tap(find.byKey(const Key('notes.create.toolbar')));
+        expect(created, 1);
+        await tester.tap(find.byKey(const Key('notes.create.more')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('notes.create.upload')));
+        await tester.pumpAndSettle();
+        expect(uploaded, 1);
+        await tester.tap(find.byKey(const Key('notes.create.more')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('notes.create.folder')));
+        await tester.pumpAndSettle();
+        expect(foldersCreated, 1);
+        await tester.tap(find.byKey(const Key('notes.create.more')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('notes.sidebar.open')));
+        await tester.pumpAndSettle();
+        expect(find.text('SIDEBAR'), findsOneWidget);
+      },
+    );
+
     testWidgets('tapping Search invokes onSearch', (tester) async {
       await setNarrow(tester);
       final mock = MockClient((request) async => _page(<Object?>[]));
@@ -1116,7 +1163,7 @@ void main() {
       expect(find.byTooltip('Upload file'), findsOneWidget);
       expect(find.byTooltip('Search'), findsOneWidget);
       expect(find.byTooltip('Refresh'), findsOneWidget);
-      expect(find.byTooltip('Account'), findsOneWidget);
+      expect(find.byTooltip('Settings'), findsOneWidget);
       expect(find.byType(FloatingActionButton), findsNothing);
 
       await tester.tap(find.byKey(const Key('notes.create.upload.toolbar')));
@@ -1152,7 +1199,7 @@ void main() {
       final button = tester.widget<IconButton>(
         find.byKey(const Key('notes.create.upload.toolbar')),
       );
-      expect((button.icon as Icon).icon, Icons.upload_file);
+      expect((button.icon as Icon).icon, Icons.upload_file_outlined);
       await tester.tap(find.byKey(const Key('notes.create.upload.toolbar')));
       await tester.pump();
       expect(uploaded, isTrue);

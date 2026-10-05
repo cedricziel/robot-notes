@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:shared/shared.dart';
@@ -113,6 +113,9 @@ class NoteScreen extends StatefulWidget {
 
 class _NoteScreenState extends State<NoteScreen> {
   final TextEditingController _title = TextEditingController();
+  // Reparent the property editors between the reader's document and the
+  // pinned editing panel without discarding an in-progress field edit.
+  final GlobalKey _propertyPanelKey = GlobalKey();
   late final _DiffTextController _content = _DiffTextController(_serverContent);
   late final LinkAutocompleteController _linkAutocomplete;
 
@@ -377,6 +380,8 @@ class _NoteScreenState extends State<NoteScreen> {
   Widget build(BuildContext context) {
     final state = widget.controller.value;
     final note = state.note;
+    final theme = Theme.of(context);
+    final roomy = Breakpoints.of(context) >= WindowSizeClass.medium;
     final viewing = state.mode == NoteMode.viewing && note != null;
     final (
       IconData leadingIcon,
@@ -390,6 +395,7 @@ class _NoteScreenState extends State<NoteScreen> {
       canPop: !state.isDirty,
       onPopInvokedWithResult: _onPopInvoked,
       child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surface,
         appBar: AppBar(
           leading: IconButton(
             key: const Key('note.close'),
@@ -398,7 +404,16 @@ class _NoteScreenState extends State<NoteScreen> {
             onPressed: _close,
           ),
           title: Text(
-            note?.title.isEmpty == true ? '(untitled)' : note?.title ?? '',
+            viewing && roomy
+                ? 'Note'
+                : note?.title.isEmpty == true
+                ? '(untitled)'
+                : note?.title ?? '',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
           actions: [
             if (state.viewers.isNotEmpty)
@@ -412,12 +427,26 @@ class _NoteScreenState extends State<NoteScreen> {
                 ),
               ),
             if (viewing)
-              IconButton(
-                key: const Key('note.edit'),
-                tooltip: 'Edit',
-                icon: const Icon(Icons.edit),
-                onPressed: _edit,
-              ),
+              if (roomy)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Tooltip(
+                    message: 'Edit',
+                    child: OutlinedButton.icon(
+                      key: const Key('note.edit'),
+                      onPressed: _edit,
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      label: const Text('Edit'),
+                    ),
+                  ),
+                )
+              else
+                IconButton(
+                  key: const Key('note.edit'),
+                  tooltip: 'Edit',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: _edit,
+                ),
             if (state.mode == NoteMode.editing)
               TextButton(
                 key: const Key('note.save'),
@@ -638,10 +667,19 @@ class _NoteScreenState extends State<NoteScreen> {
 
     final editing =
         state.mode == NoteMode.editing || state.mode == NoteMode.saving;
+    final properties = NotePropertyPanel(
+      key: _propertyPanelKey,
+      properties: state.properties,
+      coveringDefinitions: state.coveringDefinitions,
+      api: widget.controller.api,
+      onCommit: _onPropertyCommit,
+    );
     return Column(
       children: [
         ...banners,
-        if (state.properties.isNotEmpty || state.coveringDefinitions.isNotEmpty)
+        if (editing &&
+            (state.properties.isNotEmpty ||
+                state.coveringDefinitions.isNotEmpty))
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Center(
@@ -649,12 +687,7 @@ class _NoteScreenState extends State<NoteScreen> {
                 constraints: const BoxConstraints(
                   maxWidth: PaneSizes.readingColumn,
                 ),
-                child: NotePropertyPanel(
-                  properties: state.properties,
-                  coveringDefinitions: state.coveringDefinitions,
-                  api: widget.controller.api,
-                  onCommit: _onPropertyCommit,
-                ),
+                child: properties,
               ),
             ),
           ),
@@ -675,6 +708,7 @@ class _NoteScreenState extends State<NoteScreen> {
                 )
               : _ReadingView(
                   note: note,
+                  properties: properties,
                   backlinks: state.backlinks,
                   backlinksLoading: state.backlinksLoading,
                   onOpenNote: widget.onOpenNote,
@@ -702,6 +736,7 @@ String _initial(String name) {
 class _ReadingView extends StatelessWidget {
   const _ReadingView({
     required this.note,
+    required this.properties,
     required this.backlinks,
     required this.backlinksLoading,
     this.onOpenNote,
@@ -712,6 +747,7 @@ class _ReadingView extends StatelessWidget {
   });
 
   final Note note;
+  final Widget properties;
   final List<BacklinkHit> backlinks;
   final bool backlinksLoading;
   final ValueChanged<String>? onOpenNote;
@@ -746,7 +782,9 @@ class _ReadingView extends StatelessWidget {
           // Always scrollable so a note shorter than the pane can still be
           // pulled to refresh.
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          padding: Breakpoints.of(context) < WindowSizeClass.medium
+              ? const EdgeInsets.fromLTRB(16, 16, 16, 32)
+              : const EdgeInsets.fromLTRB(24, 20, 24, 40),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(
@@ -755,8 +793,21 @@ class _ReadingView extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Text(
+                    note.title.isEmpty ? '(untitled)' : note.title,
+                    key: const Key('note.title'),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                      height: 1.2,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   _MetadataLine(note: note),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 24),
+                  properties,
+                  const SizedBox(height: 8),
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onDoubleTap: onEdit,
@@ -815,7 +866,7 @@ class _MetadataLine extends StatelessWidget {
     );
     final parts = [
       if (note.path.isNotEmpty) note.path,
-      formatRelativeNoteTime(note.updatedAt),
+      'Updated ${formatRelativeNoteTime(note.updatedAt)}',
       'v${note.version}',
     ];
     return Text(
@@ -1153,7 +1204,7 @@ class _TagChips extends StatelessWidget {
 /// `GET /notes/{id}/backlinks`. Shows an empty-state message (not an error)
 /// when there are none, since a fetch failure and "genuinely no backlinks"
 /// look the same to [NoteController]. When empty, this collapses to a
-/// small pill rather than a headed section — there's nothing to show, so
+/// muted line rather than a headed section — there's nothing to show, so
 /// it shouldn't claim space as if there were. Part of the reading scroll,
 /// not a pinned footer.
 class _BacklinksPanel extends StatelessWidget {
@@ -1179,10 +1230,12 @@ class _BacklinksPanel extends StatelessWidget {
                 height: 16,
                 child: CircularProgressIndicator.adaptive(strokeWidth: 2),
               )
-            : const Chip(
-                key: Key('note.backlinks.empty'),
-                visualDensity: VisualDensity.compact,
-                label: Text('No notes link to this one yet.'),
+            : Text(
+                'No notes link to this one yet.',
+                key: const Key('note.backlinks.empty'),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
       );
     }
@@ -1344,8 +1397,7 @@ class _ConflictView extends StatelessWidget {
             children: [
               const StatusStrip(
                 key: Key('note.banner.conflict'),
-                message:
-                    'This note changed on the server. Use the server version, or edit yours and save it.',
+                message: 'This note changed on the server. Use the server version, or edit yours and save it.',
                 tone: StatusTone.warning,
                 icon: Icons.sync_problem,
                 rounded: true,

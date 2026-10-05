@@ -1,7 +1,7 @@
 import 'package:app/src/databases/database_board_view.dart';
 import 'package:app/src/databases/database_controller.dart';
 import 'package:flutter/gestures.dart' show kLongPressTimeout;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared/shared.dart';
 

@@ -12,14 +12,30 @@ import '../config/config_store.dart';
 /// the exact wording.
 enum SetupFailureReason { unauthorized, network, server, insecureUrl }
 
-/// Whether [baseUrl] is `https://` — the one rule the setup screen must
-/// share between "can we advance to the login step" and "will [submit]
-/// actually accept this", so the two can't drift apart. A plain `http://`
-/// URL that redirects to `https` causes `package:http` to drop the
-/// `Authorization` header on the follow-up request, which then reports a
-/// spurious "API key was rejected" instead of the real problem.
-bool isSecureBaseUrl(String baseUrl) =>
-    baseUrl.trim().toLowerCase().startsWith('https://');
+/// Whether [baseUrl] uses HTTPS, or HTTP on the exact loopback hosts
+/// `localhost`, `127.0.0.1`, or `::1` for a local development server.
+/// The setup screen and [SetupController.submit] share this rule. Parsed
+/// host matching excludes deceptive names such as `localhost.example`;
+/// malformed URLs and embedded credentials are rejected before any request.
+/// Remote HTTP can redirect to HTTPS and silently drop the API key.
+bool isSecureBaseUrl(String baseUrl) {
+  final value = baseUrl.trim();
+  if (RegExp(r'[\s\\]').hasMatch(value)) return false;
+  final uri = Uri.tryParse(value);
+  if (uri == null ||
+      !uri.hasAuthority ||
+      uri.host.isEmpty ||
+      uri.host.contains('%') ||
+      uri.userInfo.isNotEmpty ||
+      // Uri normalizes an empty userinfo component away; reject it too.
+      RegExp(r'^[^:]+://[^/?#]*@').hasMatch(value) ||
+      uri.port > 65535) {
+    return false;
+  }
+  return uri.scheme == 'https' ||
+      (uri.scheme == 'http' &&
+          const {'localhost', '127.0.0.1', '::1'}.contains(uri.host));
+}
 
 /// Sealed state machine for the setup screen.
 ///
@@ -50,10 +66,8 @@ class SetupSuccess extends SetupState {
 
 /// Drives the first-run validation flow.
 ///
-/// Before any request is sent, [baseUrl] must be `https://`: a plain
-/// `http://` URL that redirects to `https` causes `package:http` to drop the
-/// `Authorization` header on the follow-up request, which then reports a
-/// spurious "API key was rejected" instead of the real problem.
+/// Before any request is sent, [baseUrl] must pass [isSecureBaseUrl]: HTTPS
+/// for remote servers, or HTTP on an exact loopback host for local development.
 ///
 /// Validation then hits two endpoints in sequence:
 ///   1. `GET /healthz` (no auth) — proves the URL is reachable and points at
@@ -98,11 +112,12 @@ class SetupController extends ValueNotifier<SetupState> {
     ).normalized();
 
     if (!isSecureBaseUrl(draft.baseUrl)) {
-      _log.warning('setup.submit rejected non-https baseUrl');
+      _log.warning('setup.submit rejected unsafe baseUrl');
       value = const SetupFailed(
         SetupFailureReason.insecureUrl,
-        'Server URL must start with https://. A plain http:// URL can '
-        'redirect to https and silently drop the API key.',
+        'Enter a valid https:// server URL without embedded credentials. '
+        'Local development servers may use http:// with localhost, '
+        '127.0.0.1, or [::1].',
       );
       return;
     }

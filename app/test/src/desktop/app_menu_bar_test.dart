@@ -1,7 +1,7 @@
 import 'package:app/src/desktop/app_menu_actions.dart';
 import 'package:app/src/desktop/app_menu_bar.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -105,7 +105,7 @@ void main() {
       expect(shortcut('Search').trigger, LogicalKeyboardKey.keyK);
       expect(shortcut('Refresh').trigger, LogicalKeyboardKey.keyR);
       expect(shortcut('Edit Note').trigger, LogicalKeyboardKey.keyE);
-      expect(shortcut('Account…').trigger, LogicalKeyboardKey.comma);
+      expect(shortcut('Settings…').trigger, LogicalKeyboardKey.comma);
       expect(shortcut('Close Window').trigger, LogicalKeyboardKey.keyW);
     });
 
@@ -128,9 +128,10 @@ void main() {
       addTearDown(actions.dispose);
       final menus = buildAppMenus(actions);
 
-      final provided = _walk(
-        menus,
-      ).whereType<PlatformProvidedMenuItem>().map((item) => item.type).toSet();
+      final provided = _walk(menus)
+          .whereType<PlatformProvidedMenuItem>()
+          .map((item) => item.type)
+          .toSet();
       expect(
         provided,
         containsAll(<PlatformProvidedMenuItemType>[

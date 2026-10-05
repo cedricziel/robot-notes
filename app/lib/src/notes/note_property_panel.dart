@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared/shared.dart';
 
 import '../api/api_client.dart';
@@ -14,8 +14,10 @@ import 'property_panel_prefs.dart';
 /// property at a time), reporting the server's rejection message (or
 /// `null` on success) so [PropertyEditor] can revert and show it inline —
 /// same contract as `PropertyCommitCallback`, just keyed.
-typedef NotePropertyCommit =
-    Future<String?> Function(String key, PropertyPatch patch);
+typedef NotePropertyCommit = Future<String?> Function(
+  String key,
+  PropertyPatch patch,
+);
 
 /// The note view's property panel (design.md: "Property panel lives in
 /// `NoteController`" — this widget is purely presentational over that
@@ -114,60 +116,90 @@ class _NotePropertyPanelState extends State<NotePropertyPanel> {
       return const SizedBox.shrink();
     }
     final theme = Theme.of(context);
-    return Card(
+    final scheme = theme.colorScheme;
+    return Padding(
       key: const Key('note.propertyPanel'),
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          InkWell(
-            key: const Key('note.propertyPanel.toggle'),
-            onTap: _toggle,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                children: [
-                  Icon(
-                    _collapsed ? Icons.chevron_right : Icons.expand_more,
-                    size: 20,
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Material(
+        color: scheme.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            InkWell(
+              key: const Key('note.propertyPanel.toggle'),
+              onTap: _toggle,
+              child: Semantics(
+                button: true,
+                expanded: !_collapsed,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
                   ),
-                  const SizedBox(width: 4),
-                  Text('Properties', style: theme.textTheme.labelLarge),
-                ],
+                  child: Row(
+                    children: [
+                      Icon(
+                        _collapsed ? Icons.chevron_right : Icons.expand_more,
+                        size: 18,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Properties',
+                          style: theme.textTheme.labelLarge,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${declared.length + undeclared.length}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
-          if (!_collapsed)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final entry in declared)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _DeclaredRow(
-                        propertyKey: entry.key,
-                        definition: entry.value,
-                        value: widget.properties[entry.key],
-                        api: widget.api,
-                        onCommit: (patch) => widget.onCommit(entry.key, patch),
+            if (!_collapsed)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final entry in declared)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: _DeclaredRow(
+                          propertyKey: entry.key,
+                          definition: entry.value,
+                          value: widget.properties[entry.key],
+                          api: widget.api,
+                          onCommit: (patch) =>
+                              widget.onCommit(entry.key, patch),
+                        ),
                       ),
-                    ),
-                  for (final entry in undeclared)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _UndeclaredRow(
-                        propertyKey: entry.key,
-                        value: entry.value,
+                    for (final entry in undeclared)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: _UndeclaredRow(
+                          propertyKey: entry.key,
+                          value: entry.value,
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -198,24 +230,16 @@ class _DeclaredRow extends StatelessWidget {
           ? TitleSearchService.forDatabase(api: apiClient, databaseId: target)
           : TitleSearchService(api: apiClient);
     }
-    return Column(
+    return _PropertyRow(
       key: Key('note.propertyPanel.property.$propertyKey'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          definition.label ?? propertyKey,
-          style: Theme.of(context).textTheme.labelMedium,
-        ),
-        const SizedBox(height: 2),
-        PropertyEditor(
-          propertyKey: propertyKey,
-          definition: definition,
-          value: value,
-          titleSearchService: titleSearchService,
-          onCommit: onCommit,
-        ),
-      ],
+      label: definition.label ?? propertyKey,
+      child: PropertyEditor(
+        propertyKey: propertyKey,
+        definition: definition,
+        value: value,
+        titleSearchService: titleSearchService,
+        onCommit: onCommit,
+      ),
     );
   }
 }
@@ -228,19 +252,59 @@ class _UndeclaredRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return _PropertyRow(
       key: Key('note.propertyPanel.undeclared.$propertyKey'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 120,
-          child: Text(
-            propertyKey,
-            style: Theme.of(context).textTheme.labelMedium,
-          ),
-        ),
-        Expanded(child: PropertyValueView.unrepresentable(value)),
-      ],
+      label: propertyKey,
+      child: PropertyValueView.unrepresentable(value),
+    );
+  }
+}
+
+/// Keep labels aligned on a roomy panel, and give editors the full width
+/// when a narrow pane or enlarged text needs it.
+class _PropertyRow extends StatefulWidget {
+  const _PropertyRow({required this.label, required this.child, super.key});
+
+  final String label;
+  final Widget child;
+
+  @override
+  State<_PropertyRow> createState() => _PropertyRowState();
+}
+
+class _PropertyRowState extends State<_PropertyRow> {
+  // Keep the editor and any unsubmitted input while its layout changes.
+  final GlobalKey _editorKey = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final labelWidget = Text(
+      widget.label,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
+    final editor = KeyedSubtree(key: _editorKey, child: widget.child);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+        if (constraints.maxWidth < 420 || scale > 1.4) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [labelWidget, const SizedBox(height: 6), editor],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(width: 132, child: labelWidget),
+            const SizedBox(width: 16),
+            Expanded(child: editor),
+          ],
+        );
+      },
     );
   }
 }

@@ -6,7 +6,8 @@ import 'package:app/src/config/app_config.dart';
 import 'package:app/src/notes/notes_list_screen.dart' show formatNoteTimestamp;
 import 'package:app/src/search/search_controller.dart';
 import 'package:app/src/search/search_screen.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -54,6 +55,171 @@ http.Response _unauthorized(String message) => http.Response(
 );
 
 void main() {
+  testWidgets('recent-note reordering keeps the selected identity', (
+    tester,
+  ) async {
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((_) async => _hits([])),
+    );
+    final controller = NotesSearchController(api: api);
+    addTearDown(controller.dispose);
+    addTearDown(api.close);
+    String? opened;
+    Widget screen(List<String> ids) => MaterialApp(
+      home: SearchScreen(
+        controller: controller,
+        recentNotes: [for (final id in ids) _recentNote(id: id, title: id)],
+        onResultTap: (id) => opened = id,
+      ),
+    );
+    await tester.pumpWidget(screen(['a', 'b']));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(screen(['b', 'a']));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(opened, 'a');
+    opened = null;
+    await tester.pumpWidget(screen(['b']));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(opened, isNull);
+  });
+
+  testWidgets('a pending search cannot transfer selection to a new result', (
+    tester,
+  ) async {
+    final pending = Completer<http.Response>();
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient(
+        (request) async => request.url.queryParameters['q'] == 'first'
+            ? _hits(['a', 'b'])
+            : pending.future,
+      ),
+    );
+    final controller = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(controller.dispose);
+    addTearDown(api.close);
+    String? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SearchScreen(
+          controller: controller,
+          onResultTap: (id) => opened = id,
+        ),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('search.input')), 'first');
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('search.input')), 'second');
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    pending.complete(_hits(['c', 'b']));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(opened, isNull);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(opened, 'c');
+  });
+
+  testWidgets('remount restores the query from a retained controller', (
+    tester,
+  ) async {
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((_) async => _hits([])),
+    );
+    final controller = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(controller.dispose);
+    addTearDown(api.close);
+    controller.setQuery('release');
+    await tester.pumpWidget(
+      MaterialApp(home: SearchScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('search.input')))
+          .controller!
+          .text,
+      'release',
+    );
+    expect(find.byKey(const Key('search.clear')), findsOneWidget);
+  });
+
+  testWidgets('keyboard selection scrolls to results beyond the viewport', (
+    tester,
+  ) async {
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient(
+        (_) async => _hits(List.generate(30, (index) => '$index')),
+      ),
+    );
+    final controller = NotesSearchController(api: api, scheduler: (_) async {});
+    addTearDown(controller.dispose);
+    addTearDown(api.close);
+    String? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SearchScreen(
+          controller: controller,
+          onResultTap: (id) => opened = id,
+        ),
+      ),
+    );
+    await tester.enterText(find.byKey(const Key('search.input')), 'release');
+    await tester.pumpAndSettle();
+    for (var index = 0; index < 25; index++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pumpAndSettle();
+    }
+    final tile = find.byKey(const Key('search.hit.24'));
+    expect(
+      tester.getCenter(tile).dy,
+      lessThan(tester.view.physicalSize.height),
+    );
+    expect(tester.getCenter(tile).dy, greaterThan(0));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(opened, '24');
+  });
+
+  testWidgets('arrow keys select a recent note and Enter opens it', (
+    tester,
+  ) async {
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((_) async => _hits([])),
+    );
+    final controller = NotesSearchController(api: api);
+    addTearDown(controller.dispose);
+    addTearDown(api.close);
+    String? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SearchScreen(
+          controller: controller,
+          recentNotes: [
+            _recentNote(id: 'a', title: 'First'),
+            _recentNote(id: 'b', title: 'Second'),
+          ],
+          onResultTap: (id) => opened = id,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    expect(opened, 'b');
+  });
+
   testWidgets('typing produces results and tapping invokes onResultTap', (
     tester,
   ) async {

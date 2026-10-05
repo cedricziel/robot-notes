@@ -6,7 +6,7 @@ import 'package:app/src/config/app_config.dart';
 import 'package:app/src/desktop/app_menu_actions.dart';
 import 'package:app/src/notes/note_controller.dart';
 import 'package:app/src/notes/note_screen.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';

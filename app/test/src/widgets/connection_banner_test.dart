@@ -1,7 +1,7 @@
 import 'package:app/src/realtime/connection_status.dart';
 import 'package:app/src/widgets/connection_banner.dart';
 import 'package:app/src/widgets/status_strip.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
