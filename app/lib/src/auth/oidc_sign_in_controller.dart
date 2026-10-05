@@ -29,11 +29,10 @@ const String kMobileOidcRedirectUri =
 /// iOS/macOS, Custom Tabs on Android) and resolves with the full callback
 /// URL once the provider redirects to [callbackUrlScheme]. Injected so
 /// tests never open a real browser sheet.
-typedef WebAuthenticate =
-    Future<String> Function({
-      required String url,
-      required String callbackUrlScheme,
-    });
+typedef WebAuthenticate = Future<String> Function({
+  required String url,
+  required String callbackUrlScheme,
+});
 
 /// Sealed state machine for an in-progress or completed OIDC sign-in.
 sealed class OidcSignInState {
