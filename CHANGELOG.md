@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.20](https://github.com/cedricziel/robot-notes/compare/v0.2.19...v0.2.20) (2026-10-05)
+
+
+### Features
+
+* redesign adaptive workspace and migrate standalone UI packages ([#328](https://github.com/cedricziel/robot-notes/issues/328)) ([925471a](https://github.com/cedricziel/robot-notes/commit/925471a6e416faf22fb368b183a9c8d07931ea8a))
+
 ## [0.2.19](https://github.com/cedricziel/robot-notes/compare/v0.2.18...v0.2.19) (2026-10-04)
 
 
