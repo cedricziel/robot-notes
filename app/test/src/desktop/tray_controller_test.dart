@@ -1,29 +1,71 @@
+import 'dart:ui' show Size;
+
 import 'package:app/src/desktop/tray_controller_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
-class MockTrayManager extends Mock implements TrayManager {}
+class MockTrayIcon extends Mock implements TrayIcon {}
+
+class MockMenu extends Mock implements Menu {}
+
+class MockMenuItem extends Mock implements MenuItem {}
+
+class MockImage extends Mock implements Image {}
 
 class MockWindowManager extends Mock implements WindowManager {}
 
 void main() {
-  late MockTrayManager trayManager;
+  late MockTrayIcon trayIcon;
+  late MockMenu menu;
+  late MockMenuItem showItem;
+  late MockMenuItem quitItem;
+  late MockImage image;
   late MockWindowManager windowManager;
+  late void Function(TrayIconEvent) trayListener;
+  late void Function(MenuEvent) showListener;
+  late void Function(MenuEvent) quitListener;
+  late List<(String, MenuItemType)> createdItems;
+  late List<String> loadedAssets;
 
   setUpAll(() {
-    registerFallbackValue(Menu());
+    registerFallbackValue(
+      TrayController(isMacOS: false, windowManager: MockWindowManager()),
+    );
+    registerFallbackValue((TrayIconEvent _) {});
+    registerFallbackValue((MenuEvent _) {});
   });
 
   setUp(() {
-    trayManager = MockTrayManager();
+    trayIcon = MockTrayIcon();
+    menu = MockMenu();
+    showItem = MockMenuItem();
+    quitItem = MockMenuItem();
+    image = MockImage();
     windowManager = MockWindowManager();
+    createdItems = [];
+    loadedAssets = [];
 
-    when(
-      () => trayManager.setIcon(any(), isTemplate: any(named: 'isTemplate')),
-    ).thenAnswer((_) async {});
-    when(() => trayManager.setContextMenu(any())).thenAnswer((_) async {});
+    when(() => trayIcon.addListener(any())).thenAnswer((invocation) {
+      trayListener =
+          invocation.positionalArguments.single as void Function(TrayIconEvent);
+      return 1;
+    });
+    when(() => showItem.addListener(any())).thenAnswer((invocation) {
+      showListener =
+          invocation.positionalArguments.single as void Function(MenuEvent);
+      return 2;
+    });
+    when(() => quitItem.addListener(any())).thenAnswer((invocation) {
+      quitListener =
+          invocation.positionalArguments.single as void Function(MenuEvent);
+      return 3;
+    });
+    when(() => trayIcon.removeListener(any())).thenReturn(true);
+    when(() => showItem.removeListener(any())).thenReturn(true);
+    when(() => quitItem.removeListener(any())).thenReturn(true);
+    when(() => trayIcon.setVisible(any())).thenReturn(true);
     when(() => windowManager.ensureInitialized()).thenAnswer((_) async {});
     when(() => windowManager.setPreventClose(any())).thenAnswer((_) async {});
     when(() => windowManager.hide()).thenAnswer((_) async {});
@@ -34,119 +76,233 @@ void main() {
   TrayController buildController({
     bool isMacOS = true,
     void Function()? exitApp,
+    TrayIcon? Function()? createTrayIcon,
+    Menu? Function()? createMenu,
+    MenuItem? Function(String, MenuItemType)? createMenuItem,
+    Future<Image> Function(String)? loadTrayImage,
   }) {
     return TrayController(
-      trayManager: trayManager,
+      createTrayIcon: createTrayIcon ?? () => trayIcon,
+      createMenu: createMenu ?? () => menu,
+      createMenuItem:
+          createMenuItem ??
+          (label, type) {
+            createdItems.add((label, type));
+            return label == 'Quit' ? quitItem : showItem;
+          },
+      loadTrayImage:
+          loadTrayImage ??
+          (asset) async {
+            loadedAssets.add(asset);
+            return image;
+          },
       windowManager: windowManager,
       isMacOS: isMacOS,
       exitApp: exitApp ?? () {},
     );
   }
 
-  Menu capturedMenu() =>
-      verify(() => trayManager.setContextMenu(captureAny())).captured.single
-          as Menu;
-
   Future<void> expectWindowRestored() async {
     await pumpEventQueue();
-    verify(() => windowManager.show()).called(1);
-    verify(() => windowManager.focus()).called(1);
+    verifyInOrder([() => windowManager.show(), () => windowManager.focus()]);
+  }
+
+  void expectCloseUnregistered() {
+    verifyNever(() => windowManager.addListener(any()));
+    verifyNever(() => windowManager.setPreventClose(any()));
   }
 
   group('TrayController on macOS', () {
-    test(
-      'init registers the tray icon, menu, and prevents native close',
-      () async {
-        final controller = buildController();
+    test('init configures the native tray before preventing close', () async {
+      final controller = buildController();
+      await controller.init();
 
-        await controller.init();
+      expect(loadedAssets, [trayIconAssetPath]);
+      expect(createdItems, [
+        ('Show robot-notes', MenuItemType.normal),
+        ('Quit', MenuItemType.normal),
+      ]);
+      verify(() => trayIcon.icon = image).called(1);
+      verify(() => trayIcon.isIconTemplate = true).called(1);
+      verify(() => trayIcon.iconSize = const Size(18, 18)).called(1);
+      verifyInOrder([
+        () => menu.addItem(showItem),
+        () => menu.addSeparator(),
+        () => menu.addItem(quitItem),
+        () => trayIcon.setContextMenu(menu),
+        () => trayIcon.setContextMenuTrigger(ContextMenuTrigger.rightClicked),
+        () => trayIcon.setVisible(true),
+        () => windowManager.addListener(controller),
+        () => windowManager.setPreventClose(true),
+      ]);
+      verify(() => windowManager.ensureInitialized()).called(1);
+    });
 
-        verify(() => trayManager.setIcon(any(), isTemplate: true)).called(1);
-        verify(() => trayManager.setContextMenu(any())).called(1);
-        verify(() => windowManager.ensureInitialized()).called(1);
-        verify(() => windowManager.setPreventClose(true)).called(1);
-      },
-    );
-
-    test('closing the window hides it instead of quitting', () async {
+    test('closing and hiding the window keep the app running', () async {
       final controller = buildController();
       await controller.init();
 
       controller.onWindowClose();
+      await controller.hideWindow();
 
-      verify(() => windowManager.hide()).called(1);
+      verify(() => windowManager.hide()).called(2);
     });
 
-    test('clicking the tray icon restores and focuses the window', () async {
+    test('native left click restores and focuses the window', () async {
       final controller = buildController();
       await controller.init();
 
-      controller.onTrayIconMouseDown();
+      trayListener(const TrayIconClickedEvent(trayIconId: 1));
       await expectWindowRestored();
     });
 
-    test(
-      '"Show robot-notes" menu item restores and focuses the window',
-      () async {
-        final controller = buildController();
-        await controller.init();
+    test('right and double clicks do not restore the window', () async {
+      final controller = buildController();
+      await controller.init();
 
-        final showItem = capturedMenu().getMenuItem('show_window');
-        expect(showItem, isNotNull);
+      trayListener(const TrayIconRightClickedEvent(trayIconId: 1));
+      trayListener(const TrayIconDoubleClickedEvent(trayIconId: 1));
+      await pumpEventQueue();
 
-        showItem!.onClick?.call(showItem);
-        await expectWindowRestored();
-      },
-    );
+      verifyNever(() => windowManager.show());
+      verifyNever(() => windowManager.focus());
+    });
 
-    test('"Quit" menu item terminates the app', () async {
+    test('Show robot-notes menu click restores the window', () async {
+      final controller = buildController();
+      await controller.init();
+
+      showListener(const MenuItemClickedEvent(itemId: 2));
+      await expectWindowRestored();
+    });
+
+    test('Quit menu click terminates the app', () async {
       var exited = false;
       final controller = buildController(exitApp: () => exited = true);
       await controller.init();
 
-      final quitItem = capturedMenu().getMenuItem('quit');
-      expect(quitItem, isNotNull);
-
-      quitItem!.onClick?.call(quitItem);
+      quitListener(const MenuItemClickedEvent(itemId: 3));
 
       expect(exited, isTrue);
     });
-  });
 
-  group('TrayController on macOS', () {
+    test('submenu events do not trigger menu actions', () async {
+      var exited = false;
+      final controller = buildController(exitApp: () => exited = true);
+      await controller.init();
+
+      showListener(const MenuItemSubmenuOpenedEvent(itemId: 2));
+      showListener(const MenuItemSubmenuClosedEvent(itemId: 2));
+      quitListener(const MenuItemSubmenuOpenedEvent(itemId: 3));
+      quitListener(const MenuItemSubmenuClosedEvent(itemId: 3));
+      await pumpEventQueue();
+
+      expect(exited, isFalse);
+      verifyNever(() => windowManager.show());
+      verifyNever(() => windowManager.focus());
+    });
+
+    test('failed tray creation does not prevent closing', () async {
+      final controller = buildController(createTrayIcon: () => null);
+
+      await expectLater(controller.init(), throwsStateError);
+
+      expectCloseUnregistered();
+      verifyNever(() => trayIcon.dispose());
+    });
+
+    test('failed menu creation releases created native resources', () async {
+      final controller = buildController(createMenu: () => null);
+
+      await expectLater(controller.init(), throwsStateError);
+
+      expectCloseUnregistered();
+      verify(() => trayIcon.dispose()).called(1);
+    });
+
+    test('failed menu item creation releases the menu and tray', () async {
+      final controller = buildController(createMenuItem: (_, _) => null);
+
+      await expectLater(controller.init(), throwsStateError);
+
+      expectCloseUnregistered();
+      verify(() => trayIcon.dispose()).called(1);
+      verify(() => menu.dispose()).called(1);
+    });
+
+    test('failed image loading does not create native resources', () async {
+      final controller = buildController(
+        loadTrayImage: (_) => Future.error(StateError('image unavailable')),
+      );
+
+      await expectLater(controller.init(), throwsStateError);
+
+      expectCloseUnregistered();
+      verifyZeroInteractions(trayIcon);
+      verifyNever(() => image.dispose());
+    });
+
     test(
-      'hideWindow hides the window (the menu bar\'s Close Window)',
+      'failed visibility releases resources without preventing close',
+      () async {
+        when(() => trayIcon.setVisible(true)).thenReturn(false);
+        final controller = buildController();
+
+        await expectLater(controller.init(), throwsStateError);
+
+        expectCloseUnregistered();
+        verify(() => trayIcon.dispose()).called(1);
+        verify(() => menu.dispose()).called(1);
+        verify(() => showItem.dispose()).called(1);
+        verify(() => quitItem.dispose()).called(1);
+        verify(() => image.dispose()).called(1);
+        verify(() => trayIcon.removeListener(1)).called(1);
+        verify(() => showItem.removeListener(2)).called(1);
+        verify(() => quitItem.removeListener(3)).called(1);
+
+        controller.dispose();
+        verifyNever(() => trayIcon.dispose());
+      },
+    );
+
+    test(
+      'dispose unregisters listeners and releases each resource once',
       () async {
         final controller = buildController();
         await controller.init();
 
-        await controller.hideWindow();
+        controller.dispose();
+        controller.dispose();
 
-        verify(() => windowManager.hide()).called(1);
+        verify(() => windowManager.removeListener(controller)).called(1);
+        verify(() => trayIcon.removeListener(1)).called(1);
+        verify(() => showItem.removeListener(2)).called(1);
+        verify(() => quitItem.removeListener(3)).called(1);
+        verify(() => trayIcon.dispose()).called(1);
+        verify(() => menu.dispose()).called(1);
+        verify(() => showItem.dispose()).called(1);
+        verify(() => quitItem.dispose()).called(1);
+        verify(() => image.dispose()).called(1);
       },
     );
   });
 
   group('TrayController off macOS', () {
-    test('hideWindow is a no-op', () async {
-      final controller = buildController(isMacOS: false);
-
-      await controller.hideWindow();
-
-      verifyNever(() => windowManager.hide());
-    });
-
-    test('init is a no-op', () async {
-      final controller = buildController(isMacOS: false);
+    test('init, hideWindow and dispose are no-ops', () async {
+      final controller = buildController(
+        isMacOS: false,
+        createTrayIcon: () => throw StateError('must not create tray'),
+      );
 
       await controller.init();
+      await controller.hideWindow();
+      controller.dispose();
 
-      verifyNever(
-        () => trayManager.setIcon(any(), isTemplate: any(named: 'isTemplate')),
-      );
-      verifyNever(() => trayManager.setContextMenu(any()));
-      verifyNever(() => windowManager.ensureInitialized());
-      verifyNever(() => windowManager.setPreventClose(any()));
+      expect(createdItems, isEmpty);
+      expect(loadedAssets, isEmpty);
+      verifyZeroInteractions(windowManager);
+      verifyZeroInteractions(trayIcon);
+      verifyZeroInteractions(menu);
     });
   });
 }

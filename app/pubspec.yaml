@@ -9,7 +9,7 @@ version: 0.2.19 # x-release-please-version
 
 environment:
   sdk: ^3.8.0
-  flutter: ">=3.24.0"
+  flutter: ">=3.47.0"
 
 resolution: workspace
 
@@ -38,7 +38,7 @@ dependencies:
   shared:
     path: ../shared
   shared_preferences: ^2.5.3
-  tray_manager: ^0.5.0
+  tray_manager: ^0.7.0
   unorm_dart: ^0.3.2
   url_launcher: ^6.3.1
   web: ^1.1.1
