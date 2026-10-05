@@ -40,9 +40,11 @@ FROM --platform=$BUILDPLATFORM ghcr.io/cirruslabs/flutter:3.44.0@sha256:46691e31
 # Cirrus has no 3.47 image yet. Pin the SDK to the 3.47.2 revision used by
 # CI so tray_manager 0.7's Flutter >=3.47 requirement is met reproducibly.
 RUN flutter_sdk_dir="$(dirname "$(dirname "$(readlink -f "$(command -v flutter)")")")" \
- && git -C "$flutter_sdk_dir" fetch --depth 1 origin d3b14c876900e553bc736ca19295fc09e3853e8e \
+ && git -C "$flutter_sdk_dir" fetch --depth 1 origin refs/tags/3.47.2:refs/tags/3.47.2 \
  && git -C "$flutter_sdk_dir" checkout --detach d3b14c876900e553bc736ca19295fc09e3853e8e \
- && flutter --version
+ && rm -f "$flutter_sdk_dir/bin/cache/flutter.version.json" \
+ && flutter --version \
+ && flutter --version --machine | grep -Eq '"frameworkVersion": "3\.47\.2"'
 
 WORKDIR /workspace
 
