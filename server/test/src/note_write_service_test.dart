@@ -16,6 +16,16 @@ import 'package:test/test.dart';
 import 'embeddings/fake_embedding_provider.dart';
 import 'search_test_helpers.dart';
 
+/// Provider whose embed() never completes until the test allows it —
+/// proves the write returns without waiting on the provider.
+class _HangingProvider implements EmbeddingProvider {
+  final Completer<List<double>> completer = Completer<List<double>>();
+  @override
+  final int dimensions = 4;
+  @override
+  Future<List<double>> embed(String text) => completer.future;
+}
+
 class _RecordingSpanProcessor implements SpanProcessor {
   final List<SpanData> ended = [];
 
@@ -517,6 +527,34 @@ void main() {
   });
 
   group('NoteWriteService embedding integration', () {
+    test('create returns before the embedding is computed (after-write)',
+        () async {
+      final provider = _HangingProvider();
+      final s = await _stack(tmp, embeddingProvider: provider);
+      addTearDown(s.search.close);
+      final svc = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: _CapturingBroadcaster(),
+        embeddingProvider: provider,
+      );
+
+      final note = await svc.create(
+        title: 'A',
+        content: 'returns immediately',
+        actor: 'a',
+      );
+
+      // The write is acknowledged while the embedding is still in flight.
+      expect(provider.completer.isCompleted, isFalse);
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isFalse);
+
+      provider.completer.complete([1.0, 2.0, 3.0, 4.0]);
+      await svc.drainEmbeddings();
+      expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
+    });
+
     test(
         'create computes and stores an embedding when a provider is '
         'configured', () async {
@@ -537,6 +575,7 @@ void main() {
         actor: 'a',
       );
 
+      await svc.drainEmbeddings();
       expect(provider.callCount, 1);
       expect(
         provider.inputs.single,
@@ -563,6 +602,7 @@ void main() {
         actor: 'a',
       );
 
+      await svc.drainEmbeddings();
       expect(provider.inputs.single, '2026-09-18 Untitled');
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
@@ -589,6 +629,7 @@ void main() {
         actor: 'a',
       );
 
+      await svc.drainEmbeddings();
       expect(provider.callCount, 1);
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
@@ -629,6 +670,7 @@ void main() {
         embeddingProvider: provider,
       );
       final note = await svc.create(title: 'A', content: 'v1', actor: 'a');
+      await svc.drainEmbeddings();
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
 
       provider.shouldThrow = true;
@@ -639,6 +681,7 @@ void main() {
         ifMatch: note.version,
         actor: 'a',
       );
+      await svc.drainEmbeddings();
 
       expect(
         vectorRowExists('${tmp.path}/search.db', note.id),

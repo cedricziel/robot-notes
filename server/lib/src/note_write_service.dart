@@ -236,9 +236,7 @@ class NoteWriteService {
     );
     span?.setAttribute('note.id', note.id);
     final summary = note.toSummary();
-    final embedding = await _embed(
-      embeddingInputFor(title: note.title, content: note.content),
-    );
+    scheduleEmbedding(note);
     // metaIndex is upserted before the search index reads from it below,
     // so link resolution (including a self-referential link) sees this
     // note.
@@ -257,7 +255,6 @@ class NoteWriteService {
       updatedAt: note.updatedAt,
       tags: summary.tags,
       links: _searchLinkEdges(note.id),
-      embedding: embedding,
       extra: note.extra,
       createdAt: note.createdAt,
       isDefinition: isDatabaseDefinitionExtra(note.extra),
@@ -366,9 +363,7 @@ class NoteWriteService {
           properties: properties,
         );
         final summary = updated.toSummary();
-        final embedding = await _embed(
-          embeddingInputFor(title: updated.title, content: updated.content),
-        );
+        scheduleEmbedding(updated);
         metaIndex.upsert(summary);
         final coveringDefs = _coveringOf(updated, summary);
         linkIndex.upsert(
@@ -384,7 +379,6 @@ class NoteWriteService {
           updatedAt: updated.updatedAt,
           tags: summary.tags,
           links: _searchLinkEdges(updated.id),
-          embedding: embedding,
           extra: updated.extra,
           createdAt: updated.createdAt,
           isDefinition: isDatabaseDefinitionExtra(updated.extra),
@@ -598,12 +592,39 @@ class NoteWriteService {
           ),
       ];
 
-  /// Computes the embedding for [text] (a note's title + content, see
-  /// [embeddingInputFor]) via [embeddingProvider], or `null` when
-  /// unconfigured, on failure, or when there is nothing to embed — see
-  /// [embedOrNull].
-  Future<List<double>?> _embed(String text) =>
-      embedOrNull(embeddingProvider, text, logger: _log);
+  /// Schedules the note's embedding to be computed and written AFTER the
+  /// write has been acknowledged (issue #334) instead of inline in the
+  /// request path — `PUT /notes/:id` no longer waits on the embedding
+  /// provider (p95 25.7s when Ollama is slow). The [SearchIndex.upsert]
+  /// performed by the write itself commits without a vector, which also
+  /// drops any stale pre-update vector; [SearchIndex.embedNote] then
+  /// fills the fresh one in the background, with retry/backoff, leaving
+  /// the note for the startup backfill if every attempt fails.
+  ///
+  /// The in-flight futures are tracked in [_pendingEmbeds] so tests (and
+  /// shutdown) can await completion via [drainEmbeddings]; completed
+  /// entries are pruned as we go.
+  void scheduleEmbedding(StoredNote note) {
+    if (embeddingProvider == null) return;
+    final future = searchIndex
+        .embedNote(id: note.id, title: note.title, content: note.content)
+        .catchError(
+          (Object e, StackTrace st) =>
+              _log.warning('Background embedding failed for ${note.id}', e, st),
+        );
+    _pendingEmbeds.add(future);
+    unawaited(
+      future.whenComplete(() => _pendingEmbeds.remove(future)),
+    );
+  }
+
+  /// Awaits every still-running background embedding — visibleForTesting
+  /// so tests can observe the after-write embedding without racing it.
+  @visibleForTesting
+  Future<void> drainEmbeddings() =>
+      Future.wait(List.of(_pendingEmbeds, growable: false));
+
+  final List<Future<void>> _pendingEmbeds = [];
 
   void _safeBroadcast(ChangedEvent event) {
     try {

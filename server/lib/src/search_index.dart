@@ -999,6 +999,56 @@ class SearchIndex {
     ];
   }
 
+  /// Computes and stores the embedding for a single note whose write has
+  /// already been acknowledged (issue #334): the HTTP write no longer
+  /// waits on the embedding provider. Retries transient provider failures
+  /// with exponential backoff ([initialDelay], doubled per attempt, up to
+  /// [maxAttempts] tries). When every attempt fails the note is left
+  /// WITHOUT a vector — its absence from `note_vectors` is the reindex
+  /// marker: [SearchIndex.upsert] keeps stale vectors from being served,
+  /// and [backfillEmbeddings] (startup, or any later pass) picks the id
+  /// back up. Returns normally even on total failure; failures are logged.
+  /// [sleep] is overridable in tests to avoid real delays.
+  Future<void> embedNote({
+    required String id,
+    required String title,
+    required String content,
+    int maxAttempts = 3,
+    Duration initialDelay = const Duration(milliseconds: 200),
+    Future<void> Function(Duration)? sleep,
+  }) async {
+    final provider = _embeddingProvider;
+    if (provider == null) return;
+    final text = embeddingInputFor(title: title, content: content);
+    if (text.trim().isEmpty) return;
+    final sleepFn = sleep ?? Future<void>.delayed;
+    var delay = initialDelay;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        final embedding = await provider.embed(text);
+        _db.execute('BEGIN');
+        try {
+          _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
+          _db.execute('COMMIT');
+        } catch (e) {
+          _db.execute('ROLLBACK');
+          rethrow;
+        }
+        return;
+      } on EmbeddingProviderException catch (e) {
+        if (attempt == maxAttempts) {
+          _log.warning(
+            'Embedding failed after $maxAttempts attempt(s); note $id '
+            'left without a vector (backfill will retry): $e',
+          );
+          return;
+        }
+        await sleepFn(delay);
+        delay *= 2;
+      }
+    }
+  }
+
   /// Default number of notes embedded per batch during [backfillEmbeddings].
   static const int _defaultBackfillBatchSize = 10;
 

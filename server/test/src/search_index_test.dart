@@ -129,6 +129,23 @@ bool _hasVectorTable(Directory tmp) {
   }
 }
 
+/// Provider failing the first [failTimes] calls, then succeeding.
+class _FlakyProvider implements EmbeddingProvider {
+  _FlakyProvider(this.failTimes);
+  final int failTimes;
+  int calls = 0;
+  @override
+  final int dimensions = 4;
+  @override
+  Future<List<double>> embed(String text) async {
+    calls++;
+    if (calls <= failTimes) {
+      throw const EmbeddingProviderException('transient oom');
+    }
+    return [1.0, 2.0, 3.0, 4.0];
+  }
+}
+
 void main() {
   late Directory tmp;
 
@@ -1450,6 +1467,81 @@ void main() {
 
       expect(hits, hasLength(baselineHits.length));
       expect(hits, hasLength(limit));
+    });
+  });
+
+  group('SearchIndex.embedNote (after-write, retry with backoff)', () {
+    Future<SearchIndex> seededForEmbed(EmbeddingProvider provider) async {
+      final index = await _open(
+        tmp,
+        embeddingProvider: provider,
+        autoBackfill: false,
+      );
+      addTearDown(index.close);
+      index.upsert(
+        id: 'n1',
+        title: 'A',
+        content: 'alpha beta',
+        updatedAt: _testStamp,
+      );
+      return index;
+    }
+
+    test('retries transient failures with backoff and stores the vector',
+        () async {
+      final provider = _FlakyProvider(2);
+      final index = await seededForEmbed(provider);
+      await index.embedNote(
+        id: 'n1',
+        title: 'A',
+        content: 'alpha beta',
+        initialDelay: Duration.zero,
+        sleep: (_) async {},
+      );
+      expect(provider.calls, 3);
+    });
+
+    test('gives up after maxAttempts and leaves the note vectorless', () async {
+      final provider = _FlakyProvider(10);
+      final index = await seededForEmbed(provider);
+      await index.embedNote(
+        id: 'n1',
+        title: 'A',
+        content: 'alpha beta',
+        maxAttempts: 2,
+        initialDelay: Duration.zero,
+        sleep: (_) async {},
+      );
+      expect(provider.calls, 2);
+      final db = sqlite3.open(_dbFile(tmp).path);
+      addTearDown(db.close);
+      final rows = db.select(
+        "SELECT * FROM note_vectors WHERE id = 'n1';",
+      );
+      expect(
+        rows,
+        isEmpty,
+        reason: 'the missing vector is the reindex marker backfill '
+            'picks up on its next pass',
+      );
+    });
+
+    test('writes the vector when the first attempt succeeds', () async {
+      final provider = _FlakyProvider(0);
+      final index = await seededForEmbed(provider);
+      await index.embedNote(
+        id: 'n1',
+        title: 'A',
+        content: 'alpha beta',
+        sleep: (_) async {},
+      );
+      expect(provider.calls, 1);
+      final db = sqlite3.open(_dbFile(tmp).path);
+      addTearDown(db.close);
+      expect(
+        db.select("SELECT * FROM note_vectors WHERE id = 'n1';"),
+        isNotEmpty,
+      );
     });
   });
 
