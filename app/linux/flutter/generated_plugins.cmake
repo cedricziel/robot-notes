@@ -6,13 +6,13 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_webview_window
   flutter_secure_storage_linux
   screen_retriever_linux
-  tray_manager
   url_launcher_linux
   window_manager
   window_to_front
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  cnativeapi
   jni
 )
 
