@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.21](https://github.com/cedricziel/robot-notes/compare/v0.2.20...v0.2.21) (2026-10-06)
+
+
+### Bug Fixes
+
+* **oauth:** accept dynamic loopback redirect ports ([#336](https://github.com/cedricziel/robot-notes/issues/336)) ([f438ff2](https://github.com/cedricziel/robot-notes/commit/f438ff292a784e6241f7065c8cc93e1427f0b77d))
+* **search:** cap echoed query in invalid-query log to 100 chars ([#333](https://github.com/cedricziel/robot-notes/issues/333)) ([159986b](https://github.com/cedricziel/robot-notes/commit/159986b25faca9d37f62fddb4e8490bab855c8cb))
+* **search:** neutralize : and parens in FTS5 sanitize fallback ([#332](https://github.com/cedricziel/robot-notes/issues/332)) ([24853c0](https://github.com/cedricziel/robot-notes/commit/24853c0dfb875c08727a725e4cbe35f6325e2fb7))
+
+
+### Performance
+
+* **search:** compute note embeddings after-write with retry instead of inline ([#334](https://github.com/cedricziel/robot-notes/issues/334)) ([0eec213](https://github.com/cedricziel/robot-notes/commit/0eec2137cc0c691bee24dd7f20cc5a579f087255))
+
 ## [0.2.20](https://github.com/cedricziel/robot-notes/compare/v0.2.19...v0.2.20) (2026-10-05)
 
 
