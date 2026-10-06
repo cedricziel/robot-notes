@@ -189,6 +189,95 @@ void main() {
       expect(body, contains(Routes.oauthOidcLogin));
     });
 
+    for (final host in ['127.0.0.1', '[::1]']) {
+      test('accepts a changed HTTP loopback port for $host', () async {
+        client = await clientStore.register(
+          clientName: 'Desktop',
+          redirectUris: ['http://$host:51989/callback'],
+          tokenEndpointAuthMethod: 'none',
+          grantTypes: ['authorization_code', 'refresh_token'],
+          responseTypes: ['code'],
+        );
+        final res = await route.onRequest(
+          _ctx(
+            method: HttpMethod.get,
+            clientStore: clientStore,
+            codeStore: codeStore,
+            queryParameters: validQuery()
+              ..['redirect_uri'] = 'http://$host:53601/callback',
+          ),
+        );
+
+        expect(res.statusCode, HttpStatus.ok);
+        expect(await res.body(), contains('Desktop'));
+      });
+    }
+
+    for (final redirect in [
+      'http://127.0.0.1:53601/other',
+      'http://127.0.0.1:53601/%63allback',
+      'http://127.0.0.1:53601/callback?extra=1',
+      'http://127.0.0.1:53601/callback#fragment',
+      'http://127.0.0.2:53601/callback',
+      'http://localhost:53601/callback',
+      'http://[::1]:53601/callback',
+      'http://user@127.0.0.1:53601/callback',
+      'https://127.0.0.1:53601/callback',
+      'http://127.0.0.1:0/callback',
+      'http://127.0.0.1:65536/callback',
+    ]) {
+      test('rejects loopback redirect change $redirect', () async {
+        client = await clientStore.register(
+          clientName: 'Desktop',
+          redirectUris: ['http://127.0.0.1:51989/callback'],
+          tokenEndpointAuthMethod: 'none',
+          grantTypes: ['authorization_code', 'refresh_token'],
+          responseTypes: ['code'],
+        );
+        final res = await route.onRequest(
+          _ctx(
+            method: HttpMethod.get,
+            clientStore: clientStore,
+            codeStore: codeStore,
+            queryParameters: validQuery()..['redirect_uri'] = redirect,
+          ),
+        );
+
+        expect(res.statusCode, HttpStatus.badRequest);
+        expect(res.headers['location'], isNull);
+      });
+    }
+
+    for (final registered in [
+      'https://127.0.0.1:51989/callback',
+      'http://localhost:51989/callback',
+      'https://agent.example:51989/callback',
+      'com.cedricziel.robotnotes.app://oauth:51989/callback',
+    ]) {
+      test('requires exact ports outside HTTP loopback IPs: $registered',
+          () async {
+        client = await clientStore.register(
+          clientName: 'Other client',
+          redirectUris: [registered],
+          tokenEndpointAuthMethod: 'none',
+          grantTypes: ['authorization_code', 'refresh_token'],
+          responseTypes: ['code'],
+        );
+        final res = await route.onRequest(
+          _ctx(
+            method: HttpMethod.get,
+            clientStore: clientStore,
+            codeStore: codeStore,
+            queryParameters: validQuery()
+              ..['redirect_uri'] = registered.replaceFirst('51989', '53601'),
+          ),
+        );
+
+        expect(res.statusCode, HttpStatus.badRequest);
+        expect(res.headers['location'], isNull);
+      });
+    }
+
     test('unregistered redirect_uri does not redirect', () async {
       final res = await route.onRequest(
         _ctx(
