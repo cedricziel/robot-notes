@@ -31,6 +31,82 @@ void main() {
     await app.close();
   });
 
+  for (final exchange in [
+    (
+      redirect: 'http://127.0.0.1:53601/callback',
+      status: 200,
+      body: contains('access_token')
+    ),
+    (
+      redirect: 'http://127.0.0.1:51989/callback',
+      status: 400,
+      body: equals({'error': 'invalid_grant'})
+    ),
+  ]) {
+    test('cached loopback client binds token exchange to ${exchange.redirect}',
+        () async {
+      const registeredRedirect = 'http://127.0.0.1:51989/callback';
+      const requestedRedirect = 'http://127.0.0.1:53601/callback';
+      const verifier = 'desktop-loopback-pkce-verifier-12345678901234567890';
+      final registration = await app.deps.clientStore.register(
+        clientName: 'Cached desktop client',
+        redirectUris: [registeredRedirect],
+        tokenEndpointAuthMethod: 'none',
+        grantTypes: ['authorization_code', 'refresh_token'],
+        responseTypes: ['code'],
+      );
+      final clientId = registration.client.clientId;
+      final fields = {
+        'client_id': clientId,
+        'redirect_uri': requestedRedirect,
+        'response_type': 'code',
+        'code_challenge': pkceS256Challenge(verifier),
+        'code_challenge_method': 'S256',
+        'resource': app.baseUrl,
+        'scope': 'notes:read notes:write vaults:manage',
+        'state': 'desktop-state',
+      };
+      final consentPage = await http.get(
+        Uri.parse('${app.baseUrl}/oauth/authorize')
+            .replace(queryParameters: fields),
+      );
+      expect(consentPage.statusCode, 200, reason: consentPage.body);
+
+      final client = http.Client();
+      addTearDown(client.close);
+      final consentRequest = http.Request(
+        'POST',
+        Uri.parse('${app.baseUrl}/oauth/authorize'),
+      )
+        ..followRedirects = false
+        ..bodyFields = {
+          ...fields,
+          'api_key': app.config.apiKey,
+          'vault_default': 'yes',
+        };
+      final consent = await http.Response.fromStream(
+        await client.send(consentRequest),
+      );
+      expect(consent.statusCode, 302, reason: consent.body);
+      final callback = Uri.parse(consent.headers['location']!);
+      expect(callback.port, 53601);
+      expect(callback.queryParameters['state'], 'desktop-state');
+
+      final token = await http.post(
+        Uri.parse('${app.baseUrl}/oauth/token'),
+        body: {
+          'grant_type': 'authorization_code',
+          'client_id': clientId,
+          'code': callback.queryParameters['code']!,
+          'redirect_uri': exchange.redirect,
+          'code_verifier': verifier,
+        },
+      );
+      expect(token.statusCode, exchange.status, reason: token.body);
+      expect(jsonDecode(token.body), exchange.body);
+    });
+  }
+
   test(
     'register -> authorize -> consent -> token -> refresh -> revoke',
     () async {

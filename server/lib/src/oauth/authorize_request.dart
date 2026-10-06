@@ -73,7 +73,7 @@ final class AuthorizeValid extends AuthorizeValidation {
   /// The registered client making the request.
   final OAuthClient client;
 
-  /// The registered redirect URI the request will complete to.
+  /// The validated request redirect URI, including its loopback port.
   final String redirectUri;
 
   /// The PKCE `S256` code challenge.
@@ -87,6 +87,35 @@ final class AuthorizeValid extends AuthorizeValidation {
 
   /// The original request's opaque `state`, echoed back when present.
   final String? state;
+}
+
+final _loopbackRedirect = RegExp(
+  r'^(http://(?:127\.0\.0\.1|\[::1\]))(?::([0-9]+))?([/?][^#]*)?$',
+);
+
+bool _matchesRedirectUri(String registered, String requested) {
+  if (registered == requested) return true;
+  final registeredMatch = _loopbackRedirect.firstMatch(registered);
+  final requestedMatch = _loopbackRedirect.firstMatch(requested);
+  if (registeredMatch == null ||
+      requestedMatch == null ||
+      registeredMatch.end != registered.length ||
+      requestedMatch.end != requested.length) {
+    return false;
+  }
+  final registeredPort = int.tryParse(registeredMatch[2] ?? '80');
+  final requestedPort = int.tryParse(requestedMatch[2] ?? '80');
+  if (registeredPort == null ||
+      requestedPort == null ||
+      registeredPort < 1 ||
+      registeredPort > 65535 ||
+      requestedPort < 1 ||
+      requestedPort > 65535) {
+    return false;
+  }
+  // RFC 8252 permits dynamic loopback ports; preserve every other URI byte.
+  return registeredMatch[1] == requestedMatch[1] &&
+      registeredMatch[3] == requestedMatch[3];
 }
 
 /// Validates an `/oauth/authorize` request's [params] (from either the
@@ -114,7 +143,9 @@ Future<AuthorizeValidation> validateAuthorizeRequest(
   if (client == null) {
     return clientOrRedirectError;
   }
-  if (!client.redirectUris.contains(redirectUri)) {
+  if (!client.redirectUris.any(
+    (registered) => _matchesRedirectUri(registered, redirectUri),
+  )) {
     return clientOrRedirectError;
   }
 

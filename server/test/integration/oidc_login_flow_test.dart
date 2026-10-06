@@ -62,7 +62,8 @@ void main() {
     await stub.close(force: true);
   });
 
-  test('sign in with an OIDC provider mints a working access token', () async {
+  test('OIDC login with a changed loopback port mints a working access token',
+      () async {
     // 1. Register a client and start /oauth/authorize.
     final registerRes = await http.post(
       Uri.parse('${app.baseUrl}/oauth/register'),
@@ -82,7 +83,7 @@ void main() {
     final authorizeUri = Uri.parse('${app.baseUrl}/oauth/authorize').replace(
       queryParameters: {
         'client_id': clientId,
-        'redirect_uri': 'http://127.0.0.1:53421/callback',
+        'redirect_uri': 'http://127.0.0.1:53601/callback',
         'response_type': 'code',
         'code_challenge': challenge,
         'code_challenge_method': 'S256',
@@ -140,7 +141,7 @@ void main() {
     final callbackStreamed = await callbackReq.send();
     expect(callbackStreamed.statusCode, 302);
     final finalRedirect = Uri.parse(callbackStreamed.headers['location']!);
-    expect(finalRedirect.origin, 'http://127.0.0.1:53421');
+    expect(finalRedirect.origin, 'http://127.0.0.1:53601');
     expect(finalRedirect.queryParameters['state'], 'app-original-state');
     final code = finalRedirect.queryParameters['code']!;
 
@@ -152,7 +153,7 @@ void main() {
       body: {
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': 'http://127.0.0.1:53421/callback',
+        'redirect_uri': 'http://127.0.0.1:53601/callback',
         'code_verifier': verifier,
         'client_id': clientId,
       },

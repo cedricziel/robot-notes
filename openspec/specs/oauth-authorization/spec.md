@@ -98,12 +98,31 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 ### Requirement: Authorization endpoint validates the request and renders a consent page
 
-`GET /oauth/authorize` SHALL be served without bearer authentication. If `client_id` is unknown or `redirect_uri` does not exactly match one of the client's registered URIs, the server SHALL respond 400 with an HTML error page and SHALL NOT redirect. Otherwise, if `response_type` is not `code` the server SHALL redirect to `redirect_uri` with `error=unsupported_response_type`; if the client's registered `response_types` does not include `code` it SHALL redirect with `error=unauthorized_client`; if `code_challenge` is missing or `code_challenge_method` is not `S256` it SHALL redirect with `error=invalid_request`; if `scope` names a value outside `notes:read notes:write` it SHALL redirect with `error=invalid_scope`; if `resource` is present and is not `<base>/mcp` it SHALL redirect with `error=invalid_target`; an omitted `resource` SHALL be treated as `<base>/mcp`. Error redirects SHALL echo `state` when supplied. A valid request SHALL respond 200 with an HTML consent form that displays the client's name and requested scopes, contains a password field `api_key`, a text field `actor` prefilled with the client name, and carries every authorization parameter forward to `POST /oauth/authorize`. A missing `scope` SHALL be treated as `notes:read notes:write`.
+`GET /oauth/authorize` SHALL be served without bearer authentication. If `client_id` is unknown or `redirect_uri` does not match one of the client's registered URIs, the server SHALL respond 400 with an HTML error page and SHALL NOT redirect. Matching SHALL be exact except that HTTP loopback IP redirects (`127.0.0.1` or `[::1]`) SHALL allow a different port, as required by RFC 8252 section 7.3. Only the port may differ: the scheme, loopback IP literal, path, and query SHALL remain identical, user information and fragments SHALL be rejected for this exception, and an explicit port SHALL be between 1 and 65535. HTTPS, `localhost`, and custom-scheme redirects SHALL continue to require an exact match. The server SHALL carry the requested redirect URI through consent and bind the authorization code to that exact URI. Otherwise, if `response_type` is not `code` the server SHALL redirect to `redirect_uri` with `error=unsupported_response_type`; if the client's registered `response_types` does not include `code` it SHALL redirect with `error=unauthorized_client`; if `code_challenge` is missing or `code_challenge_method` is not `S256` it SHALL redirect with `error=invalid_request`; if `scope` names a value outside `notes:read notes:write` it SHALL redirect with `error=invalid_scope`; if `resource` is present and is not `<base>/mcp` it SHALL redirect with `error=invalid_target`; an omitted `resource` SHALL be treated as `<base>/mcp`. Error redirects SHALL echo `state` when supplied. A valid request SHALL respond 200 with an HTML consent form that displays the client's name and requested scopes, contains a password field `api_key`, a text field `actor` prefilled with the client name, and carries every authorization parameter forward to `POST /oauth/authorize`. A missing `scope` SHALL be treated as `notes:read notes:write`.
 
 #### Scenario: Consent page renders
 
 - **WHEN** a registered client opens `GET /oauth/authorize?client_id=<id>&redirect_uri=<registered>&response_type=code&code_challenge=<c>&code_challenge_method=S256&state=xyz&resource=<base>/mcp`
 - **THEN** the response SHALL be 200 HTML containing the client name, an `api_key` password input, and an `actor` input
+
+#### Scenario: Cached desktop registration accepts a new loopback port
+
+- **GIVEN** a client registered `http://127.0.0.1:51989/callback`
+- **WHEN** it authorizes using `http://127.0.0.1:53601/callback` with valid PKCE parameters
+- **THEN** the consent page SHALL be served successfully and consent SHALL redirect to port `53601`
+- **AND** token exchange SHALL require `http://127.0.0.1:53601/callback`, rejecting the originally registered port for that code
+
+#### Scenario: IPv6 loopback registration accepts a new port
+
+- **GIVEN** a client registered `http://[::1]:51989/callback`
+- **WHEN** it authorizes using `http://[::1]:53601/callback` with valid PKCE parameters
+- **THEN** the consent page SHALL be served successfully
+
+#### Scenario: Loopback exception does not allow other URI changes
+
+- **GIVEN** a client registered `http://127.0.0.1:51989/callback`
+- **WHEN** an authorization request changes the host, path, query, or scheme, adds user information or a fragment, or uses an invalid port
+- **THEN** the server SHALL respond 400 without redirecting
 
 #### Scenario: Unregistered redirect URI does not redirect
 
