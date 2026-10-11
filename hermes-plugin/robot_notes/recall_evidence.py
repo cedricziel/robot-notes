@@ -29,6 +29,7 @@ def evidence_context(
     max_bytes: int,
     expand_chars: int,
     load_note: Callable[[str], Mapping[str, Any]] | None = None,
+    recall_paths: Sequence[str | None] = (None,),
 ) -> tuple[str, int]:
     """Format evidence and source metadata under a total UTF-8 byte budget."""
     context = _HEADER
@@ -40,6 +41,12 @@ def evidence_context(
         snippet = item.get("snippet", "")
         if expand_chars and load_note is not None:
             note = load_note(item["id"])
+            path = note.get("path", "")
+            if not any(
+                root is None or path == root or path.startswith(root + "/")
+                for root in recall_paths
+            ):
+                continue
             body = passage(note.get("content", ""), snippet, expand_chars)
         else:
             body = _MARK.sub("", snippet)

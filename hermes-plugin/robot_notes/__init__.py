@@ -465,6 +465,7 @@ class RobotNotesProvider(MemoryProvider):
             if config.recall_max_bytes:
                 return evidence_context(items[:5], max_bytes=config.recall_max_bytes,
                                         expand_chars=config.recall_expand_chars,
+                                        recall_paths=narrow_paths(config.recall_paths, config.recall_path),
                                         load_note=lambda note_id: client.get_note(note_id, recall=True))
         except ClientError as exc:
             if exc.kind is ErrorKind.CIRCUIT_OPEN:

@@ -72,3 +72,15 @@ def test_unicode_case_matching_keeps_original_character_offsets():
     assert "SAFFRON telescope" in passage(
         "ß" * 100 + "SAFFRON telescope", "<mark>saffron</mark>", 30
     )
+
+
+def test_note_moved_outside_scope_is_not_injected_after_expansion():
+    items = [{"id": "1", "title": "Moved", "snippet": "evidence"}]
+    note = {"title": "Moved", "path": "people/bob", "content": "evidence"}
+    assert evidence_context(
+        items,
+        max_bytes=500,
+        expand_chars=100,
+        load_note=lambda _: note,
+        recall_paths=("people/alice",),
+    ) == ("", 0)
