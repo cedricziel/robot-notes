@@ -537,6 +537,115 @@ class RobotNotesClient {
   }
 
   /// Decodes a 2xx JSON body, or throws the appropriate typed exception.
+  Future<Map<String, dynamic>> getKnowledgePermissions(String id) async => _ok(
+    await _http.get(_uri('/notes/$id/permissions'), headers: _baseHeaders),
+  );
+
+  Future<Map<String, dynamic>> getKnowledgeBlocks(
+    String id, {
+    int? version,
+  }) async => _ok(
+    await _http.get(
+      _uri(
+        '/notes/$id/blocks',
+        version == null ? null : {'version': '$version'},
+      ),
+      headers: _baseHeaders,
+    ),
+  );
+
+  Future<Map<String, dynamic>> listKnowledgeProposals(String id) async =>
+      _ok(await _http.get(_uri('/notes/$id/proposals'), headers: _baseHeaders));
+
+  Future<Map<String, dynamic>> getKnowledgeProposal(
+    String id,
+    String proposalId,
+  ) async => _ok(
+    await _http.get(
+      _uri('/notes/$id/proposals/$proposalId'),
+      headers: _baseHeaders,
+    ),
+  );
+
+  Future<Map<String, dynamic>> decideKnowledgeProposal(
+    String id,
+    String proposalId, {
+    required String decision,
+    required int recordRevision,
+    String? comment,
+  }) async => _knowledgeWrite('/notes/$id/proposals/$proposalId/decisions', {
+    'decision': decision,
+    'record_revision': recordRevision,
+    'comment': ?comment,
+  });
+
+  Future<Map<String, dynamic>> createKnowledgeProposal(
+    String id,
+    Map<String, Object?> proposal,
+  ) => _knowledgeWrite('/notes/$id/proposals', proposal);
+
+  Future<Map<String, dynamic>> getKnowledgeComments(String id) async =>
+      _ok(await _http.get(_uri('/notes/$id/comments'), headers: _baseHeaders));
+
+  Future<Map<String, dynamic>> commentKnowledge(
+    String path,
+    Map<String, Object?> comment,
+  ) => _knowledgeWrite(path, comment);
+
+  Future<Map<String, dynamic>> getKnowledgeHistory(String id) async =>
+      _ok(await _http.get(_uri('/notes/$id/history'), headers: _baseHeaders));
+
+  Future<Map<String, dynamic>> restoreKnowledgeHistory(
+    String id, {
+    required int version,
+    required int currentVersion,
+  }) => _knowledgeWrite('/notes/$id/history', {
+    'version': version,
+    'if_match': currentVersion,
+  });
+
+  Future<Map<String, dynamic>> getKnowledgePolicy(
+    Map<String, String> target,
+  ) async => _ok(
+    await _http.get(_uri('/knowledge/policies', target), headers: _baseHeaders),
+  );
+
+  Future<Map<String, dynamic>> getKnowledgePrincipals(
+    Map<String, String> target,
+  ) async => _ok(
+    await _http.get(
+      _uri('/knowledge/principals', target),
+      headers: _baseHeaders,
+    ),
+  );
+
+  Future<Map<String, dynamic>> saveKnowledgePolicy(
+    Map<String, Object?> target,
+    Map<String, Object?> policy,
+    String revision,
+  ) async => _ok(
+    await _http.put(
+      _uri('/knowledge/policies'),
+      headers: {
+        ..._baseHeaders,
+        'Content-Type': 'application/json',
+        'If-Match': revision,
+      },
+      body: jsonEncode({'target': target, 'policy': policy}),
+    ),
+  );
+
+  Future<Map<String, dynamic>> _knowledgeWrite(
+    String path,
+    Map<String, Object?> body,
+  ) async => _ok(
+    await _http.post(
+      _uri(path),
+      headers: {..._baseHeaders, 'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    ),
+  );
+
   Map<String, dynamic> _ok(http.Response res) {
     if (res.statusCode >= 200 && res.statusCode < 300) {
       if (res.body.isEmpty) return const <String, dynamic>{};
@@ -575,9 +684,18 @@ class RobotNotesClient {
         return BadRequestException(message: message);
       case 401:
         return UnauthorizedException(message: message);
+      case 403:
+        return ForbiddenException(message: message);
       case 404:
         return NotFoundException(message: message);
       case 409:
+        if (body?['error'] != 'path_conflict' &&
+            body?['error'] != 'version_conflict') {
+          return KnowledgeConflictException(
+            details: body ?? {},
+            message: message,
+          );
+        }
         if (body?['error'] == 'path_conflict') {
           return PathConflictException(message: message);
         }

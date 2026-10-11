@@ -14,6 +14,7 @@ import '../desktop/app_menu_actions.dart';
 import '../desktop/app_menu_bar.dart';
 import '../format/note_time.dart';
 import '../layout/breakpoints.dart';
+import '../knowledge/knowledge_review_screen.dart';
 import '../realtime/ws_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/adaptive.dart';
@@ -214,6 +215,41 @@ class _NoteScreenState extends State<NoteScreen> {
   }
 
   Future<void> _edit() async {
+    final note = widget.controller.value.note;
+    if (note != null) {
+      try {
+        final permissions = await widget.controller.api.getKnowledgePermissions(
+          note.id,
+        );
+        if (!mounted) return;
+        if (permissions['curated'] == true &&
+            !(permissions['allowed_actions'] as List? ?? []).contains('edit')) {
+          await Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) => KnowledgeReviewScreen(
+                api: widget.controller.api,
+                note: note,
+                onAcceptedChange: widget.controller.reload,
+              ),
+            ),
+          );
+          return;
+        }
+      } on NotFoundException {
+        // Older servers expose ordinary notes without knowledge policies.
+      } on ApiException catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                error.message ?? 'Editing permission could not be checked.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+    }
     await widget.controller.enterEditMode();
     _announceOutcome(failed: 'Could not start editing');
   }
@@ -654,6 +690,20 @@ class _NoteScreenState extends State<NoteScreen> {
             ),
           ),
           actions: [
+            if (viewing)
+              IconButton(
+                tooltip: 'Review knowledge',
+                icon: const Icon(Icons.fact_check_outlined),
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) => KnowledgeReviewScreen(
+                      api: widget.controller.api,
+                      note: note,
+                      onAcceptedChange: widget.controller.reload,
+                    ),
+                  ),
+                ),
+              ),
             if (state.viewers.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
