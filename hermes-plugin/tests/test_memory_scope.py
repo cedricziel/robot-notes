@@ -120,3 +120,27 @@ def test_durable_mirrors_preserve_identity_destination(tmp_path, monkeypatch, ta
         assert provider.memory_health()['retry_queue']['pending'] == 0
     finally:
         provider.shutdown()
+
+
+@respx.mock
+def test_shared_scope_replays_a_legacy_durable_queue(tmp_path, monkeypatch):
+    import hashlib
+    from robot_notes.outbox import Outbox
+
+    monkeypatch.setenv('ROBOT_NOTES_API_KEY', 'test-key')
+    RobotNotesConfig.create(base_url='https://notes.example.com', durable_writes=True).save(str(tmp_path))
+    legacy = {'base_url': 'https://notes.example.com', 'vault_id': 'default', 'actor': 'hermes', 'api_key': 'test-key', 'memory_scope': None, 'user_id': None, 'agent_id': None}
+    digest = hashlib.sha256(json.dumps(legacy, sort_keys=True).encode()).hexdigest()
+    queue = Outbox(tmp_path / 'robot_notes_outbox' / digest / 'queue.sqlite')
+    queue.enqueue({'kind': 'mirror', 'note': {'title': 'Memory', 'path': 'Hermes'}, 'action': 'add', 'content': 'Legacy pending fact', 'metadata': {}})
+    respx.get('https://notes.example.com/notes').mock(return_value=httpx.Response(200, json={'items': []}))
+    creates = respx.post('https://notes.example.com/notes').mock(return_value=httpx.Response(201, json={'id': '01NOTE'}))
+    provider = RobotNotesProvider()
+    provider.initialize('session', hermes_home=str(tmp_path))
+    try:
+        provider.flush_memory_writes()
+        assert creates.called
+        assert json.loads(creates.calls.last.request.content)['content'] == 'Legacy pending fact'
+        assert queue.status()['pending'] == 0
+    finally:
+        provider.shutdown()

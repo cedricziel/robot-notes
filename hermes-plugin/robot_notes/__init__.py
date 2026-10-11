@@ -168,7 +168,10 @@ class RobotNotesProvider(MemoryProvider):
             vault_id=self._config.vault_id,
         )
         if self._config.durable_writes and self._can_write():
-            identity = {key: getattr(self._config, key, None) for key in ("base_url", "vault_id", "actor", "api_key", "memory_scope", "user_id", "agent_id")}
+            identity = {key: getattr(self._config, key) for key in ("base_url", "vault_id", "actor", "api_key")}
+            identity.update(memory_scope=None, user_id=None, agent_id=None)
+            if self._config.memory_scope == "identity":
+                identity.update(memory_scope="identity", user_id=self._config.user_id, agent_id=self._config.agent_id)
             destination = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
             home = Path(self._hermes_home or _default_hermes_home())
             self._outbox = Outbox(home / "robot_notes_outbox" / destination / "queue.sqlite")
