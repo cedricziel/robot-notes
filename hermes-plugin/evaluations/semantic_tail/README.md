@@ -1,7 +1,7 @@
 # Semantic tail recall experiment
 
 The bounded passage prototype recovers the three paraphrased tail passages that
-current whole-note hybrid recall misses. Do not roll out this prototype: indexing
+current whole-note hybrid recall does not inject. Do not roll out this prototype: indexing
 work and injected tokens increase, and superseded and irrelevant sources remain.
 The result supports further passage experiments; three synthetic questions do not
 establish general retrieval quality or make passage indexing universally unsuitable.
@@ -22,7 +22,13 @@ The fixture is [corpus.json](corpus.json), SHA-256
 
 Evidence counts only when the expected sentence appears in the injected passage
 for the current source ID. A returned source ID or a copy from another folder does
-not count. Both hybrid modes return one explicitly superseded source and three
+not count. Whole-note hybrid returned the current source ID in all three tail cases (source-note
+recall 3/3) while injecting none of the required sentences (evidence recall 0/3).
+This identifies a passage localization and context assembly gap; it does not show
+failure to retrieve relevant source notes. Embedding truncation is measured separately
+and this comparison does not isolate it as the cause of the injection gap.
+
+Both hybrid modes return one explicitly superseded source and three
 irrelevant sources for each question. The untruncated paraphrase control succeeds
 with whole-note hybrid and passage recall, while keyword recall remains empty.
 All modes use the same folder scope and source labels.
@@ -31,7 +37,14 @@ Whole-note query medians were 24.8–29.2 ms for the tail cases; passage medians
 34.2–37.6 ms. Whole-note indexing used seven embeddings per scenario and completed
 in 393–548 ms. Passage indexing used 20–24 embeddings and completed in 1215–1504 ms.
 The production index embeds all seven source notes before applying query scope;
-the prototype indexes six in-scope notes. The prototype indexes serially in Python,
+the prototype indexes six in-scope notes. Baseline injection uses default server snippets; the prototype uses up to 400-token
+passages and a 4096-byte total context. The prototype therefore changes passage
+localization and formatting/context size as well as its temporary index. The recall
+gain cannot be attributed solely to persistent passage indexing. Compare matched
+formatting and budgets, including context assembly from already retrieved source
+notes, before deciding whether a persistent index is needed.
+
+The prototype indexes serially in Python,
 while production background indexing can overlap requests. Timings include the
 local metering proxy and are observations from one warm run, not performance gates.
 

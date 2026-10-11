@@ -88,3 +88,14 @@ def test_passage_context_obeys_total_utf8_budget():
     assert context
     assert len(context.encode()) <= 150
     assert rejected == 0
+
+
+def test_returned_current_source_without_required_passage_has_source_recall_only():
+    context = (
+        "Relevant notes from robot-notes:\n- Current (id: c, scope): unrelated head"
+    )
+    result = runner.measure(
+        context, {"current": "c"}, "supporting fact", lambda text: 5
+    )
+    assert result["source_recall"] == 1
+    assert result["evidence_recall"] == 0

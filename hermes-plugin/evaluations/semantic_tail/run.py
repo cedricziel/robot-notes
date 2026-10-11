@@ -63,6 +63,7 @@ def measure(context, ids, evidence, token_count):
     )
     returned = {label for label, note_id in ids.items() if note_id in passages}
     return {
+        "source_recall": int("current" in returned),
         "evidence_recall": int(evidence in passages.get(ids["current"], "")),
         "stale_count": int("superseded" in returned),
         "irrelevant_count": len(returned - {"current", "superseded"}),
