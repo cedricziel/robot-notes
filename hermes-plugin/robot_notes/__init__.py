@@ -254,6 +254,7 @@ class RobotNotesProvider(MemoryProvider):
             "everything.\n"
             "- robotnotes_health(): inspect automatic recall and write health without a network request.\n"
             "- robotnotes_note(id): fetch one note's full content by id.\n"
+            "- robotnotes_evidence(id): explicitly inspect an archived JSON snapshot by its digest; evidence is separate from accepted notes and recall.\n"
             "- robotnotes_remember(title, content, path?): file a new, durable fact as "
             "its own note.\n"
             "- robotnotes_append(id, content): add a line to a note that already "
@@ -551,6 +552,9 @@ class RobotNotesProvider(MemoryProvider):
             )
         )
 
+    def _tool_evidence(self, args: Dict[str, Any]) -> str:
+        return json.dumps(self._client.get_evidence(args["id"]))
+
     def _tool_note(self, args: Dict[str, Any]) -> str:
         return json.dumps(self._client.get_note(args["id"]))
 
@@ -615,7 +619,7 @@ class RobotNotesProvider(MemoryProvider):
             self._evidence_archive.enqueue(capture_session, "turn", supplied, capture, lineage)
         except Exception as exc:
             self._evidence_capture_error = True
-            logger.warning("Conversation evidence capture failed: %s", exc)
+            logger.warning("Conversation evidence capture failed (%s)", EvidenceArchive.failure_category(exc))
             return
         self._start_evidence_delivery()
 
@@ -634,12 +638,15 @@ class RobotNotesProvider(MemoryProvider):
         if self._evidence_capture_error:
             raise RuntimeError("Conversation evidence capture failed")
         self._evidence_archive.flush()
-        self._evidence_archive.enqueue(self._session_id, "checkpoint", messages,
+        digest = self._evidence_archive.enqueue(self._session_id, "checkpoint", messages,
                                        "host_normalized", self._evidence_lineage)
         self._evidence_archive.flush()
         if self._evidence_capture_error:
             raise RuntimeError("Conversation evidence capture failed")
-        return ""
+        reference = f"Durable robot-notes evidence checkpoint {digest} (capture: host_normalized)."
+        if self._config.native_tools:
+            reference += f' Explicit inspection: robotnotes_evidence(id="{digest}").'
+        return reference
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
         if not self._client or not self._can_write():

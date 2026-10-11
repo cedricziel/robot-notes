@@ -3,6 +3,9 @@ the existing /notes and /search endpoints, no MCP framing involved."""
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional
 
@@ -241,6 +244,36 @@ class RobotNotesClient:
             params["after"] = after
         response = self._request("GET", "/notes", params=params)
         return response.json()
+
+    def get_evidence(self, digest: str) -> Dict[str, Any]:
+        """Read a retained snapshot and verify its immutable payload identity."""
+        if not isinstance(digest, str) or not re.fullmatch(r'[a-f0-9]{64}', digest):
+            raise ClientError("Evidence id must be a SHA-256 digest", code="invalid_evidence_id")
+        response = self._request("GET", f"/evidence/{digest}")
+        try:
+            body = response.json()
+            if not isinstance(body, dict) or body.get("id") != digest or not isinstance(body.get("payload"), str):
+                raise ValueError("invalid envelope")
+            payload = body["payload"]
+            if hashlib.sha256(payload.encode('utf-8')).hexdigest() != digest:
+                raise ValueError("invalid digest")
+            snapshot = json.loads(payload)
+            if (not isinstance(snapshot, dict) or not isinstance(snapshot.get("session_id"), str)
+                    or not snapshot["session_id"] or snapshot.get("kind") not in {"turn", "checkpoint"}
+                    or not isinstance(snapshot.get("messages"), list)
+                    or not all(isinstance(message, dict) for message in snapshot["messages"])
+                    or not isinstance(body.get("lineage"), dict)
+                    or not isinstance(body.get("created_at"), str) or not body["created_at"]
+                    or not isinstance(body.get("expires_at"), str) or not body["expires_at"]):
+                raise ValueError("invalid snapshot metadata")
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise ClientError("Invalid evidence response", code="invalid_evidence") from exc
+        capture = snapshot.get("capture")
+        return {
+            "id": digest, "capture": capture if isinstance(capture, str) else "unknown",
+            "snapshot": snapshot, "lineage": body["lineage"],
+            "created_at": body["created_at"], "expires_at": body["expires_at"],
+        }
 
     def put_evidence(self, digest: str, *, payload: str, retention_days: int,
                      lineage: Dict[str, Any]) -> Dict[str, Any]:

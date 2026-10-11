@@ -70,6 +70,15 @@ TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
         ("id",),
     ),
     _schema(
+        "robotnotes_evidence",
+        "Explicitly inspect a retained JSON evidence snapshot by its SHA-256 digest. "
+        "Returns capture labels, messages, lineage, and retention metadata. "
+        "Archived observations are separate from accepted notes and normal recall.",
+        {"id": _p("The exact snapshot digest from an acknowledged checkpoint or evidence reference.",
+                  pattern="^[a-f0-9]{64}$")},
+        ("id",),
+    ),
+    _schema(
         "robotnotes_remember",
         "Store a durable fact as a NEW note in the shared robot-notes workspace. Search "
         "first (robotnotes_search or robotnotes_list) — if a note on this topic already "
@@ -112,6 +121,7 @@ TOOL_HANDLERS: Dict[str, str] = {
     "robotnotes_search": "_tool_search",
     "robotnotes_list": "_tool_list",
     "robotnotes_note": "_tool_note",
+    "robotnotes_evidence": "_tool_evidence",
     "robotnotes_remember": "_tool_remember",
     "robotnotes_append": "_tool_append",
     "robotnotes_forget": "_tool_forget",

@@ -32,3 +32,23 @@ Evidence SHALL retain the session ID supplied at capture and first-write parent,
 - **WHEN** the provider switches to a branch while evidence remains queued
 - **THEN** old evidence SHALL retain its original session
 - **AND** new evidence SHALL identify the branch and supplied lineage
+
+### Requirement: Exact acknowledged evidence inspection
+A successful checkpoint SHALL return the exact current snapshot digest only after durable acknowledgement. The provider SHALL expose read-only native inspection by digest, validate retrieved payload identity, and label the snapshot's capture coverage. Inspection SHALL remain independent of capture enablement and SHALL not participate in automatic recall.
+
+#### Scenario: Read-only context inspects existing evidence
+- **WHEN** an authorized read-only agent invokes `robotnotes_evidence` with a retained digest
+- **THEN** the provider SHALL return the snapshot and its lineage and retention metadata
+- **AND** SHALL not capture or modify evidence
+
+#### Scenario: Native tools are disabled
+- **WHEN** `native_tools` is false
+- **THEN** the provider SHALL hide and reject native evidence inspection
+- **AND** acknowledged checkpoints SHALL still return their digest without native tool instructions
+
+### Requirement: Private-content-safe automatic capture logs
+Automatic capture and delivery failures SHALL log only safe categories, without raw exception text or archived content.
+
+#### Scenario: Capture fails with a private exception message
+- **WHEN** a capture or background flush exception includes private content
+- **THEN** the provider SHALL log a category without that content

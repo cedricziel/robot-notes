@@ -20,10 +20,10 @@ def make_provider(tmp_path, monkeypatch):
     monkeypatch.setenv('ROBOT_NOTES_API_KEY', 'key')
     providers = []
 
-    def make(*, enabled=True, context='primary'):
+    def make(*, enabled=True, context='primary', native_tools=True):
         (tmp_path / 'robot_notes.json').write_text(json.dumps({
             'base_url': BASE, 'evidence_archive': enabled,
-            'evidence_retention_days': 7,
+            'evidence_retention_days': 7, 'native_tools': native_tools,
         }))
         provider = RobotNotesProvider()
         provider.initialize('session', hermes_home=str(tmp_path), agent_context=context)
@@ -226,3 +226,95 @@ def test_identity_scope_cannot_replay_another_identities_pending_evidence(make_p
     other = EvidenceArchive(other_config, tmp_path)
     assert first.outbox.status()['pending'] == 1
     assert other.outbox.status()['pending'] == 0
+
+
+@respx.mock
+def test_checkpoint_returns_exact_snapshot_reference_only_after_ack(make_provider):
+    provider = make_provider()
+    route = respx.put(url__regex=BASE + '/evidence/.*').mock(side_effect=ack)
+    reference = provider.on_pre_compress([{'role': 'user', 'content': 'checkpoint'}], require_checkpoint=True)
+    digest = route.calls[-1].request.url.path.rsplit('/', 1)[-1]
+    assert digest in reference
+    assert 'host_normalized' in reference
+    assert 'robotnotes_evidence' in reference
+
+
+@respx.mock
+@pytest.mark.parametrize('context', ['primary', 'cron', 'flush', 'subagent'])
+def test_explicit_evidence_inspection_is_read_only_without_capture(make_provider, context):
+    provider = make_provider(enabled=False, context=context)
+    payload = json.dumps({'session_id': 'session', 'kind': 'turn', 'capture': 'raw_messages',
+                          'messages': [{'role': 'tool', 'content': 'full evidence'}]})
+    digest = hashlib.sha256(payload.encode()).hexdigest()
+    route = respx.get(f'{BASE}/evidence/{digest}').mock(return_value=httpx.Response(200, json={
+        'id': digest, 'payload': payload, 'lineage': {'parent_session_id': 'parent'},
+        'created_at': '2026-10-11T00:00:00.000Z', 'expires_at': '2026-10-18T00:00:00.000Z',
+    }))
+    result = json.loads(provider.handle_tool_call('robotnotes_evidence', {'id': digest}))
+    assert result['capture'] == 'raw_messages'
+    assert result['snapshot']['messages'] == [{'role': 'tool', 'content': 'full evidence'}]
+    assert result['lineage'] == {'parent_session_id': 'parent'}
+    assert route.call_count == 1
+    assert provider._evidence_outbox is None
+
+
+@respx.mock
+def test_evidence_inspection_rejects_a_payload_that_does_not_match_digest(make_provider):
+    provider = make_provider(enabled=False)
+    digest = 'a' * 64
+    respx.get(f'{BASE}/evidence/{digest}').mock(return_value=httpx.Response(200, json={
+        'id': digest, 'payload': '{}', 'lineage': {}, 'created_at': '2026-10-11', 'expires_at': '2026-10-18',
+    }))
+    result = json.loads(provider.handle_tool_call('robotnotes_evidence', {'id': digest}))
+    assert result['code'] == 'invalid_evidence'
+
+
+def test_evidence_inspection_rejects_non_digest_identifiers(make_provider):
+    provider = make_provider(enabled=False)
+    result = json.loads(provider.handle_tool_call('robotnotes_evidence', {'id': '../notes'}))
+    assert result['code'] == 'invalid_evidence_id'
+
+
+def test_capture_errors_log_safe_categories_without_exception_payload(make_provider, monkeypatch, caplog):
+    provider = make_provider()
+
+    def reject(*args, **kwargs):
+        raise ValueError('private raw conversation content')
+
+    monkeypatch.setattr(provider._evidence_archive, 'enqueue', reject)
+    provider.sync_turn('hi', 'hello')
+    assert 'private raw conversation content' not in caplog.text
+    assert 'unsupported_json' in caplog.text
+
+
+def test_background_flush_errors_log_safe_categories_without_exception_payload(make_provider, monkeypatch, caplog):
+    provider = make_provider()
+
+    def reject():
+        raise RuntimeError('private response body')
+
+    monkeypatch.setattr(provider._evidence_archive, 'flush', reject)
+    provider._evidence_archive.flush_best_effort()
+    assert 'private response body' not in caplog.text
+
+
+@respx.mock
+def test_disabled_native_tools_keep_checkpoint_reference_without_native_inspection(make_provider):
+    provider = make_provider(native_tools=False)
+    route = respx.put(url__regex=BASE + '/evidence/.*').mock(side_effect=ack)
+    reference = provider.on_pre_compress([], require_checkpoint=True)
+    digest = route.calls[-1].request.url.path.rsplit('/', 1)[-1]
+    assert digest in reference
+    assert 'robotnotes_evidence' not in reference
+    assert provider.get_tool_schemas() == []
+    result = json.loads(provider.handle_tool_call('robotnotes_evidence', {'id': digest}))
+    assert result['code'] == 'tools_disabled'
+
+
+@respx.mock
+def test_expired_or_purged_evidence_returns_honest_read_error(make_provider):
+    provider = make_provider(enabled=False)
+    digest = 'a' * 64
+    respx.get(f'{BASE}/evidence/{digest}').mock(return_value=httpx.Response(404, json={'error': 'not_found'}))
+    result = json.loads(provider.handle_tool_call('robotnotes_evidence', {'id': digest}))
+    assert result['code'] == 'not_found'

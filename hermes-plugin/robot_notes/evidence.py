@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 
 from .client import ClientError, ErrorKind, RobotNotesClient
 from .config import RobotNotesConfig
-from .outbox import Outbox
+from .outbox import Outbox, QueueFull
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class EvidenceArchive:
         self._active = True
 
     def enqueue(self, session_id: str, kind: str, messages: List[Dict[str, Any]],
-                capture: str, lineage: dict) -> None:
+                capture: str, lineage: dict) -> str:
         try:
             payload = json.dumps({
                 'session_id': session_id, 'kind': kind, 'messages': messages, 'capture': capture,
@@ -49,6 +49,7 @@ class EvidenceArchive:
                 'payload': payload, 'retention_days': self.config.evidence_retention_days,
                 'lineage': lineage,
             }, idempotency_key=digest)
+            return digest
         except Exception:
             # The marker survives restart even when the raw snapshot could not be queued.
             try:
@@ -63,6 +64,19 @@ class EvidenceArchive:
 
     def stop(self) -> None:
         self._active = False
+
+    @staticmethod
+    def failure_category(error) -> str:
+        """Return a content-free error category for automatic capture logs."""
+        if isinstance(error, QueueFull):
+            return 'queue_full'
+        if isinstance(error, (OSError, sqlite3.Error)):
+            return 'queue_error'
+        if isinstance(error, (TypeError, ValueError)):
+            return 'unsupported_json'
+        if isinstance(error, ClientError):
+            return error.kind.name.lower()
+        return 'checkpoint_error'
 
     @staticmethod
     def _classify(error):
@@ -104,4 +118,4 @@ class EvidenceArchive:
         try:
             self.flush()
         except Exception as exc:
-            logger.warning('Evidence archive remains pending: %s', exc)
+            logger.warning('Evidence archive remains pending (%s)', self.failure_category(exc))

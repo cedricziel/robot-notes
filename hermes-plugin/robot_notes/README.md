@@ -141,7 +141,7 @@ Set `$HERMES_HOME/robot_notes.json` to:
 ```
 
 Keep `ROBOT_NOTES_API_KEY` configured for the provider's REST lifecycle hooks.
-`native_tools: false` hides its six native schemas, rejects direct native tool
+`native_tools: false` hides all eight native schemas, rejects direct native tool
 calls with `tools_disabled`, and removes native tool instructions from its
 prompt. It does not disable recall, transcripts, or mirroring, and it does not
 connect MCP automatically. Setup preserves this setting and your actor.
@@ -245,6 +245,8 @@ model; the table below is a quick reference.
 | --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------- |
 | `robotnotes_search`   | `query`, `path?`, `limit?`           | Keyword search the shared workspace — not a wildcard; no query means "everything"    |
 | `robotnotes_list`     | `path?`, `after?`, `limit?`          | Paginated metadata for every note, optionally under a `path` — use this to enumerate |
+| `robotnotes_health`   | none | Inspect local automatic-operation outcomes without a server request |
+| `robotnotes_evidence` | `id` | Explicitly inspect a retained JSON snapshot by its SHA-256 digest, including capture and retention metadata |
 | `robotnotes_note`     | `id`                                 | Fetch a note by id                                                                    |
 | `robotnotes_remember` | `title`, `content`, `path?`          | Store a durable fact as a *new* note; a duplicate title under `path` returns `path_conflict` — search then `robotnotes_append` instead |
 | `robotnotes_append`   | `id`, `content`                      | Append content to an existing note on a new line, instead of duplicating it — via the server's `POST /notes/{id}/append` (falls back to a client-side read-modify-write only against a server old enough to 404/405 that route) |
@@ -303,7 +305,7 @@ conversation turn:
 `"subagent"`, `"cron"`, or `"flush"`, so a spawned subagent or a scheduled
 cron/flush tick never files its own conversation note or mutates shared
 memory. Reads (`robotnotes_search`, `robotnotes_list`, `robotnotes_note`,
-and recall/prefetch) stay available in every context. A gated write tool
+`robotnotes_evidence`, `robotnotes_health`, and recall/prefetch) stay available in every context. A gated write tool
 call returns a `read_only` tool error instead of silently no-oping. A
 missing `agent_context` (older hosts) defaults to writes enabled.
 
@@ -468,3 +470,5 @@ The pinned Hermes checkpoint API v2 hands the provider normalized user and assis
 Each vault stores evidence in `evidence.db` beside its disposable indexes, outside ordinary content. `PUT /evidence/{sha256}` accepts the exact JSON string in `payload`, `retention_days`, and optional `lineage`. `GET` returns it until expiry. The operator key can purge it with `DELETE`. Expiry or purge removes payload and lineage while retaining a digest tombstone that prevents delayed retries from restoring erased content. Expired server payloads are cleared at startup, during archive operations, and hourly.
 
 Pending evidence lives in `$HERMES_HOME/robot_notes_outbox/<destination-hash>/evidence/queue.sqlite`, with a limit of 1000 snapshots and 32 MiB. Permanent errors block replay. After correcting a credential or server error, `flush_evidence(retry_blocked=True)` permits another attempt. A `capture_failed` marker or an expired-operation count means raw evidence was lost. Required checkpoints remain blocked until an operator inspects and removes that evidence queue directory to acknowledge the loss. Keep the uncompressed host context before that reset. The local queue and remote archive have independent erasure operations.
+
+A successful pre-compression checkpoint returns its exact digest and `host_normalized` capture label after durable acknowledgement. With native tools enabled, `robotnotes_evidence(id)` retrieves that snapshot explicitly and verifies the returned payload digest. Inspection remains available in read-only contexts and when capture is disabled, subject to server credentials. Expired or purged snapshots return a read error. Evidence inspection never enters automatic recall; `native_tools: false` hides and disables this tool along with the rest of the native catalog.
