@@ -32,6 +32,11 @@ def _p(description: str, type_: str = "string", **extra) -> dict:
 
 TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
     _schema(
+        "robotnotes_health",
+        "Inspect the latest automatic recall and write outcomes without contacting the server. "
+        "Contains no note content.",
+    ),
+    _schema(
         "robotnotes_search",
         "Search the shared robot-notes workspace. This is keyword full-text search, not "
         "a wildcard — there is no query that means \"every note\" (a query like '*' is "
@@ -103,6 +108,7 @@ TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
 # resolves this with getattr(self, ...) rather than holding bound methods in a list
 # built in __init__, so this table can be a flat, inspectable piece of data.
 TOOL_HANDLERS: Dict[str, str] = {
+    "robotnotes_health": "_tool_health",
     "robotnotes_search": "_tool_search",
     "robotnotes_list": "_tool_list",
     "robotnotes_note": "_tool_note",

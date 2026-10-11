@@ -67,6 +67,14 @@ default vault. Vault selection does not itself restrict a static API key's acces
 | `robotnotes_append`    | Append content to an existing note's end; retries on write races.               |
 | `robotnotes_forget`    | Permanently delete a note by id. No undo.                                       |
 
+## Memory health
+
+Use `robotnotes_health` to distinguish an empty automatic recall from a failed
+search and to inspect the latest mirror and transcript outcomes. This is a local
+status snapshot, not a connectivity probe. `auth` requires checking credentials
+and permissions; `network_error` requires checking connectivity; `circuit_open`
+requires waiting for the client cooldown. Failed automatic writes are not queued.
+
 ## Errors
 
 A robotnotes tool call that fails returns a tool error rather than raising —

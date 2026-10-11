@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ._hermes_compat import MemoryProvider, spawn_context_thread, tool_error
 from .client import ClientError, ErrorKind, RobotNotesClient
 from .config import DEFAULT_ACTOR, RobotNotesConfig
+from .health import MemoryHealth
 from .recall import RecallCache, RecallStatus, is_trivial_prompt
 from .tools import TOOL_HANDLERS, TOOL_SCHEMAS
 from .transcript import build_transcript
@@ -114,6 +115,7 @@ class RobotNotesProvider(MemoryProvider):
         self._platform: str = ""
         self._agent_identity: str = ""
         self._recall_cache = RecallCache()
+        self._health = MemoryHealth()
 
     @property
     def name(self) -> str:
@@ -135,6 +137,7 @@ class RobotNotesProvider(MemoryProvider):
         old_client = self._client
         self._client = None
         self._recall_cache.clear()
+        self._health = MemoryHealth()
         if old_client:
             old_client.close()
         self._config = RobotNotesConfig.load(kwargs.get("hermes_home"))
@@ -182,6 +185,7 @@ class RobotNotesProvider(MemoryProvider):
             "- robotnotes_list(path?, after?, limit?): paginated metadata (no content) "
             "for every note; use this instead of search to browse or enumerate "
             "everything.\n"
+            "- robotnotes_health(): inspect automatic recall and write health without a network request.\n"
             "- robotnotes_note(id): fetch one note's full content by id.\n"
             "- robotnotes_remember(title, content, path?): file a new, durable fact as "
             "its own note.\n"
@@ -228,7 +232,11 @@ class RobotNotesProvider(MemoryProvider):
         ``recall.py`` so this module-level name stays the one thing to monkeypatch."""
         if is_trivial_prompt(query):
             return
-        self._recall_cache.queue(session_id, query, self._search_and_format, spawn_thread=spawn_context_thread)
+        health = self._health
+        self._recall_cache.queue(
+            session_id, query, lambda query: self._search_and_format(query, health=health),
+            spawn_thread=spawn_context_thread,
+        )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         epoch = self._recall_cache.epoch
@@ -241,16 +249,27 @@ class RobotNotesProvider(MemoryProvider):
     def recall_status(self) -> Optional[RecallStatus]:
         return self._recall_cache.status("robot-notes")
 
-    def _search_and_format(self, query: str) -> "tuple[str, int]":
+    def memory_health(self) -> Dict[str, Any]:
+        """Return content-free outcomes of latest automatic operations, without I/O."""
+        return {**self._health.snapshot(), "writes_enabled": self._can_write(), "retry_queue": "unsupported"}
+
+    def _tool_health(self, args: Dict[str, Any]) -> str:
+        return json.dumps(self.memory_health())
+
+    def _search_and_format(self, query: str, *, health: Optional[MemoryHealth] = None) -> "tuple[str, int]":
         client = self._client
         if not client or not query:
             return "", 0
+        health = health or self._health
+        generation = health.begin("recall")
         try:
             items = client.search(query, limit=5)
         except ClientError as exc:
             if exc.kind is ErrorKind.CIRCUIT_OPEN:
-                logger.debug("robot_notes: skipping search, %s", exc)
+                logger.debug("robot_notes: search unavailable (circuit_open)")
+            health.finish("recall", generation, "failed", exc.kind.name.lower())
             return "", 0
+        health.finish("recall", generation, "matched" if items else "empty")
         if not items:
             return "", 0
         items = items[:5]
@@ -358,6 +377,7 @@ class RobotNotesProvider(MemoryProvider):
         and be injected after it."""
         self._session_id = str(new_session_id or "").strip() or self._session_id
         self._recall_cache.clear()
+        self._health = MemoryHealth()
 
     def _conversations_path(self) -> str:
         return f"{CONVERSATIONS_ROOT}/{_sanitize_actor(self._config.actor)}"
@@ -381,6 +401,8 @@ class RobotNotesProvider(MemoryProvider):
             return
         note = USER_NOTE if target == "user" else MEMORY_NOTE
         old_text = str((metadata or {}).get("old_text") or "").strip()
+        health = self._health
+        generation = health.begin("mirror")
         try:
             if action == "add":
                 self._append_note(title=note["title"], path=note["path"], addition=content)
@@ -393,8 +415,11 @@ class RobotNotesProvider(MemoryProvider):
                     title=note["title"], path=note["path"], identifier=old_text, new_entry=content
                 )
         except ClientError as exc:
+            health.finish("mirror", generation, "failed", exc.kind.name.lower())
             log = logger.debug if exc.kind is ErrorKind.CIRCUIT_OPEN else logger.warning
-            log("robot_notes: failed to mirror memory write (target=%s action=%s): %s", target, action, exc)
+            log("robot_notes: automatic mirror failed (%s)", exc.kind.name.lower())
+        else:
+            health.finish("mirror", generation, "succeeded")
 
     def _overwrite_note(self, *, title: str, path: str, content: str, create_if_missing: bool = True) -> None:
         """Create-or-blind-overwrite a fixed note by title, swallowing failures with a
@@ -402,16 +427,21 @@ class RobotNotesProvider(MemoryProvider):
         of a MemoryProvider hook and take the host session down with them. Used only
         for whole-note content (session summaries); memory-write mirroring never
         overwrites a whole note — see ``_read_edit_write``."""
+        health = self._health
+        generation = health.begin("transcript")
         try:
             existing = self._client.find_note_by_title(title, path=path)
             if existing is None:
                 if create_if_missing:
                     self._client.create_note(title=title, content=content, path=path)
+                health.finish("transcript", generation, "succeeded")
                 return
             self._client.write_note_with_retry(existing["id"], version=existing["version"], content=content)
+            health.finish("transcript", generation, "succeeded")
         except ClientError as exc:
+            health.finish("transcript", generation, "failed", exc.kind.name.lower())
             log = logger.debug if exc.kind is ErrorKind.CIRCUIT_OPEN else logger.warning
-            log("robot_notes: failed to write note %r under %r: %s", title, path, exc)
+            log("robot_notes: automatic transcript failed (%s)", exc.kind.name.lower())
 
     def _append_note(self, *, title: str, path: str, addition: str) -> None:
         """Append ``addition`` as a new entry, skipping it if an identical entry

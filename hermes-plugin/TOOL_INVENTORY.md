@@ -174,3 +174,6 @@ Hermes host behavior checked against its official documentation:
 
 The companion implementation adds the native-tools switch and MCP guidance.
 The proposed additional native wrappers and REST-only tools remain unimplemented.
+
+`robotnotes_health` is a native provider inspection tool with no MCP equivalent.
+It reads local automatic-operation outcomes without contacting the server.
