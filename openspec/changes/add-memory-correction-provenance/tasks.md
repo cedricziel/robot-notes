@@ -5,5 +5,5 @@
 - [x] Integrate immediate, durable, legacy prepared, and native curated paths.
 - [x] Preserve ordinary personal writes with explicit unknown provenance.
 - [x] Persist frozen prepared upgrades before RPC and block changed designations.
-- [ ] Verify real server proposal and runtime-agent race behavior.
-- [ ] Document outcomes and run required checks.
+- [x] Verify real server proposal and runtime-agent race behavior.
+- [x] Document outcomes and run required checks.

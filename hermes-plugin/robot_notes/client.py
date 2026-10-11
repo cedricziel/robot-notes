@@ -294,9 +294,22 @@ class RobotNotesClient:
             raise ClientError("Malformed response", code="invalid_response")
         return body
 
+    @staticmethod
+    def _checked_identifier(value):
+        if (not isinstance(value, str) or not value.strip() or value in {".", ".."}
+                or any(char in value for char in "/\\?#%")
+                or any(ord(char) < 32 or ord(char) == 127 for char in value)):
+            raise ClientError("Invalid note or proposal identifier", code="invalid_arguments")
+        try:
+            value.encode("utf-8")
+        except UnicodeError as exc:
+            raise ClientError("Invalid note or proposal identifier", code="invalid_arguments") from exc
+        return value
+
     def get_note_permissions(self, *, note_id: Optional[str] = None,
                              path: str = "", title: str = "") -> Dict[str, Any]:
         if note_id is not None:
+            note_id = self._checked_identifier(note_id)
             response = self._request("GET", f"/notes/{note_id}/permissions")
         else:
             response = self._request("GET", "/notes/permissions", params={"path": path, "title": title})
@@ -315,9 +328,11 @@ class RobotNotesClient:
 
     def get_note_blocks(self, note_id: str) -> Dict[str, Any]:
         from .correction_proposals import _accepted_blocks
+        note_id = self._checked_identifier(note_id)
         for attempt in range(2):
-            note = self.get_note(note_id)
             mapping = self._response_object(self._request("GET", f"/notes/{note_id}/blocks"))
+            note = ({"id": mapping.get("id"), "version": mapping.get("version"), "content": mapping.get("content")}
+                    if "content" in mapping else self.get_note(note_id))
             try:
                 if note.get("id") != note_id:
                     raise ValueError("wrong target")
@@ -330,7 +345,11 @@ class RobotNotesClient:
         raise AssertionError("unreachable")
 
     def _proposal_acknowledgement(self, response, note_id=None) -> Dict[str, Any]:
-        body = self._response_object(response)
+        return self._validate_proposal_summary(self._response_object(response), note_id)
+
+    def _validate_proposal_summary(self, body, note_id=None) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ClientError("Invalid proposal response", code="invalid_response")
         state = body.get("state")
         accepted = state == "accepted"
         if (not all(isinstance(body.get(key), str) and body[key] for key in ("proposal_id", "note_id"))
@@ -343,8 +362,47 @@ class RobotNotesClient:
             raise ClientError("Invalid proposal acknowledgement", code="invalid_response")
         return body
 
+    def _validate_proposal_read(self, body, note_id=None, proposal_id=None, *, detail=False):
+        body = self._validate_proposal_summary(body, note_id)
+        if ((proposal_id is not None and body["proposal_id"] != proposal_id)
+                or not all(isinstance(body.get(key), str) for key in ("title", "path", "author_label", "created_at", "updated_at"))
+                or not isinstance(body.get("author_kind"), str) or body["author_kind"] not in {"operator", "agent", "oauth"}
+                or type(body.get("author_agent_origin")) is not bool or type(body.get("new_note")) is not bool):
+            raise ClientError("Malformed proposal metadata", code="invalid_response")
+        if detail:
+            lists = ("comments", "events", "versions", "operations", "evidence_refs")
+            if (type(body.get("base_version")) is not int or body["base_version"] < (0 if body["new_note"] else 1)
+                    or any(not isinstance(body.get(key), list) or any(not isinstance(row, dict) for row in body[key]) for key in lists)
+                    or not isinstance(body.get("allowed_actions"), list) or any(not isinstance(action, str) for action in body["allowed_actions"])):
+                raise ClientError("Malformed proposal detail", code="invalid_response")
+            if body["new_note"]:
+                draft = body.get("draft")
+                if not isinstance(draft, dict) or not all(isinstance(draft.get(key), str) for key in ("title", "path", "content")):
+                    raise ClientError("Malformed proposal draft", code="invalid_response")
+            elif not isinstance(body.get("preview_content"), str):
+                raise ClientError("Malformed proposal preview", code="invalid_response")
+        return body
+
+    def list_note_proposals(self, *, note_id=None, include_terminal=False) -> Dict[str, Any]:
+        if type(include_terminal) is not bool:
+            raise ClientError("include_terminal must be a boolean", code="invalid_arguments")
+        if note_id is not None:
+            note_id = self._checked_identifier(note_id)
+        path = f"/notes/{note_id}/proposals" if note_id is not None else "/notes/proposals"
+        body = self._response_object(self._request("GET", path, params={"include_terminal": str(include_terminal).lower()}))
+        if not isinstance(body.get("items"), list):
+            raise ClientError("Malformed proposal list", code="invalid_response")
+        return {"items": [self._validate_proposal_read(item, note_id) for item in body["items"]]}
+
+    def get_note_proposal(self, note_id: str, proposal_id: str) -> Dict[str, Any]:
+        note_id = self._checked_identifier(note_id)
+        proposal_id = self._checked_identifier(proposal_id)
+        body = self._response_object(self._request("GET", f"/notes/{note_id}/proposals/{proposal_id}"))
+        return self._validate_proposal_read(body, note_id, proposal_id, detail=True)
+
     def propose_note_update(self, note_id: str, *, base_version: int, operations: list,
                             evidence_refs: list, idempotency_key: str) -> Dict[str, Any]:
+        note_id = self._checked_identifier(note_id)
         response = self._request("POST", f"/notes/{note_id}/proposals", json={
             "base_version": base_version, "operations": operations,
             "evidence_refs": evidence_refs, "idempotency_key": idempotency_key,

@@ -209,10 +209,77 @@ def test_raced_or_malformed_block_snapshot_is_reloaded_then_rejected(client):
 
 @respx.mock
 def test_mirror_lookup_skips_newer_descendant_and_finds_exact_folder(client):
-    respx.get(BASE + '/notes').mock(side_effect=[
-        httpx.Response(200, json={'items': [{'id': 'child', 'title': 'Memory', 'path': 'Hermes/agents/other', 'version': 9}]}),
-        httpx.Response(200, json={'items': [
-            {'id': 'child', 'title': 'Memory', 'path': 'Hermes/agents/other', 'version': 9},
-            {'id': 'shared', 'title': 'Memory', 'path': 'Hermes', 'version': 1}], 'next_cursor': None}),
-    ])
-    assert client.find_note_by_title('Memory', path='Hermes')['id'] == 'shared'
+    respx.get(BASE + "/notes").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": "child",
+                            "title": "Memory",
+                            "path": "Hermes/agents/other",
+                            "version": 9,
+                        }
+                    ]
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": "child",
+                            "title": "Memory",
+                            "path": "Hermes/agents/other",
+                            "version": 9,
+                        },
+                        {
+                            "id": "shared",
+                            "title": "Memory",
+                            "path": "Hermes",
+                            "version": 1,
+                        },
+                    ],
+                    "next_cursor": None,
+                },
+            ),
+        ]
+    )
+    assert client.find_note_by_title("Memory", path="Hermes")["id"] == "shared"
+
+
+@respx.mock
+def test_atomic_block_bundle_uses_its_own_body_and_preserves_provenance(client):
+    import hashlib
+
+    bundle = {
+        "id": "note",
+        "version": 3,
+        "content": "body",
+        "content_hash": hashlib.sha256(b"body").hexdigest(),
+        "offset_encoding": "utf-16",
+        "blocks": [
+            {
+                "id": "b",
+                "revision": 1,
+                "start": 0,
+                "end": 4,
+                "hash": hashlib.sha256(b"body").hexdigest(),
+            }
+        ],
+        "provenance": {
+            "b": {
+                "block_revision": 1,
+                "source_unknown": True,
+                "evidence_refs": [],
+                "supersedes": [],
+            }
+        },
+    }
+    respx.get(BASE + "/notes/note/blocks").respond(200, json=bundle)
+    old_read = respx.get(BASE + "/notes/note").respond(
+        200, json={"id": "note", "version": 2, "content": "old"}
+    )
+    assert client.get_note_blocks("note") == bundle
+    assert not old_read.called

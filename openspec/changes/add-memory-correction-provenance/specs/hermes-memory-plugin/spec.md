@@ -52,3 +52,12 @@ The provider SHALL require matching note and block-map versions and hashes, SHAL
 #### Scenario: Source moves or map changes
 - **WHEN** a note moves from the configured destination or its accepted map fails freshness validation
 - **THEN** the provider does not edit another scope or guess block identities
+
+### Requirement: Explicit readonly proposal inspection
+The native provider SHALL expose validated proposal list and detail inspection in every agent context, SHALL keep pending text outside automatic recall, and SHALL expose no human-decision tools. Display and audit metadata SHALL NOT grant mutation authority.
+
+#### Scenario: Terminal audit and request-change inspection
+- **WHEN** an agent explicitly requests terminal proposals or candidate detail
+- **THEN** actual state, acceptance, comments and versions are returned under its credential authorization
+- **AND** unsafe opaque route coordinates and malformed responses are rejected
+- **AND** native_tools false hides and blocks both inspection tools
