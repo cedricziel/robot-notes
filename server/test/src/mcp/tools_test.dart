@@ -1533,6 +1533,16 @@ void main() {
         'lists note tools and capability inspection with object schemas', () {
       final names = registry.tools.map((t) => t.name).toSet();
       expect(names, {
+        'get_note_blocks',
+        'list_note_proposals',
+        'get_note_proposal',
+        'propose_note_update',
+        'propose_note_create',
+        'amend_note_proposal',
+        'comment_note_proposal',
+        'review_note_proposal',
+        'get_note_comments',
+        'add_note_comment',
         'list_vaults',
         'list_notes',
         'get_note',

@@ -269,4 +269,89 @@ void main() {
     expect(map['blocks'], isEmpty);
     expect(map['provenance'], isEmpty);
   });
+  test('registered MCP tools inspect reserved drafts and enforce exact scopes',
+      () async {
+    Future<Map<String, dynamic>> call(
+      String name,
+      Map<String, Object?> arguments,
+      Map<String, String> headers,
+    ) async {
+      final response = await http.post(
+        Uri.parse('${app.baseUrl}/mcp'),
+        headers: headers,
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 1,
+          'method': 'tools/call',
+          'params': {'name': name, 'arguments': arguments},
+        }),
+      );
+      expect(response.statusCode, 200, reason: response.body);
+      return (jsonDecode(response.body) as Map)['result']
+          as Map<String, dynamic>;
+    }
+
+    final created = await call(
+      'propose_note_create',
+      {
+        'path': 'team',
+        'title': 'MCP draft',
+        'content': 'mcpdraft',
+        'idempotency_key': 'mcp',
+      },
+      agent,
+    );
+    expect(created['isError'], isNull, reason: created.toString());
+    final proposal = created['structuredContent'] as Map;
+    final detail = await call(
+      'get_note_proposal',
+      {
+        'id': proposal['note_id'],
+        'proposal_id': proposal['proposal_id'],
+      },
+      agent,
+    );
+    expect(detail['isError'], isNull, reason: detail.toString());
+    expect(
+      ((detail['structuredContent'] as Map)['draft'] as Map)['content'],
+      'mcpdraft',
+    );
+    final denied = await call(
+      'review_note_proposal',
+      {
+        'id': proposal['note_id'],
+        'proposal_id': proposal['proposal_id'],
+        'decision': 'approve',
+        'record_revision': 1,
+      },
+      agent,
+    );
+    expect(denied['isError'], isTrue);
+    expect((denied['structuredContent'] as Map)['error'], 'insufficient_scope');
+    final grant = await completeOAuthFlow(
+      baseUrl: app.baseUrl,
+      apiKey: app.config.apiKey,
+      actor: 'MCP reviewer',
+      scope: 'notes:read knowledge:review',
+    );
+    final reviewer = {
+      'Authorization': 'Bearer ${grant.accessToken}',
+      'Content-Type': 'application/json',
+    };
+    final accepted = await call(
+      'review_note_proposal',
+      {
+        'id': proposal['note_id'],
+        'proposal_id': proposal['proposal_id'],
+        'decision': 'approve',
+        'record_revision': 1,
+      },
+      reviewer,
+    );
+    expect(accepted['isError'], isNull, reason: accepted.toString());
+    expect((accepted['structuredContent'] as Map)['accepted'], isTrue);
+    final blocks =
+        await call('get_note_blocks', {'id': proposal['note_id']}, reviewer);
+    expect((blocks['structuredContent'] as Map)['content'], 'mcpdraft');
+  });
 }
