@@ -10,6 +10,7 @@ import 'package:server/src/excerpt.dart';
 import 'package:server/src/frontmatter.dart';
 import 'package:server/src/markdown_blocks.dart';
 import 'package:server/src/note_path.dart';
+import 'package:server/src/proposals/proposal_record.dart';
 import 'package:server/src/tags.dart';
 import 'package:ulid/ulid.dart';
 
@@ -338,6 +339,7 @@ class Storage {
 
   // Per-id write serialization (unchanged from before path support).
   final Map<NoteId, Future<void>> _locks = {};
+  final Object _noteTransactionZone = Object();
 
   // Per-target-path write serialization: keyed by `collisionKey` of the
   // relative file path a write is about to claim. Guards the
@@ -851,6 +853,87 @@ class Storage {
         return next;
       });
 
+  Directory _proposalDirectory(String id) =>
+      Directory('${_noteHistory(id).path}/proposals');
+
+  File _proposalFile(String noteId, String proposalId) => File(
+        '${_proposalDirectory(noteId).path}/'
+        '${base64Url.encode(utf8.encode(proposalId))}.json',
+      );
+
+  /// Serializes review work with every accepted mutation of the same note.
+  /// Nested storage operations retain this lock only while [body] is awaited.
+  Future<T> withProposalMutation<T>(String id, Future<T> Function() body) =>
+      _withLock(id, () async {
+        await _ensureIndexed();
+        return body();
+      });
+
+  /// Reads server-owned review state after accepted journal recovery.
+  Future<ProposalRecord> readProposalRecord(String noteId, String proposalId) =>
+      withProposalMutation(noteId, () async {
+        final file = _proposalFile(noteId, proposalId);
+        if (!file.existsSync()) throw NoteNotFoundException(noteId);
+        final record = ProposalRecord.fromStoredJson(
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>,
+        );
+        if (record.id != proposalId || record.noteId != noteId) {
+          throw const FormatException('Proposal identity mismatch');
+        }
+        return record;
+      });
+
+  /// Lists review records without putting candidates in canonical note scans.
+  Future<List<ProposalRecord>> proposalRecords({String? noteId}) async {
+    await _ensureIndexed();
+    final directories = noteId != null
+        ? [_proposalDirectory(noteId)]
+        : (!_historyDir.existsSync()
+            ? <Directory>[]
+            : (await _historyDir.list().toList())
+                .whereType<Directory>()
+                .map((directory) => Directory('${directory.path}/proposals'))
+                .toList());
+    final records = <ProposalRecord>[];
+    for (final directory in directories) {
+      if (!directory.existsSync()) continue;
+      await for (final file in directory.list()) {
+        if (file is File && file.path.endsWith('.json')) {
+          records.add(
+            ProposalRecord.fromStoredJson(
+              jsonDecode(await file.readAsString()) as Map<String, dynamic>,
+            ),
+          );
+        }
+      }
+    }
+    records.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return records;
+  }
+
+  /// Saves pending activity with CAS; accepted state requires the journal.
+  Future<void> writeProposalRecord(
+    ProposalRecord record, {
+    int? expectedRecordRevision,
+  }) =>
+      withProposalMutation(record.noteId, () async {
+        final file = _proposalFile(record.noteId, record.id);
+        ProposalRecord? previous;
+        if (file.existsSync()) {
+          previous = await readProposalRecord(record.noteId, record.id);
+        }
+        if (previous?.recordRevision != expectedRecordRevision) {
+          throw const ProposalRecordConflictException('record_changed');
+        }
+        if (record.state == 'accepted' && previous?.state != 'accepted') {
+          throw StateError('Accepted proposal requires journal publication');
+        }
+        await _atomicText(file, jsonEncode(record.toStoredJson()));
+      });
+
+  Future<bool> _retainsHistory(StoredNote note) async =>
+      note.extra['history'] == true || _noteHistory(note.id).existsSync();
+
   String _serializeNote(StoredNote note) => serializeFrontmatter(
         Frontmatter(metadata: _buildMetadataMap(note), body: note.content),
       );
@@ -896,6 +979,27 @@ class Storage {
       previous: previousMap,
       previousSource: previousSource,
     );
+    final invalidated = <Map<String, dynamic>>[];
+    final changed = {
+      ...blockMap.changedIds,
+      ...blockMap.retiredIds,
+      ...blockMap.ambiguousIds,
+    };
+    for (final record in await proposalRecords(noteId: note.id)) {
+      final operations = record.current.candidate['operations'] as List? ?? [];
+      final overlaps = operations.any((raw) {
+        final operation = raw as Map;
+        return operation['type'] == 'delete_note' ||
+            changed.contains(operation['block_id']);
+      });
+      if (deleted || (oldPath != null && oldPath != path) || overlaps) {
+        final next = record.invalidate(
+          reason: deleted ? 'note_deleted' : 'accepted_target_changed',
+          at: _clock.nowUtc(),
+        );
+        if (!identical(next, record)) invalidated.add(next.toStoredJson());
+      }
+    }
     final event = <String, Object?>{
       'id': note.id,
       if (actor != null) 'actor': actor,
@@ -904,6 +1008,7 @@ class Storage {
       'recorded_at': _clock.nowUtc().toIso8601String(),
       'markdown': _serializeNote(note),
       'block_map': blockMap.toJson(),
+      if (invalidated.isNotEmpty) 'proposal_updates': invalidated,
       'path': path,
       'previous_path': oldPath,
       if (!captureCurrent &&
@@ -974,6 +1079,16 @@ class Storage {
             ..remove('proposal_updates')
             ..remove('accepted_policy_delta'),
         ),
+      );
+    }
+    for (final raw in event['proposal_updates'] as List? ?? []) {
+      final record = ProposalRecord.fromStoredJson(raw as Map<String, dynamic>);
+      if (record.noteId != event['id']) {
+        throw const FormatException('Journal proposal identity mismatch');
+      }
+      await _atomicText(
+        _proposalFile(record.noteId, record.id),
+        jsonEncode(record.toStoredJson()),
       );
     }
   }
@@ -1214,8 +1329,21 @@ class Storage {
     }
   }
 
-  Future<T> _withLock<T>(NoteId id, Future<T> Function() body) =>
-      _withKeyedLock(_locks, id, body);
+  Future<T> _withLock<T>(NoteId id, Future<T> Function() body) {
+    final lease = Zone.current[_noteTransactionZone];
+    if (lease is _NoteTransactionLease && lease.active && lease.id == id) {
+      _assertHistoryHealthy();
+      return body();
+    }
+    return _withKeyedLock(_locks, id, () async {
+      final lease = _NoteTransactionLease(id);
+      try {
+        return await runZoned(body, zoneValues: {_noteTransactionZone: lease});
+      } finally {
+        lease.active = false;
+      }
+    });
+  }
 
   Future<T> _withPathLock<T>(String key, Future<T> Function() body) =>
       _withKeyedLock(_pathLocks, key, body);
@@ -1291,4 +1419,10 @@ class Storage {
   }
 
   static NoteId _ulid() => Ulid().toString();
+}
+
+class _NoteTransactionLease {
+  _NoteTransactionLease(this.id);
+  final String id;
+  bool active = true;
 }
