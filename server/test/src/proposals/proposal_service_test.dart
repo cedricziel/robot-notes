@@ -1070,4 +1070,40 @@ void main() {
     );
     expect(links['source_unknown'], isFalse);
   });
+  test(
+      'unrelated note policy leaves a same-folder draft pending and approvable',
+      () async {
+    final draft = await withKnowledgePrincipal(
+      proposer,
+      () => service.submitNew({
+        'path': '',
+        'title': 'Runbook draft',
+        'content': 'draft',
+        'idempotency_key': 'unrelated-policy',
+      }),
+    );
+    final before = draft.current.candidate['policy_revision'];
+    await authorization.putNotePolicy(
+      const KnowledgePrincipal.operator(),
+      KnowledgeTarget.note(note.id, ''),
+      KnowledgePolicyPatch(approval: 'evidence_no_conflict'),
+    );
+    expect(policies.revision, isNot(before));
+    final inspected = await withKnowledgePrincipal(
+      reviewer,
+      () => service.inspect(draft.noteId, draft.id),
+    );
+    expect(inspected['state'], 'pending');
+    expect(inspected['record_revision'], 1);
+    expect(inspected['allowed_actions'], contains('approve'));
+    final accepted = await withKnowledgePrincipal(
+      reviewer,
+      () => service.decide(
+        draft.noteId,
+        draft.id,
+        {'decision': 'approve', 'record_revision': 1},
+      ),
+    );
+    expect(accepted.state, 'accepted');
+  });
 }

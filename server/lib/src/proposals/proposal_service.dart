@@ -422,8 +422,7 @@ class ProposalService {
     final candidate = record.current.candidate;
     final permissions =
         authorization.permissions(currentKnowledgePrincipal, target);
-    return candidate['policy_revision'] == permissions['policy_revision'] &&
-        candidate['policy_fingerprint'] == permissions['policy_fingerprint'];
+    return candidate['policy_fingerprint'] == permissions['policy_fingerprint'];
   }
 
   /// Inspects only proposals whose server-resolved target the caller can read.

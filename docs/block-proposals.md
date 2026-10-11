@@ -54,7 +54,7 @@ Decisions send `{decision,record_revision,comment?}`. Amendments require both `p
 
 Submission and amendment require read and propose authority. Comments require read plus propose or trusted human review authority. Final decisions require trusted human review authority; an agent cannot gain it through display labels or extra agent scopes. The restrictive `X-Robot-Notes-Agent: true` marker also denies human actions for legacy operator or OAuth credentials while preserving their recorded identity. Audit records expose `author_agent_origin` separately from `author_kind`. Inspection also checks historical candidate target access. `allowed_actions` describes the current caller's permitted actions.
 
-Approve is available only for fresh `pending` or `changes_requested` candidates. Overlapping accepted changes, insertion gaps, unavailable block maps, or policy changes require amendment and re-review. Disjoint accepted block changes can merge. Accepted and denied records remain terminal; comments remain appendable by authorized callers.
+Approve is available only for fresh `pending` or `changes_requested` candidates. Overlapping accepted changes, insertion gaps, unavailable block maps, or changes to the target's effective policy require amendment and re-review. Unrelated policy updates preserve a fresh proposal; the global revision remains available for policy CAS and audit. Disjoint accepted block changes can merge. Accepted and denied records remain terminal; comments remain appendable by authorized callers.
 
 ## Sources and automatic attachments
 
