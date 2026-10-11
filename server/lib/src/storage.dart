@@ -7,6 +7,7 @@ import 'package:meta/meta.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/excerpt.dart';
 import 'package:server/src/frontmatter.dart';
+import 'package:server/src/markdown_blocks.dart';
 import 'package:server/src/note_path.dart';
 import 'package:server/src/tags.dart';
 import 'package:ulid/ulid.dart';
@@ -240,6 +241,15 @@ class PathConflictException implements Exception {
   String toString() => 'PathConflictException: $path/$title';
 }
 
+/// A revision predates block metadata or its canonical source was changed.
+class BlockMapUnavailableException implements Exception {
+  /// Reports whether persisted metadata conflicts with the current source.
+  const BlockMapUnavailableException({this.stale = false});
+
+  /// True when the accepted map differs from the inspected canonical source.
+  final bool stale;
+}
+
 /// File-backed note store. Owns the `<dataDir>/content/` directory and is
 /// the canonical source of truth for note bodies and metadata. Higher
 /// layers (notes API, search index, lock manager) call into this class
@@ -285,6 +295,7 @@ class Storage {
   final Future<void> Function()? afterHistoryPublish;
 
   Directory get _historyDir => Directory('${contentDir.path}.history');
+  final _blockReconciler = MarkdownBlockReconciler();
   Future<void>? _historyRecovery;
   bool _historyFaulted = false;
 
@@ -802,6 +813,31 @@ class Storage {
   }) async {
     final history = _noteHistory(note.id);
     final oldPath = _relPathById[note.id];
+    final previousVersion = note.version - (deleted ? 0 : 1);
+    final previousFile = File('${history.path}/$previousVersion.json');
+    MarkdownBlockMap? previousMap;
+    String? previousSource;
+    if (previousFile.existsSync()) {
+      final previous =
+          jsonDecode(await previousFile.readAsString()) as Map<String, dynamic>;
+      final rawMap = previous['block_map'];
+      if (rawMap is Map<String, dynamic>) {
+        previousMap = MarkdownBlockMap.fromJson(rawMap);
+        previousSource = previous['deleted'] == true
+            ? ''
+            : parseFrontmatter(previous['markdown'] as String).body;
+      }
+    }
+    if (oldPath != null && _fileForRelative(oldPath).existsSync()) {
+      previousSource =
+          parseFrontmatter(await _fileForRelative(oldPath).readAsString()).body;
+    }
+    final blockMap = _blockReconciler.reconcile(
+      deleted ? '' : note.content,
+      version: note.version + (deleted ? 1 : 0),
+      previous: previousMap,
+      previousSource: previousSource,
+    );
     final event = <String, Object?>{
       'id': note.id,
       if (actor != null) 'actor': actor,
@@ -809,6 +845,7 @@ class Storage {
       'deleted': deleted,
       'recorded_at': _clock.nowUtc().toIso8601String(),
       'markdown': _serializeNote(note),
+      'block_map': blockMap.toJson(),
       'path': path,
       'previous_path': oldPath,
       if (oldPath != null &&
@@ -913,6 +950,36 @@ class Storage {
     result.sort((a, b) => (a['version'] as int).compareTo(b['version'] as int));
     return result;
   }
+
+  /// Reads accepted block metadata without creating or changing identities.
+  /// Omitting [version] verifies the current canonical body against its map.
+  /// Throws [BlockMapUnavailableException] for legacy or stale metadata.
+  Future<MarkdownBlockMap> readBlockMap(String id, {int? version}) =>
+      _withLock(id, () async {
+        await _ensureIndexed();
+        final current = version == null ? await read(id) : null;
+        final wanted = version ?? current!.version;
+        final snapshot = File('${_noteHistory(id).path}/$wanted.json');
+        if (!snapshot.existsSync()) {
+          if (current != null) throw const BlockMapUnavailableException();
+          throw NoteNotFoundException(id);
+        }
+        final accepted =
+            jsonDecode(await snapshot.readAsString()) as Map<String, dynamic>;
+        final raw = accepted['block_map'];
+        if (raw is! Map<String, dynamic>) {
+          throw const BlockMapUnavailableException();
+        }
+        final map = MarkdownBlockMap.fromJson(raw);
+        final body = current?.content ??
+            (accepted['deleted'] == true
+                ? ''
+                : parseFrontmatter(accepted['markdown'] as String).body);
+        if (map.version != wanted || !map.matches(body)) {
+          throw const BlockMapUnavailableException(stale: true);
+        }
+        return map;
+      });
 
   /// Reads retained content; deletion tombstones cannot be restored directly.
   Future<StoredNote> readRevision(String id, int version) async {

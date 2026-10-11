@@ -32,6 +32,7 @@ import '../../routes/invites/index.dart' as invites_index_route;
 import '../../routes/mcp/index.dart' as mcp_route;
 import '../../routes/notes/[id]/append.dart' as notes_append_route;
 import '../../routes/notes/[id]/backlinks.dart' as notes_backlinks_route;
+import '../../routes/notes/[id]/blocks.dart' as notes_blocks_route;
 import '../../routes/notes/[id]/history.dart' as notes_history_route;
 import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/links.dart' as notes_links_route;
@@ -98,6 +99,7 @@ Future<HttpServer> startTestServer({
     ..all('/notes/tree', notes_tree_route.onRequest)
     ..all('/notes/files', files_route.onRequest)
     ..all('/notes/files/<path|.*>', file_route.onRequest)
+    ..all('/notes/<id>/blocks', notes_blocks_route.onRequest)
     ..all('/notes/<id>/history', notes_history_route.onRequest)
     ..all('/notes/<id>/append', notes_append_route.onRequest)
     ..all('/notes/<id>/backlinks', notes_backlinks_route.onRequest)
