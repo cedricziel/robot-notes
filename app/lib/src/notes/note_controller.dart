@@ -391,7 +391,12 @@ class NoteController extends ValueNotifier<NoteState> {
       acquired = await _api.acquireLock(_noteId);
     } on LockedException catch (e) {
       if (_disposed) return;
-      value = value.copyWith(mode: NoteMode.viewing, lock: e.lock, error: e);
+      value = value.copyWith(
+        mode: NoteMode.viewing,
+        lock: e.lock,
+        error: e,
+        lockedByOtherBanner: null,
+      );
       return;
     } on ApiException catch (e) {
       if (_disposed) return;

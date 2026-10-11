@@ -306,6 +306,26 @@ void main() {
   );
 
   test(
+    'failed retry replaces the stale lock banner with the current holder',
+    () async {
+      await editing();
+      controller.setEditContent('Retained draft');
+      backend.loseLock();
+      expect(controller.value.lockedByOtherBanner, contains('alice'));
+      backend.acquisition = Completer<http.Response>()
+        ..complete(_response({'error': 'locked', 'lock': _lock('bob')}, 423));
+
+      await controller.enterEditMode();
+
+      expect(controller.value.mode, NoteMode.viewing);
+      expect(controller.value.lock?.holder, 'bob');
+      expect(controller.value.lockedByOtherBanner, isNull);
+      expect(controller.value.editContent, 'Retained draft');
+      expect(controller.value.isDirty, isTrue);
+    },
+  );
+
+  test(
     'retry restores a retained dirty draft when the server is unchanged',
     () async {
       await editing();
