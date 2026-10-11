@@ -20,6 +20,7 @@ import 'package:app/src/notes/notes_list_screen.dart';
 import 'package:app/src/realtime/connection_status.dart';
 import 'package:app/src/realtime/ws_client.dart';
 import 'package:app/src/search/search_screen.dart';
+import 'package:app/src/vaults/vault_switcher.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
@@ -247,6 +248,74 @@ Finder _listRow() => find.descendant(
 );
 
 void main() {
+  testWidgets('session shell waits for redirect when configuration is absent', (
+    tester,
+  ) async {
+    final holder = ConfigHolder.seeded(null);
+    addTearDown(holder.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppRouterShell(
+          configHolder: holder,
+          child: const Text('Authenticated content'),
+        ),
+      ),
+    );
+    expect(find.text('Authenticated content'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
+  testWidgets('workspace vault controls can open a dialog inside the router', (
+    tester,
+  ) async {
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/vaults') {
+          return http.Response(
+            jsonEncode({
+              'can_manage': true,
+              'vaults': [
+                {'id': 'default', 'name': 'Default'},
+              ],
+            }),
+            200,
+          );
+        }
+        return _fakeBackend(request);
+      }),
+    );
+    addTearDown(api.close);
+    final holder = ConfigHolder.seeded(_config);
+    addTearDown(holder.dispose);
+    final router = buildAppRouter(
+      configHolder: holder,
+      sessionBuilder: (context, child) => Column(
+        children: [
+          VaultSwitcher(
+            api: api,
+            selectedId: 'default',
+            onSelect: (_) {},
+            canManage: true,
+          ),
+          Expanded(child: child),
+        ],
+      ),
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      _harness(api: api, initialLocation: '/', router: router),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Create vault'));
+    await tester.pumpAndSettle();
+    expect(find.text('Vault name'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NotesListScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a tag in a compact search result opens the filtered Notes tab', (
     tester,
   ) async {
