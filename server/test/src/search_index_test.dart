@@ -1487,6 +1487,51 @@ void main() {
       return index;
     }
 
+    for (final backfill in [false, true]) {
+      test('discards stale ${backfill ? 'backfill' : 'write'} after update',
+          () async {
+        final provider = _ControlledEmbeddingProvider();
+        final index = await seededForEmbed(provider);
+        final older = backfill
+            ? index.backfillEmbeddings()
+            : index.embedNote(id: 'n1', title: 'A', content: 'alpha beta');
+        index.upsert(
+          id: 'n1',
+          title: 'B',
+          content: 'new content',
+          updatedAt: _testStamp,
+        );
+        final newer = index.embedNote(
+          id: 'n1',
+          title: 'B',
+          content: 'new content',
+        );
+        provider.requests[1].complete([0, 1, 0, 0]);
+        await newer;
+        provider.requests[0].complete([1, 0, 0, 0]);
+        await older;
+
+        expect(
+          index.vectorSearch([0, 1, 0, 0]).single.distance,
+          closeTo(0, 0.00001),
+        );
+      });
+
+      test('discards pending ${backfill ? 'backfill' : 'write'} after deletion',
+          () async {
+        final provider = _ControlledEmbeddingProvider();
+        final index = await seededForEmbed(provider);
+        final pending = backfill
+            ? index.backfillEmbeddings()
+            : index.embedNote(id: 'n1', title: 'A', content: 'alpha beta');
+        index.delete('n1');
+        provider.requests.single.complete([1, 0, 0, 0]);
+        await pending;
+
+        expect(index.vectorSearch([1, 0, 0, 0]), isEmpty);
+      });
+    }
+
     test('retries transient failures with backoff and stores the vector',
         () async {
       final provider = _FlakyProvider(2);
@@ -1694,5 +1739,19 @@ class _GatedEmbeddingProvider implements EmbeddingProvider {
   Future<List<double>> embed(String text) async {
     await gate;
     return const [1.0, 2.0, 3.0, 4.0];
+  }
+}
+
+class _ControlledEmbeddingProvider implements EmbeddingProvider {
+  final requests = <Completer<List<double>>>[];
+
+  @override
+  int get dimensions => 4;
+
+  @override
+  Future<List<double>> embed(String text) {
+    final request = Completer<List<double>>();
+    requests.add(request);
+    return request.future;
   }
 }

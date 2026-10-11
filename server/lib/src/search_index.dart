@@ -1008,6 +1008,7 @@ class SearchIndex {
   /// marker: [SearchIndex.upsert] keeps stale vectors from being served,
   /// and [backfillEmbeddings] (startup, or any later pass) picks the id
   /// back up. Returns normally even on total failure; failures are logged.
+  /// Results publish only while indexed title and content still match.
   /// [sleep] is overridable in tests to avoid real delays.
   Future<void> embedNote({
     required String id,
@@ -1028,7 +1029,7 @@ class SearchIndex {
         final embedding = await provider.embed(text);
         _db.execute('BEGIN');
         try {
-          _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
+          _publishEmbedding(id, title, content, embedding);
           _db.execute('COMMIT');
         } catch (e) {
           _db.execute('ROLLBACK');
@@ -1047,6 +1048,20 @@ class SearchIndex {
         delay *= 2;
       }
     }
+  }
+
+  void _publishEmbedding(
+    String id,
+    String title,
+    String content,
+    List<double> embedding,
+  ) {
+    final current = _db.select(
+      'SELECT 1 FROM notes_fts WHERE id = ? AND title = ? AND content = ?;',
+      [id, title, content],
+    );
+    if (current.isEmpty) return;
+    _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
   }
 
   /// Default number of notes embedded per batch during [backfillEmbeddings].
@@ -1089,17 +1104,19 @@ class SearchIndex {
             provider,
             embeddingInputFor(title: note.title, content: note.content),
             logger: _log,
-          ).then((embedding) => (id: note.id, embedding: embedding)),
+          ).then((embedding) => (note: note, embedding: embedding)),
       ]);
 
       _db.execute('BEGIN');
       try {
         for (final result in embeddings) {
           if (result.embedding == null) continue;
-          _upsertVectorStmt.execute([
-            result.id,
-            _encodeVector(result.embedding!),
-          ]);
+          _publishEmbedding(
+            result.note.id,
+            result.note.title,
+            result.note.content,
+            result.embedding!,
+          );
         }
         _db.execute('COMMIT');
       } catch (e) {
