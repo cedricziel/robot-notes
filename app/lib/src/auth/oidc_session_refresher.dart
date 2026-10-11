@@ -30,10 +30,9 @@ class OidcRefreshException implements Exception {
 /// tokens are persisted immediately, and a rejected refresh token means
 /// the session needs a fresh sign-in.
 class OidcSessionRefresher {
-  /// Creates a refresher using [clientFactory] to build a fresh
+  /// Creates a refresher using [_clientFactory] to build a fresh
   /// [http.Client] per request.
-  OidcSessionRefresher({required http.Client Function() clientFactory})
-    : _clientFactory = clientFactory;
+  OidcSessionRefresher({required this._clientFactory});
 
   final http.Client Function() _clientFactory;
 

@@ -48,12 +48,10 @@ const Object _sentinel = Object();
 /// keystroke.
 class NotesSearchController extends ValueNotifier<SearchState> {
   NotesSearchController({
-    required RobotNotesClient api,
-    Duration debounce = const Duration(milliseconds: 250),
+    required this._api,
+    this._debounce = const Duration(milliseconds: 250),
     Future<void> Function(Duration)? scheduler,
-  }) : _api = api,
-       _debounce = debounce,
-       _scheduler = scheduler ?? Future<void>.delayed,
+  }) : _scheduler = scheduler ?? Future<void>.delayed,
        super(SearchState.empty);
 
   final RobotNotesClient _api;

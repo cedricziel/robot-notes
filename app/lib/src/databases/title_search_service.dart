@@ -17,8 +17,7 @@ import '../api/api_exceptions.dart';
 /// `RobotNotesClient.queryDatabase` for the common case of a `relation`
 /// property constrained to a single database.
 class TitleSearchService {
-  TitleSearchService({required RobotNotesClient api, this.databaseRestriction})
-    : _api = api;
+  TitleSearchService({required this._api, this.databaseRestriction});
 
   /// A [TitleSearchService] whose [databaseRestriction] queries rows of
   /// [databaseId] via `POST /databases/{id}/query`, matching titles that

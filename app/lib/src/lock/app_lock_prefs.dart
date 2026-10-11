@@ -30,7 +30,7 @@ class SharedPreferencesAppLockPrefs implements AppLockPrefs {
 
 /// In-memory [AppLockPrefs] for tests.
 class InMemoryAppLockPrefs implements AppLockPrefs {
-  InMemoryAppLockPrefs({bool enabled = false}) : _enabled = enabled;
+  InMemoryAppLockPrefs({this._enabled = false});
 
   bool _enabled;
 

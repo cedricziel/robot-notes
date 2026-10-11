@@ -43,11 +43,10 @@ String pkceS256Challenge(String verifier) {
 /// same mechanism any MCP client uses) and builds authorization-code+PKCE
 /// URLs for sign-in.
 class OAuthClient {
-  /// Creates a client backed by [store] for the registration cache and
+  /// Creates a client backed by [_store] for the registration cache and
   /// [clientFactory] for HTTP requests (a fresh client per call, closed
   /// after use).
-  OAuthClient({required ConfigStore store, required this.clientFactory})
-    : _store = store;
+  OAuthClient({required this._store, required this.clientFactory});
 
   final ConfigStore _store;
 
