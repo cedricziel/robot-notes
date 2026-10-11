@@ -214,6 +214,8 @@ class _NoteScreenState extends State<NoteScreen> {
     _linkAutocomplete.close();
   }
 
+  Map<String, dynamic>? _knowledgePermissions;
+
   Future<void> _edit() async {
     final note = widget.controller.value.note;
     if (note != null) {
@@ -321,6 +323,17 @@ class _NoteScreenState extends State<NoteScreen> {
   Future<void> _open() async {
     if (!mounted) return;
     await widget.controller.open();
+    final note = widget.controller.value.note;
+    if (mounted && note != null) {
+      try {
+        final permissions = await widget.controller.api.getKnowledgePermissions(
+          note.id,
+        );
+        if (mounted) setState(() => _knowledgePermissions = permissions);
+      } on ApiException {
+        // Fresh permissions are checked again before entering the editor.
+      }
+    }
     if (!mounted ||
         widget.controller.value.mode != NoteMode.viewing ||
         widget.controller.value.note == null) {
@@ -652,6 +665,12 @@ class _NoteScreenState extends State<NoteScreen> {
     final theme = Theme.of(context);
     final roomy = Breakpoints.of(context) >= WindowSizeClass.medium;
     final viewing = state.mode == NoteMode.viewing && note != null;
+    final editLabel =
+        _knowledgePermissions?['curated'] == true &&
+            !(_knowledgePermissions?['allowed_actions'] as List? ?? [])
+                .contains('edit')
+        ? 'Propose update'
+        : 'Edit';
     final (
       IconData leadingIcon,
       String leadingTooltip,
@@ -719,19 +738,19 @@ class _NoteScreenState extends State<NoteScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   child: Tooltip(
-                    message: 'Edit',
+                    message: editLabel,
                     child: OutlinedButton.icon(
                       key: const Key('note.edit'),
                       onPressed: _edit,
                       icon: const Icon(Icons.edit_outlined, size: 16),
-                      label: const Text('Edit'),
+                      label: Text(editLabel),
                     ),
                   ),
                 )
               else
                 IconButton(
                   key: const Key('note.edit'),
-                  tooltip: 'Edit',
+                  tooltip: editLabel,
                   icon: const Icon(Icons.edit_outlined),
                   onPressed: _edit,
                 ),
