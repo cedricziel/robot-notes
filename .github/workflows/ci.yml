@@ -48,6 +48,12 @@ jobs:
       - name: Resolve workspace dependencies
         run: dart pub get
 
+      - name: Resolve editor compatibility probe dependencies
+        run: |
+          for probe in common flutter_quill super_editor; do
+            (cd "tool/editor_compatibility/$probe" && flutter pub get)
+          done
+
       - name: Format check
         run: dart format --set-exit-if-changed .
 
@@ -65,6 +71,12 @@ jobs:
 
       - name: Test — app (Flutter)
         run: cd app && flutter test --reporter expanded
+
+      - name: Test adaptive editor
+        run: cd packages/adaptive_super_editor && flutter test --no-pub --reporter expanded
+
+      - name: Test selected editor compatibility gate
+        run: cd tool/editor_compatibility/super_editor && flutter test --no-pub --reporter expanded
 
   hooks:
     name: Test conversation hooks (Python)
