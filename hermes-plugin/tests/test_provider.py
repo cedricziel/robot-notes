@@ -1,3 +1,4 @@
+from contextvars import ContextVar
 import json
 import threading
 
@@ -150,25 +151,26 @@ def test_queue_prefetch_primes_cache_consumed_by_matching_prefetch(provider):
 
 
 @respx.mock
-def test_queue_prefetch_spawns_via_spawn_context_thread(provider, monkeypatch):
-    """Background work must go through the host's spawn_context_thread (never a bare
-    threading.Thread) so contextvars -- profile home, the per-turn secret scope -- propagate;
-    proven here by monkeypatching the compat function and asserting it was the one called."""
-    respx.get("https://notes.example.com/search").mock(return_value=httpx.Response(200, json={"items": []}))
-    captured = {}
-    real_spawn_context_thread = robot_notes.spawn_context_thread
+def test_queue_prefetch_preserves_context_in_background_search(provider):
+    profile = ContextVar("test_profile", default="missing")
+    observed = []
 
-    def fake_spawn_context_thread(target, *, name, **kwargs):
-        captured["name"] = name
-        captured["called"] = True
-        return real_spawn_context_thread(target, name=name, **kwargs)
+    def search(request):
+        observed.append(profile.get())
+        return httpx.Response(200, json={"items": []})
 
-    monkeypatch.setattr(robot_notes, "spawn_context_thread", fake_spawn_context_thread)
+    respx.get("https://notes.example.com/search").mock(side_effect=search)
+    token = profile.set("session-profile")
+    try:
+        provider.queue_prefetch("budget", session_id="session-1")
+    finally:
+        profile.reset(token)
+    worker = provider._prefetch_thread
+    worker.join(timeout=2)
 
-    provider.queue_prefetch("budget", session_id="session-1")
-    provider._prefetch_thread.join(timeout=2)
-
-    assert captured == {"name": "robot-notes-prefetch", "called": True}
+    assert not worker.is_alive(), "background search did not finish"
+    assert observed == ["session-profile"]
+    assert profile.get() == "missing"
 
 
 @respx.mock

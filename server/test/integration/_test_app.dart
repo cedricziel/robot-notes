@@ -6,43 +6,23 @@
 
 import 'dart:async';
 import 'dart:io';
-import 'package:server/src/vault_registry.dart';
-import 'package:server/src/vault_middleware.dart';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:dart_otel_api/dart_otel_api.dart';
-import 'package:server/src/actor_middleware.dart';
 import 'package:server/src/app_deps.dart';
-import 'package:server/src/auth_middleware.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
-import 'package:server/src/databases/registry.dart';
-import 'package:server/src/invite_store.dart';
-import 'package:server/src/lock_manager.dart';
 import 'package:server/src/mcp/mcp_chain.dart';
-import 'package:server/src/meta_index.dart';
-import 'package:server/src/note_write_service.dart';
-import 'package:server/src/oauth/client_store.dart';
-import 'package:server/src/oauth/code_store.dart';
-import 'package:server/src/oauth/consent_throttle.dart';
-import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/oidc/discovery.dart';
-import 'package:server/src/oidc/jwks.dart';
-import 'package:server/src/oidc/pending_login_store.dart';
 import 'package:server/src/oidc/token_exchange.dart';
 import 'package:server/src/otel/otel_tracer_holder.dart' as otel_tracer_holder;
-import 'package:server/src/search_index.dart';
-import 'package:server/src/storage.dart';
-import 'package:server/src/well_known_middleware.dart';
-import 'package:server/src/ws/broadcaster.dart';
-import 'package:server/src/ws/presence.dart';
+import 'package:server/src/root_middleware.dart';
+import 'package:server/src/vault_registry.dart';
 
 import '../../routes/databases/[id]/index.dart' as databases_id_route;
 import '../../routes/databases/[id]/query.dart' as databases_id_query_route;
 import '../../routes/databases/[id]/rows.dart' as databases_id_rows_route;
 import '../../routes/databases/index.dart' as databases_index_route;
-import '../../routes/vaults/index.dart' as vaults_route;
-import '../../routes/vaults/[id]/index.dart' as vault_id_route;
 import '../../routes/healthz.dart' as healthz_route;
 import '../../routes/index.dart' as root_index;
 import '../../routes/invites/[token]/index.dart' as invites_token_route;
@@ -50,18 +30,28 @@ import '../../routes/invites/[token]/onboarding.txt.dart'
     as invites_token_onboarding_route;
 import '../../routes/invites/index.dart' as invites_index_route;
 import '../../routes/mcp/index.dart' as mcp_route;
+import '../../routes/notes/[id]/append.dart' as notes_append_route;
+import '../../routes/notes/[id]/backlinks.dart' as notes_backlinks_route;
 import '../../routes/notes/[id]/index.dart' as notes_id_route;
+import '../../routes/notes/[id]/links.dart' as notes_links_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
 import '../../routes/notes/[id]/properties.dart' as notes_id_properties_route;
 import '../../routes/notes/file-uploads/[token].dart' as upload_route;
+import '../../routes/notes/files/[...path].dart' as file_route;
+import '../../routes/notes/files/index.dart' as files_route;
 import '../../routes/notes/index.dart' as notes_index_route;
+import '../../routes/notes/tree.dart' as notes_tree_route;
 import '../../routes/oauth/authorize.dart' as oauth_authorize_route;
 import '../../routes/oauth/oidc/callback.dart' as oauth_oidc_callback_route;
 import '../../routes/oauth/oidc/login.dart' as oauth_oidc_login_route;
 import '../../routes/oauth/register.dart' as oauth_register_route;
 import '../../routes/oauth/revoke.dart' as oauth_revoke_route;
 import '../../routes/oauth/token.dart' as oauth_token_route;
+import '../../routes/otel-config.dart' as otel_config_route;
 import '../../routes/search.dart' as search_route;
+import '../../routes/tags.dart' as tags_route;
+import '../../routes/vaults/[id]/index.dart' as vault_id_route;
+import '../../routes/vaults/index.dart' as vaults_route;
 import '../../routes/ws.dart' as ws_route;
 
 // `ws_route.onRequest` reads the tracer straight from the process-wide
@@ -73,7 +63,8 @@ import '../../routes/ws.dart' as ws_route;
 const _testTracerProvider = NoopTracerProvider();
 
 /// Spins up an HTTP server bound to a loopback ephemeral port that mirrors
-/// the production routing tree. Tests inject [deps] and [config] directly
+/// production middleware with isolated routing. Tests inject [deps] and
+/// [config] directly
 /// instead of going through the global holders, so multiple integration
 /// tests can run in the same process without polluting each other.
 ///
@@ -87,42 +78,6 @@ Future<HttpServer> startTestServer({
   deps.vaults ??= VaultRegistry(root: deps, config: config);
   await deps.vaults!.load();
   otel_tracer_holder.setOtelTracerProvider(_testTracerProvider);
-
-  // Unlike the `.use()` chain in routes/_middleware.dart (where the last
-  // `.use` is outermost), shelf's Pipeline runs the first-added middleware
-  // first. `provider<Config>` and `provider<TokenStore>` are therefore
-  // added before [wellKnownMiddleware] and [bearerAuth], which need them
-  // (`bearerAuth` reads `TokenStore` to accept a scoped OAuth access token
-  // as an alternative to the static key on the REST API and WebSocket).
-  final pipeline = const Pipeline()
-      .addMiddleware(provider<Config>((_) => config))
-      .addMiddleware(provider<TokenStore>((_) => deps.tokenStore))
-      .addMiddleware(wellKnownMiddleware())
-      .addMiddleware(bearerAuth(configuredKey: config.apiKey))
-      .addMiddleware(actorIdentity())
-      .addMiddleware(provider<VaultRegistry>((_) => deps.vaults!))
-      .addMiddleware(provider<PresenceTracker>((_) => deps.presence))
-      .addMiddleware(provider<Broadcaster>((_) => deps.broadcaster))
-      .addMiddleware(provider<LockManager>((_) => deps.lockManager))
-      .addMiddleware(provider<SearchIndex>((_) => deps.searchIndex))
-      .addMiddleware(provider<InviteStore>((_) => deps.inviteStore))
-      .addMiddleware(provider<ClientStore>((_) => deps.clientStore))
-      .addMiddleware(provider<CodeStore>((_) => deps.codeStore))
-      .addMiddleware(provider<ConsentThrottle>((_) => deps.consentThrottle))
-      .addMiddleware(
-        provider<PendingLoginStore>((_) => deps.pendingLoginStore),
-      )
-      .addMiddleware(
-        provider<OidcDiscoveryDocument?>((_) => deps.oidcDiscovery),
-      )
-      .addMiddleware(provider<JwksCache?>((_) => deps.oidcJwks))
-      .addMiddleware(provider<HttpPostForm>((_) => httpPostForm))
-      .addMiddleware(provider<MetaIndex>((_) => deps.metaIndex))
-      .addMiddleware(provider<NoteWriteService>((_) => deps.noteWriteService))
-      .addMiddleware(provider<DatabaseRegistry>((_) => deps.registry))
-      .addMiddleware(provider<Storage>((_) => deps.storage))
-      .addMiddleware(provider<Clock>((_) => deps.clock))
-      .addMiddleware(vaultSelection(deps.vaults!));
 
   // `/mcp` gets its own middleware nesting via the shared [mcpChain],
   // mirroring routes/mcp/_middleware.dart: the McpHandler provider and
@@ -139,6 +94,12 @@ Future<HttpServer> startTestServer({
 
   final root = Router()
     ..all('/notes/file-uploads/<token>', upload_route.onRequest)
+    ..all('/notes/tree', notes_tree_route.onRequest)
+    ..all('/notes/files', files_route.onRequest)
+    ..all('/notes/files/<path|.*>', file_route.onRequest)
+    ..all('/notes/<id>/append', notes_append_route.onRequest)
+    ..all('/notes/<id>/backlinks', notes_backlinks_route.onRequest)
+    ..all('/notes/<id>/links', notes_links_route.onRequest)
     ..mount('/notes/<id>/lock', _lockMount)
     ..mount('/notes/<id>/properties', _notesIdPropertiesMount)
     ..mount('/notes/<id>', _notesIdMount)
@@ -154,6 +115,8 @@ Future<HttpServer> startTestServer({
     ..all('/vaults/<id>', vault_id_route.onRequest)
     ..all('/healthz', healthz_route.onRequest)
     ..all('/search', search_route.onRequest)
+    ..all('/tags', tags_route.onRequest)
+    ..all('/otel-config', otel_config_route.onRequest)
     ..all('/ws', ws_route.onRequest)
     ..all('/mcp', mcpHandler)
     ..all('/oauth/register', oauth_register_route.onRequest)
@@ -164,7 +127,13 @@ Future<HttpServer> startTestServer({
     ..all('/oauth/revoke', oauth_revoke_route.onRequest)
     ..all('/', root_index.onRequest);
 
-  final handler = pipeline.addHandler(root);
+  final handler = applyRootMiddleware(
+    root.call,
+    deps: deps,
+    config: config,
+    tracerProvider: _testTracerProvider,
+    httpPostForm: httpPostForm,
+  );
   return serve(handler, InternetAddress.loopbackIPv4, 0);
 }
 
@@ -240,6 +209,7 @@ class TestApp {
     String apiKey = 'integration-key',
     int lockTtlSeconds = 60,
     Clock? clock,
+    String? webDir,
     OidcConfig? oidcConfig,
     HttpGet oidcHttpGet = httpGetViaHttpClient,
     HttpPostForm httpPostForm = httpPostFormViaHttpClient,
@@ -252,6 +222,7 @@ class TestApp {
       port: 0,
       lockTtlSeconds: lockTtlSeconds,
       oidc: oidcConfig,
+      webDir: webDir,
     );
     final deps = await AppDeps.bootstrap(
       config,

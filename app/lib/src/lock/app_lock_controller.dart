@@ -12,11 +12,7 @@ import 'biometric_authenticator.dart';
 /// from a cold start and from every trip to the background until the
 /// device owner authenticates.
 class AppLockController extends ChangeNotifier {
-  AppLockController({
-    required BiometricAuthenticator authenticator,
-    required AppLockPrefs prefs,
-  }) : _authenticator = authenticator,
-       _prefs = prefs;
+  AppLockController({required this._authenticator, required this._prefs});
 
   final BiometricAuthenticator _authenticator;
   final AppLockPrefs _prefs;

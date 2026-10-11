@@ -132,11 +132,8 @@ const Object _sentinel = Object();
 /// in them (`moved`, `created`, `deleted` — `updated` never moves a note,
 /// so it is not a reason to re-fetch).
 class FolderTreeController extends ValueNotifier<FolderTreeState> {
-  FolderTreeController({
-    required RobotNotesClient api,
-    Stream<RealtimeEvent>? events,
-  }) : _api = api,
-       super(FolderTreeState.empty) {
+  FolderTreeController({required this._api, Stream<RealtimeEvent>? events})
+    : super(FolderTreeState.empty) {
     if (events != null) {
       _sub = events.listen(_onEvent);
     }

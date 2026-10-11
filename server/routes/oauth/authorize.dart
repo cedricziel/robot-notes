@@ -1,8 +1,5 @@
 import 'dart:io';
 
-import 'package:server/src/vault_registry.dart';
-import 'package:server/src/oauth/vault_consent.dart';
-
 import 'package:dart_frog/dart_frog.dart';
 import 'package:logging/logging.dart';
 import 'package:server/src/config.dart';
@@ -13,7 +10,9 @@ import 'package:server/src/oauth/consent_throttle.dart';
 import 'package:server/src/oauth/error_page.dart';
 import 'package:server/src/oauth/form_body.dart';
 import 'package:server/src/oauth/oauth_records.dart';
+import 'package:server/src/oauth/vault_consent.dart';
 import 'package:server/src/public_url.dart';
+import 'package:server/src/vault_registry.dart';
 
 final Logger _log = Logger('oauth.authorize');
 
@@ -118,8 +117,9 @@ Future<Response> _submitConsent(
   }
 
   final vaultIds = selectedVaults(context, form);
-  if (vaultIds == null)
+  if (vaultIds == null) {
     return oauthErrorPage('Select at least one valid vault.');
+  }
 
   final actorRaw = (form['actor'] ?? '').trim();
   final clientName = valid.client.clientName.trim();

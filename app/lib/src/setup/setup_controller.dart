@@ -85,14 +85,12 @@ class SetupSuccess extends SetupState {
 /// stream end-to-end.
 class SetupController extends ValueNotifier<SetupState> {
   SetupController({
-    required ConfigStore store,
+    required this._store,
     http.Client Function()? clientFactory,
     Logger? logger,
-    Duration timeout = const Duration(seconds: 10),
-  }) : _store = store,
-       _clientFactory = clientFactory ?? http.Client.new,
+    this._timeout = const Duration(seconds: 10),
+  }) : _clientFactory = clientFactory ?? http.Client.new,
        _log = logger ?? Logger('robot_notes.setup'),
-       _timeout = timeout,
        super(const SetupIdle());
 
   final ConfigStore _store;

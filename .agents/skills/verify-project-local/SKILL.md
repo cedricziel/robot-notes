@@ -9,9 +9,11 @@ description: Verify Robot Notes changes with a throwaway local server and the re
 
 ## Stand up the instance
 
-Run from the repository root. Resolve workspace dependencies and build the current web client with `cd app && flutter build web --no-pub` if it is stale. Start `scripts/start.sh` in a terminal/PTY (`tty: true` with exec_command); Dart Frog's dev listener fails without a terminal. The script chooses a free loopback port, creates an isolated temporary data directory and disposable API key, serves `app/build/web`, and prints the URL/key. It removes its scratch directory on exit. Keep the process handle for cleanup.
+Run from the repository root. Resolve workspace dependencies and build the current web client with `cd app && flutter build web --no-pub` if it is stale. This checkout has no `scripts/start.sh`; start the server directly. Choose two free loopback ports, one for HTTP and one for the Dart VM service, and create a temporary data directory and disposable API key. From `server`, run `dart_frog dev --hostname 127.0.0.1 --port <http-port> --dart-vm-service-port <vm-port>` in a terminal/PTY (`tty: true` with exec_command). Do not use the default VM-service port 8181, which may belong to another running app.
 
-Open that URL in a fresh agent-owned browser tab. Use the real setup flow and printed key/display name to connect. HTTP is permitted only for exact loopback hosts; remote URLs still require HTTPS. Do not use a production server or existing user notes/configuration. Native apps can also connect to this instance; use a simulator or isolated test app profile rather than replacing the user's saved desktop connection.
+Use a clean child environment with only the required runtime variables such as `PATH`, `HOME`, and `TERM`, plus explicit `ROBOT_NOTES_API_KEY`, `ROBOT_NOTES_DATA_DIR`, `ROBOT_NOTES_PORT`, `ROBOT_NOTES_PUBLIC_URL`, and an absolute `ROBOT_NOTES_WEB_DIR` pointing to `app/build/web`. Do not inherit production authentication, embedding, or telemetry settings. Keep the process handle and temporary directory path for cleanup. Confirm `/healthz` succeeds before opening the app; a dev-server startup banner alone does not prove the service is listening.
+
+Open that URL in a fresh agent-owned browser tab. Use the real setup flow with the disposable key and a test display name to connect. HTTP is permitted only for exact loopback hosts; remote URLs still require HTTPS. Do not use a production server or existing user notes/configuration. Native apps can also connect to this instance; use a simulator or isolated test app profile rather than replacing the user's saved desktop connection.
 
 Seed a small note/folder through the local API if helpful (`POST /notes` with bearer key, JSON title/path/content, X-Actor). Then perform a real app write: open or create a note, edit and save it, reload/reopen, and confirm the persisted content through the server API. Exercise affected navigation, search, settings, or other controls. Confirm live connectivity rather than merely rendering the landing screen.
 
@@ -23,6 +25,10 @@ Use available native toolchains when relevant. macOS can build iOS simulators an
 
 ## Evidence and cleanup
 
-Capture a screenshot of the real connected app and check browser/server errors. Record the real interaction performed, persisted result, viewport/platform coverage, build/test results, and limitations. Keep disposable credentials, runtime data and transient logs out of Git. Stop only processes started for this verification, close verification tabs, reset viewport overrides, and remove disposable data (start.sh does this on exit). Leave the environment running only if the user asks for it.
+Capture a screenshot of the real connected app and check browser/server errors. Record the real interaction performed, persisted result, viewport/platform coverage, build/test results, and limitations. Keep disposable credentials, runtime data and transient logs out of Git. Stop only processes started for this verification, close verification tabs, reset viewport overrides, and remove disposable data. Leave the environment running only if the user asks for it.
 
-Maintain this skill and its helper when actual use reveals a project-specific improvement. Keep changes narrow and validate the helper by starting it, checking /healthz, and stopping it. PR creation/publication is a separate user-authorized action.
+Maintain this skill and any startup helper when actual use reveals a project-specific improvement. Keep changes narrow and validate the helper by starting it, checking /healthz, and stopping it. PR creation/publication is a separate user-authorized action.
+
+## Standby and authentication checks
+
+Use lifecycle tests for repeated pause/resume, stalled refresh requests, transient network failures after wake-up, and preservation of the mounted workspace. A successful web edit with a static API key does not verify OAuth renewal or native laptop sleep. Report those coverage limits explicitly. Refresh requests must have a bounded timeout so a request interrupted by sleep cannot block every later renewal.

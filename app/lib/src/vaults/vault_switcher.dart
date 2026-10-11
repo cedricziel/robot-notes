@@ -1,4 +1,8 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+
+import '../widgets/adaptive.dart';
+import '../widgets/platform_motion.dart';
 
 import '../api/api_client.dart';
 
@@ -47,26 +51,47 @@ class _VaultSwitcherState extends State<VaultSwitcher> {
         .where((v) => v['id'] == widget.selectedId)
         .firstOrNull;
     var enteredName = rename && current != null ? current['name']! : '';
-    final name = await showDialog<String>(
+    final name = await showPlatformDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => AlertDialog.adaptive(
         title: Text(rename ? 'Rename vault' : 'Create vault'),
-        content: TextFormField(
-          initialValue: enteredName,
-          onChanged: (value) => enteredName = value,
-          autofocus: true,
-          maxLength: 200,
-          decoration: const InputDecoration(labelText: 'Vault name'),
-          onFieldSubmitted: (value) {
-            if (value.trim().isNotEmpty) Navigator.pop(context, value.trim());
-          },
-        ),
+        content: useCupertino(context)
+            ? Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: CupertinoTextFormFieldRow(
+                  initialValue: enteredName,
+                  placeholder: 'Vault name',
+                  padding: EdgeInsets.zero,
+                  onChanged: (value) => enteredName = value,
+                  autofocus: true,
+                  maxLength: 200,
+                  onFieldSubmitted: (value) {
+                    if (value.trim().isNotEmpty) {
+                      Navigator.pop(context, value.trim());
+                    }
+                  },
+                ),
+              )
+            : TextFormField(
+                initialValue: enteredName,
+                onChanged: (value) => enteredName = value,
+                autofocus: true,
+                maxLength: 200,
+                decoration: const InputDecoration(labelText: 'Vault name'),
+                onFieldSubmitted: (value) {
+                  if (value.trim().isNotEmpty) {
+                    Navigator.pop(context, value.trim());
+                  }
+                },
+              ),
         actions: [
-          TextButton(
+          adaptiveDialogAction(
+            context,
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
-          TextButton(
+          adaptiveDialogAction(
+            context,
             onPressed: () {
               if (enteredName.trim().isNotEmpty) {
                 Navigator.pop(context, enteredName.trim());
@@ -92,59 +117,113 @@ class _VaultSwitcherState extends State<VaultSwitcher> {
   }
 
   @override
-  Widget build(BuildContext context) => Material(
-    child: SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Row(
-          children: [
-            const Icon(Icons.folder_outlined, size: 20),
-            const SizedBox(width: 8),
-            if (_vaults.isNotEmpty)
-              Expanded(
-                child: DropdownButton<String>(
-                  isExpanded: true,
-                  value: _vaults.any((v) => v['id'] == widget.selectedId)
-                      ? widget.selectedId
-                      : null,
-                  hint: const Text('Select vault'),
-                  items: [
-                    for (final v in _vaults)
-                      DropdownMenuItem(value: v['id'], child: Text(v['name']!)),
-                  ],
-                  onChanged: (id) {
-                    if (id != null && id != widget.selectedId) {
-                      widget.onSelect(id);
-                    }
-                  },
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final apple = useCupertino(context);
+    final desktop = switch (theme.platform) {
+      TargetPlatform.macOS ||
+      TargetPlatform.windows ||
+      TargetPlatform.linux => true,
+      _ => false,
+    };
+    final current = _vaults
+        .where((v) => v['id'] == widget.selectedId)
+        .firstOrNull;
+    return Material(
+      color: theme.colorScheme.surfaceContainerLow,
+      child: SafeArea(
+        bottom: false,
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          constraints: BoxConstraints(minHeight: desktop ? 40 : 48),
+          child: Row(
+            children: [
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 280),
+                  child: PopupMenuButton<String>(
+                    tooltip: 'Switch vault',
+                    enabled: _vaults.isNotEmpty,
+                    initialValue: current?['id'],
+                    onSelected: (id) {
+                      if (id != widget.selectedId) widget.onSelect(id);
+                    },
+                    itemBuilder: (_) => [
+                      for (final vault in _vaults)
+                        CheckedPopupMenuItem(
+                          value: vault['id'],
+                          checked: vault['id'] == widget.selectedId,
+                          child: Text(
+                            vault['name']!,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            apple
+                                ? CupertinoIcons.folder
+                                : Icons.folder_outlined,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              current?['name'] ?? 'Select vault',
+                              style: theme.textTheme.labelLarge,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            apple
+                                ? CupertinoIcons.chevron_down
+                                : Icons.expand_more,
+                            size: 14,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              )
-            else
-              const Expanded(child: Text('Vaults')),
-            if (_error != null)
-              Tooltip(
-                message: _error!,
-                child: IconButton(
+              ),
+              if (_error != null)
+                IconButton(
+                  tooltip: _error,
                   onPressed: _load,
-                  icon: const Icon(Icons.refresh),
+                  icon: const Icon(Icons.refresh, size: 18),
                 ),
-              ),
-            if (widget.canManage && widget.api.canManageVaults) ...[
-              IconButton(
-                tooltip: 'Create vault',
-                onPressed: _name,
-                icon: const Icon(Icons.add),
-              ),
-              IconButton(
-                tooltip: 'Rename vault',
-                onPressed: () => _name(rename: true),
-                icon: const Icon(Icons.edit_outlined),
-              ),
+              if (widget.canManage && widget.api.canManageVaults) ...[
+                IconButton(
+                  tooltip: 'Create vault',
+                  onPressed: _name,
+                  icon: Icon(apple ? CupertinoIcons.add : Icons.add, size: 18),
+                ),
+                IconButton(
+                  tooltip: 'Rename vault',
+                  onPressed: () => _name(rename: true),
+                  icon: Icon(
+                    apple ? CupertinoIcons.pencil : Icons.edit_outlined,
+                    size: 18,
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

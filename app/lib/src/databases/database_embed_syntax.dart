@@ -7,26 +7,11 @@ import 'package:markdown/markdown.dart' as md;
 /// [DatabaseEmbedBuilder].
 const String databaseEmbedTag = 'databaseEmbed';
 
-/// A [md.BlockSyntax] that claims a whole line matching
-/// `![[Title]]` or `![[Title#View]]` and turns it into a
-/// `<databaseEmbed title="..." view="...">` element instead of the default
-/// paragraph/text handling.
-///
-/// Confirmed via the widget-test spike in
-/// `test/src/databases/database_embed_syntax_spike_test.dart`: a custom
-/// [md.BlockSyntax] registered through [MarkdownBody.blockSyntaxes] can
-/// claim an entire line and hand it to a [MarkdownElementBuilder]
-/// registered under the same tag in [MarkdownBody.builders], without
-/// touching how inline `![[...]]` (inside a paragraph) or plain `[[...]]`
-/// text renders elsewhere — see design.md, "Decisions", for the full
-/// write-up of the API shape and gotchas found here.
+/// Parses whole-line `![[Title]]` and `![[Title#View]]` database embeds.
+/// Inline embeds and ordinary wikilinks retain their literal text.
 class DatabaseEmbedSyntax extends md.BlockSyntax {
   const DatabaseEmbedSyntax();
 
-  // Whole-line only: anchored start-to-end, so `![[Title]]` sitting inside
-  // a paragraph with other text (or preceded/followed by anything else on
-  // the same line) does not match and falls through to normal inline
-  // parsing instead.
   static final RegExp _pattern = RegExp(r'^!\[\[(.+?)(?:#(.+?))?\]\]\s*$');
 
   @override
@@ -47,22 +32,12 @@ class DatabaseEmbedSyntax extends md.BlockSyntax {
   }
 }
 
-/// Renders the `<databaseEmbed>` element [DatabaseEmbedSyntax] produces.
-///
-/// With no [embedBuilder] this is the task-1.1 spike's proof-of-concept
-/// placeholder (`Database: <title>`-style text in a bordered box), kept as
-/// the default so `database_embed_syntax_spike_test.dart` keeps exercising
-/// the bare block-syntax/builder wiring. The real embed (`DatabaseEmbed`,
-/// task 7.2, in `database_embed.dart`) is wired in via [embedBuilder] by
-/// its callers (the note view's view-mode `MarkdownBody` and edit-mode
-/// preview `Markdown`), replacing the placeholder body with the resolved,
-/// read-only view rendering.
+/// Renders database embed elements using the caller's [embedBuilder].
 class DatabaseEmbedBuilder extends MarkdownElementBuilder {
-  DatabaseEmbedBuilder({this.embedBuilder});
+  DatabaseEmbedBuilder({required this.embedBuilder});
 
-  /// Builds the real embed widget for a resolved `title`/`view` pair.
-  /// `null` keeps the placeholder rendering.
-  final Widget Function(BuildContext context, String title, String? view)?
+  /// Builds the embed for its parsed title and optional view name.
+  final Widget Function(BuildContext context, String title, String? view)
   embedBuilder;
 
   @override
@@ -77,18 +52,6 @@ class DatabaseEmbedBuilder extends MarkdownElementBuilder {
   ) {
     final title = element.attributes['title'] ?? '';
     final view = element.attributes['view'];
-    final builder = embedBuilder;
-    if (builder != null) return builder(context, title, view);
-    return Container(
-      key: Key('database-embed-$title${view == null ? '' : '#$view'}'),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        view == null ? 'Database: $title' : 'Database: $title (view: $view)',
-      ),
-    );
+    return embedBuilder(context, title, view);
   }
 }

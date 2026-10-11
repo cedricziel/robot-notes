@@ -12,6 +12,7 @@ import 'src/desktop/mac_window_chrome.dart';
 import 'src/desktop/tray_controller.dart';
 import 'src/desktop/window_chrome.dart';
 import 'src/lock/app_lock_controller.dart';
+import 'src/lock/app_lock_gate.dart';
 import 'src/lock/app_lock_prefs.dart';
 import 'src/lock/biometric_authenticator.dart';
 import 'src/otel/otel_bootstrap.dart';
@@ -52,7 +53,11 @@ class RobotNotesApp extends StatefulWidget {
 class _RobotNotesAppState extends State<RobotNotesApp> {
   final ConfigStore _store = SecureConfigStore();
   late final ConfigHolder _configHolder = ConfigHolder(_store);
-  late final GoRouter _router = buildAppRouter(configHolder: _configHolder);
+  late final GoRouter _router = buildAppRouter(
+    configHolder: _configHolder,
+    sessionBuilder: (context, child) =>
+        AppRouterShell(configHolder: _configHolder, child: child),
+  );
   final AppMenuActions _menuActions = AppMenuActions();
   final AppPreferences _preferences = AppPreferences();
   final AppLockController _appLock = AppLockController(
@@ -122,12 +127,20 @@ class _RobotNotesAppState extends State<RobotNotesApp> {
               onCloseWindow: widget.onCloseWindow,
               child: AppMenuActionsScope(
                 actions: _menuActions,
-                child: MacWindowChrome(
-                  child: AppRouterShell(
-                    configHolder: _configHolder,
-                    appLock: _appLock,
-                    child: child,
+                child: ListenableBuilder(
+                  listenable: _configHolder,
+                  child: MacWindowChrome(
+                    child: child ?? const SizedBox.shrink(),
                   ),
+                  builder: (context, content) => _configHolder.config == null
+                      ? content!
+                      : AppLockScope(
+                          controller: _appLock,
+                          child: AppLockGate(
+                            controller: _appLock,
+                            child: content!,
+                          ),
+                        ),
                 ),
               ),
             ),

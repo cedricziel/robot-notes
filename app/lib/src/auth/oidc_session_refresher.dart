@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -5,13 +6,13 @@ import 'package:meta/meta.dart';
 
 import '../config/app_config.dart';
 
-/// Thrown by [OidcSessionRefresher.refresh] when the refresh request
-/// fails or the response is malformed. A caller SHOULD treat this as
-/// "the session is no longer valid" and fall back to the setup screen.
+/// A rejected or malformed token refresh response. Retry transient failures.
 @immutable
 class OidcRefreshException implements Exception {
   /// Creates the exception wrapping a human-readable [message].
-  const OidcRefreshException(this.message);
+  const OidcRefreshException(this.message, {this.retryable = false});
+
+  final bool retryable;
 
   /// Detail suitable for a log line — never the token itself.
   final String message;
@@ -23,17 +24,10 @@ class OidcRefreshException implements Exception {
 /// Refreshes an OIDC-backed [AppConfig] via `POST /oauth/token`
 /// (`grant_type=refresh_token`), rotating both the access and refresh
 /// token per the server's own token endpoint.
-///
-/// Since each app installation manages its own independent session (no
-/// cross-device sync), refreshing unconditionally on every app launch is
-/// simpler and just as correct as tracking an expiry timestamp: the new
-/// tokens are persisted immediately, and a rejected refresh token means
-/// the session needs a fresh sign-in.
 class OidcSessionRefresher {
-  /// Creates a refresher using [clientFactory] to build a fresh
+  /// Creates a refresher using [_clientFactory] to build a fresh
   /// [http.Client] per request.
-  OidcSessionRefresher({required http.Client Function() clientFactory})
-    : _clientFactory = clientFactory;
+  OidcSessionRefresher({required this._clientFactory});
 
   final http.Client Function() _clientFactory;
 
@@ -52,18 +46,21 @@ class OidcSessionRefresher {
 
     final client = _clientFactory();
     try {
-      final response = await client.post(
-        Uri.parse('${config.baseUrl}/oauth/token'),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {
-          'grant_type': 'refresh_token',
-          'refresh_token': config.oauthRefreshToken!,
-          'client_id': config.oauthClientId!,
-        },
-      );
+      final response = await client
+          .post(
+            Uri.parse('${config.baseUrl}/oauth/token'),
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: {
+              'grant_type': 'refresh_token',
+              'refresh_token': config.oauthRefreshToken!,
+              'client_id': config.oauthClientId!,
+            },
+          )
+          .timeout(const Duration(seconds: 30));
       if (response.statusCode != 200) {
         throw OidcRefreshException(
           'Token refresh failed with HTTP ${response.statusCode}.',
+          retryable: response.statusCode == 429 || response.statusCode >= 500,
         );
       }
       final decoded = jsonDecode(response.body);
@@ -87,6 +84,18 @@ class OidcSessionRefresher {
         oauthClientId: config.oauthClientId,
         oauthRefreshToken: refreshToken,
       );
+    } on http.ClientException {
+      throw const OidcRefreshException(
+        'Token refresh could not reach the server.',
+        retryable: true,
+      );
+    } on TimeoutException {
+      throw const OidcRefreshException(
+        'Token refresh timed out.',
+        retryable: true,
+      );
+    } on FormatException {
+      throw const OidcRefreshException('Token refresh response was malformed.');
     } finally {
       client.close();
     }

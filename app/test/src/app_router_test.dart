@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show Tristate;
 
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/app_router.dart';
@@ -19,10 +20,12 @@ import 'package:app/src/notes/notes_list_screen.dart';
 import 'package:app/src/realtime/connection_status.dart';
 import 'package:app/src/realtime/ws_client.dart';
 import 'package:app/src/search/search_screen.dart';
+import 'package:app/src/vaults/vault_switcher.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoSheetRoute;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -246,6 +249,74 @@ Finder _listRow() => find.descendant(
 );
 
 void main() {
+  testWidgets('session shell waits for redirect when configuration is absent', (
+    tester,
+  ) async {
+    final holder = ConfigHolder.seeded(null);
+    addTearDown(holder.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppRouterShell(
+          configHolder: holder,
+          child: const Text('Authenticated content'),
+        ),
+      ),
+    );
+    expect(find.text('Authenticated content'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
+  testWidgets('workspace vault controls can open a dialog inside the router', (
+    tester,
+  ) async {
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/vaults') {
+          return http.Response(
+            jsonEncode({
+              'can_manage': true,
+              'vaults': [
+                {'id': 'default', 'name': 'Default'},
+              ],
+            }),
+            200,
+          );
+        }
+        return _fakeBackend(request);
+      }),
+    );
+    addTearDown(api.close);
+    final holder = ConfigHolder.seeded(_config);
+    addTearDown(holder.dispose);
+    final router = buildAppRouter(
+      configHolder: holder,
+      sessionBuilder: (context, child) => Column(
+        children: [
+          VaultSwitcher(
+            api: api,
+            selectedId: 'default',
+            onSelect: (_) {},
+            canManage: true,
+          ),
+          Expanded(child: child),
+        ],
+      ),
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      _harness(api: api, initialLocation: '/', router: router),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Create vault'));
+    await tester.pumpAndSettle();
+    expect(find.text('Vault name'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NotesListScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a tag in a compact search result opens the filtered Notes tab', (
     tester,
   ) async {
@@ -560,8 +631,11 @@ void main() {
       LogicalKeyboardKey.control,
       LogicalKeyboardKey.keyK,
     );
-    expect(find.byType(BottomSheet), findsOneWidget);
-    expect(find.byKey(const Key('search.sheet.handle')), findsNothing);
+    expect(
+      ModalRoute.of(tester.element(find.byType(SearchScreen))),
+      isA<CupertinoSheetRoute<void>>(),
+    );
+    expect(find.byType(BottomSheet), findsNothing);
     await tester.tap(find.byKey(const Key('search.close')));
     await tester.pumpAndSettle();
     expect(find.byType(BottomSheet), findsNothing);
@@ -1445,6 +1519,108 @@ void main() {
     );
   });
 
+  testWidgets(
+    'desktop search and settings respect reduced motion',
+    (tester) async {
+      _setWindow(tester, const Size(400, 800));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          wrapContent: (child) => MediaQuery(
+            data: const MediaQueryData(
+              size: Size(400, 800),
+              disableAnimations: true,
+            ),
+            child: child,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.keyK,
+      );
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(
+        ModalRoute.of(tester.element(find.byType(SearchScreen)))!
+            .transitionDuration,
+        Duration.zero,
+      );
+      await tester.tap(find.byKey(const Key('search.close')));
+      await tester.pumpAndSettle();
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.comma,
+      );
+      expect(
+        ModalRoute.of(tester.element(find.byKey(const Key('account.sheet'))))!
+            .transitionDuration,
+        Duration.zero,
+      );
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
+    }),
+  );
+
+  testWidgets(
+    'mobile search and settings skip motion when requested',
+    (tester) async {
+      _setWindow(tester, const Size(400, 800));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          wrapContent: (child) => MediaQuery(
+            data: const MediaQueryData(
+              size: Size(400, 800),
+              disableAnimations: true,
+            ),
+            child: child,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.keyK,
+      );
+      expect(
+        ModalRoute.of(tester.element(find.byType(SearchScreen)))!
+            .transitionDuration,
+        Duration.zero,
+      );
+      await tester.tap(find.byKey(const Key('search.close')));
+      await tester.pumpAndSettle();
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.comma,
+      );
+      expect(find.byKey(const Key('account.server')), findsOneWidget);
+      expect(
+        ModalRoute.of(tester.element(find.byKey(const Key('account.sheet'))))!
+            .transitionDuration,
+        Duration.zero,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.iOS,
+      TargetPlatform.android,
+    }),
+  );
+
   group('search overlay', () {
     testWidgets('opens above the list rather than replacing it', (
       tester,
@@ -1495,7 +1671,7 @@ void main() {
       expect(find.byType(Dialog), findsNothing);
     });
 
-    testWidgets('is a top sheet, not a dialog, on a compact window', (
+    testWidgets('uses a Material bottom sheet on compact Android', (
       tester,
     ) async {
       _setWindow(tester, const Size(400, 800));
@@ -1512,11 +1688,8 @@ void main() {
 
       expect(find.byKey(const Key('search.input')), findsOneWidget);
       expect(find.byType(Dialog), findsNothing);
-      // Anchored to the top edge of the window.
-      expect(
-        tester.getTopLeft(find.byKey(const Key('search.input'))).dy,
-        lessThan(100),
-      );
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(tester.getBottomLeft(find.byType(BottomSheet)).dy, 800);
 
       await tester.tap(find.byKey(const Key('search.close')));
       await tester.pumpAndSettle();
@@ -1555,49 +1728,39 @@ void main() {
       },
     );
 
-    testWidgets(
-      'on a compact window the sheet has a grab handle; swiping it up '
-      'dismisses without a fresh fetch',
-      (tester) async {
-        _setWindow(tester, const Size(400, 800));
-        var listFetches = 0;
-        final mock = MockClient((request) async {
-          if (request.method == 'GET' && request.url.path == '/notes') {
-            listFetches += 1;
-          }
-          return _fakeBackend(request);
-        });
-        final api = RobotNotesClient(config: _config, httpClient: mock);
-        addTearDown(api.close);
+    testWidgets('on Android the search sheet can be swiped down '
+        'dismisses without a fresh fetch', (tester) async {
+      _setWindow(tester, const Size(400, 800));
+      var listFetches = 0;
+      final mock = MockClient((request) async {
+        if (request.method == 'GET' && request.url.path == '/notes') {
+          listFetches += 1;
+        }
+        return _fakeBackend(request);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      addTearDown(api.close);
 
-        await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
-        await tester.pumpAndSettle();
-        expect(listFetches, 1);
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+      expect(listFetches, 1);
 
-        await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
-        await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
-        await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
-        await tester.pumpAndSettle();
-        expect(find.byKey(const Key('search.input')), findsOneWidget);
-        final handle = find.byKey(const Key('search.sheet.handle'));
-        expect(handle, findsOneWidget);
-        // The handle sits directly under the search content, along the
-        // sheet's bottom edge (0.92 of the 800px window).
-        expect(
-          tester.getTopLeft(handle).dy,
-          moreOrLessEquals(tester.getBottomLeft(find.byType(SearchScreen)).dy),
-        );
-        expect(tester.getBottomLeft(handle).dy, moreOrLessEquals(0.92 * 800));
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+      final sheetTop = tester.getTopLeft(find.byType(BottomSheet));
+      await tester.dragFrom(
+        sheetTop + const Offset(200, 16),
+        const Offset(0, 650),
+      );
+      await tester.pumpAndSettle();
 
-        // Well past the 40% dismiss threshold of a 0.92 * 800 sheet.
-        await tester.drag(handle, const Offset(0, -450));
-        await tester.pumpAndSettle();
-
-        expect(find.byKey(const Key('search.input')), findsNothing);
-        expect(find.byKey(const Key('notes.title')), findsOneWidget);
-        expect(listFetches, 1, reason: 'closing search should not refetch');
-      },
-    );
+      expect(find.byKey(const Key('search.input')), findsNothing);
+      expect(find.byKey(const Key('notes.title')), findsOneWidget);
+      expect(listFetches, 1, reason: 'closing search should not refetch');
+    });
 
     testWidgets('a short drag on the handle springs the sheet back', (
       tester,
@@ -1612,10 +1775,14 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
       await tester.pumpAndSettle();
-      final handle = find.byKey(const Key('search.sheet.handle'));
+      final sheetTop = tester.getTopLeft(find.byType(BottomSheet));
       final restingTop = tester.getTopLeft(find.byType(SearchScreen)).dy;
 
-      await tester.drag(handle, const Offset(0, -60));
+      await tester.timedDragFrom(
+        sheetTop + const Offset(200, 16),
+        const Offset(0, 30),
+        const Duration(seconds: 1),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('search.input')), findsOneWidget);
@@ -1734,11 +1901,11 @@ void main() {
         expect(_listRow(), findsOneWidget);
         expect(
           tester
-              .widget<ListTile>(
-                find.ancestor(of: _listRow(), matching: find.byType(ListTile)),
-              )
-              .selected,
-          isFalse,
+              .getSemantics(_listRow())
+              .getSemanticsData()
+              .flagsCollection
+              .isSelected,
+          Tristate.isFalse,
         );
 
         await tester.tap(_listRow());
@@ -1759,11 +1926,11 @@ void main() {
         );
         expect(
           tester
-              .widget<ListTile>(
-                find.ancestor(of: _listRow(), matching: find.byType(ListTile)),
-              )
-              .selected,
-          isTrue,
+              .getSemantics(_listRow())
+              .getSemanticsData()
+              .flagsCollection
+              .isSelected,
+          Tristate.isTrue,
         );
         // Pane presentation: a close button rather than a back arrow, and
         // nothing was pushed (the shell replaced the detail pane).
@@ -1848,11 +2015,11 @@ void main() {
       expect(find.byType(NotesListScreen), findsOneWidget);
       expect(
         tester
-            .widget<ListTile>(
-              find.ancestor(of: _listRow(), matching: find.byType(ListTile)),
-            )
-            .selected,
-        isTrue,
+            .getSemantics(_listRow())
+            .getSemanticsData()
+            .flagsCollection
+            .isSelected,
+        Tristate.isTrue,
       );
     });
 
@@ -1930,6 +2097,56 @@ void main() {
       await _closeNoteAndDrainTimers(tester);
     });
   });
+
+  testWidgets('reduced motion opens notes without an animated route', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(800, 600));
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient(_backendWithOneNote),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      _harness(
+        api: api,
+        initialLocation: '/',
+        wrapContent: (child) => MediaQuery(
+          data: const MediaQueryData(
+            size: Size(800, 600),
+            disableAnimations: true,
+          ),
+          child: child,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(_listRow());
+    await tester.pumpAndSettle();
+    final route = ModalRoute.of(
+      tester.element(find.byKey(const Key('note.body'))),
+    )!;
+    expect(route.transitionDuration, Duration.zero);
+    expect(route.reverseTransitionDuration, Duration.zero);
+  });
+
+  testWidgets('iOS notes support edge-swipe back to the list', (tester) async {
+    _setWindow(tester, const Size(390, 844));
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient(_backendWithOneNote),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+    await tester.pumpAndSettle();
+    await tester.tap(_listRow());
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('note.body')), findsOneWidget);
+    await tester.dragFrom(const Offset(1, 400), const Offset(350, 0));
+    await tester.pumpAndSettle();
+    expect(find.byType(NotesListScreen), findsOneWidget);
+    expect(find.byKey(const Key('note.body')), findsNothing);
+  }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
 
   group('single-pane below the large breakpoint', () {
     testWidgets('tapping a row pushes the note as a page over the list', (

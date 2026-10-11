@@ -4,6 +4,7 @@ import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/vaults/vault_switcher.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -66,7 +67,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Default'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Work').last);
+    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<String>, 'Work'));
     await tester.pumpAndSettle();
     expect(selected, ['work']);
     await tester.tap(find.byTooltip('Rename vault'));
@@ -183,6 +184,102 @@ void main() {
     expect(find.byTooltip('Create vault'), findsNothing);
     expect(find.byTooltip('Rename vault'), findsNothing);
   });
+
+  testWidgets(
+    'reduced motion skips vault dialog entrance and exit animations',
+    (tester) async {
+      final api = RobotNotesClient(
+        config: const AppConfig(
+          baseUrl: 'https://notes.example',
+          apiKey: 'key',
+          actor: 'tester',
+        ),
+        httpClient: MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'can_manage': true,
+              'vaults': [
+                {'id': 'default', 'name': 'Default'},
+              ],
+            }),
+            200,
+          ),
+        ),
+      );
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: VaultSwitcher(
+              api: api,
+              selectedId: 'default',
+              onSelect: (_) {},
+              canManage: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Create vault'));
+      await tester.pumpAndSettle();
+      final route = ModalRoute.of(tester.element(find.text('Save')))!;
+      expect(route.transitionDuration, Duration.zero);
+      expect(route.reverseTransitionDuration, Duration.zero);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Save'), findsNothing);
+    },
+    variant: TargetPlatformVariant.all(),
+  );
+
+  for (final platform in [TargetPlatform.macOS, TargetPlatform.iOS]) {
+    testWidgets('$platform vault creation uses Apple controls', (tester) async {
+      final api = RobotNotesClient(
+        config: const AppConfig(
+          baseUrl: 'https://notes.example',
+          apiKey: 'key',
+          actor: 'tester',
+        ),
+        httpClient: MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'can_manage': true,
+              'vaults': [
+                {'id': 'default', 'name': 'Default'},
+              ],
+            }),
+            200,
+          ),
+        ),
+      );
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          home: Scaffold(
+            body: VaultSwitcher(
+              api: api,
+              selectedId: 'default',
+              onSelect: (_) {},
+              canManage: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Create vault'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CupertinoAlertDialog), findsOneWidget);
+      expect(find.byType(CupertinoTextField), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CupertinoAlertDialog), findsNothing);
+    });
+  }
 
   test('selected vault survives normalization and serialization', () {
     const config = AppConfig(

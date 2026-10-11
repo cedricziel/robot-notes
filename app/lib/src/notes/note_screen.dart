@@ -353,13 +353,6 @@ class _NoteScreenState extends State<NoteScreen> {
     setState(() => _previewOverride = shown);
   }
 
-  /// Builds a `DatabaseEmbedBuilder` bound to this screen's database cache
-  /// and realtime stream, or `null` when no [NoteScreen.databases] was
-  /// given (the placeholder spike rendering never leaks into production —
-  /// this is `null` only in tests that don't exercise embeds). Used for
-  /// both the view-mode `MarkdownBody` and the edit-mode preview
-  /// `Markdown`, per "the split-view preview pane ... shall render embeds
-  /// like view mode"; the raw edit-mode `TextField` never sees this.
   DatabaseEmbedBuilder? _embedBuilder() {
     final databases = widget.databases;
     if (databases == null) return null;

@@ -13,6 +13,7 @@ import 'api/api_client.dart';
 import 'vaults/vault_switcher.dart';
 import 'api/api_exceptions.dart';
 import 'auth/oidc_session_refresher.dart';
+import 'auth/session_http_client.dart';
 import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
@@ -44,6 +45,7 @@ import 'widgets/adaptive.dart';
 import 'widgets/connection_banner.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/error_strip.dart';
+import 'widgets/platform_motion.dart';
 import 'widgets/resizable_panel.dart';
 
 /// Builds the placeholder title for a freshly-created note, prefixed
@@ -97,7 +99,10 @@ Future<UploadedFileResult?> uploadPickedFile(
 /// [GoRouter]'s `refreshListenable` re-evaluates redirects whenever the
 /// answer changes — first-run completing, or a manual disconnect.
 class ConfigHolder extends ChangeNotifier {
-  ConfigHolder(ConfigStore store) : _store = SerializedConfigStore(store) {
+  ConfigHolder(ConfigStore store, {OidcSessionRefresher? refresher})
+    : _store = SerializedConfigStore(store),
+      _refresher =
+          refresher ?? OidcSessionRefresher(clientFactory: tracingHttpClient) {
     unawaited(_load());
   }
 
@@ -105,6 +110,7 @@ class ConfigHolder extends ChangeNotifier {
   /// [ConfigStore] read.
   ConfigHolder.seeded(this.config)
     : _store = SerializedConfigStore(InMemoryConfigStore()),
+      _refresher = OidcSessionRefresher(clientFactory: tracingHttpClient),
       loaded = true;
 
   final ConfigStore _store;
@@ -134,9 +140,73 @@ class ConfigHolder extends ChangeNotifier {
     });
   }
 
-  final OidcSessionRefresher _refresher = OidcSessionRefresher(
-    clientFactory: tracingHttpClient,
-  );
+  final OidcSessionRefresher _refresher;
+  bool sessionExpired = false;
+  bool _disposed = false;
+
+  Object get sessionKey => (_sessionRevision, config?.vaultId);
+
+  void expireSession() {
+    if (_disposed || config == null || sessionExpired) return;
+    sessionExpired = true;
+    notifyListeners();
+  }
+
+  Future<AppConfig?>? _renewal;
+  int? _renewalRevision;
+
+  /// Coalesces rejected tokens and persists rotation before callers retry.
+  Future<AppConfig?> renewSession(String rejectedToken) {
+    final current = config;
+    if (_disposed || sessionExpired || current == null) {
+      return Future.value();
+    }
+    if (current.apiKey != rejectedToken) return Future.value(current);
+    if (!current.isOidcSession) {
+      expireSession();
+      return Future.value();
+    }
+    if (_renewalRevision == _sessionRevision && _renewal != null) {
+      return _renewal!;
+    }
+    final revision = _sessionRevision;
+    final renewal = _refreshSession(current, revision);
+    _renewalRevision = revision;
+    late final Future<AppConfig?> pending;
+    pending = renewal.whenComplete(() {
+      if (identical(_renewal, pending)) {
+        _renewal = null;
+        _renewalRevision = null;
+      }
+    });
+    _renewal = pending;
+    return pending;
+  }
+
+  Future<AppConfig?> _refreshSession(AppConfig current, int revision) async {
+    try {
+      final refreshed = await _refresher.refresh(current);
+      return await _mutate(() async {
+        if (_disposed || revision != _sessionRevision || sessionExpired) {
+          return null;
+        }
+        final selected = refreshed.withVault(config!.vaultId);
+        await _store.write(selected);
+        if (_disposed || revision != _sessionRevision || sessionExpired) {
+          return null;
+        }
+        config = selected;
+        return selected;
+      });
+    } on Object catch (error) {
+      if (_disposed || revision != _sessionRevision) return null;
+      if (error is OidcRefreshException && !error.retryable) {
+        expireSession();
+        return null;
+      }
+      rethrow;
+    }
+  }
 
   /// The store backing this holder, so callers that already have a
   /// [ConfigHolder] don't need it threaded through separately.
@@ -181,7 +251,8 @@ class ConfigHolder extends ChangeNotifier {
         final refreshed = await _refresher.refresh(stored);
         await _store.write(refreshed);
         return refreshed;
-      } on OidcRefreshException {
+      } on OidcRefreshException catch (error) {
+        if (error.retryable) return stored;
         await _store.clear();
         return null;
       }
@@ -198,21 +269,23 @@ class ConfigHolder extends ChangeNotifier {
   void set(AppConfig value) {
     _sessionRevision++;
     config = value;
+    sessionExpired = false;
     loaded = true;
     notifyListeners();
   }
 
   Future<void> reset() {
     _sessionRevision++;
-    return _mutate(() async {
-      await _store.clear();
-      config = null;
-      notifyListeners();
-    });
+    config = null;
+    sessionExpired = false;
+    notifyListeners();
+    return _mutate(_store.clear);
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _sessionRevision++;
     oidcSignIn.dispose();
     super.dispose();
   }
@@ -256,6 +329,7 @@ GoRouter buildAppRouter({
   required ConfigHolder configHolder,
   String? initialLocation,
   PickFile pickFile = pickFileViaFilePicker,
+  Widget Function(BuildContext, Widget)? sessionBuilder,
 }) {
   // go_router 18 defaults this to false for backward compatibility, which
   // means `context.push`/`pushReplacement` (used below for notes and search)
@@ -269,18 +343,34 @@ GoRouter buildAppRouter({
     redirect: (context, state) => _redirect(configHolder, state),
     routes: [
       ShellRoute(
-        builder: (context, state, child) =>
-            _AppShell(location: state.uri, pickFile: pickFile, child: child),
+        builder: (context, state, child) {
+          final shell = _AppShell(
+            location: state.uri,
+            pickFile: pickFile,
+            child: child,
+          );
+          return sessionBuilder?.call(context, shell) ?? shell;
+        },
         routes: [
           GoRoute(
             path: '/',
-            builder: (context, state) => _HomePage(pickFile: pickFile),
+            pageBuilder: (context, state) => notesPage(
+              context,
+              key: state.pageKey,
+              splitView: _isLarge(context),
+              child: _HomePage(pickFile: pickFile),
+            ),
           ),
           GoRoute(
             path: '/notes/:id',
-            builder: (context, state) => _NotePage(
-              noteId: state.pathParameters['id']!,
-              startEditing: state.uri.queryParameters['edit'] == '1',
+            pageBuilder: (context, state) => notesPage(
+              context,
+              key: state.pageKey,
+              splitView: _isLarge(context),
+              child: _NotePage(
+                noteId: state.pathParameters['id']!,
+                startEditing: state.uri.queryParameters['edit'] == '1',
+              ),
             ),
           ),
           GoRoute(
@@ -890,8 +980,8 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
 /// Opens search as an overlay above the current screen instead of routing
 /// to a full page — the list underneath stays mounted (no refetch, no
 /// scroll-position loss) and dismissing (scrim tap, close button, or back
-/// gesture) just closes the overlay. On compact windows it slides down as
-/// a top sheet; from medium up it is a palette-style dialog near the top.
+/// gesture) just closes the overlay. Compact mobile layouts use native
+/// sheets; desktop and larger layouts use a palette-style dialog.
 /// [NotesSearchController] is scoped to this call: a fresh one is created
 /// per open and disposed once it closes.
 Future<void> _openSearch(BuildContext context, AppSession session) async {
@@ -908,8 +998,9 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
   }
 
   try {
-    if (Breakpoints.of(context) >= WindowSizeClass.medium) {
-      await showDialog<void>(
+    if (usesDesktopDialogs(context) ||
+        Breakpoints.of(context) >= WindowSizeClass.medium) {
+      await showPlatformDialog<void>(
         context: context,
         barrierLabel: 'Search',
         builder: (ctx) {
@@ -940,120 +1031,26 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
       );
       return;
     }
-    if (Theme.of(context).platform == TargetPlatform.iOS) {
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        showDragHandle: true,
-        builder: (ctx) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
-          child: SizedBox(
-            height:
-                MediaQuery.sizeOf(ctx).height * 0.85 -
-                MediaQuery.viewInsetsOf(ctx).bottom,
-            child: SearchScreen(
-              controller: controller,
-              recentNotes: session.list.value.items,
-              onResultTap: (id) => openResult(ctx, id),
-              onClose: () => Navigator.of(ctx).pop(),
-            ),
-          ),
-        ),
-      );
-      return;
-    }
-    await showGeneralDialog<void>(
+    await showPlatformSheet<void>(
       context: context,
-      barrierLabel: 'Search',
-      barrierDismissible: true,
-      barrierColor: Colors.black54,
-      transitionDuration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 200),
-      pageBuilder: (ctx, animation, secondaryAnimation) {
-        return SafeArea(
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: FractionallySizedBox(
-              heightFactor: 0.92,
-              // Swiping the sheet up (over its header or the grab handle;
-              // the results list keeps vertical drags over itself) pops
-              // it through the same route pop the close button uses. No
-              // resize animation: the route's own exit transition removes
-              // the sheet, and a collapse would trip Dismissible's
-              // "still in the tree" check while it plays.
-              child: Dismissible(
-                key: const Key('search.sheet'),
-                direction: DismissDirection.up,
-                resizeDuration: null,
-                onDismissed: (_) => Navigator.of(ctx).pop(),
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    bottom: Radius.circular(16),
-                  ),
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: SearchScreen(
-                          controller: controller,
-                          recentNotes: session.list.value.items,
-                          onResultTap: (id) => openResult(ctx, id),
-                          onClose: () => Navigator.of(ctx).pop(),
-                        ),
-                      ),
-                      const _SheetGrabHandle(key: Key('search.sheet.handle')),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, -1),
-            end: Offset.zero,
-          ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-          child: child,
-        );
-      },
-    );
-  } finally {
-    controller.dispose();
-  }
-}
-
-/// The pill along the bottom edge of the compact search sheet: the visible
-/// affordance for swiping the sheet away, painted on the same surface as
-/// [SearchScreen] so it reads as part of the sheet rather than a footer.
-class _SheetGrabHandle extends StatelessWidget {
-  const _SheetGrabHandle({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surface,
-      child: Semantics(
-        label: 'Swipe up to close search',
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        child: SizedBox(
+          height:
+              (MediaQuery.sizeOf(ctx).height * 0.85 -
+                      MediaQuery.viewInsetsOf(ctx).bottom)
+                  .clamp(0.0, double.infinity),
+          child: SearchScreen(
+            controller: controller,
+            recentNotes: session.list.value.items,
+            onResultTap: (id) => openResult(ctx, id),
+            onClose: () => Navigator.of(ctx).pop(),
           ),
         ),
       ),
     );
+  } finally {
+    controller.dispose();
   }
 }
 
@@ -1153,8 +1150,9 @@ Future<void> _showAccount(BuildContext context, AppSession session) async {
   // Scrolls so the sheet still fits short windows with the app-lock row.
   final sheet = SingleChildScrollView(child: _AccountSheet(session: session));
   final bool? disconnect;
-  if (Breakpoints.of(context) >= WindowSizeClass.medium) {
-    disconnect = await showDialog<bool>(
+  if (usesDesktopDialogs(context) ||
+      Breakpoints.of(context) >= WindowSizeClass.medium) {
+    disconnect = await showPlatformDialog<bool>(
       context: context,
       builder: (_) => Dialog(
         clipBehavior: Clip.antiAlias,
@@ -1165,9 +1163,8 @@ Future<void> _showAccount(BuildContext context, AppSession session) async {
       ),
     );
   } else {
-    disconnect = await showModalBottomSheet<bool>(
+    disconnect = await showPlatformSheet<bool>(
       context: context,
-      showDragHandle: true,
       builder: (_) => SafeArea(top: false, child: sheet),
     );
   }
@@ -1319,7 +1316,7 @@ class _AppLockTile extends StatelessWidget {
 }
 
 Future<void> _confirmReset(BuildContext context, AppSession session) async {
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showPlatformDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog.adaptive(
       title: const Text('Disconnect from server?'),
@@ -1689,9 +1686,8 @@ class AppSession extends InheritedWidget {
 }
 
 /// Owns the singleton [RobotNotesClient], [RobotNotesWsClient],
-/// [NotesListController], and [ConnectionStatusController] for as long as
-/// [config] stays the same identity — recreated (via the caller's
-/// [ValueKey]) whenever the user reconfigures or reconnects.
+/// [NotesListController], and [ConnectionStatusController] for one user and
+/// vault. Token rotation preserves controllers and open editor state.
 ///
 /// Also hoists [ConnectionBanner] above [child] so it shows on every routed
 /// screen rather than only the notes list.
@@ -1700,11 +1696,13 @@ class SessionHost extends StatefulWidget {
     required this.config,
     required this.onReset,
     this.onVaultSelected = _ignoreVaultSelection,
+    this.configHolder,
     required this.child,
     super.key,
   });
 
   final AppConfig config;
+  final ConfigHolder? configHolder;
   final ValueChanged<String> onVaultSelected;
   final VoidCallback onReset;
   final Widget child;
@@ -1713,7 +1711,8 @@ class SessionHost extends StatefulWidget {
   State<SessionHost> createState() => _SessionHostState();
 }
 
-class _SessionHostState extends State<SessionHost> {
+class _SessionHostState extends State<SessionHost> with WidgetsBindingObserver {
+  Timer? _refreshTimer;
   late final RobotNotesClient _api;
   late final RobotNotesWsClient _ws;
   late final NotesListController _list;
@@ -1724,11 +1723,36 @@ class _SessionHostState extends State<SessionHost> {
   @override
   void initState() {
     super.initState();
+    final holder = widget.configHolder;
     _api = RobotNotesClient(
       config: widget.config,
-      httpClient: tracingHttpClient(),
+      httpClient: holder == null
+          ? tracingHttpClient()
+          : SessionHttpClient(
+              inner: tracingHttpClient(),
+              config: () => holder.config ?? widget.config,
+              renew: holder.renewSession,
+              onExpired: holder.expireSession,
+            ),
     );
-    _ws = RobotNotesWsClient(config: widget.config);
+    _ws = RobotNotesWsClient(
+      config: widget.config,
+      currentConfig: holder == null
+          ? null
+          : () => holder.config ?? widget.config,
+      onAuthRejected: holder == null || !widget.config.isOidcSession
+          ? null
+          : (token) async {
+              await holder.renewSession(token);
+            },
+    );
+    if (holder != null && widget.config.isOidcSession) {
+      WidgetsBinding.instance.addObserver(this);
+      _refreshTimer = Timer.periodic(
+        const Duration(minutes: 5),
+        (_) => _renew(),
+      );
+    }
     _list = NotesListController(api: _api, events: _ws.events);
     _tree = FolderTreeController(api: _api, events: _ws.events);
     _databases = DatabasesController(api: _api, events: _ws.events);
@@ -1742,8 +1766,26 @@ class _SessionHostState extends State<SessionHost> {
     unawaited(_databases.refresh());
   }
 
+  Future<void> _renew() async {
+    final holder = widget.configHolder;
+    final config = holder?.config;
+    if (holder == null || config == null || holder.sessionExpired) return;
+    try {
+      await holder.renewSession(config.apiKey);
+    } on Object {
+      // Network outages retain credentials; next request or timer retries.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_renew());
+  }
+
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _status.dispose();
     _tree.dispose();
     _databases.dispose();
@@ -1765,42 +1807,27 @@ class _SessionHostState extends State<SessionHost> {
       baseUrl: widget.config.baseUrl,
       connection: _status,
       onReset: widget.onReset,
-      child: Column(
-        children: [
-          ConnectionBanner(status: _status),
-          VaultSwitcher(
-            api: _api,
-            selectedId: widget.config.vaultId,
-            onSelect: widget.onVaultSelected,
-            canManage: true,
-          ),
-          Expanded(
-            child: ValueListenableBuilder<ConnectionStatus>(
-              valueListenable: _status,
-              // The banner already sits inside a SafeArea, so while it is
-              // visible the AppBar below must not reserve status-bar space
-              // a second time.
-              builder: (context, status, child) =>
-                  status == ConnectionStatus.connected
-                  ? child!
-                  : MediaQuery.removePadding(
-                      context: context,
-                      removeTop: true,
-                      child: child!,
-                    ),
-              child: widget.child,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            ConnectionBanner(status: _status),
+            VaultSwitcher(
+              api: _api,
+              selectedId: widget.config.vaultId,
+              onSelect: widget.onVaultSelected,
+              canManage: true,
             ),
-          ),
-        ],
+            Expanded(child: widget.child),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Wraps the routed content for [MaterialApp.router]'s `builder`: a splash
-/// while the persisted config is still loading, the raw routed [child]
-/// while none is configured (the router has already sent it to `/setup`),
-/// or a [SessionHost] once one exists.
+/// Owns the authenticated session below the router's navigator so workspace
+/// menus and dialogs can use its overlay.
 class AppRouterShell extends StatelessWidget {
   const AppRouterShell({
     required this.configHolder,
@@ -1825,16 +1852,17 @@ class AppRouterShell extends StatelessWidget {
         final content = child ?? const SizedBox.shrink();
         if (!configHolder.loaded) return const _Splash();
         final config = configHolder.config;
-        if (config == null) return content;
+        if (config == null) return const _Splash();
         final session = SessionHost(
-          key: ValueKey<AppConfig>(config),
+          key: ValueKey<Object>(configHolder.sessionKey),
           config: config,
+          configHolder: configHolder,
           onReset: configHolder.reset,
           onVaultSelected: (id) async {
             try {
               final changed = await configHolder.selectVault(id);
               if (!context.mounted || !changed) return;
-              GoRouter.of(context).go('/notes');
+              GoRouter.of(context).go('/');
             } on Object {
               if (!context.mounted) return;
               ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -1846,11 +1874,27 @@ class AppRouterShell extends StatelessWidget {
           },
           child: content,
         );
+        final gated = Stack(
+          fit: StackFit.expand,
+          children: [
+            ExcludeFocus(
+              excluding: configHolder.sessionExpired,
+              child: Offstage(
+                offstage: configHolder.sessionExpired,
+                child: session,
+              ),
+            ),
+            if (configHolder.sessionExpired)
+              Positioned.fill(
+                child: _SessionExpiredPrompt(onSignIn: configHolder.reset),
+              ),
+          ],
+        );
         final lock = appLock;
-        if (lock == null) return session;
+        if (lock == null) return gated;
         return AppLockScope(
           controller: lock,
-          child: AppLockGate(controller: lock, child: session),
+          child: AppLockGate(controller: lock, child: gated),
         );
       },
     );
@@ -1869,3 +1913,25 @@ class _Splash extends StatelessWidget {
 }
 
 void _ignoreVaultSelection(String _) {}
+
+class _SessionExpiredPrompt extends StatelessWidget {
+  const _SessionExpiredPrompt({required this.onSignIn});
+
+  final VoidCallback onSignIn;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Your session has expired.'),
+          const SizedBox(height: 8),
+          const Text('Sign in again to reconnect to your notes.'),
+          const SizedBox(height: 16),
+          FilledButton(onPressed: onSignIn, child: const Text('Sign in')),
+        ],
+      ),
+    ),
+  );
+}

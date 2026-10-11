@@ -860,17 +860,22 @@ class _NoteTileState extends State<_NoteTile> {
         ],
       ),
       onTap: widget.onTap,
-      trailing: widget.wide && _hovering
-          ? IconButton(
-              key: Key('notes.tile.${note.id}.hoverDelete'),
-              tooltip: 'Delete note',
-              icon: Icon(
-                useCupertino(context)
-                    ? CupertinoIcons.trash
-                    : Icons.delete_outline,
-                size: 18,
-              ),
-              onPressed: widget.onDelete,
+      trailing: widget.wide
+          ? SizedBox.square(
+              dimension: 48,
+              child: _hovering
+                  ? IconButton(
+                      key: Key('notes.tile.${note.id}.hoverDelete'),
+                      tooltip: 'Delete note',
+                      icon: Icon(
+                        useCupertino(context)
+                            ? CupertinoIcons.trash
+                            : Icons.delete_outline,
+                        size: 18,
+                      ),
+                      onPressed: widget.onDelete,
+                    )
+                  : null,
             )
           : null,
     );

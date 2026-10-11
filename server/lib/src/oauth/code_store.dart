@@ -75,11 +75,11 @@ class CodeStore {
     required String clientId,
     required String redirectUri,
     required String codeChallenge,
-    Set<String> vaultIds = const {'default'},
     required Set<String> scopes,
     required String resource,
     required String actor,
     required String grantId,
+    Set<String> vaultIds = const {'default'},
   }) async {
     final raw = generateRandomToken(_random, kAuthorizationCodeBytes);
     final hash = hashSecret(raw);
