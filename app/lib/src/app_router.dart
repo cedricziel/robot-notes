@@ -39,6 +39,7 @@ import 'realtime/ws_client.dart';
 import 'search/search_controller.dart';
 import 'search/search_screen.dart';
 import 'settings/app_preferences.dart';
+import 'settings/appearance_control.dart';
 import 'setup/setup_controller.dart';
 import 'setup/setup_screen.dart';
 import 'widgets/adaptive.dart';
@@ -1205,27 +1206,9 @@ class _AccountSheet extends StatelessWidget {
                   horizontal: 16,
                   vertical: 8,
                 ),
-                child: DropdownButtonFormField<ThemeMode>(
+                child: AppearanceControl(
                   key: const Key('settings.theme'),
-                  initialValue: preferences.themeMode,
-                  decoration: const InputDecoration(labelText: 'Appearance'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: ThemeMode.system,
-                      child: Text('System'),
-                    ),
-                    DropdownMenuItem(
-                      value: ThemeMode.light,
-                      child: Text('Light'),
-                    ),
-                    DropdownMenuItem(
-                      value: ThemeMode.dark,
-                      child: Text('Dark'),
-                    ),
-                  ],
-                  onChanged: (mode) {
-                    if (mode != null) unawaited(preferences.setThemeMode(mode));
-                  },
+                  preferences: preferences,
                 ),
               ),
             Padding(
