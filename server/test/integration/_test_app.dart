@@ -25,6 +25,7 @@ import '../../routes/databases/[id]/index.dart' as databases_id_route;
 import '../../routes/databases/[id]/query.dart' as databases_id_query_route;
 import '../../routes/databases/[id]/rows.dart' as databases_id_rows_route;
 import '../../routes/databases/index.dart' as databases_index_route;
+import '../../routes/evidence/[id].dart' as evidence_route;
 import '../../routes/healthz.dart' as healthz_route;
 import '../../routes/index.dart' as root_index;
 import '../../routes/invites/[token]/index.dart' as invites_token_route;
@@ -99,6 +100,7 @@ Future<HttpServer> startTestServer({
   final root = Router()
     ..all('/credentials', credentials_route.onRequest)
     ..all('/credentials/<id>', credential_route.onRequest)
+    ..all('/evidence/<id>', evidence_route.onRequest)
     ..all('/notes/file-uploads/<token>', upload_route.onRequest)
     ..all('/notes/tree', notes_tree_route.onRequest)
     ..all('/notes/files', files_route.onRequest)

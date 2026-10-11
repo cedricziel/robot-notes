@@ -2,7 +2,8 @@
 
 Talks to robot-notes' existing bearer-key REST API directly (no MCP client).
 Writes are deliberately sparse: session-end summaries, explicit tool calls,
-and mirrored built-in-memory writes only — never one write per turn.
+and mirrored built-in-memory writes. Optional evidence capture queues supplied
+completed-turn JSON separately from readable notes.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ._hermes_compat import MemoryProvider, spawn_context_thread, tool_error
 from .client import ClientError, ErrorKind, RobotNotesClient
 from .config import DEFAULT_ACTOR, RobotNotesConfig, _default_hermes_home
+from .evidence import EvidenceArchive
 from .health import MemoryHealth
 from .outbox import Outbox, QueueFull
 from .recall import RecallCache, RecallStatus, is_trivial_prompt
@@ -122,6 +124,12 @@ class RobotNotesProvider(MemoryProvider):
         self._platform: str = ""
         self._agent_identity: str = ""
         self._recall_cache = RecallCache()
+        self._evidence_archive: Optional[EvidenceArchive] = None
+        self._evidence_outbox = None
+        self._evidence_thread: Optional[threading.Thread] = None
+        self._evidence_lineage: dict = {}
+        self._evidence_session_lineage: dict = {}
+        self._evidence_capture_error = False
         self._health = MemoryHealth()
         self._outbox: Optional[Outbox] = None
         self._delivery_thread: Optional[threading.Thread] = None
@@ -144,7 +152,21 @@ class RobotNotesProvider(MemoryProvider):
             self._config = RobotNotesConfig.load()
         return self._config
 
+    @property
+    def pre_compress_checkpoint_api_version(self) -> int:
+        return 2 if self._evidence_archive and self._client and self._config.is_complete and self._can_write() else 1
+
     def initialize(self, session_id: str, **kwargs) -> None:
+        if self._evidence_archive:
+            self._evidence_archive.stop()
+        if self._evidence_thread:
+            self._evidence_thread.join(timeout=10)
+        self._evidence_thread = None
+        self._evidence_archive = None
+        self._evidence_outbox = None
+        self._evidence_lineage = {}
+        self._evidence_session_lineage = {}
+        self._evidence_capture_error = False
         # Invalidate cached and in-flight recall before rebinding the server/vault.
         self._delivery_epoch += 1
         self._delivery_enabled = False
@@ -178,11 +200,24 @@ class RobotNotesProvider(MemoryProvider):
             self._delivery_enabled = True
             self._start_delivery()
 
+        if self._config.evidence_archive and self._config.is_complete and self._can_write():
+            home = Path(self._hermes_home or _default_hermes_home())
+            self._evidence_archive = EvidenceArchive(self._config, home)
+            self._evidence_outbox = self._evidence_archive.outbox
+
     def shutdown(self) -> None:
+        if self._evidence_archive:
+            self._evidence_archive.stop()
+        if self._evidence_thread:
+            self._evidence_thread.join(timeout=10)
+        self._evidence_thread = None
+        self._evidence_archive = None
+        self._evidence_outbox = None
         self._delivery_enabled = False
         self._delivery_epoch += 1
         if self._client:
             self._client.close()
+            self._client = None
 
     def system_prompt_block(self) -> str:
         convo_path = self._conversations_path() if self._config else f"{CONVERSATIONS_ROOT}/<actor>"
@@ -282,7 +317,7 @@ class RobotNotesProvider(MemoryProvider):
         return self._recall_cache.status("robot-notes")
 
     def memory_health(self) -> Dict[str, Any]:
-        """Return content-free outcomes of latest automatic operations, without network requests."""
+        """Return content-free automatic operation outcomes without network requests."""
         try:
             queue = self._outbox.status() if self._outbox else "disabled"
         except (OSError, sqlite3.Error):
@@ -291,6 +326,7 @@ class RobotNotesProvider(MemoryProvider):
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
         self._start_delivery()
+        self._start_evidence_delivery()
 
     def flush_memory_writes(self, timeout: float = 2.0, *, retry_blocked: bool = False) -> None:
         """Request delivery and wait briefly; permanent failures retry only when explicit."""
@@ -552,6 +588,59 @@ class RobotNotesProvider(MemoryProvider):
 
     # -- Sparse writes: session summary + built-in memory mirror ----------
 
+    def _start_evidence_delivery(self) -> None:
+        archive = self._evidence_archive
+        if not archive or (self._evidence_thread and self._evidence_thread.is_alive()):
+            return
+        thread = spawn_context_thread(archive.flush_best_effort, name="robot-notes-evidence")
+        thread.daemon = True
+        self._evidence_thread = thread
+        thread.start()
+
+    def sync_turn(
+        self, user_content: str, assistant_content: str, *, session_id: str = "",
+        messages: Optional[List[Dict[str, Any]]] = None,
+        turn_author: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self._evidence_archive or not self._can_write():
+            return
+        capture = "raw_messages" if messages is not None else "text_fallback"
+        supplied = messages if messages is not None else [
+            {"role": "user", "content": user_content},
+            {"role": "assistant", "content": assistant_content},
+        ]
+        capture_session = session_id or self._session_id
+        lineage = self._evidence_session_lineage.get(capture_session, {})
+        try:
+            self._evidence_archive.enqueue(capture_session, "turn", supplied, capture, lineage)
+        except Exception as exc:
+            self._evidence_capture_error = True
+            logger.warning("Conversation evidence capture failed: %s", exc)
+            return
+        self._start_evidence_delivery()
+
+    def flush_evidence(self, *, retry_blocked: bool = False) -> None:
+        """Require acknowledgement of pending snapshots; explicitly retry permanent errors."""
+        if self._evidence_archive and self._can_write():
+            if retry_blocked:
+                self._evidence_outbox.retry_blocked()
+            self._evidence_archive.flush()
+
+    def on_pre_compress(self, messages: List[Dict[str, Any]], *, require_checkpoint: bool = False) -> str:
+        if not self._evidence_archive or not self._client or not self._can_write():
+            if require_checkpoint:
+                raise RuntimeError("Conversation evidence archive is disabled")
+            return ""
+        if self._evidence_capture_error:
+            raise RuntimeError("Conversation evidence capture failed")
+        self._evidence_archive.flush()
+        self._evidence_archive.enqueue(self._session_id, "checkpoint", messages,
+                                       "host_normalized", self._evidence_lineage)
+        self._evidence_archive.flush()
+        if self._evidence_capture_error:
+            raise RuntimeError("Conversation evidence capture failed")
+        return ""
+
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
         if not self._client or not self._can_write():
             return
@@ -580,6 +669,9 @@ class RobotNotesProvider(MemoryProvider):
         session or another one sharing this provider instance — cannot land in the cache
         and be injected after it."""
         self._session_id = str(new_session_id or "").strip() or self._session_id
+        self._evidence_lineage = {"parent_session_id": parent_session_id,
+                                  "reset": reset, "rewound": rewound}
+        self._evidence_session_lineage[self._session_id] = self._evidence_lineage
         self._recall_cache.clear()
         self._health = MemoryHealth()
 
@@ -754,6 +846,8 @@ class RobotNotesProvider(MemoryProvider):
         RobotNotesConfig.create(
             base_url=str(values.get("base_url", "")),
             actor=str(values.get("actor") or existing.actor),
+            evidence_archive=values.get("evidence_archive", existing.evidence_archive),
+            evidence_retention_days=values.get("evidence_retention_days", existing.evidence_retention_days),
             native_tools=values.get("native_tools", existing.native_tools),
             durable_writes=values.get("durable_writes", existing.durable_writes),
             vault_id=str(values.get("vault_id", existing.vault_id) or "default"),

@@ -18,12 +18,13 @@ class Outbox:
 
     def __init__(self, path: Path, *, max_operations: int = 1000,
                  max_bytes: int = 2 * 1024 * 1024, retention_seconds: float = 30 * 86400,
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time, secure_delete: bool = False):
         self.path = path
         self.max_operations = max_operations
         self.max_bytes = max_bytes
         self.retention_seconds = retention_seconds
         self.clock = clock
+        self.secure_delete = secure_delete
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with closing(self._connect()) as db:
             db.executescript('''
@@ -42,7 +43,10 @@ class Outbox:
         os.chmod(self.delivery_path, 0o600)
 
     def _connect(self):
-        return sqlite3.connect(self.path, timeout=1)
+        connection = sqlite3.connect(self.path, timeout=1)
+        if self.secure_delete:
+            connection.execute('PRAGMA secure_delete = ON')
+        return connection
 
     def _expire(self, db):
         count = db.execute('SELECT COUNT(*) FROM operations WHERE expires <= ?', (self.clock(),)).fetchone()[0]

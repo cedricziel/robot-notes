@@ -137,3 +137,54 @@ def test_shutdown_all_is_safe_to_call_twice(manager_and_provider):
     provider's already-closed HTTP client a second time must not raise."""
     manager, _ = manager_and_provider
     manager.shutdown_all()
+
+
+def _archive_manager(tmp_path, monkeypatch):
+    monkeypatch.setenv('ROBOT_NOTES_API_KEY', 'secret-key')
+    (tmp_path / 'robot_notes.json').write_text(json.dumps({
+        'base_url': BASE_URL, 'evidence_archive': True,
+    }))
+    manager = MemoryManager()
+    provider = RobotNotesProvider()
+    manager.add_provider(provider)
+    manager.initialize_all(session_id='archive-session', hermes_home=str(tmp_path), agent_context='primary')
+    return manager, provider
+
+
+@respx.mock
+def test_real_manager_archives_raw_turn_before_normalized_checkpoint(tmp_path, monkeypatch):
+    manager, provider = _archive_manager(tmp_path, monkeypatch)
+
+    def acknowledge(request):
+        body = json.loads(request.content)
+        return httpx.Response(200, json={
+            'id': request.url.path.rsplit('/', 1)[-1], 'payload': body['payload'],
+            'expires_at': '2026-11-10T00:00:00.000Z',
+        })
+
+    route = respx.put(url__regex=BASE_URL + '/evidence/.*').mock(side_effect=acknowledge)
+    raw = [{'role': 'user', 'content': 'question'}, {'role': 'tool', 'content': 'full tool result'}]
+    normalized = [{'role': 'user', 'content': 'question'}]
+    try:
+        manager.sync_all('question', 'answer', session_id='archive-session', messages=raw)
+        manager._drain_sync_executor()
+        assert manager.supports_pre_compress_checkpoint() is True
+        manager.on_pre_compress(raw, evidence_messages=normalized, require_checkpoint=True)
+        snapshots = [json.loads(json.loads(call.request.content)['payload']) for call in route.calls]
+        assert snapshots[0]['messages'] == raw
+        assert snapshots[-1]['messages'] == normalized
+        assert snapshots[-1]['capture'] == 'host_normalized'
+    finally:
+        manager.shutdown_all()
+
+
+@respx.mock
+def test_real_manager_propagates_failed_required_evidence_checkpoint(tmp_path, monkeypatch):
+    manager, provider = _archive_manager(tmp_path, monkeypatch)
+    respx.put(url__regex=BASE_URL + '/evidence/.*').mock(return_value=httpx.Response(503))
+    try:
+        with pytest.raises(RuntimeError, match='evidence'):
+            manager.on_pre_compress([{'role': 'user', 'content': 'keep this'}], require_checkpoint=True)
+        assert provider._evidence_outbox.status()['pending'] == 1
+    finally:
+        manager.shutdown_all()

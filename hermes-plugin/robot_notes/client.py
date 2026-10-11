@@ -242,6 +242,16 @@ class RobotNotesClient:
         response = self._request("GET", "/notes", params=params)
         return response.json()
 
+    def put_evidence(self, digest: str, *, payload: str, retention_days: int,
+                     lineage: Dict[str, Any]) -> Dict[str, Any]:
+        """Require an acknowledgement of the exact immutable snapshot."""
+        body = self._request("PUT", f"/evidence/{digest}", json={
+            "payload": payload, "retention_days": retention_days, "lineage": lineage,
+        }).json()
+        if not isinstance(body, dict) or body.get("id") != digest or body.get("payload") != payload or not body.get("expires_at"):
+            raise ClientError("Invalid durable evidence acknowledgement", kind=ErrorKind.OTHER)
+        return body
+
     def get_note(self, note_id: str) -> Dict[str, Any]:
         return self._request("GET", f"/notes/{note_id}").json()
 

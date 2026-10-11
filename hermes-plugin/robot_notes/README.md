@@ -455,3 +455,16 @@ Changing the configuration does not move, copy, merge, or delete existing notes.
 A missing destination is created on the next applicable mirror write. Returning
 to shared mode uses the original shared destinations again. Setup preserves these
 manually configured fields.
+
+
+### Optional conversation evidence
+
+Set `"evidence_archive": true` in `robot_notes.json` to capture JSON evidence separately from accepted notes and normal search. `"evidence_retention_days": 30` controls archive and local queue retention. Valid values are integers from 1 through 3650. Capture is disabled by default and unavailable in cron, flush, and subagent contexts.
+
+Completed-turn callbacks durably queue supplied JSON messages without the readable transcript's truncation. Tool results, structured message parts, stable message IDs, and media URL references remain in those snapshots. The provider does not fetch remote media or accept Python objects that cannot be serialized as JSON. When the host omits `messages`, the archive explicitly marks the user and assistant text as `text_fallback`. Identical message lists in one session share a snapshot digest unless supplied IDs distinguish them. The archive records snapshots, not an exact event timeline.
+
+The pinned Hermes checkpoint API v2 hands the provider normalized user and assistant evidence. It omits tool rows, system messages, summaries, and assistant tool-call wrappers without prose. Supported surviving JSON content is retained. Before reporting checkpoint success, the provider requires remote acknowledgement of pending raw snapshots and the supplied normalized checkpoint. A failed write, malformed acknowledgement, expired pending snapshot, or failed local capture prevents success. Checkpoints do not reconstruct evidence that the host never supplied.
+
+Each vault stores evidence in `evidence.db` beside its disposable indexes, outside ordinary content. `PUT /evidence/{sha256}` accepts the exact JSON string in `payload`, `retention_days`, and optional `lineage`. `GET` returns it until expiry. The operator key can purge it with `DELETE`. Expiry or purge removes payload and lineage while retaining a digest tombstone that prevents delayed retries from restoring erased content. Expired server payloads are cleared at startup, during archive operations, and hourly.
+
+Pending evidence lives in `$HERMES_HOME/robot_notes_outbox/<destination-hash>/evidence/queue.sqlite`, with a limit of 1000 snapshots and 32 MiB. Permanent errors block replay. After correcting a credential or server error, `flush_evidence(retry_blocked=True)` permits another attempt. A `capture_failed` marker or an expired-operation count means raw evidence was lost. Required checkpoints remain blocked until an operator inspects and removes that evidence queue directory to acknowledge the loss. Keep the uncompressed host context before that reset. The local queue and remote archive have independent erasure operations.

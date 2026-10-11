@@ -27,6 +27,8 @@ class RobotNotesConfig:
     base_url: str = ""
     actor: str = DEFAULT_ACTOR
     api_key: str = ""
+    evidence_archive: bool = False
+    evidence_retention_days: int = 30
     native_tools: bool = True
     durable_writes: bool = False
     vault_id: str = DEFAULT_VAULT_ID
@@ -72,10 +74,15 @@ class RobotNotesConfig:
         native_tools: bool = True, durable_writes: bool = False, vault_id: str = DEFAULT_VAULT_ID,
         memory_scope: str = "shared", user_id: str = "", agent_id: str = "",
         shared_memory_path: str = "",
+        evidence_archive: bool = False, evidence_retention_days: int = 30,
     ) -> "RobotNotesConfig":
         """The one place ``base_url`` is normalized (trailing slash stripped) and
         ``actor`` and ``vault_id`` defaulted — every constructor path (``load()``, the setup wizard's
         ``save_config()``) should go through this rather than repeating either rule."""
+        if not isinstance(evidence_archive, bool):
+            raise ValueError("evidence_archive must be a JSON boolean")
+        if type(evidence_retention_days) is not int or not 1 <= evidence_retention_days <= 3650:
+            raise ValueError("evidence_retention_days must be an integer between 1 and 3650")
         if not isinstance(native_tools, bool):
             raise ValueError("native_tools must be a JSON boolean")
         if not isinstance(durable_writes, bool):
@@ -95,6 +102,7 @@ class RobotNotesConfig:
         ):
             raise ValueError("shared_memory_path must be a relative folder without empty or dot segments")
         return cls(
+            evidence_archive=evidence_archive, evidence_retention_days=evidence_retention_days,
             base_url=base_url.rstrip("/"), actor=actor or DEFAULT_ACTOR,
             api_key=api_key, native_tools=native_tools, durable_writes=durable_writes, vault_id=vault_id.strip() or DEFAULT_VAULT_ID,
             memory_scope=memory_scope, user_id=user_id, agent_id=agent_id,
@@ -116,6 +124,8 @@ class RobotNotesConfig:
             actor=str(data.get("actor") or ""),
             api_key=get_secret(API_KEY_ENV_VAR, ""),
             durable_writes=data.get("durable_writes", False),
+            evidence_archive=data.get("evidence_archive", False),
+            evidence_retention_days=data.get("evidence_retention_days", 30),
             native_tools=data.get("native_tools", True),
             vault_id=str(data.get("vault_id") or DEFAULT_VAULT_ID),
             memory_scope=data.get("memory_scope", "shared"),
@@ -135,6 +145,10 @@ class RobotNotesConfig:
             payload.update(memory_scope=self.memory_scope, user_id=self.user_id, agent_id=self.agent_id)
         if self.shared_memory_path:
             payload["shared_memory_path"] = self.shared_memory_path
+        if self.evidence_archive:
+            payload["evidence_archive"] = True
+        if self.evidence_retention_days != 30:
+            payload["evidence_retention_days"] = self.evidence_retention_days
         if not self.native_tools:
             payload["native_tools"] = False
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

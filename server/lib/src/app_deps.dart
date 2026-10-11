@@ -8,6 +8,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/embeddings/embedding_provider_factory.dart';
+import 'package:server/src/evidence_store.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/legacy_migration.dart';
 import 'package:server/src/link_index.dart';
@@ -61,6 +62,7 @@ class AppDeps {
     required PresenceTracker presence,
     required Clock clock,
     AgentCredentialStore? agentCredentials,
+    EvidenceStore? evidenceStore,
     LinkIndex? linkIndex,
     NoteWriteService? noteWriteService,
     DatabaseRegistry? registry,
@@ -84,6 +86,12 @@ class AppDeps {
           registry: resolvedRegistry,
         );
     return AppDeps._(
+      evidenceStore: evidenceStore ??
+          EvidenceStore(
+            file: File('${storage.contentDir.parent.path}/evidence.db'),
+            clock: clock,
+            sweepInterval: const Duration(hours: 1),
+          ),
       storage: storage,
       metaIndex: metaIndex,
       searchIndex: searchIndex,
@@ -123,6 +131,7 @@ class AppDeps {
   }
 
   AppDeps._({
+    required this.evidenceStore,
     required this.storage,
     required this.metaIndex,
     required this.searchIndex,
@@ -307,6 +316,9 @@ class AppDeps {
   /// Canonical filesystem-backed note store.
   final Storage storage;
 
+  /// Durable conversation evidence, excluded from note indexes.
+  final EvidenceStore evidenceStore;
+
   /// Write path for uploaded (non-note) files, rooted at the same
   /// `contentDir` as [storage].
   final FileStore fileStore;
@@ -397,6 +409,7 @@ class AppDeps {
     await broadcaster.close();
     await lockManager.close();
     searchIndex.close();
+    evidenceStore.close();
     uploadSessions.dispose();
     await agentCredentials.dispose();
   }
