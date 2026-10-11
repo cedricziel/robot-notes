@@ -166,28 +166,23 @@ const Object _sentinel = Object();
 class NoteController extends ValueNotifier<NoteState> {
   NoteController({
     required RobotNotesClient api,
-    required String noteId,
-    required String actor,
+    required this._noteId,
+    required this._actor,
     Stream<RealtimeEvent>? events,
-    void Function(String noteId)? onSubscribe,
-    void Function(String noteId)? onUnsubscribe,
+    this._onSubscribe,
+    this._onUnsubscribe,
     DateTime Function()? clock,
     Duration Function(Lock lock, DateTime now)? heartbeatInterval,
     Future<void> Function(Duration)? scheduler,
     Future<void> Function(Duration)? autosaveScheduler,
     TitleSearchService? titleSearchService,
-    Future<List<DatabaseDefinition>> Function()? allDatabaseDefinitions,
+    this._allDatabaseDefinitions,
   }) : _api = api,
-       _noteId = noteId,
-       _actor = actor,
-       _onSubscribe = onSubscribe,
-       _onUnsubscribe = onUnsubscribe,
        _now = clock ?? DateTime.now,
        _heartbeatInterval = heartbeatInterval ?? _defaultHeartbeatInterval,
        _scheduler = scheduler ?? Future<void>.delayed,
        _autosaveScheduler = autosaveScheduler ?? Future<void>.delayed,
        _titleSearch = titleSearchService ?? TitleSearchService(api: api),
-       _allDatabaseDefinitions = allDatabaseDefinitions,
        super(NoteState.initial) {
     if (events != null) {
       _sub = events.listen(_onEvent);

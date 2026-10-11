@@ -102,7 +102,7 @@ void main() {
     final signInUri = Uri.parse('${app.baseUrl}/oauth/oidc/login').replace(
       queryParameters: {
         ...authorizeUri.queryParameters,
-        'vault_default': 'yes'
+        'vault_default': 'yes',
       },
     );
     final loginReq = http.Request('GET', signInUri)..followRedirects = false;
@@ -182,38 +182,48 @@ void main() {
 
     final headers = {
       'Authorization': 'Bearer $accessToken',
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     };
-    final vaultRes = await http.post(Uri.parse('${app.baseUrl}/vaults'),
-        headers: headers, body: jsonEncode({'name': 'OIDC work'}));
+    final vaultRes = await http.post(
+      Uri.parse('${app.baseUrl}/vaults'),
+      headers: headers,
+      body: jsonEncode({'name': 'OIDC work'}),
+    );
     expect(vaultRes.statusCode, 201, reason: vaultRes.body);
     final vaultId =
         (jsonDecode(vaultRes.body) as Map<String, dynamic>)['id'] as String;
     final renameRes = await http.patch(
-        Uri.parse('${app.baseUrl}/vaults/$vaultId'),
-        headers: headers,
-        body: jsonEncode({'name': 'Projects'}));
+      Uri.parse('${app.baseUrl}/vaults/$vaultId'),
+      headers: headers,
+      body: jsonEncode({'name': 'Projects'}),
+    );
     expect(renameRes.statusCode, 200, reason: renameRes.body);
-    final vaultNote = await http.post(Uri.parse('${app.baseUrl}/notes'),
-        headers: {...headers, 'X-Vault-Id': vaultId},
-        body: jsonEncode({'title': 'New vault note'}));
+    final vaultNote = await http.post(
+      Uri.parse('${app.baseUrl}/notes'),
+      headers: {...headers, 'X-Vault-Id': vaultId},
+      body: jsonEncode({'title': 'New vault note'}),
+    );
     expect(vaultNote.statusCode, 201, reason: vaultNote.body);
     final catalog =
         await http.get(Uri.parse('${app.baseUrl}/vaults'), headers: headers);
     final vaultCatalog = jsonDecode(catalog.body) as Map<String, dynamic>;
     expect(vaultCatalog['can_manage'], isTrue);
     expect(catalog.body, contains('Projects'));
-    final refreshed =
-        await http.post(Uri.parse('${app.baseUrl}/oauth/token'), body: {
-      'grant_type': 'refresh_token',
-      'client_id': clientId,
-      'refresh_token': tokenBody['refresh_token'] as String,
-    });
+    final refreshed = await http.post(
+      Uri.parse('${app.baseUrl}/oauth/token'),
+      body: {
+        'grant_type': 'refresh_token',
+        'client_id': clientId,
+        'refresh_token': tokenBody['refresh_token'] as String,
+      },
+    );
     expect(refreshed.statusCode, 200, reason: refreshed.body);
     final nextToken = (jsonDecode(refreshed.body)
         as Map<String, dynamic>)['access_token'] as String;
-    final afterRefresh = await http.get(Uri.parse('${app.baseUrl}/notes'),
-        headers: {'Authorization': 'Bearer $nextToken', 'X-Vault-Id': vaultId});
+    final afterRefresh = await http.get(
+      Uri.parse('${app.baseUrl}/notes'),
+      headers: {'Authorization': 'Bearer $nextToken', 'X-Vault-Id': vaultId},
+    );
     expect(afterRefresh.statusCode, 200, reason: afterRefresh.body);
     expect(afterRefresh.body, contains('New vault note'));
   });

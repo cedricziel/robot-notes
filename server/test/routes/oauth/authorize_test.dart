@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:server/src/vault_registry.dart';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:logging/logging.dart';
@@ -9,6 +8,7 @@ import 'package:server/src/config.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/consent_throttle.dart';
+import 'package:server/src/vault_registry.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
@@ -42,10 +42,11 @@ RequestContext _ctx({
   final ctx = _MockRequestContext();
   final vaults = _MockVaultRegistry();
   when(vaults.list).thenReturn([
-    {'id': 'default', 'name': 'Default'}
+    {'id': 'default', 'name': 'Default'},
   ]);
   when(() => vaults.contains(any())).thenAnswer(
-      (invocation) => invocation.positionalArguments.first == 'default');
+    (invocation) => invocation.positionalArguments.first == 'default',
+  );
   when(() => ctx.read<VaultRegistry>()).thenReturn(vaults);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
@@ -126,16 +127,19 @@ void main() {
       () async {
     for (final selection in [
       <String, String>{},
-      {'vault_unknown': 'yes'}
+      {'vault_unknown': 'yes'},
     ]) {
-      final form = validQuery()..remove('vault_default');
-      form.addAll({...selection, 'api_key': _apiKey});
-      final res = await route.onRequest(_ctx(
-        method: HttpMethod.post,
-        clientStore: clientStore,
-        codeStore: codeStore,
-        formBody: _formEncode(form),
-      ));
+      final form = validQuery()
+        ..remove('vault_default')
+        ..addAll({...selection, 'api_key': _apiKey});
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode(form),
+        ),
+      );
       expect(res.statusCode, 400);
       expect(res.headers['location'], isNull);
     }
@@ -399,16 +403,20 @@ void main() {
     });
 
     test('vault management is rejected for the MCP resource', () async {
-      final res = await route.onRequest(_ctx(
-        method: HttpMethod.get,
-        clientStore: clientStore,
-        codeStore: codeStore,
-        queryParameters:
-            validQuery(scope: 'notes:read notes:write vaults:manage'),
-      ));
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters:
+              validQuery(scope: 'notes:read notes:write vaults:manage'),
+        ),
+      );
       expect(res.statusCode, 302);
-      expect(Uri.parse(res.headers['location']!).queryParameters['error'],
-          'invalid_scope');
+      expect(
+        Uri.parse(res.headers['location']!).queryParameters['error'],
+        'invalid_scope',
+      );
     });
 
     test('unknown scope redirects with invalid_scope', () async {

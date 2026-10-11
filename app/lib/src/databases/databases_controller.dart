@@ -54,11 +54,10 @@ const Object _sentinel = Object();
 /// up server-side changes.
 class DatabasesController extends ValueNotifier<DatabasesState> {
   DatabasesController({
-    required RobotNotesClient api,
+    required this._api,
     Stream<RealtimeEvent>? events,
     Future<void> Function(Duration)? debounceScheduler,
-  }) : _api = api,
-       _debounceScheduler = debounceScheduler ?? Future<void>.delayed,
+  }) : _debounceScheduler = debounceScheduler ?? Future<void>.delayed,
        super(DatabasesState.empty) {
     if (events != null) {
       _sub = events.listen(_onEvent);

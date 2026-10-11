@@ -43,7 +43,7 @@ class SharedPreferencesPropertyPanelPrefs implements PropertyPanelPrefs {
 
 /// In-memory [PropertyPanelPrefs] for tests.
 class InMemoryPropertyPanelPrefs implements PropertyPanelPrefs {
-  InMemoryPropertyPanelPrefs({bool collapsed = false}) : _collapsed = collapsed;
+  InMemoryPropertyPanelPrefs({this._collapsed = false});
 
   bool _collapsed;
 

@@ -81,12 +81,10 @@ const Object _sentinel = Object();
 /// widget tests can drive both deterministically.
 class NotesListController extends ValueNotifier<NotesListState> {
   NotesListController({
-    required RobotNotesClient api,
+    required this._api,
     Stream<RealtimeEvent>? events,
-    int pageSize = 50,
-  }) : _api = api,
-       _pageSize = pageSize,
-       super(NotesListState.empty) {
+    this._pageSize = 50,
+  }) : super(NotesListState.empty) {
     if (events != null) {
       _sub = events.listen(_onEvent);
     }

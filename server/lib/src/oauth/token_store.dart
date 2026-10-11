@@ -160,10 +160,10 @@ class TokenStore {
   Future<IssuedTokens> issue({
     required String clientId,
     required String actor,
-    Set<String> vaultIds = const {'default'},
     required Set<String> scopes,
     required String resource,
     required String grantId,
+    Set<String> vaultIds = const {'default'},
     bool withRefresh = true,
   }) =>
       _mutex.run(
@@ -182,10 +182,10 @@ class TokenStore {
   Future<IssuedTokens> _issueLocked({
     required String clientId,
     required String actor,
-    Set<String> vaultIds = const {'default'},
     required Set<String> scopes,
     required String resource,
     required String grantId,
+    Set<String> vaultIds = const {'default'},
     bool withRefresh = true,
   }) async {
     // Grant revocation is terminal: a grant that already has a revoked

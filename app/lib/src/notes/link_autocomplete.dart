@@ -101,12 +101,10 @@ class LinkAutocompleteState {
 /// a selection back into text once the caller has one.
 class LinkAutocompleteController extends ValueNotifier<LinkAutocompleteState> {
   LinkAutocompleteController({
-    required Future<List<String>> Function(String query) search,
-    Duration debounce = const Duration(milliseconds: 150),
+    required this._search,
+    this._debounce = const Duration(milliseconds: 150),
     Future<void> Function(Duration)? scheduler,
-  }) : _search = search,
-       _debounce = debounce,
-       _scheduler = scheduler ?? Future<void>.delayed,
+  }) : _scheduler = scheduler ?? Future<void>.delayed,
        super(LinkAutocompleteState.closed);
 
   final Future<List<String>> Function(String query) _search;

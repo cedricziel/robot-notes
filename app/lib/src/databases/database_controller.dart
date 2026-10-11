@@ -211,20 +211,15 @@ const Object _sentinel = Object();
 /// events and debounces re-query to one per second.
 class DatabaseController extends ValueNotifier<DatabaseScreenState> {
   DatabaseController({
-    required RobotNotesClient api,
-    required DatabasesController databases,
-    required String databaseId,
+    required this._api,
+    required this._databases,
+    required this._databaseId,
     String? initialView,
-    int pageSize = 50,
-    int boardPageSize = 20,
+    this._pageSize = 50,
+    this._boardPageSize = 20,
     Stream<RealtimeEvent>? events,
     Future<void> Function(Duration)? debounceScheduler,
-  }) : _api = api,
-       _databases = databases,
-       _databaseId = databaseId,
-       _pageSize = pageSize,
-       _boardPageSize = boardPageSize,
-       _debounceScheduler = debounceScheduler ?? Future<void>.delayed,
+  }) : _debounceScheduler = debounceScheduler ?? Future<void>.delayed,
        super(DatabaseScreenState.initial.copyWith(viewName: initialView)) {
     if (events != null) {
       _sub = events.listen(_onEvent);
