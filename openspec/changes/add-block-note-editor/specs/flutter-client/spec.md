@@ -143,7 +143,7 @@ In view mode the app SHALL render the note content as Markdown: headings, lists,
 
 ### Requirement: Database embeds render in view mode
 
-In view mode, a line consisting of `![[Title]]` or `![[Title#View]]` where `Title` is the title of a registered database SHALL be rendered as an embedded, read-only rendering of that database's named view (or its default view): a header with the database title linking to `/databases/{id}?view=<name>` and rows rendered as a table for table and list views, or as columns for a board view, limited to the first 50 rows with a "Show all" link. Row titles SHALL link to their notes. The embed SHALL be resolved by matching `Title` against `GET /databases` titles case-insensitively after NFC normalisation. An embed whose title does not resolve, or whose view name does not exist, SHALL render the literal source text. The Markdown source option SHALL hold the literal source. The block editor SHALL preserve database embed source as an opaque block and display the existing read-only embed rendering when it resolves. Any source preview SHALL render embeds like view mode. Non-matching `[[...]]` and `![[...]]` text SHALL keep rendering as literal text, as today. Embedded rows SHALL refresh on `changed` events with the same debounce as the database screen. The embed SHALL render with bounded height inside the reading column and remain tappable within the surrounding selectable text.
+In view mode, a line consisting of `![[Title]]` or `![[Title#View]]` where `Title` is the title of a registered database SHALL be rendered as an embedded, read-only rendering of that database's named view (or its default view): a header with the database title linking to `/databases/{id}?view=<name>` and rows rendered as a table for table and list views, or as columns for a board view, limited to the first 50 rows with a "Show all" link. Row titles SHALL link to their notes. The embed SHALL be resolved by matching `Title` against `GET /databases` titles case-insensitively after NFC normalisation. An embed whose title does not resolve, or whose view name does not exist, SHALL render the literal source text. The Markdown source option SHALL hold the literal source. The block editor SHALL preserve database embed source as an opaque block and display the existing read-only embed rendering when it resolves. Non-matching `[[...]]` and `![[...]]` text SHALL keep rendering as literal text, as today. Embedded rows SHALL refresh on `changed` events with the same debounce as the database screen. The embed SHALL render with bounded height inside the reading column and remain tappable within the surrounding selectable text.
 
 #### Scenario: Embed renders the named view
 
@@ -159,5 +159,6 @@ In view mode, a line consisting of `![[Title]]` or `![[Title#View]]` where `Titl
 
 #### Scenario: Edit field keeps the literal text while the preview renders it
 
-- **WHEN** the user enters edit mode with the preview pane open
-- **THEN** the content field SHALL contain the literal `![[Projects#Active]]` and the preview pane SHALL render the embedded table
+- **WHEN** the user selects Markdown source for a note containing `![[Projects#Active]]`
+- **THEN** the source field SHALL contain the literal embed text without a simultaneous preview pane
+- **AND** switching to Blocks SHALL display the embedded table while retaining the literal Markdown source

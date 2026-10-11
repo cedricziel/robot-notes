@@ -129,3 +129,22 @@ The editing experience SHALL follow the application's adaptive presentation conv
 
 - **WHEN** a desktop editor window is resized to a narrow width
 - **THEN** its layout SHALL adapt to the available space while retaining desktop menu, focus, and keyboard conventions
+
+#### Scenario: Blocks share the available content width
+
+- **WHEN** paragraphs, headings, checkboxes, and opaque blocks appear in one document
+- **THEN** their drag handles SHALL share a consistent gutter
+- **AND** checkboxes SHALL align with the content edge
+- **AND** the document SHALL use the available pane width with consistent inset spacing
+
+#### Scenario: Tables retain natural sizing
+
+- **WHEN** a note contains a table
+- **THEN** a small table SHALL retain its natural width
+- **AND** a table wider than the content area SHALL scroll horizontally without widening the document
+
+#### Scenario: Source editing uses one pane
+
+- **WHEN** the user selects Markdown source at desktop, mobile portrait, or mobile landscape width
+- **THEN** the source editor SHALL use one editing pane without a simultaneous preview
+- **AND** switching back to Blocks SHALL retain the draft and show its rendered presentation

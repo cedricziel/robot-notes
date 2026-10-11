@@ -87,3 +87,17 @@ Gate outcome: **passed** through the reusable adaptive_super_editor integration 
 - [x] 5.8 Clean up the isolated instance and record validation evidence.
 - [x] 5.9 Verify adaptive presentation under Apple and Material platform themes, text scaling, reduced motion, and narrow desktop layouts.
 - [x] 5.10 Validate the OpenSpec change with --strict and confirm that each requirement has coverage or recorded manual evidence.
+
+
+## 6. Editor layout feedback
+
+Follow-up complete.
+
+- [x] 6.1 Add regressions for natural table width and horizontal overflow.
+- [x] 6.2 Align block gutters and use the available editing width.
+- [x] 6.3 Keep tables at their natural width inside horizontal scrollers.
+- [x] 6.4 Verify phone and desktop layouts and record the results.
+
+- [x] 6.5 Remove simultaneous source previews and verify one source pane across widths.
+- [x] 6.6 Align checkbox graphics with the content edge without losing editing or accessibility behavior.
+- [x] 6.7 Match block typography and authoring fields to the application rendering style.

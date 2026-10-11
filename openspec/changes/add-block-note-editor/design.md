@@ -1,6 +1,6 @@
 ## Context
 
-See [proposal.md](proposal.md) for motivation and scope. The current `app/lib/src/notes/note_screen.dart` uses a text controller and Markdown preview. `NoteController.enterEditMode()` acquires the note lock, re-fetches the note, and starts heartbeats. Its edit buffers feed debounced autosave and version conflict handling. The storage specification makes Markdown files canonical.
+See [proposal.md](proposal.md) for motivation and scope. The note screen keeps one Markdown draft across block and source presentations. `NoteController.enterEditMode()` acquires the note lock, re-fetches the note, and starts heartbeats. Its edit buffers feed debounced autosave and version conflict handling. The storage specification makes Markdown files canonical.
 
 ## Goals / Non-Goals
 
@@ -89,3 +89,14 @@ Validated on October 11, 2026, using Flutter 3.47.6 and Dart 3.13.5 on macOS:
 - The verification tab was closed, its viewport override reset, the server stopped, and disposable data and credentials removed.
 
 Native VoiceOver and TalkBack, physical software keyboards and composition, and native Android, iOS, macOS, Linux, and Windows runtimes remain unverified. Platform-theme widget variants do not establish native device coverage. The exact Flutter 3.47.2 CI toolchain also remains unverified locally. These limits do not change the passing widget compatibility gate or the observed web workflow.
+
+
+## Editor layout feedback
+
+The authoring document uses the available pane width with a 16px outer inset, a 28px drag gutter, and a 48px action gutter. All block models share these constraints. Drag handles align with the first text line; checkboxes start at the content edge. The local task component delegates text composition, selection, underlines, and undo behavior to Super Editor's public text component, while retaining accessible completion controls and read-only behavior.
+
+Block typography uses the application's Markdown styles. Authoring fields have flat decoration. Tables use intrinsic column widths and left-aligned headings. The Markdown renderer's existing horizontal scroller bounds wide tables; small tables keep their natural width.
+
+Markdown source uses one full-width editing pane without a simultaneous preview. Switching to Blocks supplies the rendered presentation, including database embeds. Source formatting and wiki-link completion remain available.
+
+The follow-up passes 160 focused block, screen, and theme tests and all 955 app tests. New regressions cover handle geometry, checkbox alignment and undo, natural table sizing and horizontal scroll, and single-pane source layouts at desktop, phone portrait, and phone landscape widths. Real browser checks use 390×844, 844×390, and 1440×900 layouts. Portrait and landscape checks confirm that source and block content remain scrollable to the end of the note. A real checkbox edit persisted while both table sources remained byte-for-byte unchanged. Browser logs contained no errors or warnings. The verification tab was closed, its viewport reset, and the disposable server and data cleaned up. Native mobile runtime validation remains outside this browser check.
