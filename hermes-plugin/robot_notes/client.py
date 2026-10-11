@@ -285,8 +285,9 @@ class RobotNotesClient:
             raise ClientError("Invalid durable evidence acknowledgement", kind=ErrorKind.OTHER)
         return body
 
-    def get_note(self, note_id: str) -> Dict[str, Any]:
-        return self._request("GET", f"/notes/{note_id}").json()
+    def get_note(self, note_id: str, *, recall: bool = False) -> Dict[str, Any]:
+        options = {"timeout": self._recall_timeout} if recall else {}
+        return self._request("GET", f"/notes/{note_id}", **options).json()
 
     def find_note_by_title(self, title: str, *, path: str) -> Optional[Dict[str, Any]]:
         """Looks up a note by exact title within ``path``. The item returned already

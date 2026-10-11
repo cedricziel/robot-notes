@@ -36,6 +36,9 @@ class RobotNotesConfig:
     user_id: str = ""
     agent_id: str = ""
     shared_memory_path: str = ""
+    recall_path: Optional[str] = None
+    recall_max_bytes: int = 0
+    recall_expand_chars: int = 0
 
     @property
     def memory_note(self) -> dict:
@@ -75,6 +78,7 @@ class RobotNotesConfig:
         memory_scope: str = "shared", user_id: str = "", agent_id: str = "",
         shared_memory_path: str = "",
         evidence_archive: bool = False, evidence_retention_days: int = 30,
+        recall_path: Optional[str] = None, recall_max_bytes: int = 0, recall_expand_chars: int = 0,
     ) -> "RobotNotesConfig":
         """The one place ``base_url`` is normalized (trailing slash stripped) and
         ``actor`` and ``vault_id`` defaulted — every constructor path (``load()``, the setup wizard's
@@ -101,12 +105,24 @@ class RobotNotesConfig:
             )
         ):
             raise ValueError("shared_memory_path must be a relative folder without empty or dot segments")
+        if recall_path is not None and (
+            not isinstance(recall_path, str) or not recall_path
+            or any(part in ("", ".", "..") for part in recall_path.split("/"))
+            or "\\" in recall_path or any(ord(char) < 32 for char in recall_path)
+        ):
+            raise ValueError("recall_path must be a relative folder without empty or dot segments")
+        for name, value, maximum in (("recall_max_bytes", recall_max_bytes, 65536), ("recall_expand_chars", recall_expand_chars, 8192)):
+            if type(value) is not int or not 0 <= value <= maximum:
+                raise ValueError(f"{name} must be an integer between 0 and {maximum}")
+        if recall_expand_chars and not recall_max_bytes:
+            raise ValueError("recall_expand_chars requires recall_max_bytes")
         return cls(
             evidence_archive=evidence_archive, evidence_retention_days=evidence_retention_days,
             base_url=base_url.rstrip("/"), actor=actor or DEFAULT_ACTOR,
             api_key=api_key, native_tools=native_tools, durable_writes=durable_writes, vault_id=vault_id.strip() or DEFAULT_VAULT_ID,
             memory_scope=memory_scope, user_id=user_id, agent_id=agent_id,
-            shared_memory_path=shared_memory_path,
+            shared_memory_path=shared_memory_path, recall_path=recall_path,
+            recall_max_bytes=recall_max_bytes, recall_expand_chars=recall_expand_chars,
         )
 
     @classmethod
@@ -132,6 +148,9 @@ class RobotNotesConfig:
             user_id=data.get("user_id", ""),
             agent_id=data.get("agent_id", ""),
             shared_memory_path=data.get("shared_memory_path", ""),
+            recall_path=data.get("recall_path"),
+            recall_max_bytes=data.get("recall_max_bytes", 0),
+            recall_expand_chars=data.get("recall_expand_chars", 0),
         )
 
     def save(self, hermes_home: str) -> None:
@@ -149,6 +168,12 @@ class RobotNotesConfig:
             payload["evidence_archive"] = True
         if self.evidence_retention_days != 30:
             payload["evidence_retention_days"] = self.evidence_retention_days
+        if self.recall_path is not None:
+            payload["recall_path"] = self.recall_path
+        if self.recall_max_bytes:
+            payload["recall_max_bytes"] = self.recall_max_bytes
+        if self.recall_expand_chars:
+            payload["recall_expand_chars"] = self.recall_expand_chars
         if not self.native_tools:
             payload["native_tools"] = False
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
