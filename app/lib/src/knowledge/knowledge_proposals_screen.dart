@@ -15,6 +15,7 @@ class KnowledgeProposalsScreen extends StatefulWidget {
 
 class _KnowledgeProposalsScreenState extends State<KnowledgeProposalsScreen> {
   List<Map<String, dynamic>> _items = [];
+  String? _state;
   bool _busy = false;
   String? _error;
   int _generation = 0;
@@ -33,7 +34,7 @@ class _KnowledgeProposalsScreenState extends State<KnowledgeProposalsScreen> {
       _error = null;
     });
     try {
-      final result = await widget.api.listAllKnowledgeProposals();
+      final result = await widget.api.listAllKnowledgeProposals(state: _state);
       if (!mounted || generation != _generation) return;
       setState(
         () => _items = (result['items'] as List? ?? [])
@@ -115,6 +116,20 @@ class _KnowledgeProposalsScreenState extends State<KnowledgeProposalsScreen> {
     appBar: AppBar(
       title: const Text('Knowledge proposals'),
       actions: [
+        DropdownButton<String>(
+          value: _state ?? 'active',
+          items: const [
+            DropdownMenuItem(value: 'active', child: Text('Active')),
+            DropdownMenuItem(value: 'accepted', child: Text('Accepted')),
+            DropdownMenuItem(value: 'denied', child: Text('Denied')),
+          ],
+          onChanged: _busy
+              ? null
+              : (value) {
+                  setState(() => _state = value == 'active' ? null : value);
+                  _load();
+                },
+        ),
         IconButton(
           tooltip: 'Refresh',
           onPressed: _busy ? null : _load,
@@ -134,12 +149,18 @@ class _KnowledgeProposalsScreenState extends State<KnowledgeProposalsScreen> {
           child: ListView(
             children: [
               if (_items.isEmpty && !_busy && _error == null)
-                const ListTile(title: Text('No active proposals')),
+                ListTile(
+                  title: Text(
+                    _state == null
+                        ? 'No active proposals'
+                        : 'No $_state proposals',
+                  ),
+                ),
               for (final proposal in _items)
                 ListTile(
                   title: Text('${proposal['title'] ?? 'Knowledge update'}'),
                   subtitle: Text(
-                    '${proposal['new_note'] == true ? 'New knowledge · ' : ''}${proposal['path'] ?? ''}\n${proposal['author_label'] ?? 'Unknown author'} · ${proposal['state']}',
+                    '${proposal['new_note'] == true ? 'New knowledge · ' : ''}${proposal['path'] ?? ''}\n${proposal['author_label'] ?? 'Unknown author'} · ${proposalStateLabel(proposal['state'])}',
                   ),
                   isThreeLine: true,
                   trailing: const Icon(Icons.chevron_right),

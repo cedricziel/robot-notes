@@ -329,7 +329,7 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
                           '${proposal['author_label'] ?? 'Unknown author'}',
                         ),
                         subtitle: Text(
-                          '${proposal['state']} · ${proposal['author_kind'] ?? ''}',
+                          '${proposalStateLabel(proposal['state'])} · ${proposal['author_kind'] ?? ''}',
                         ),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: _busy ? null : () => _inspect(proposal),

@@ -554,8 +554,14 @@ class RobotNotesClient {
     ),
   );
 
-  Future<Map<String, dynamic>> listAllKnowledgeProposals() async =>
-      _ok(await _http.get(_uri('/notes/proposals'), headers: _baseHeaders));
+  Future<Map<String, dynamic>> listAllKnowledgeProposals({
+    String? state,
+  }) async => _ok(
+    await _http.get(
+      _uri('/notes/proposals', state == null ? null : {'state': state}),
+      headers: _baseHeaders,
+    ),
+  );
 
   Future<Map<String, dynamic>> listKnowledgeProposals(String id) async =>
       _ok(await _http.get(_uri('/notes/$id/proposals'), headers: _baseHeaders));

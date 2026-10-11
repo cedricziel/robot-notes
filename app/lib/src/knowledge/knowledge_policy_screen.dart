@@ -53,6 +53,10 @@ class _KnowledgePolicyScreenState extends State<KnowledgePolicyScreen> {
       _busy = true;
       _error = null;
       _policy = null;
+      _principals = [];
+      _curated = null;
+      _approval = null;
+      _access.clear();
     });
     try {
       final policy = await widget.api.getKnowledgePolicy(_target);
@@ -237,7 +241,7 @@ class _KnowledgePolicyScreenState extends State<KnowledgePolicyScreen> {
           ),
           const SizedBox(height: 24),
           Text(
-            'Effective rules: ${effective?['curated'] == true ? 'Curated knowledge' : 'Ordinary note'} · ${effective?['approval'] == 'evidence_no_conflict' ? 'Eligible evidence-backed updates may be accepted automatically' : 'Human approval required'}',
+            'Effective rules: ${effective?['curated'] == true ? 'Curated knowledge' : 'Ordinary note'} · ${effective?['approval'] == 'evidence_no_conflict' ? 'Verified source attachments may be accepted automatically' : 'Human approval required'}',
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
@@ -278,7 +282,7 @@ class _KnowledgePolicyScreenState extends State<KnowledgePolicyScreen> {
               DropdownMenuItem(value: 'human', child: Text('Human approval')),
               DropdownMenuItem(
                 value: 'evidence_no_conflict',
-                child: Text('Automatic acceptance when eligible'),
+                child: Text('Automatically accept verified sources'),
               ),
             ],
             onChanged: _busy || !allowed

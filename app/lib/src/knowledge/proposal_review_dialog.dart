@@ -1,5 +1,15 @@
 import 'package:material_ui/material_ui.dart';
 
+String proposalStateLabel(Object? state) => switch (state) {
+  'pending' => 'Awaiting review',
+  'changes_requested' => 'Changes requested',
+  'needs_re_review' => 'Needs another review',
+  'conflicted' => 'Conflict needs resolution',
+  'accepted' => 'Accepted',
+  'denied' => 'Denied',
+  _ => 'Unknown status',
+};
+
 Future<void> showProposalReview({
   required BuildContext context,
   required Map<String, dynamic> proposal,
@@ -54,7 +64,9 @@ Future<void> showProposalReview({
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Status: ${proposal['state']}'),
+              Text('Status: ${proposalStateLabel(proposal['state'])}'),
+              if (proposal['accepted_version'] is int)
+                Text('Accepted as version ${proposal['accepted_version']}'),
               if (proposal['new_note'] == true) ...[
                 const SizedBox(height: 16),
                 Text(
