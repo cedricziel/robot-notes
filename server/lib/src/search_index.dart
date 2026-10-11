@@ -1008,6 +1008,7 @@ class SearchIndex {
   /// marker: [SearchIndex.upsert] keeps stale vectors from being served,
   /// and [backfillEmbeddings] (startup, or any later pass) picks the id
   /// back up. Returns normally even on total failure; failures are logged.
+  /// Results publish only while indexed title and content still match.
   /// [sleep] is overridable in tests to avoid real delays.
   Future<void> embedNote({
     required String id,
@@ -1028,7 +1029,7 @@ class SearchIndex {
         final embedding = await provider.embed(text);
         _db.execute('BEGIN');
         try {
-          _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
+          _publishEmbedding(id, title, content, embedding);
           _db.execute('COMMIT');
         } catch (e) {
           _db.execute('ROLLBACK');
@@ -1047,6 +1048,23 @@ class SearchIndex {
         delay *= 2;
       }
     }
+  }
+
+  void _publishEmbedding(
+    String id,
+    String title,
+    String content,
+    List<double> embedding, {
+    int? rowId,
+  }) {
+    final rowIdFilter = rowId == null ? '' : 'rowid = ? AND ';
+    final current = _db.select(
+      'SELECT 1 FROM notes_fts WHERE '
+      '${rowIdFilter}id = ? AND title = ? AND content = ?;',
+      [if (rowId != null) rowId, id, title, content],
+    );
+    if (current.isEmpty) return;
+    _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
   }
 
   /// Default number of notes embedded per batch during [backfillEmbeddings].
@@ -1089,17 +1107,20 @@ class SearchIndex {
             provider,
             embeddingInputFor(title: note.title, content: note.content),
             logger: _log,
-          ).then((embedding) => (id: note.id, embedding: embedding)),
+          ).then((embedding) => (note: note, embedding: embedding)),
       ]);
 
       _db.execute('BEGIN');
       try {
         for (final result in embeddings) {
           if (result.embedding == null) continue;
-          _upsertVectorStmt.execute([
-            result.id,
-            _encodeVector(result.embedding!),
-          ]);
+          _publishEmbedding(
+            result.note.id,
+            result.note.title,
+            result.note.content,
+            result.embedding!,
+            rowId: result.note.rowId,
+          );
         }
         _db.execute('COMMIT');
       } catch (e) {
@@ -1113,17 +1134,16 @@ class SearchIndex {
     }
   }
 
-  /// `(id, title, content)` for every note present in `notes_fts` but
-  /// absent from `note_vectors`, in one query — [backfillEmbeddings] needs
-  /// all three to compute each note's embedding (see [embeddingInputFor]).
-  List<({String id, String title, String content})> _idsMissingEmbeddings() {
+  List<({int rowId, String id, String title, String content})>
+      _idsMissingEmbeddings() {
     final rows = _db.select(
-      'SELECT id, title, content FROM notes_fts '
+      'SELECT rowid, id, title, content FROM notes_fts '
       'WHERE id NOT IN (SELECT id FROM note_vectors);',
     );
     return [
       for (final row in rows)
         (
+          rowId: row['rowid'] as int,
           id: row['id'] as String,
           title: row['title'] as String,
           content: row['content'] as String,
