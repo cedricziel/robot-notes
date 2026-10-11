@@ -8,6 +8,8 @@ Robot Notes stores shared knowledge, but accepted notes currently have no retain
 - Support Person, Project, Claim, Decision, Procedure, and Evidence as typed Markdown entries.
 - Bulk-adopt a pinned published Schema.org release and define local types and enforced constraints that extend its terms.
 - Combine authoring guidance with enforced properties and typed relations for reliable accepted-knowledge queries.
+- Separate original sources from curated knowledge and preserve revision-specific evidence references.
+- Store imported and local type definitions as canonical filesystem documents with rebuildable indexes.
 - Curate type definitions and preview schema migration impacts.
 - Add stable block identity, comments, proposals, and retained accepted revisions.
 - Enforce separate proposal, review, direct-edit, policy-management, and purge permissions.

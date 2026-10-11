@@ -206,12 +206,23 @@ The system SHALL initially bulk-adopt the complete supported vocabulary of a pin
 
 ### Requirement: Acceptance validates typed knowledge
 
-Drafts and proposals MAY remain structurally incomplete and SHALL expose validation diagnostics. Acceptance and authorized direct curated writes SHALL validate supplied properties and named relations against accepted, pinned type-definition versions. Invalid mutations SHALL leave accepted knowledge unchanged. Structural validity SHALL NOT establish factual truth or bypass evidence and approval policy. Changes to applicable definitions SHALL invalidate affected pending acceptance eligibility.
+Drafts and proposals MAY remain structurally incomplete and SHALL expose validation diagnostics. Acceptance and authorized direct curated writes SHALL validate the complete resulting candidate entry against accepted, pinned type-definition versions after applying sets, unsets, replacements, and relation changes, before publication. Invalid mutations SHALL leave accepted knowledge unchanged. Structural validity SHALL NOT establish factual truth or bypass evidence and approval policy. Changes to applicable definitions SHALL invalidate affected pending acceptance eligibility.
 
 #### Scenario: Incomplete typed proposal
 
 - **WHEN** a proposed Decision omits a required property or supplies an invalid relation target
 - **THEN** it SHALL remain inspectable with actionable diagnostics but SHALL NOT become accepted knowledge
+
+#### Scenario: Removing a required property
+
+- **GIVEN** an accepted Decision has a required rationale
+- **WHEN** a mutation unsets the rationale or replaces its properties without that value
+- **THEN** validation SHALL reject the complete candidate and preserve the accepted revision
+
+#### Scenario: Removing a required relation
+
+- **WHEN** a mutation removes the last supported_by relation from an accepted Claim
+- **THEN** validation SHALL reject the resulting cardinality violation and preserve the accepted revision
 
 #### Scenario: Valid evidence-backed proposal
 
@@ -238,6 +249,21 @@ The system SHALL support named relations between entities and knowledge objects 
 - **WHEN** deletion or type migration would invalidate an enforced accepted relation
 - **THEN** the mutation SHALL be rejected unless an authorized coherent migration resolves the affected relations
 
+### Requirement: Relation integrity survives concurrent mutations
+
+Relation acceptance, target deletion, and target type migration SHALL serialize integrity checks and publication across affected identities or provide equivalent transactional guarantees. No successful interleaving SHALL leave an accepted relation dangling or incompatible with its declared target type. Cross-document migrations SHALL publish coherently and recover before serving queries.
+
+#### Scenario: Concurrent relation acceptance and target deletion
+
+- **WHEN** acceptance of an incoming relation races with deletion of its target
+- **THEN** both operations SHALL NOT succeed leaving a broken accepted relation
+- **AND** the rejected operation SHALL leave its accepted revisions unchanged
+
+#### Scenario: Concurrent relation acceptance and target migration
+
+- **WHEN** an incoming relation is accepted concurrently with a target migration to an incompatible type
+- **THEN** serialization or transaction validation SHALL reject one operation unless a coherent migration preserves the relation constraints
+
 ### Requirement: Type evolution preserves accepted knowledge
 
 Type definitions and ontology adoption records SHALL follow curated review, authorization, provenance, and retained-history rules. An upgrade SHALL preview affected entries and validation failures. Accepted entries SHALL retain their pinned definition versions until an explicit reviewed migration succeeds. Failed imports, upgrades, or migrations SHALL NOT silently reinterpret existing accepted entries. Derived query indexes SHALL be rebuildable from accepted data and pinned definitions.
@@ -251,3 +277,64 @@ Type definitions and ontology adoption records SHALL follow curated review, auth
 
 - **WHEN** an agent with proposal-only authority submits a type definition or ontology upgrade
 - **THEN** it SHALL remain pending under the effective review policy and SHALL NOT directly alter accepted validation or query behavior
+
+
+### Requirement: Sources remain distinct from curated knowledge
+
+The system SHALL record source, knowledge, and type-definition roles explicitly rather than infer them from folders. Source ingestion SHALL preserve original material and create immutable revisions when it changes. Ingestion SHALL NOT promote source statements into accepted knowledge. Default curated recall SHALL exclude raw source and type-definition documents. Authorized callers SHALL explicitly inspect sources to investigate or support proposals, independently of optional conversation archive enablement. Existing effective access and approval policies SHALL continue to apply after document moves.
+
+#### Scenario: Importing a source
+
+- **WHEN** an authorized caller imports a source document
+- **THEN** its statements SHALL NOT appear in default curated recall until separately proposed and accepted as knowledge
+- **AND** the original source revision SHALL remain available through authorized source inspection
+
+#### Scenario: Moving a source document
+
+- **WHEN** a source moves into a folder containing curated knowledge
+- **THEN** its explicit source role SHALL remain unchanged and access SHALL use the destination's effective policy
+
+### Requirement: Evidence pins original source revisions
+
+Accepted Evidence SHALL reference a stable source identity, an immutable revision identifier, and a passage locator or an explicit whole-document locator. Acceptance SHALL verify that the referenced revision and locator resolve under the caller's effective access. Later source changes SHALL NOT redirect existing evidence to newer material. Referenced revisions SHALL remain resolvable until explicit authorized purge. Purge SHALL mark affected evidence references unavailable without silently changing their targets. Evidence acceptance SHALL NOT establish the truth of a supported claim.
+
+#### Scenario: Updating a cited source
+
+- **WHEN** a source receives a new revision after Evidence citing an earlier passage is accepted
+- **THEN** the Evidence SHALL continue to resolve to the cited revision and passage
+
+#### Scenario: Purging cited material
+
+- **WHEN** an authorized purge removes a cited source revision
+- **THEN** explicit evidence inspection SHALL report the unavailable reference and SHALL NOT return another revision as its replacement
+
+### Requirement: Type definitions are canonical filesystem documents
+
+Local and imported type definitions SHALL be canonical Markdown documents with structured metadata in the vault filesystem. Filesystem adoption manifests SHALL record imported definitions and their release snapshot. Documents and retained snapshots SHALL preserve identities, pinned versions and parents, properties, relation constraints, guidance, and source mappings. Validation and query indexes SHALL be rebuildable from accepted filesystem documents and retained snapshots without a database-only registry or remote refetch. Externally edited files SHALL enter validation and review as candidates before activation. Invalid or unapproved candidates SHALL NOT replace accepted definitions. Portable export SHALL include referenced pinned definition snapshots and adoption manifests.
+
+#### Scenario: Rebuilding type indexes
+
+- **GIVEN** imported and local types have accepted filesystem documents and retained snapshots
+- **WHEN** derived indexes are removed and rebuilt without network access
+- **THEN** validation and queries SHALL retain the same pinned definitions and constraints
+
+#### Scenario: External type edit followed by restart
+
+- **WHEN** an external edit changes a type document without acceptance and the server restarts
+- **THEN** the edit SHALL remain a candidate and the prior accepted definition SHALL remain active
+
+### Requirement: Initial local types have concrete minimum constraints
+
+Every initial local type SHALL require the existing non-empty note title and a pinned type assignment. Person SHALL require a non-empty display_name. Project SHALL require a non-empty summary. Claim SHALL require a non-empty statement and at least one supported_by relation to Evidence. Decision SHALL require a non-empty rationale, one decision_date using the existing date encoding, a status from proposed, accepted, or superseded, and at least one affects relation to Project. Decision status SHALL remain distinct from document review state. Procedure SHALL require at least one non-empty ordered step and at least one maintained_by relation to Person. Evidence SHALL require one source identity, one immutable source revision identifier, and one non-empty passage or whole-document locator.
+
+The initial types SHALL permit zero or more Project maintained_by Person, Decision supported_by Evidence, Decision supersedes Decision, and Procedure supported_by Evidence relations. Every supplied named relation SHALL resolve to an accepted compatible knowledge target, except Evidence source references which SHALL resolve to retained source revisions. These local constraints SHALL NOT make unconstrained imported suggestions mandatory.
+
+#### Scenario: Validating all starting types
+
+- **WHEN** an author submits a candidate for any of the six starting types missing its required value or violating its declared relation cardinality or target type
+- **THEN** acceptance SHALL fail with a diagnostic identifying the type, field, and violated constraint
+
+#### Scenario: Domain decision status differs from review state
+
+- **WHEN** an authorized reviewer accepts a structurally valid Decision whose domain status is proposed
+- **THEN** the document SHALL be accepted knowledge while its decision status SHALL remain proposed

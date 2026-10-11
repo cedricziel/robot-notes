@@ -17,6 +17,15 @@
 - [x] Record accepted typed relations, validation, access-filtered queries, and migration safety.
 - [x] Validate the expanded OpenSpec change with strict validation.
 
+## Review follow-up planning tasks
+
+- [x] Record explicit source and knowledge roles and revision-specific evidence references.
+- [x] Record canonical filesystem type documents, candidate external edits, and offline rebuilds.
+- [x] Define minimum required fields and relation constraints for all six starting types.
+- [x] Require complete candidate validation, including removals and replacements.
+- [x] Require transactional relation integrity across concurrent acceptance, deletion, and migration.
+- [x] Validate and review the expanded contract.
+
 ## Implementation tracking
 
 Implementation is tracked in the issue sequence in `design.md`, with one PR per issue. The typed knowledge extension still needs focused implementation issues; the checked planning tasks do not indicate runtime completion. No runtime implementation is included in this design change.
