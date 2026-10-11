@@ -229,6 +229,7 @@ class NoteWriteService {
     Span? span,
   }) async {
     final note = await storage.create(
+      actor: actor,
       title: title,
       content: content,
       path: path,
@@ -355,6 +356,7 @@ class NoteWriteService {
           );
         }
         final updated = await storage.update(
+          actor: actor,
           id: id,
           title: title,
           content: content,
@@ -548,6 +550,77 @@ class NoteWriteService {
     }
   }
 
+  /// Restores an accepted revision and refreshes current search and links.
+  Future<StoredNote> restoreRevision({
+    required String id,
+    required int version,
+    required int ifMatch,
+    required String actor,
+  }) async {
+    final source = await storage.readRevision(id, version);
+    if (isDatabaseDefinitionExtra(source.extra)) {
+      throw const PropertyValidationException([
+        PropertyViolation(key: 'type', reason: 'database restore unsupported'),
+      ]);
+    }
+    _validateCallerProperties(
+      path: source.path,
+      tags: source.toSummary().tags,
+      isDefinition: false,
+      properties: _propertyKeysOnly(source.extra),
+      selfId: id,
+    );
+    final oldTitle = metaIndex.get(id)?.title;
+    final note = await storage.restoreRevision(
+      id,
+      version,
+      ifMatch: ifMatch,
+      actor: actor,
+    );
+    final summary = note.toSummary();
+    scheduleEmbedding(note);
+    // metaIndex is upserted before the search index reads from it below,
+    // so link resolution (including a self-referential link) sees this
+    // note.
+    metaIndex.upsert(summary);
+    final coveringDefs = _coveringOf(note, summary);
+    linkIndex.upsert(
+      note.id,
+      note.content,
+      extraLinks: _relationLinks(coveringDefs, note.extra),
+    );
+    searchIndex.upsert(
+      id: note.id,
+      title: note.title,
+      path: note.path,
+      content: note.content,
+      updatedAt: note.updatedAt,
+      tags: summary.tags,
+      links: _searchLinkEdges(note.id),
+      extra: note.extra,
+      createdAt: note.createdAt,
+      isDefinition: isDatabaseDefinitionExtra(note.extra),
+    );
+    _refreshRegistry(summary, note.extra);
+    _safeBroadcast(
+      ChangedEvent(
+        noteId: note.id,
+        version: note.version,
+        by: actor,
+        action: ChangeAction.updated,
+      ),
+    );
+    if (oldTitle != null && oldTitle != note.title) {
+      await _propagateRename(
+        oldTitle: oldTitle,
+        newTitle: note.title,
+        renamedId: id,
+        actor: actor,
+      );
+    }
+    return note;
+  }
+
   /// Deletes a note and removes it from every derived view. Returns the
   /// pre-delete record (so the caller can include the final version in
   /// the broadcast event without re-reading the file).
@@ -560,7 +633,7 @@ class NoteWriteService {
       attributes: {'note.id': id},
       (span) async {
         final existing = await storage.read(id);
-        await storage.delete(id);
+        await storage.delete(id, actor: actor);
         searchIndex.delete(id);
         metaIndex.remove(id);
         linkIndex.remove(id);
@@ -700,8 +773,12 @@ class NoteWriteService {
           );
         }
 
-        final updated =
-            await storage.patchExtra(id: id, set: set, unset: unset);
+        final updated = await storage.patchExtra(
+          id: id,
+          set: set,
+          unset: unset,
+          actor: actor,
+        );
         final summary = updated.toSummary();
         metaIndex.upsert(summary);
         final coveringDefs = _coveringOf(updated, summary);

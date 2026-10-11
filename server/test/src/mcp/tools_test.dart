@@ -95,6 +95,7 @@ class _FlakyStorage extends Storage {
     required String title,
     required String content,
     required int ifMatch,
+    String? actor,
     String? path,
     Map<String, Object?>? properties,
   }) async {
@@ -108,6 +109,7 @@ class _FlakyStorage extends Storage {
       );
     }
     return super.update(
+      actor: actor,
       id: id,
       title: title,
       content: content,
