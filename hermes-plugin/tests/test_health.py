@@ -150,3 +150,11 @@ def test_health_inspection_needs_no_server_request(tmp_path, monkeypatch):
     assert result["mirror"] == {"state": "not_attempted"}
     assert result["recall"] == {"state": "not_attempted"}
     assert len(respx.calls) == 0
+
+
+def test_health_never_copies_a_non_boolean_source_flag_into_content_free_status():
+    from robot_notes.health import MemoryHealth
+    health = MemoryHealth()
+    generation = health.begin('mirror')
+    health.finish('mirror', generation, 'pending_review', source_unknown='private source text')
+    assert 'private source text' not in json.dumps(health.snapshot())

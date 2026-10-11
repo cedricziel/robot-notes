@@ -19,7 +19,7 @@ class MemoryHealth:
         with self._lock:
             if generation == self._generations[operation]:
                 self._states[operation] = {"state": state, **({"reason": reason} if reason else {}),
-                                           **({"source_unknown": source_unknown} if source_unknown is not None else {})}
+                                           **({"source_unknown": source_unknown} if type(source_unknown) is bool else {})}
 
     def snapshot(self) -> dict:
         with self._lock:
