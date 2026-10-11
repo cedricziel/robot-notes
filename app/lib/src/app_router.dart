@@ -151,34 +151,60 @@ class ConfigHolder extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<AppConfig?>? _renewal;
+  int? _renewalRevision;
+
   /// Coalesces rejected tokens and persists rotation before callers retry.
   Future<AppConfig?> renewSession(String rejectedToken) {
+    final current = config;
+    if (_disposed || sessionExpired || current == null) {
+      return Future.value();
+    }
+    if (current.apiKey != rejectedToken) return Future.value(current);
+    if (!current.isOidcSession) {
+      expireSession();
+      return Future.value();
+    }
+    if (_renewalRevision == _sessionRevision && _renewal != null) {
+      return _renewal!;
+    }
     final revision = _sessionRevision;
-    return _mutate(() async {
-      if (_disposed || revision != _sessionRevision || sessionExpired) {
-        return null;
-      }
-      final current = config;
-      if (current == null) return null;
-      if (current.apiKey != rejectedToken) return current;
-      if (!current.isOidcSession) {
-        expireSession();
-        return null;
-      }
-      try {
-        final refreshed = await _refresher.refresh(current);
-        if (_disposed || revision != _sessionRevision) return null;
-        await _store.write(refreshed);
-        if (_disposed || revision != _sessionRevision) return null;
-        config = refreshed;
-        return refreshed;
-      } on OidcRefreshException catch (error) {
-        if (_disposed || revision != _sessionRevision) return null;
-        if (error.retryable) rethrow;
-        expireSession();
-        return null;
+    final renewal = _refreshSession(current, revision);
+    _renewalRevision = revision;
+    late final Future<AppConfig?> pending;
+    pending = renewal.whenComplete(() {
+      if (identical(_renewal, pending)) {
+        _renewal = null;
+        _renewalRevision = null;
       }
     });
+    _renewal = pending;
+    return pending;
+  }
+
+  Future<AppConfig?> _refreshSession(AppConfig current, int revision) async {
+    try {
+      final refreshed = await _refresher.refresh(current);
+      return await _mutate(() async {
+        if (_disposed || revision != _sessionRevision || sessionExpired) {
+          return null;
+        }
+        final selected = refreshed.withVault(config!.vaultId);
+        await _store.write(selected);
+        if (_disposed || revision != _sessionRevision || sessionExpired) {
+          return null;
+        }
+        config = selected;
+        return selected;
+      });
+    } on Object catch (error) {
+      if (_disposed || revision != _sessionRevision) return null;
+      if (error is OidcRefreshException && !error.retryable) {
+        expireSession();
+        return null;
+      }
+      rethrow;
+    }
   }
 
   /// The store backing this holder, so callers that already have a
@@ -248,12 +274,10 @@ class ConfigHolder extends ChangeNotifier {
 
   Future<void> reset() {
     _sessionRevision++;
-    return _mutate(() async {
-      await _store.clear();
-      config = null;
-      sessionExpired = false;
-      notifyListeners();
-    });
+    config = null;
+    sessionExpired = false;
+    notifyListeners();
+    return _mutate(_store.clear);
   }
 
   @override

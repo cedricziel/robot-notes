@@ -105,33 +105,114 @@ void main() {
     },
   );
 
-  test('logout during refresh cannot restore credentials', () async {
-    final response = Completer<http.Response>();
-    final started = Completer<void>();
-    final store = InMemoryConfigStore();
-    final holder = ConfigHolder(
-      store,
-      refresher: OidcSessionRefresher(
-        clientFactory: () => MockClient((_) {
-          started.complete();
-          return response.future;
-        }),
-      ),
-    );
-    addTearDown(holder.dispose);
-    await Future<void>.delayed(Duration.zero);
-    holder.set(oauth);
-    final refresh = holder.renewSession('old');
-    await started.future;
-    final logout = holder.reset();
-    response.complete(
-      http.Response('{"access_token":"new","refresh_token":"rotated"}', 200),
-    );
-    expect(await refresh, isNull);
-    await logout;
-    expect(holder.config, isNull);
-    expect(await store.read(), isNull);
-  });
+  test(
+    'logout clears credentials without waiting for a stalled refresh',
+    () async {
+      final response = Completer<http.Response>();
+      final started = Completer<void>();
+      final store = InMemoryConfigStore();
+      final holder = ConfigHolder(
+        store,
+        refresher: OidcSessionRefresher(
+          clientFactory: () => MockClient((_) {
+            started.complete();
+            return response.future;
+          }),
+        ),
+      );
+      addTearDown(holder.dispose);
+      await Future<void>.delayed(Duration.zero);
+      await store.write(oauth);
+      holder.set(oauth);
+      final refresh = holder.renewSession('old');
+      await started.future;
+      final logout = holder.reset();
+      expect(holder.config, isNull);
+      await logout;
+      expect(await store.read(), isNull);
+      expect(response.isCompleted, isFalse);
+      response.complete(
+        http.Response('{"access_token":"new","refresh_token":"rotated"}', 200),
+      );
+      expect(await refresh, isNull);
+      await logout;
+      expect(holder.config, isNull);
+      expect(await store.read(), isNull);
+    },
+  );
+
+  test(
+    'vault switching completes while refresh is stalled and survives rotation',
+    () async {
+      final response = Completer<http.Response>();
+      final store = InMemoryConfigStore();
+      final holder = ConfigHolder(
+        store,
+        refresher: OidcSessionRefresher(
+          clientFactory: () => MockClient((_) => response.future),
+        ),
+      );
+      addTearDown(holder.dispose);
+      await Future<void>.delayed(Duration.zero);
+      holder.set(oauth);
+      final refresh = holder.renewSession('old');
+      final selection = holder.selectVault('work');
+      await Future<void>.delayed(Duration.zero);
+      expect(holder.config?.vaultId, 'work');
+      expect(response.isCompleted, isFalse);
+      expect(await selection, isTrue);
+      response.complete(
+        http.Response('{"access_token":"new","refresh_token":"rotated"}', 200),
+      );
+      expect((await refresh)?.vaultId, 'work');
+      expect((await store.read())?.vaultId, 'work');
+      expect(holder.config?.apiKey, 'new');
+    },
+  );
+
+  test(
+    'a new sign-in can renew while an old session refresh is stalled',
+    () async {
+      final oldResponse = Completer<http.Response>();
+      final store = InMemoryConfigStore();
+      var requests = 0;
+      final holder = ConfigHolder(
+        store,
+        refresher: OidcSessionRefresher(
+          clientFactory: () => MockClient((_) {
+            requests++;
+            return requests == 1
+                ? oldResponse.future
+                : Future.value(
+                    http.Response(
+                      '{"access_token":"new-session","refresh_token":"new-refresh"}',
+                      200,
+                    ),
+                  );
+          }),
+        ),
+      );
+      addTearDown(holder.dispose);
+      await Future<void>.delayed(Duration.zero);
+      holder.set(oauth);
+      final oldRefresh = holder.renewSession('old');
+      await holder.reset();
+      holder.set(oauth);
+      final newRefresh = holder.renewSession('old');
+      await Future<void>.delayed(Duration.zero);
+      expect(holder.config?.apiKey, 'new-session');
+      expect(oldResponse.isCompleted, isFalse);
+      expect((await newRefresh)?.apiKey, 'new-session');
+      oldResponse.complete(
+        http.Response(
+          '{"access_token":"stale","refresh_token":"stale-refresh"}',
+          200,
+        ),
+      );
+      expect(await oldRefresh, isNull);
+      expect((await store.read())?.apiKey, 'new-session');
+    },
+  );
 
   test('logout waits for vault persistence and clears credentials', () async {
     final store = DelayedStore();
