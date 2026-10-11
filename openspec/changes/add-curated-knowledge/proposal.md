@@ -5,6 +5,16 @@ Robot Notes stores shared knowledge, but accepted notes currently have no retain
 ## What changes
 
 - Designate ordinary notes as curated knowledge without replacing Markdown, the editor, folders, or databases.
+- Support Person, Project, Claim, Decision, Procedure, and Evidence as typed Markdown entries.
+- Bulk-adopt a pinned published Schema.org release and define local types and enforced constraints that extend its terms.
+- Combine authoring guidance with enforced properties and typed relations for reliable accepted-knowledge queries.
+- Separate original sources from curated knowledge and preserve revision-specific evidence references.
+- Store imported and local type definitions as canonical filesystem documents with rebuildable indexes.
+- Define versioned file formats and explicit artifact writers and server publication authority.
+- Add adapter-neutral, durable background extraction from opt-in source capture into evidence-backed proposals.
+- Expose shared agent tools for type discovery, accepted queries, source inspection, validation, and idempotent atomic proposals.
+- Gate release on Hermes compatibility for existing memory behavior, new knowledge tools, and isolated live-server verification.
+- Curate type definitions and preview schema migration impacts.
 - Add stable block identity, comments, proposals, and retained accepted revisions.
 - Enforce separate proposal, review, direct-edit, policy-management, and purge permissions.
 - Inherit access and approval policy through folders, with note overrides.
@@ -15,7 +25,7 @@ Robot Notes stores shared knowledge, but accepted notes currently have no retain
 
 ### New capabilities
 
-- `curated-knowledge`: block proposals, inherited policies, review decisions, accepted history, and accepted-only recall.
+- `curated-knowledge`: block proposals, inherited policies, review decisions, accepted history, and accepted-only recall, ontology adoption, reusable types, and typed relationships.
 
 ### Modified capabilities
 
@@ -23,8 +33,8 @@ Implementation changes to notes storage, APIs, authorization, search, and the Fl
 
 ## Impact
 
-The server will own authorization and acceptance. REST, MCP, WebSocket subscriptions, search, and database views must apply the same effective policy. The Flutter app will add review and history views beside its existing editing flow. Hermes will propose changes to curated knowledge and recall accepted content.
+The server will own authorization and acceptance. REST, MCP, WebSocket subscriptions, search, and database views must apply the same effective policy. The Flutter app will add review and history views beside its existing editing flow. Hermes and future adapters can opt into source capture; a server worker extracts proposals with no acceptance authority. Hermes recalls accepted knowledge.
 
 ## Non-goals
 
-Block-level permission overrides, autonomous gardening agents, semantic truth scoring, a replacement editor, a context engine, and automatic evidence archiving are outside the first implementation. The design leaves extension points for them.
+PROV-O provenance and SKOS concept organization are later extensions. Block-level permission overrides, autonomous gardening agents, semantic truth scoring, a replacement editor, a context engine, automatic evidence archiving, universal ontology reasoning, and arbitrary executable import rules are outside the first implementation. The design leaves extension points for them.
