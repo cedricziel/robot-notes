@@ -31,6 +31,7 @@ import 'notes/folder_tree_controller.dart';
 import 'notes/folder_tree_sidebar.dart';
 import 'notes/note_controller.dart';
 import 'notes/note_screen.dart';
+import 'notes/note_navigation_scope.dart';
 import 'notes/notes_list_controller.dart';
 import 'notes/notes_list_screen.dart';
 import 'otel/otel_http_client.dart';
@@ -338,10 +339,14 @@ GoRouter buildAppRouter({
   // Every pushed route here is itself deep-link-able, so reflecting it is
   // safe and required for bookmarking, sharing, and reload-to-same-note.
   GoRouter.optionURLReflectsImperativeAPIs = true;
+  final navigation = NoteNavigationRegistry();
   return GoRouter(
     initialLocation: initialLocation ?? '/',
     refreshListenable: configHolder,
-    redirect: (context, state) => _redirect(configHolder, state),
+    redirect: (context, state) async {
+      final configured = await _redirect(configHolder, state);
+      return configured ?? await navigation.redirect(state.uri);
+    },
     routes: [
       ShellRoute(
         builder: (context, state, child) {
@@ -368,9 +373,13 @@ GoRouter buildAppRouter({
               context,
               key: state.pageKey,
               splitView: _isLarge(context),
-              child: _NotePage(
-                noteId: state.pathParameters['id']!,
-                startEditing: state.uri.queryParameters['edit'] == '1',
+              child: NoteNavigationScope(
+                registry: navigation,
+                location: state.uri,
+                child: _NotePage(
+                  noteId: state.pathParameters['id']!,
+                  startEditing: state.uri.queryParameters['edit'] == '1',
+                ),
               ),
             ),
           ),

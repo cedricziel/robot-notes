@@ -15,6 +15,7 @@ import 'package:app/src/lock/app_lock_gate.dart';
 import 'package:app/src/lock/app_lock_prefs.dart';
 import 'package:app/src/lock/biometric_authenticator.dart';
 import 'package:app/src/notes/folder_tree_controller.dart';
+import 'package:app/src/notes/block_note_editor.dart';
 import 'package:app/src/notes/notes_list_controller.dart';
 import 'package:app/src/notes/notes_list_screen.dart';
 import 'package:app/src/realtime/connection_status.dart';
@@ -211,18 +212,9 @@ Future<void> _pressChord(
   await tester.pumpAndSettle();
 }
 
-/// Closes an open note (through the discard prompt if the editor is
-/// dirty) and lets its lock heartbeat timer elapse, so a test that opened
-/// the editor ends with nothing pending.
-Future<void> _closeNoteAndDrainTimers(WidgetTester tester) async {
+Future<void> _closeNote(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('note.close')));
   await tester.pumpAndSettle();
-  final discardConfirm = find.byKey(const Key('note.discard.confirm'));
-  if (discardConfirm.evaluate().isNotEmpty) {
-    await tester.tap(discardConfirm);
-    await tester.pumpAndSettle();
-  }
-  await tester.pump(const Duration(days: 365 * 100));
 }
 
 /// Backend that additionally lists one note (`01H`, "hello") so the notes
@@ -349,6 +341,10 @@ void main() {
     await tester.tap(find.byKey(const Key('shell.tab.search')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('search.recent.01H')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('note.menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('note.details')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('note.tags.chip.release')));
     await tester.pumpAndSettle();
@@ -483,8 +479,8 @@ void main() {
         await tester.tap(_listRow());
         await tester.pumpAndSettle();
         expect(router.routeInformationProvider.value.uri.path, '/notes/01H');
-        expect(find.byKey(const Key('note.body')), findsOneWidget);
-        expect(find.text('world'), findsOneWidget);
+        expect(find.byType(BlockNoteEditor), findsOneWidget);
+        expect(find.text('world', findRichText: true), findsOneWidget);
         expect(
           find.byType(NotesListScreen),
           large ? findsOneWidget : findsNothing,
@@ -495,7 +491,7 @@ void main() {
             PaneSizes.listPane,
           );
           expect(
-            tester.getTopLeft(find.byKey(const Key('note.body'))).dx,
+            tester.getTopLeft(find.byType(BlockNoteEditor)).dx,
             greaterThan(PaneSizes.listPane + PaneSizes.sidebarMin),
           );
         }
@@ -505,7 +501,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(router.routeInformationProvider.value.uri.path, '/');
         expect(_listRow(), findsOneWidget);
-        expect(find.byKey(const Key('note.body')), findsNothing);
+        expect(find.byType(BlockNoteEditor), findsNothing);
         expect(tester.takeException(), isNull);
       }, variant: TargetPlatformVariant({scenario.platform}));
     }
@@ -539,8 +535,8 @@ void main() {
           tester.view.physicalSize = size;
           await tester.pumpAndSettle();
           expect(router.routeInformationProvider.value.uri.path, '/notes/01H');
-          expect(find.byKey(const Key('note.body')), findsOneWidget);
-          expect(find.text('world'), findsOneWidget);
+          expect(find.byType(BlockNoteEditor), findsOneWidget);
+          expect(find.text('world', findRichText: true), findsOneWidget);
           expect(
             find.byKey(const Key('shell.sidebar')),
             size.width >= Breakpoints.large ? findsOneWidget : findsNothing,
@@ -1117,11 +1113,8 @@ void main() {
 
     expect(createBody?['path'], 'Projects/Alpha');
 
-    // Creating navigates into the editor, which starts a real lock
-    // heartbeat timer; stop it so the test ends with nothing pending.
     await tester.tap(find.byKey(const Key('note.close')));
     await tester.pumpAndSettle();
-    await tester.pump(const Duration(days: 365 * 100));
   });
 
   testWidgets(
@@ -1148,11 +1141,8 @@ void main() {
 
       expect(createBody?['path'], '');
 
-      // Creating navigates into the editor, which starts a real lock
-      // heartbeat timer; stop it so the test ends with nothing pending.
       await tester.tap(find.byKey(const Key('note.close')));
       await tester.pumpAndSettle();
-      await tester.pump(const Duration(days: 365 * 100));
     },
   );
 
@@ -1320,8 +1310,8 @@ void main() {
     await tester.pumpWidget(_harness(api: api, initialLocation: '/notes/01H'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('note.body')), findsOneWidget);
-    expect(find.text('world'), findsOneWidget);
+    expect(find.byType(BlockNoteEditor), findsOneWidget);
+    expect(find.text('world', findRichText: true), findsOneWidget);
   });
 
   testWidgets('/notes/01H?edit=1 opens the editor', (tester) async {
@@ -1336,17 +1326,7 @@ void main() {
     expect(find.byKey(const Key('note.editor.title')), findsOneWidget);
     expect(find.byKey(const Key('note.save')), findsOneWidget);
 
-    // The lock heartbeat is a real timer; stop it by closing the note (via
-    // the discard-changes prompt, since entering edit mode alone counts as
-    // dirty) so the test ends with nothing pending.
-    await tester.tap(find.byKey(const Key('note.close')));
-    await tester.pumpAndSettle();
-    final discardConfirm = find.byKey(const Key('note.discard.confirm'));
-    if (discardConfirm.evaluate().isNotEmpty) {
-      await tester.tap(discardConfirm);
-      await tester.pumpAndSettle();
-    }
-    await tester.pump(const Duration(days: 365 * 100));
+    await _closeNote(tester);
   });
 
   group('/databases/:id route', () {
@@ -1857,12 +1837,12 @@ void main() {
         _harness(api: api, initialLocation: '/notes/01H'),
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('note.body')), findsOneWidget);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('note.close')));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('note.body')), findsNothing);
+      expect(find.byType(BlockNoteEditor), findsNothing);
       expect(find.byKey(const Key('notes.title')), findsOneWidget);
     },
   );
@@ -1916,12 +1896,12 @@ void main() {
           '/notes/01H',
         );
         // The note renders in the detail pane, beside the still-mounted list.
-        expect(find.byKey(const Key('note.body')), findsOneWidget);
-        expect(find.text('world'), findsOneWidget);
+        expect(find.byType(BlockNoteEditor), findsOneWidget);
+        expect(find.text('world', findRichText: true), findsOneWidget);
         expect(find.byType(NotesListScreen), findsOneWidget);
         expect(find.byKey(const Key('shell.detail.empty')), findsNothing);
         expect(
-          tester.getTopLeft(find.byKey(const Key('note.body'))).dx,
+          tester.getTopLeft(find.byType(BlockNoteEditor)).dx,
           greaterThan(PaneSizes.listPane + PaneSizes.sidebarMin),
         );
         expect(
@@ -1947,7 +1927,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(router.routeInformationProvider.value.uri.toString(), '/');
-        expect(find.byKey(const Key('note.body')), findsNothing);
+        expect(find.byType(BlockNoteEditor), findsNothing);
         expect(find.byKey(const Key('shell.detail.empty')), findsOneWidget);
         expect(find.byType(NotesListScreen), findsOneWidget);
       },
@@ -2011,7 +1991,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('note.body')), findsOneWidget);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
       expect(find.byType(NotesListScreen), findsOneWidget);
       expect(
         tester
@@ -2054,7 +2034,7 @@ void main() {
       await tester.tap(_listRow());
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('note.body')), findsOneWidget);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
       expect(tester.getSize(sidebar).width, widened);
     });
 
@@ -2094,7 +2074,7 @@ void main() {
       expect(find.byType(NotesListScreen), findsOneWidget);
       expect(router.canPop(), isFalse);
 
-      await _closeNoteAndDrainTimers(tester);
+      await _closeNote(tester);
     });
   });
 
@@ -2123,9 +2103,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(_listRow());
     await tester.pumpAndSettle();
-    final route = ModalRoute.of(
-      tester.element(find.byKey(const Key('note.body'))),
-    )!;
+    final route = ModalRoute.of(tester.element(find.byType(BlockNoteEditor)))!;
     expect(route.transitionDuration, Duration.zero);
     expect(route.reverseTransitionDuration, Duration.zero);
   });
@@ -2141,11 +2119,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(_listRow());
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('note.body')), findsOneWidget);
+    expect(find.byType(BlockNoteEditor), findsOneWidget);
     await tester.dragFrom(const Offset(1, 400), const Offset(350, 0));
     await tester.pumpAndSettle();
     expect(find.byType(NotesListScreen), findsOneWidget);
-    expect(find.byKey(const Key('note.body')), findsNothing);
+    expect(find.byType(BlockNoteEditor), findsNothing);
   }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
 
   group('single-pane below the large breakpoint', () {
@@ -2182,7 +2160,7 @@ void main() {
         '/notes/01H',
       );
       expect(router.canPop(), isTrue);
-      expect(find.byKey(const Key('note.body')), findsOneWidget);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
       expect(find.byType(NotesListScreen), findsNothing);
       // Page presentation: a back arrow.
       expect(
@@ -2280,7 +2258,7 @@ void main() {
       expect(createBody?['path'], 'Projects');
       expect(find.byKey(const Key('note.editor.title')), findsOneWidget);
 
-      await _closeNoteAndDrainTimers(tester);
+      await _closeNote(tester);
     });
 
     testWidgets('shortcuts also fire from inside the open note', (
@@ -2294,7 +2272,7 @@ void main() {
         _harness(api: api, initialLocation: '/notes/01H'),
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('note.body')), findsOneWidget);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
 
       await _pressChord(
         tester,
@@ -2406,7 +2384,7 @@ void main() {
       expect(createBody, isNotNull);
       expect(find.byKey(const Key('note.editor.title')), findsOneWidget);
 
-      await _closeNoteAndDrainTimers(tester);
+      await _closeNote(tester);
     });
 
     testWidgets('on the macOS desktop build the shell leaves menu-owned '

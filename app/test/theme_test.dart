@@ -12,6 +12,7 @@ void main() {
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
 
     await tester.pumpWidget(const RobotNotesApp());
+    await tester.pump();
 
     final context = tester.element(find.byType(CircularProgressIndicator));
     expect(Theme.of(context).colorScheme.brightness, Brightness.dark);
@@ -24,6 +25,7 @@ void main() {
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
 
     await tester.pumpWidget(const RobotNotesApp());
+    await tester.pump();
 
     final context = tester.element(find.byType(CircularProgressIndicator));
     expect(Theme.of(context).colorScheme.brightness, Brightness.light);
