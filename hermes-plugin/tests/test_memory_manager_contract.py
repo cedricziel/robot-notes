@@ -44,6 +44,7 @@ BASE_URL = "https://notes.example.com"
 @pytest.fixture
 def manager_and_provider(tmp_path, monkeypatch):
     monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     (tmp_path / "robot_notes.json").write_text(
         json.dumps({"base_url": BASE_URL, "actor": "hermes-bot"}), encoding="utf-8"
     )

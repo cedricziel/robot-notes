@@ -8,4 +8,4 @@
 #   git ls-remote https://github.com/NousResearch/hermes-agent refs/heads/main
 # -- replace the SHA below with it, then run `make test-hermes-plugin-contract`
 # locally to confirm the plugin still passes against it before committing.
-8503ee4459316ce092b5d69b7d396c27aa03d0be
+97a9ae8ee55d31bebce49f1fb6b5ef775323976a
