@@ -61,6 +61,18 @@ List<McpTool> proposalMcpTools(ProposalService service) {
           'openWorldHint': false,
         },
         requiresWrite: false,
+        requiredScope: readOnly
+            ? 'notes:read'
+            : name == 'review_note_proposal'
+                ? 'knowledge:review'
+                : const {'comment_note_proposal', 'add_note_comment'}
+                        .contains(name)
+                    ? null
+                    : 'knowledge:propose',
+        requiredAnyScopes:
+            const {'comment_note_proposal', 'add_note_comment'}.contains(name)
+                ? const {'knowledge:propose', 'knowledge:review'}
+                : null,
         handler: (args, principal) =>
             withKnowledgePrincipal(principal.knowledgePrincipal, () async {
           try {

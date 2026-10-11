@@ -41,13 +41,6 @@ void main() {
     meta = MetaIndex();
     links = LinkIndex();
     broadcaster = Broadcaster();
-    writer = NoteWriteService(
-      storage: storage,
-      searchIndex: search,
-      metaIndex: meta,
-      linkIndex: links,
-      broadcaster: broadcaster,
-    );
     policies = KnowledgePolicyStore(file: File('${dir.path}/policy.json'));
     await policies.load();
     final authorization = NoteAuthorizationService(store: policies);
@@ -55,6 +48,14 @@ void main() {
       const KnowledgePrincipal.operator(),
       '',
       KnowledgePolicyPatch(curated: true),
+    );
+    writer = NoteWriteService(
+      storage: storage,
+      authorization: authorization,
+      searchIndex: search,
+      metaIndex: meta,
+      linkIndex: links,
+      broadcaster: broadcaster,
     );
     proposals = ProposalService(
       storage: storage,

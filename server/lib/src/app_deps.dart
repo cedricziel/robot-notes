@@ -24,6 +24,7 @@ import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/oidc/discovery.dart';
 import 'package:server/src/oidc/jwks.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
+import 'package:server/src/proposals/proposal_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/upload_sessions.dart';
@@ -103,6 +104,8 @@ class AppDeps {
           lockManager: lockManager,
           registry: resolvedRegistry,
         );
+    storage.acceptedPolicyReplay =
+        resolvedAuthorization.store.replayAcceptedNoteDesignation;
     resolvedAuthorization.beforePolicyPublish ??=
         resolvedWriteService.preparePolicyHistory;
     storage.requiresHistoryForNote = (note) => resolvedAuthorization.store
@@ -230,6 +233,10 @@ class AppDeps {
       file: File('${config.dataDir}/knowledge-policy.json'),
     );
     await policies.load();
+    storage
+      ..acceptedPolicyReplay = policies.replayAcceptedNoteDesignation
+      ..requiresHistoryForNote = (note) =>
+          policies.effective(KnowledgeTarget.note(note.id, note.path)).curated;
     final authorization = NoteAuthorizationService(
       store: policies,
       vaultId: vaultId,
@@ -398,6 +405,17 @@ class AppDeps {
       return null;
     };
   }
+
+  /// Builds review handlers over this vault's authoritative services.
+  ProposalService get proposals => ProposalService(
+        storage: storage,
+        authorization: authorization,
+        onAccepted: noteWriteService.indexAcceptedProposal,
+        validateDraft: noteWriteService.validateProposalDraft,
+        clock: clock,
+        archiveReader: (digest) async =>
+            evidenceStore.read(digest)?.cast<String, dynamic>(),
+      );
 
   /// Selected-vault read filters share the accepted-write authorization.
   KnowledgeReadService get knowledgeReads => KnowledgeReadService(

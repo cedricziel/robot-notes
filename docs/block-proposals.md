@@ -4,7 +4,7 @@ Proposals hold candidate knowledge separately from accepted Markdown. Normal not
 
 ## Construct an existing-note proposal
 
-Read the note body and `GET /notes/{id}/blocks`. The note version must match the map version, and the map's SHA-256 `content_hash` must match the exact UTF-8 body. Block offsets use UTF-16 code units, including for emoji. MCP `get_note_blocks` reads body, map, and active provenance together under one lock.
+Use the exact `content` returned by `GET /notes/{id}/blocks` with its map and active `provenance`. The response is captured under one lock, like MCP `get_note_blocks`. When editing a separately captured note, its version must match the map version and the map's SHA-256 `content_hash` must match that exact UTF-8 body. Block offsets use UTF-16 code units, including for emoji. MCP `get_note_blocks` reads body, map, and active provenance together under one lock.
 
 Submit `POST /notes/{id}/proposals`:
 

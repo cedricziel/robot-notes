@@ -11,6 +11,7 @@ final class ProposalAcceptancePermit {
     required this.deleted,
     required this.newNote,
     required this.actor,
+    required this.requiresHistory,
     this.policyDelta,
     StoredNote? expectedCurrent,
   }) : _expectedCanonical =
@@ -39,6 +40,9 @@ final class ProposalAcceptancePermit {
 
   /// Reviewer display attribution; never used to authorize publication.
   final String actor;
+
+  /// Effective governance pins future capture independently of frontmatter.
+  final bool requiresHistory;
 
   /// Minimal server-authorized note designation for journal replay.
   final Map<String, dynamic>? policyDelta;

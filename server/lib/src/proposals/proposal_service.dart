@@ -691,21 +691,35 @@ class ProposalService {
   Future<Map<String, dynamic>> acceptedBlocks(String id, {int? version}) =>
       authorization.store.withMutationLock(
         () => storage.withProposalMutation(id, () async {
-          final source = version == null
-              ? await storage.read(id)
-              : await storage.readRevision(id, version);
+          String content;
+          String path;
+          int wanted;
+          var deleted = false;
           if (version == null) {
+            final source = await storage.read(id);
+            content = source.content;
+            path = source.path;
+            wanted = source.version;
             authorization.require(
               currentKnowledgePrincipal,
               KnowledgeAction.read,
               _target(source),
             );
           } else {
+            final history = await storage.revisions(id);
+            final snapshot = history
+                .where((record) => record['version'] == version)
+                .firstOrNull;
+            if (snapshot == null) throw NoteNotFoundException(id);
+            final stored = parseFrontmatter(snapshot['markdown'] as String);
+            deleted = snapshot['deleted'] == true;
+            content = deleted ? '' : stored.body;
+            path = stored.metadata['path'] as String? ?? '';
+            wanted = version;
             String currentPath;
             try {
               currentPath = (await storage.read(id)).path;
             } on NoteNotFoundException {
-              final history = await storage.revisions(id);
               currentPath =
                   (parseFrontmatter(history.last['markdown'] as String)
                           .metadata['path'] as String?) ??
@@ -714,19 +728,23 @@ class ProposalService {
             authorization.requireHistoricalRead(
               currentKnowledgePrincipal,
               id,
-              source.path,
+              path,
               currentPath,
             );
           }
           final map = await storage.readBlockMap(id, version: version);
+          if (map.version != wanted || !map.matches(content)) {
+            throw const BlockMapUnavailableException(stale: true);
+          }
           final provenance = await storage.readAcceptedProvenance(
             id,
-            version: source.version,
+            version: wanted,
           );
           return {
             'id': id,
             ...map.toJson(),
-            'content': source.content,
+            'content': content,
+            if (deleted) 'deleted': true,
             'provenance': {
               for (final block in map.blocks)
                 block.id: provenance[block.id] ??
@@ -1176,6 +1194,8 @@ class ProposalService {
       newNote: newNote,
       actor: actor ?? _author(actor).label,
       policyDelta: policyDelta,
+      requiresHistory:
+          policyDelta != null || authorization.store.effective(target).curated,
       expectedCurrent: expectedCurrent,
     );
     try {

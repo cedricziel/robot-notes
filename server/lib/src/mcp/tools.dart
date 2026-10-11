@@ -18,6 +18,7 @@ import 'package:server/src/meta_index.dart' as meta_index
     show InvalidCursorException;
 import 'package:server/src/meta_index.dart' hide InvalidCursorException;
 import 'package:server/src/note_write_service.dart';
+import 'package:server/src/proposals/proposal_mcp.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/upload_sessions.dart';
@@ -222,8 +223,9 @@ class McpToolRegistry {
     AppDeps deps, {
     String vaultId = 'default',
   }) =>
-      McpToolRegistry(
-        [
+      McpToolRegistry([
+        ...proposalMcpTools(deps.proposals),
+        ...[
           _getNotePermissionsTool(deps.noteWriteService),
           _listNotesTool(deps.metaIndex, deps.knowledgeReads),
           _getNoteTool(deps.storage, deps.lockManager),
@@ -274,39 +276,37 @@ class McpToolRegistry {
           ),
           _createRowTool(deps.noteWriteService),
           _updatePropertiesTool(deps.noteWriteService),
-        ]
-            .map(
-              (tool) => McpTool(
-                name: tool.name,
-                description: tool.description,
-                inputSchema: tool.inputSchema,
-                annotations: tool.annotations,
-                requiresWrite: tool.requiresWrite,
-                requiredScope: tool.requiredScope,
-                requiredAnyScopes: tool.requiredAnyScopes,
-                handler: (args, principal) async {
-                  final rawId = args['id'];
-                  if (rawId is String) {
-                    try {
-                      await deps.knowledgeReads.requireNote(rawId);
-                    } on NoteNotFoundException {
-                      return toolFail(ErrorCode.notFound.wire);
-                    }
-                  }
-                  if (tool.name == 'create_folder') {
-                    return deps.authorization.runMutation(
-                      currentKnowledgePrincipal,
-                      KnowledgeAction.edit,
-                      KnowledgeTarget.folder(_requiredString(args, 'path')),
-                      () => tool.handler(args, principal),
-                    );
-                  }
-                  return tool.handler(args, principal);
-                },
-              ),
-            )
-            .toList(),
-      );
+        ].map(
+          (tool) => McpTool(
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            annotations: tool.annotations,
+            requiresWrite: tool.requiresWrite,
+            requiredScope: tool.requiredScope,
+            requiredAnyScopes: tool.requiredAnyScopes,
+            handler: (args, principal) async {
+              final rawId = args['id'];
+              if (rawId is String) {
+                try {
+                  await deps.knowledgeReads.requireNote(rawId);
+                } on NoteNotFoundException {
+                  return toolFail(ErrorCode.notFound.wire);
+                }
+              }
+              if (tool.name == 'create_folder') {
+                return deps.authorization.runMutation(
+                  currentKnowledgePrincipal,
+                  KnowledgeAction.edit,
+                  KnowledgeTarget.folder(_requiredString(args, 'path')),
+                  () => tool.handler(args, principal),
+                );
+              }
+              return tool.handler(args, principal);
+            },
+          ),
+        ),
+      ]);
 
   final List<McpTool> _tools;
   final Map<String, McpTool> _byName;

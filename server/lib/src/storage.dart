@@ -1040,6 +1040,7 @@ class Storage {
               title: permit.note.title,
             );
           }
+          if (permit.requiresHistory) await ensureRequiredHistory(id);
           await _commitHistory(
             permit.note,
             path,
@@ -1217,6 +1218,9 @@ class Storage {
     Map<String, dynamic> event, {
     bool injectFailure = false,
   }) async {
+    if (event['accepted_policy_delta'] is Map<String, dynamic>) {
+      await ensureRequiredHistory(event['id'] as String);
+    }
     final path = event['path'] as String?;
     final oldPath = event['previous_path'] as String?;
     if (path != null) {

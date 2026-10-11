@@ -60,9 +60,11 @@ Future<Response> proposalRequest(
     final service = context.read<ProposalService>();
     final actor = context.read<Actor>().name;
     final identity = context.read<RestPrincipal>().knowledgePrincipal;
-    final principal = context.request.headers['x-robot-notes-agent'] == 'true'
-        ? identity.withAgentOrigin()
-        : identity;
+    final principal =
+        context.request.headers['x-robot-notes-agent']?.trim().toLowerCase() ==
+                'true'
+            ? identity.withAgentOrigin()
+            : identity;
     return await withKnowledgePrincipal(principal, () async {
       Map<String, dynamic>? input;
       if (method != HttpMethod.get) {
@@ -80,6 +82,7 @@ Future<Response> proposalRequest(
               body: {
                 'items': await service.list(
                   noteId: id,
+                  state: context.request.uri.queryParameters['state'],
                   includeTerminal:
                       context.request.uri.queryParameters['include_terminal'] ==
                           'true',
