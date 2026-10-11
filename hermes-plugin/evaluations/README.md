@@ -82,3 +82,8 @@ The runner waits up to 60 seconds for every scenario note's vector to exist befo
 searching. Failed or incomplete indexing fails the run. Hybrid results are reported
 without comparison to the keyword baseline. Compare runs with identical corpus,
 provider, model digest, and settings. CI does not download a model or run embeddings.
+
+The [semantic tail experiment](semantic_tail/README.md) records a pinned real-model
+comparison, actual named-tokenizer counts, truncation probes, and a bounded passage
+prototype. It is an opt-in synthetic experiment with a no-rollout recommendation;
+production indexing and the model-independent keyword baseline remain unchanged.
