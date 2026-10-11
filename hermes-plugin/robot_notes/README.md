@@ -365,3 +365,29 @@ export ROBOT_NOTES_E2E_BASE_URL=http://127.0.0.1:8080
 export ROBOT_NOTES_E2E_API_KEY=dev-secret-do-not-ship
 cd hermes-plugin && .venv/bin/python -m pytest -m e2e
 ```
+
+
+### Memory health
+
+Call `robotnotes_health()` to inspect automatic memory operations without a server
+request. Embedders can call `provider.memory_health()` even when native tools are
+disabled. The snapshot contains separate `recall`, `mirror`, and `transcript`
+outcomes for the current provider session. It reports the latest started attempt
+for each operation, not an audit history or proof that all earlier writes arrived.
+
+Each outcome has a `state`: `not_attempted`, `in_progress`, `failed`, or
+`succeeded` for writes. Successful recall uses `empty` or `matched`. A failed
+operation adds a `reason` from the client's error categories. For `auth`, check
+the configured credentials and permissions. For `network_error`, check server
+connectivity. For `circuit_open`, allow the client's cooldown before retrying.
+
+Health contains no prompts, note bodies, server error messages, or credentials.
+Trivial prompts and cached recall do not start a new search or change the last
+search outcome. The Hermes recall indicator still counts only injected notes;
+an empty search or outage does not fabricate a recalled note. Background searches
+cannot overwrite a newer attempt's status, and session switches reset health.
+
+`writes_enabled` reflects the provider's context write restrictions.
+`retry_queue: "unsupported"` means automatic writes remain best-effort; failed
+writes are not queued for delivery. A later successful operation does not retry
+an earlier failed write. Successful operation produces no additional log output.

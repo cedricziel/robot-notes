@@ -26,6 +26,7 @@ docs_url: https://github.com/cedricziel/robot-notes/blob/main/hermes-plugin/robo
 version: "0.2.12"
 capabilities:
   provides_tools:
+    - robotnotes_health
     - robotnotes_search
     - robotnotes_list
     - robotnotes_note
