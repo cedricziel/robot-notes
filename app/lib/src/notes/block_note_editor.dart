@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:adaptive_super_editor/adaptive_super_editor.dart';
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoSlidingSegmentedControl;
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart' as legacy;
 import 'package:material_ui/material_ui.dart';
@@ -743,6 +745,88 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
         ),
       );
 
+  Widget _modeSelector(double width) {
+    final labels = <bool, Widget>{
+      false: const Text('Blocks'),
+      true: const Text('Markdown source'),
+    };
+    return SizedBox(
+      key: const ValueKey('block-mode-selector'),
+      width: width,
+      child: useCupertino(context)
+          ? CupertinoSlidingSegmentedControl<bool>(
+              proportionalWidth: true,
+              groupValue: _sourceMode,
+              children: {
+                for (final entry in labels.entries)
+                  entry.key: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 10,
+                    ),
+                    child: entry.value,
+                  ),
+              },
+              onValueChanged: (value) {
+                if (value != null) _switchMode(value);
+              },
+            )
+          : SegmentedButton<bool>(
+              showSelectedIcon: false,
+              segments: [
+                for (final entry in labels.entries)
+                  ButtonSegment(value: entry.key, label: entry.value),
+              ],
+              selected: {_sourceMode},
+              onSelectionChanged: (values) => _switchMode(values.single),
+              style: SegmentedButton.styleFrom(
+                textStyle: Theme.of(context).textTheme.labelMedium,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                minimumSize: const Size(0, 40),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+    );
+  }
+
+  Widget _toolbar(List<Widget> actions) => Padding(
+    padding: const EdgeInsets.symmetric(
+      horizontal: PaneSizes.editorPadding,
+      vertical: 4,
+    ),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked =
+            constraints.maxWidth < 320 ||
+            MediaQuery.textScalerOf(context).scale(14) > 20;
+        final controls = SingleChildScrollView(
+          key: const ValueKey('block-format-actions'),
+          scrollDirection: Axis.horizontal,
+          child: Row(children: actions),
+        );
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _modeSelector(constraints.maxWidth),
+              if (actions.isNotEmpty) controls,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            _modeSelector(240),
+            const SizedBox(width: 8),
+            if (actions.isNotEmpty)
+              Expanded(child: controls)
+            else
+              const Spacer(),
+          ],
+        );
+      },
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final markdownStyles = AppTheme.markdown(context);
@@ -766,71 +850,50 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
       },
       child: Column(
         children: [
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              TextButton(
-                onPressed: () => _switchMode(false),
-                child: Text(
-                  'Blocks',
-                  style: !_sourceMode
-                      ? const TextStyle(fontWeight: FontWeight.bold)
-                      : null,
-                ),
-              ),
-              TextButton(
-                onPressed: () => _switchMode(true),
-                child: Text(
-                  'Markdown source',
-                  style: _sourceMode
-                      ? const TextStyle(fontWeight: FontWeight.bold)
-                      : null,
-                ),
-              ),
-              if (!_sourceMode && !widget.readOnly) ...[
-                IconButton(
-                  tooltip: 'Insert block',
-                  icon: const Icon(Icons.add),
-                  onPressed: () => unawaited(
-                    _chooseBlock(
-                      _composer.selection?.extent.nodeId,
-                      insert: true,
-                    ),
+          _toolbar([
+            if (!_sourceMode && !widget.readOnly) ...[
+              IconButton(
+                tooltip: 'Insert block',
+                icon: const Icon(Icons.add),
+                onPressed: () => unawaited(
+                  _chooseBlock(
+                    _composer.selection?.extent.nodeId,
+                    insert: true,
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Bold',
-                  icon: const Icon(Icons.format_bold),
-                  onPressed: () => _format(boldAttribution),
-                ),
-                IconButton(
-                  tooltip: 'Italic',
-                  icon: const Icon(Icons.format_italic),
-                  onPressed: () => _format(italicsAttribution),
-                ),
-                IconButton(
-                  tooltip: 'Inline code',
-                  icon: const Icon(Icons.code),
-                  onPressed: () => _format(codeAttribution),
-                ),
-                IconButton(
-                  tooltip: 'Add link',
-                  icon: const Icon(Icons.link),
-                  onPressed: _link,
-                ),
-                IconButton(
-                  tooltip: 'Undo',
-                  icon: const Icon(Icons.undo),
-                  onPressed: _editor.undo,
-                ),
-                IconButton(
-                  tooltip: 'Redo',
-                  icon: const Icon(Icons.redo),
-                  onPressed: _editor.redo,
-                ),
-              ],
+              ),
+              IconButton(
+                tooltip: 'Bold',
+                icon: const Icon(Icons.format_bold),
+                onPressed: () => _format(boldAttribution),
+              ),
+              IconButton(
+                tooltip: 'Italic',
+                icon: const Icon(Icons.format_italic),
+                onPressed: () => _format(italicsAttribution),
+              ),
+              IconButton(
+                tooltip: 'Inline code',
+                icon: const Icon(Icons.code),
+                onPressed: () => _format(codeAttribution),
+              ),
+              IconButton(
+                tooltip: 'Add link',
+                icon: const Icon(Icons.link),
+                onPressed: _link,
+              ),
+              IconButton(
+                tooltip: 'Undo',
+                icon: const Icon(Icons.undo),
+                onPressed: _editor.undo,
+              ),
+              IconButton(
+                tooltip: 'Redo',
+                icon: const Icon(Icons.redo),
+                onPressed: _editor.redo,
+              ),
             ],
-          ),
+          ]),
           if (!_sourceMode && widget.header != null) widget.header!,
           Expanded(
             child: _sourceMode

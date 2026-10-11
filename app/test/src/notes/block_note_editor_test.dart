@@ -10,6 +10,82 @@ import 'package:app/src/notes/block_note_editor.dart';
 import 'package:app/src/theme/app_theme.dart';
 
 void main() {
+  for (final platform in [TargetPlatform.android, TargetPlatform.macOS]) {
+    testWidgets('mode selector shares a stable phone toolbar on $platform', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(platform: platform),
+          home: Scaffold(
+            body: BlockNoteEditor(markdown: 'Draft', onChanged: (_) {}),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final mode = find.byKey(const ValueKey('block-mode-selector'));
+      expect(mode, findsOneWidget);
+      expect(tester.getRect(mode).left, 16);
+      expect(
+        tester.getRect(mode).center.dy,
+        closeTo(tester.getRect(find.byTooltip('Redo')).center.dy, 1),
+      );
+      await tester.tap(find.text('Markdown source'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('block-source')))
+            .controller!
+            .text,
+        'Draft',
+      );
+      await tester.tap(find.text('Blocks'));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(mode).left, 16);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.macOS]) {
+    testWidgets('mode selector remains usable with scaled text on $platform', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(platform: platform),
+          home: MediaQuery(
+            data: const MediaQueryData(
+              size: Size(320, 844),
+              textScaler: TextScaler.linear(2),
+            ),
+            child: Scaffold(
+              body: BlockNoteEditor(markdown: 'Draft', onChanged: (_) {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.byKey(const ValueKey('block-mode-selector'))).right,
+        lessThanOrEqualTo(304),
+      );
+      await tester.tap(find.text('Markdown source'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('block-source')), findsOneWidget);
+      await tester.tap(find.text('Blocks'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('task checkbox begins at the paragraph content edge', (
     tester,
   ) async {
