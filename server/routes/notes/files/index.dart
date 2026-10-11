@@ -117,6 +117,7 @@ Future<Response> _upload(RequestContext context) async {
   final storage = context.read<Storage>();
   final clock = context.read<Clock>();
   try {
+    await storage.prepareHistory();
     final result = await store.write(
       path: path,
       filename: file.name,
