@@ -97,10 +97,7 @@ void main() {
         port: 8080,
         lockTtlSeconds: 30,
       );
-      final clock = FixedClock([
-        DateTime.utc(2026, 4, 25, 10),
-        DateTime.utc(2026, 4, 25, 10, 0, 5),
-      ]);
+      final clock = FixedClock.fixed(DateTime.utc(2026, 4, 25, 10));
       final deps = await AppDeps.bootstrap(cfg, clock: clock);
       addTearDown(deps.close);
       final lock = await deps.lockManager.acquire(noteId: 'n1', actor: 'alice');
