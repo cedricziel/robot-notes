@@ -102,3 +102,21 @@ def test_partial_scope_failure_does_not_report_successful_recall(tmp_path, monke
     ])
     assert provider.prefetch("project decision") == ""
     assert provider.recall_status() is None
+
+
+@respx.mock
+@pytest.mark.parametrize('target, expected_path', [('user', 'Hermes/users/alice'), ('memory', 'Hermes/agents/assistant')])
+def test_durable_mirrors_preserve_identity_destination(tmp_path, monkeypatch, target, expected_path):
+    monkeypatch.setenv('ROBOT_NOTES_API_KEY', 'test-key')
+    identity_config(base_url='https://notes.example.com', durable_writes=True).save(str(tmp_path))
+    respx.get('https://notes.example.com/notes').mock(return_value=httpx.Response(200, json={'items': []}))
+    creates = respx.post('https://notes.example.com/notes').mock(return_value=httpx.Response(201, json={'id': '01NOTE'}))
+    provider = RobotNotesProvider()
+    provider.initialize('session', hermes_home=str(tmp_path))
+    try:
+        provider.on_memory_write('add', target, 'Scoped durable fact')
+        provider.flush_memory_writes()
+        assert json.loads(creates.calls.last.request.content)['path'] == expected_path
+        assert provider.memory_health()['retry_queue']['pending'] == 0
+    finally:
+        provider.shutdown()
