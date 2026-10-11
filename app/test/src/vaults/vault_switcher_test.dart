@@ -185,6 +185,57 @@ void main() {
     expect(find.byTooltip('Rename vault'), findsNothing);
   });
 
+  testWidgets(
+    'reduced motion skips vault dialog entrance and exit animations',
+    (tester) async {
+      final api = RobotNotesClient(
+        config: const AppConfig(
+          baseUrl: 'https://notes.example',
+          apiKey: 'key',
+          actor: 'tester',
+        ),
+        httpClient: MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'can_manage': true,
+              'vaults': [
+                {'id': 'default', 'name': 'Default'},
+              ],
+            }),
+            200,
+          ),
+        ),
+      );
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: VaultSwitcher(
+              api: api,
+              selectedId: 'default',
+              onSelect: (_) {},
+              canManage: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Create vault'));
+      await tester.pumpAndSettle();
+      final route = ModalRoute.of(tester.element(find.text('Save')))!;
+      expect(route.transitionDuration, Duration.zero);
+      expect(route.reverseTransitionDuration, Duration.zero);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Save'), findsNothing);
+    },
+    variant: TargetPlatformVariant.all(),
+  );
+
   for (final platform in [TargetPlatform.macOS, TargetPlatform.iOS]) {
     testWidgets('$platform vault creation uses Apple controls', (tester) async {
       final api = RobotNotesClient(

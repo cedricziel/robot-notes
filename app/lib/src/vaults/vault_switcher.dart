@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 
 import '../widgets/adaptive.dart';
+import '../widgets/platform_motion.dart';
 
 import '../api/api_client.dart';
 
@@ -50,7 +51,7 @@ class _VaultSwitcherState extends State<VaultSwitcher> {
         .where((v) => v['id'] == widget.selectedId)
         .firstOrNull;
     var enteredName = rename && current != null ? current['name']! : '';
-    final name = await showDialog<String>(
+    final name = await showVaultDialog<String>(
       context: context,
       builder: (context) => AlertDialog.adaptive(
         title: Text(rename ? 'Rename vault' : 'Create vault'),

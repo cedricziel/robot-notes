@@ -2001,6 +2001,56 @@ void main() {
     });
   });
 
+  testWidgets('reduced motion opens notes without an animated route', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(800, 600));
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient(_backendWithOneNote),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      _harness(
+        api: api,
+        initialLocation: '/',
+        wrapContent: (child) => MediaQuery(
+          data: const MediaQueryData(
+            size: Size(800, 600),
+            disableAnimations: true,
+          ),
+          child: child,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(_listRow());
+    await tester.pumpAndSettle();
+    final route = ModalRoute.of(
+      tester.element(find.byKey(const Key('note.body'))),
+    )!;
+    expect(route.transitionDuration, Duration.zero);
+    expect(route.reverseTransitionDuration, Duration.zero);
+  });
+
+  testWidgets('iOS notes support edge-swipe back to the list', (tester) async {
+    _setWindow(tester, const Size(390, 844));
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient(_backendWithOneNote),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+    await tester.pumpAndSettle();
+    await tester.tap(_listRow());
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('note.body')), findsOneWidget);
+    await tester.dragFrom(const Offset(1, 400), const Offset(350, 0));
+    await tester.pumpAndSettle();
+    expect(find.byType(NotesListScreen), findsOneWidget);
+    expect(find.byKey(const Key('note.body')), findsNothing);
+  }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
+
   group('single-pane below the large breakpoint', () {
     testWidgets('tapping a row pushes the note as a page over the list', (
       tester,
