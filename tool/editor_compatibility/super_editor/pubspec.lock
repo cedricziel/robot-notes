@@ -9,6 +9,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "103.0.0"
+  adaptive_super_editor:
+    dependency: "direct main"
+    description:
+      path: "../../../packages/adaptive_super_editor"
+      relative: true
+    source: path
+    version: "0.0.0"
   analyzer:
     dependency: transitive
     description:

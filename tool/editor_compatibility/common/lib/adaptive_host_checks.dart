@@ -26,6 +26,7 @@ bool exposesEditableText(WidgetTester tester) {
 
 void adaptiveHostChecks({
   required bool Function(ui.BuildContext) useCupertino,
+  ui.Widget Function(ui.Widget)? wrapLegacyTheme,
 }) {
   testWidgets('standard adaptive-host text field exposes editable semantics', (
     tester,
@@ -49,12 +50,15 @@ void adaptiveHostChecks({
     await tester.pumpWidget(
       ui.MaterialApp(
         theme: ui.ThemeData.dark().copyWith(platform: ui.TargetPlatform.iOS),
-        home: ui.Builder(
-          builder: (context) {
-            editorTheme = legacy.Theme.of(context);
-            appleControls = useCupertino(context);
-            return const ui.SizedBox();
-          },
+        home: _wrap(
+          ui.Builder(
+            builder: (context) {
+              editorTheme = legacy.Theme.of(context);
+              appleControls = useCupertino(context);
+              return const ui.SizedBox();
+            },
+          ),
+          wrapLegacyTheme,
         ),
       ),
     );
@@ -64,3 +68,6 @@ void adaptiveHostChecks({
     expect(editorTheme!.platform, ui.TargetPlatform.iOS);
   }, tags: 'compatibility_gate');
 }
+
+ui.Widget _wrap(ui.Widget child, ui.Widget Function(ui.Widget)? wrapper) =>
+    wrapper == null ? child : wrapper(child);

@@ -1,3 +1,4 @@
+import 'package:adaptive_super_editor/adaptive_super_editor.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart' as ui;
@@ -10,7 +11,10 @@ import '../../../../app/lib/src/widgets/platform_motion.dart';
 import 'package:robot_notes_editor_compatibility/adaptive_host_checks.dart';
 
 void main() {
-  adaptiveHostChecks(useCupertino: useCupertino);
+  adaptiveHostChecks(
+    useCupertino: useCupertino,
+    wrapLegacyTheme: (child) => SuperEditorThemeBridge(child: child),
+  );
   test('cross-block deletion can be undone with node identities restored', () {
     final document = MutableDocument(
       nodes: [
@@ -241,10 +245,11 @@ _mount(WidgetTester tester, {required TextInputSource source}) async {
                   ],
                 ),
                 ui.Expanded(
-                  child: SuperEditor(
+                  child: AdaptiveSuperEditor(
                     editor: editor,
+                    document: document,
+                    composer: composer,
                     focusNode: focus,
-                    gestureMode: DocumentGestureMode.mouse,
                     inputSource: source,
                   ),
                 ),

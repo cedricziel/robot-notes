@@ -37,21 +37,21 @@ Tests ran on a macOS host with Flutter 3.47.6 and Dart 3.13.5. The app's CI pins
 | Composed input survives a host rebuild | Pass, delta IME interface | Pass before removal |
 | Remove editor during active composition | Not separately evaluated | Fails with a callback into a defunct element |
 | Standard text-field semantics positive control | Pass | Pass |
-| Editor exposes editable-text semantics | Fail | Fail |
-| Legacy theme lookup inherits the adaptive host's dark theme | Fail | Fail |
-| Full suite | 7 pass, 2 fail | 6 pass, 3 fail |
+| Editor exposes editable-text semantics | Pass with local bridge actions | Fail |
+| Legacy theme lookup inherits the adaptive host's dark theme | Pass with local theme bridge | Fail |
+| Full suite | Pass after local bridge remediation | 6 pass, 3 fail |
 
-The theme probe shows that `package:flutter/material.dart` and `package:material_ui/material_ui.dart` use different inherited themes. Both published editors read the former. An iOS dark theme supplied through the app's standalone `MaterialApp` appears as a light fallback to the legacy lookup. This is an integration gap, not a compile failure. An explicit theme bridge or an editor migration must be tested before adoption.
+The theme probe showed that `package:flutter/material.dart` and `package:material_ui/material_ui.dart` use different inherited themes. Super Editor reads the former. `SuperEditorThemeBridge` now projects the standalone Material and Cupertino themes into the legacy editor subtree while leaving standalone controls and `MediaQuery` inherited. Its widget tests cover dark iOS colors, typography, selection colors, theme updates, text scaling, and reduced motion.
 
-The semantics probe focuses a mounted editor and checks for an editable-text role in the semantics tree. The same test passes with the standalone `TextField`. Neither candidate supplies the role in the tested editor configuration. Adding a label alone would not provide accessible text or selection editing.
+The semantics probe focuses a mounted editor and checks for an editable-text role in the semantics tree. The same test passes with the standalone `TextField`. `AdaptiveSuperEditor` now supplies document text, focus and selection state, text replacement, selection updates, and cursor movement by character or word through semantics actions. Package widget tests verify cross-block selection and editing, undo, preserved formatting and opaque source, and read-only behavior. A label-only wrapper would not provide these actions.
 
 The opaque-source tests demonstrate that each document model can retain a raw Markdown region while surrounding text changes. They do not implement Markdown parsing, custom block rendering, or a complete lossless serializer. Those remain later tasks.
 
 ## Limits and decision
 
-No engine passes the gate. Super Editor is the provisional candidate for remediation because its node identities and custom block model fit the planned Markdown adapter and its simulated composition check passes. It is not selected as an app dependency.
+Super Editor 0.3.0-dev.52 passes the widget compatibility gate with the local `adaptive_super_editor` bridge and is the selected editing engine. The bridge projects app themes and adds functional editable-text semantics. The app can proceed with the Markdown adapter and note-screen integration.
 
-Widget tests simulate keyboard, tap, and IME interactions. They do not prove physical software-keyboard behavior, native screen-reader operation, browser accessibility, or Android, iOS, Linux, and Windows runtime behavior. No native app or production note was used.
+Widget tests simulate keyboard, tap, and IME interactions and exercise semantics actions against the document editing pipeline. They do not prove physical software-keyboard behavior, native screen-reader operation on VoiceOver or TalkBack, browser accessibility, or Android, iOS, Linux, and Windows runtime behavior. No native app or production note was used. Verify those targets during platform integration.
 
 Published upstream metadata and APIs provide additional context:
 
@@ -61,4 +61,4 @@ Published upstream metadata and APIs provide additional context:
 - [Flutter Quill package](https://pub.dev/packages/flutter_quill) documents its Delta model, custom embeds, and configurable editor and toolbar. Its platform claims are not runtime validation of this app.
 - [Flutter Quill accessibility work](https://github.com/singerdmx/flutter-quill/pull/2764) proposes text-field semantics for web and toolbar labels. That unpublished work was not included in this probe and does not establish native accessibility.
 
-Before app integration, remediate editable-text semantics and theme integration, rerun the full suites, then verify the relevant real platform interactions. A fix to either engine requires its own regression coverage. The existing source editor remains the application's editor while this gate is unresolved.
+The adaptive host APIs used by this probe pass their current widget checks. No contribution to `material_ui` or `cupertino_ui` is needed for engine integration. Reassess shared adaptive controls only if integration tests show a reusable host behavior that these packages do not provide.
