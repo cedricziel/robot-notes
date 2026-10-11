@@ -1,6 +1,7 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:dart_otel_api/dart_otel_api.dart';
 import 'package:server/src/actor_middleware.dart';
+import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/auth_middleware.dart';
 import 'package:server/src/clock.dart';
@@ -45,12 +46,18 @@ Handler applyRootMiddleware(
   return handler
       .use(vaultSelection(deps.vaults!))
       .use(actorIdentity())
-      .use(bearerAuth(configuredKey: config.apiKey))
+      .use(
+        bearerAuth(
+          configuredKey: config.apiKey,
+          agentCredentials: deps.agentCredentials,
+        ),
+      )
       .use(wellKnownMiddleware())
       .use(provider<PresenceTracker>((_) => deps.presence))
       .use(provider<Broadcaster>((_) => deps.broadcaster))
       .use(provider<LockManager>((_) => deps.lockManager))
       .use(provider<SearchIndex>((_) => deps.searchIndex))
+      .use(provider<AgentCredentialStore>((_) => deps.agentCredentials))
       .use(provider<InviteStore>((_) => deps.inviteStore))
       .use(provider<ClientStore>((_) => deps.clientStore))
       .use(provider<CodeStore>((_) => deps.codeStore))

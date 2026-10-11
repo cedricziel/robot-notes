@@ -19,6 +19,8 @@ import 'package:server/src/otel/otel_tracer_holder.dart' as otel_tracer_holder;
 import 'package:server/src/root_middleware.dart';
 import 'package:server/src/vault_registry.dart';
 
+import '../../routes/credentials/[id].dart' as credential_route;
+import '../../routes/credentials/index.dart' as credentials_route;
 import '../../routes/databases/[id]/index.dart' as databases_id_route;
 import '../../routes/databases/[id]/query.dart' as databases_id_query_route;
 import '../../routes/databases/[id]/rows.dart' as databases_id_rows_route;
@@ -93,6 +95,8 @@ Future<HttpServer> startTestServer({
   );
 
   final root = Router()
+    ..all('/credentials', credentials_route.onRequest)
+    ..all('/credentials/<id>', credential_route.onRequest)
     ..all('/notes/file-uploads/<token>', upload_route.onRequest)
     ..all('/notes/tree', notes_tree_route.onRequest)
     ..all('/notes/files', files_route.onRequest)

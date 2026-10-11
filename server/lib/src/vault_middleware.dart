@@ -30,7 +30,8 @@ Middleware vaultSelection(VaultRegistry vaults) =>
               context.request.uri.queryParameters['vault_id'] ??
               'default';
           final principal = context.read<RestPrincipal>();
-          if (principal.kind == RestAuthKind.oauthToken &&
+          if (principal.kind != RestAuthKind.staticKey &&
+              principal.kind != RestAuthKind.exempt &&
               !principal.canAccessVault(id)) {
             return Response.json(
               statusCode: 403,

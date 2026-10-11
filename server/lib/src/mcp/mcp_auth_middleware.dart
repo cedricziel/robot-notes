@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor.dart';
+import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/auth_middleware.dart' show extractBearerToken;
 import 'package:server/src/config.dart';
 import 'package:server/src/constant_time.dart';
@@ -28,7 +29,7 @@ const String _protectedResourceMcpPath =
 /// credential was supplied but rejected, the header additionally carries
 /// `error="invalid_token"` so a client can distinguish "no credential yet"
 /// from "this credential is dead".
-Middleware mcpAuth() {
+Middleware mcpAuth({AgentCredentialStore? agentCredentials}) {
   return (handler) {
     return (context) async {
       final supplied = extractBearerToken(
@@ -46,6 +47,20 @@ Middleware mcpAuth() {
         );
       }
 
+      final agent = await agentCredentials?.lookup(supplied);
+      if (agent != null) {
+        return handler(
+          context.provide<McpPrincipal>(
+            () => McpPrincipal(
+              actor: agent.actor,
+              scopes: agent.scopes,
+              vaultIds: agent.vaultIds,
+              principalId: 'agent:${agent.id}',
+              isStaticKey: false,
+            ),
+          ),
+        );
+      }
       final tokenStore = context.read<TokenStore>();
       final record = await tokenStore.lookupAccess(supplied);
       final resource = mcpResourceUrl(publicBaseUrl(context));
@@ -55,6 +70,7 @@ Middleware mcpAuth() {
 
       final principal = McpPrincipal(
         actor: record.actor,
+        principalId: 'oauth:${record.grantId}',
         scopes: record.scopes,
         vaultIds: record.vaultIds,
         isStaticKey: false,

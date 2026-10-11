@@ -1,5 +1,6 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:meta/meta.dart';
+import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/constant_time.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/public_url.dart';
@@ -12,7 +13,7 @@ final RegExp _onboardingPath = RegExp(r'^/invites/[^/]+/onboarding\.txt$');
 final RegExp _uploadCompletionPath = RegExp(r'^/notes/file-uploads/[^/]+$');
 
 /// Builds a Dart Frog [Middleware] that enforces a single configured bearer
-/// key — or a scoped OAuth access token issued by this server's own
+/// key, scoped agent credential, or OAuth token issued by this server's own
 /// authorization server for the REST/WS resource — on every request except
 /// a fixed set of unauthenticated paths (see [_isExempt]).
 ///
@@ -25,7 +26,10 @@ final RegExp _uploadCompletionPath = RegExp(r'^/notes/file-uploads/[^/]+$');
 /// method requires, which is HTTP 403 `{"error": "insufficient_scope"}`.
 /// The configured key is compared in constant time against the supplied
 /// header value to avoid leaking it via response timing.
-Middleware bearerAuth({required String configuredKey}) {
+Middleware bearerAuth({
+  required String configuredKey,
+  AgentCredentialStore? agentCredentials,
+}) {
   return (handler) {
     return (context) async {
       final request = context.request;
@@ -45,12 +49,30 @@ Middleware bearerAuth({required String configuredKey}) {
         );
       }
 
+      final agent = await agentCredentials?.lookup(supplied);
+      if (agent != null) {
+        if (_operatorPath(request.uri.path)) return _operatorRequired();
+        if (!agent.scopes.contains(_requiredScope(request))) {
+          return _insufficientScope();
+        }
+        return handler(
+          context.provide<RestPrincipal>(
+            () => RestPrincipal.agent(
+              credentialId: agent.id,
+              actor: agent.actor,
+              scopes: agent.scopes,
+              vaultIds: agent.vaultIds,
+            ),
+          ),
+        );
+      }
       final tokenStore = context.read<TokenStore>();
       final record = await tokenStore.lookupAccess(supplied);
       final restResource = publicBaseUrl(context);
       if (record == null || record.resource != restResource) {
         return _unauthorized();
       }
+      if (_operatorPath(request.uri.path)) return _operatorRequired();
       final requiredScope = _requiredScope(request);
       if (!record.scopes.contains(requiredScope)) {
         return _insufficientScope();
@@ -59,6 +81,7 @@ Middleware bearerAuth({required String configuredKey}) {
         context.provide<RestPrincipal>(
           () => RestPrincipal.oauth(
             actor: record.actor,
+            grantId: record.grantId,
             scopes: record.scopes,
             vaultIds: record.vaultIds,
           ),
@@ -67,6 +90,12 @@ Middleware bearerAuth({required String configuredKey}) {
     };
   };
 }
+
+bool _operatorPath(String path) =>
+    path == '/credentials' ||
+    path.startsWith('/credentials/') ||
+    path == '/invites' ||
+    path.startsWith('/invites/');
 
 /// Whether [method] is a read-only (safe) HTTP method, per RFC 9110 §9.2.1
 /// — the set of methods an OAuth access token can use with only
@@ -179,6 +208,9 @@ String? extractBearerToken(String? header) {
 Response _unauthorized() {
   return Response.json(statusCode: 401, body: const {'error': 'unauthorized'});
 }
+
+Response _operatorRequired() =>
+    Response.json(statusCode: 403, body: const {'error': 'operator_required'});
 
 Response _insufficientScope() {
   return Response.json(

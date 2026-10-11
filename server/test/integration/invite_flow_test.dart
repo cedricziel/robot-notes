@@ -43,7 +43,7 @@ void main() {
     );
     final bundle = firstRes.body;
     expect(bundle, contains('robot-notes onboarding'));
-    expect(bundle, contains(app.config.apiKey));
+    expect(bundle, isNot(contains(app.config.apiKey)));
 
     // 3. Second fetch is 410 Gone.
     final secondRes = await http.get(Uri.parse(onboardingUrl));
@@ -53,7 +53,7 @@ void main() {
 
     // 4. Parse the bundle for the api key, prove it works against /notes.
     final apiKey = _parseApiKey(bundle);
-    expect(apiKey, app.config.apiKey);
+    expect(apiKey, startsWith('rn_agent_'));
 
     final notesRes = await http.get(
       Uri.parse('${app.baseUrl}/notes'),
