@@ -187,7 +187,7 @@ class RobotNotesProvider(MemoryProvider):
             "its own note.\n"
             "- robotnotes_append(id, content): add a line to a note that already "
             "exists, instead of duplicating it.\n"
-            "- robotnotes_forget(id): delete a note this agent created.\n"
+            "- robotnotes_forget(id): permanently delete a note allowed by the configured server credentials.\n"
             "Search before creating: call robotnotes_search or robotnotes_list before "
             "robotnotes_remember, and prefer robotnotes_append over a new note when one "
             "on the topic already exists. robotnotes_remember rejects a title that "

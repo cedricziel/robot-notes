@@ -93,7 +93,7 @@ TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
     ),
     _schema(
         "robotnotes_forget",
-        "Delete a note this agent created from the shared robot-notes workspace.",
+        "Permanently delete a note from the shared robot-notes workspace when the configured server credentials permit it. No undo; use only when the task calls for deletion.",
         {"id": _p("Id of the note to delete.")},
         ("id",),
     ),

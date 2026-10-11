@@ -52,8 +52,9 @@ default vault. Vault selection does not itself restrict a static API key's acces
 4. **Fetch by id with `robotnotes_note`**, not by guessing — ids only ever
    come from a prior `robotnotes_search`, `robotnotes_list`, or
    `robotnotes_remember` result.
-5. **`robotnotes_forget` has no undo.** Only delete a note this agent
-   created, and only when the task genuinely calls for it.
+5. **`robotnotes_forget` has no undo.** Delete a note only when
+   the task calls for deletion. The server checks the configured credentials;
+   the tool does not restrict deletion to notes created by this agent.
 
 ## Tool catalog
 
@@ -89,8 +90,8 @@ native database tools or assume MCP was connected merely because recall works.
 | `robotnotes_forget` | `delete_note` |
 
 The same search-before-create, append, pagination, and deletion discipline
-applies to MCP operations. Ownership guidance is a workflow rule; deletion is
-not automatically restricted to notes created by this actor.
+applies to MCP operations. The configured server credentials determine deletion access. The actor header
+is an attribution label, not proof of note ownership.
 
 1. Discover with `list_databases`, then read `get_database` before querying or
    changing rows. Use `query_database` with a saved view or explicit filter,

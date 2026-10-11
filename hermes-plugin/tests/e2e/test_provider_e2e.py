@@ -14,7 +14,7 @@ import uuid
 import pytest
 
 from robot_notes import RobotNotesProvider
-from robot_notes.client import RobotNotesClient
+from robot_notes.client import ClientError, RobotNotesClient
 
 pytestmark = pytest.mark.e2e
 
@@ -88,3 +88,30 @@ def test_on_session_end_twice_converges_on_one_note(
     note = e2e_client.get_note(matching[0]["id"])
     assert note["version"] == 2  # created once (v1), overwritten once (v2) — never a third write
     assert "second turn, after /resume" in note["content"]
+
+
+@pytest.mark.parametrize("creator", ["agent", "external"])
+def test_forget_deletes_credential_authorized_notes_regardless_of_creator(
+    tmp_path, monkeypatch, e2e_base_url, e2e_api_key, e2e_client, creator
+):
+    provider = _make_provider(
+        tmp_path, base_url=e2e_base_url, api_key=e2e_api_key,
+        actor=f"e2e-provider-{_uid()}", session_id=f"e2e-session-{_uid()}",
+        monkeypatch=monkeypatch,
+    )
+    try:
+        if creator == "agent":
+            note = json.loads(provider.handle_tool_call(
+                "robotnotes_remember", {"title": f"e2e-{_uid()}", "content": "Disposable memory"}
+            ))
+        else:
+            note = e2e_client.create_note(title=f"e2e-{_uid()}", content="Externally created memory")
+
+        result = json.loads(provider.handle_tool_call("robotnotes_forget", {"id": note["id"]}))
+
+        assert result == {}
+        with pytest.raises(ClientError) as exc:
+            e2e_client.get_note(note["id"])
+        assert exc.value.not_found
+    finally:
+        provider.shutdown()

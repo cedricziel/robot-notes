@@ -223,7 +223,10 @@ to any service other than the `base_url` configured above.
   whatever text lands in those files is sent to the server.
 - **Explicit tool writes** — `robotnotes_remember` sends the model-authored
   `title`/`content` as a new note; `robotnotes_forget` sends a note id to
-  delete. `robotnotes_note`/`robotnotes_list` are read-only and only fetch
+  delete. The server authorizes deletion using the configured credentials;
+  the tool does not restrict deletion to notes created by this agent.
+  `X-Actor` provides attribution, not ownership authorization. Deletion has
+  no undo, so use it only when the task calls for deletion. `robotnotes_note`/`robotnotes_list` are read-only and only fetch
   data, they send no new content.
 
 Recall (`prefetch`/`queue_prefetch`) and the read tools stay available in
