@@ -8,6 +8,8 @@ raises) so no network or server is required.
 from __future__ import annotations
 
 import os
+import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -286,35 +288,69 @@ class RunTests(unittest.TestCase):
     def test_serializes_concurrent_events_for_the_same_session(self) -> None:
         env = {"ROBOT_NOTES_BASE_URL": "http://x", "ROBOT_NOTES_API_KEY": "key"}
         session_id = "run-test-overlap"
+        first_entered = threading.Event()
+        contention_observed = threading.Event()
+        release_first = threading.Event()
         order = []
+        errors = []
+        real_open = os.open
 
-        def slow_append(*_args, **_kwargs):
-            order.append("start")
-            time.sleep(0.1)
-            order.append("end")
+        def observe_open(*args, **kwargs):
+            try:
+                return real_open(*args, **kwargs)
+            except FileExistsError:
+                contention_observed.set()
+                raise
 
-        with mock.patch.dict("os.environ", env, clear=True), mock.patch.object(
-            lc, "append_line", side_effect=slow_append
-        ):
-            import threading
+        def append(*args):
+            line = args[-1]
+            order.append(("start", line))
+            if line == "**user**: hi":
+                first_entered.set()
+                if not release_first.wait(timeout=2):
+                    errors.append("first append timed out")
+            order.append(("end", line))
 
-            first = threading.Thread(
-                target=lc.run, args=({"hook_event_name": "UserPromptSubmit", "prompt": "hi", "session_id": session_id},)
-            )
-            second = threading.Thread(
-                target=lc.run,
-                args=({"hook_event_name": "Stop", "last_assistant_message": "hey", "session_id": session_id},),
-            )
+        def run_event(payload):
+            try:
+                lc.run(payload)
+            except BaseException as exc:
+                errors.append(exc)
+
+        first = threading.Thread(
+            target=run_event,
+            args=({"hook_event_name": "UserPromptSubmit", "prompt": "hi", "session_id": session_id},),
+            daemon=True,
+        )
+        second = threading.Thread(
+            target=run_event,
+            args=({"hook_event_name": "Stop", "last_assistant_message": "hey", "session_id": session_id},),
+            daemon=True,
+        )
+        with tempfile.TemporaryDirectory() as lock_dir, mock.patch.dict("os.environ", env, clear=True), mock.patch.object(
+            lc, "LOCK_DIR", lock_dir
+        ), mock.patch.object(lc, "append_line", side_effect=append), mock.patch.object(lc.os, "open", side_effect=observe_open):
             first.start()
-            time.sleep(0.02)
-            second.start()
-            first.join()
-            second.join()
+            try:
+                self.assertTrue(first_entered.wait(timeout=2), "first append did not start")
+                second.start()
+                self.assertTrue(contention_observed.wait(timeout=2), "second event did not contend for the lock")
+                self.assertEqual(order, [("start", "**user**: hi")])
+            finally:
+                release_first.set()
+                first.join(timeout=2)
+                if second.ident is not None:
+                    second.join(timeout=2)
+            self.assertFalse(first.is_alive(), "first worker did not finish")
+            self.assertFalse(second.is_alive(), "second worker did not finish")
+            self.assertFalse(os.path.exists(lc._session_lock_path(session_id)))
 
-        # each call's "start" is immediately followed by its own "end" — never
-        # interleaved — proving the lock serialized the two overlapping events
-        self.assertEqual(order, ["start", "end", "start", "end"])
-        self.assertFalse(os.path.exists(lc._session_lock_path(session_id)))
+        self.assertEqual(errors, [])
+        self.assertEqual(order, [
+            ("start", "**user**: hi"), ("end", "**user**: hi"),
+            ("start", "**assistant**: hey"), ("end", "**assistant**: hey"),
+        ])
+
 
 
 if __name__ == "__main__":
