@@ -472,3 +472,43 @@ Each vault stores evidence in `evidence.db` beside its disposable indexes, outsi
 Pending evidence lives in `$HERMES_HOME/robot_notes_outbox/<destination-hash>/evidence/queue.sqlite`, with a limit of 1000 snapshots and 32 MiB. Permanent errors block replay. After correcting a credential or server error, `flush_evidence(retry_blocked=True)` permits another attempt. A `capture_failed` marker or an expired-operation count means raw evidence was lost. Required checkpoints remain blocked until an operator inspects and removes that evidence queue directory to acknowledge the loss. Keep the uncompressed host context before that reset. The local queue and remote archive have independent erasure operations.
 
 A successful pre-compression checkpoint returns its exact digest and `host_normalized` capture label after durable acknowledgement. With native tools enabled, `robotnotes_evidence(id)` retrieves that snapshot explicitly and verifies the returned payload digest. Inspection remains available in read-only contexts and when capture is disabled, subject to server credentials. Expired or purged snapshots return a read error. Evidence inspection never enters automatic recall; `native_tools: false` hides and disables this tool along with the rest of the native catalog.
+### Bound automatic recall evidence
+
+The following optional settings narrow recall to a task folder and expand evidence:
+
+```json
+{
+  "recall_path": "projects/launch",
+  "recall_max_bytes": 4096,
+  "recall_expand_chars": 1000
+}
+```
+
+`recall_path` intersects the configured identity roots within the selected vault.
+An unrelated folder produces no recall. It never grants access or broadens an
+identity root. Omit it to retain the configured roots.
+
+`recall_max_bytes` bounds the entire injected UTF-8 text, including note IDs,
+titles, paths, and update timestamps. Its range is 0–65536, with 0 preserving the
+existing snippet format. This is a byte budget, not a tokenizer-specific token
+count. A source whose metadata cannot fit is omitted.
+
+`recall_expand_chars` expands around a search snippet in current note content,
+up to 8192 characters per note. It defaults to 0 and requires a positive byte
+budget when enabled. Expansion adds up to five note reads, each using the recall
+timeout. Any failed read follows the existing recall failure behavior rather
+than injecting a partial result. Fetched notes provide current source timestamps.
+
+Run `python -m pytest tests/e2e/test_recall_evidence_e2e.py -s` from `hermes-plugin`
+against a disposable server configured through `ROBOT_NOTES_E2E_BASE_URL` and
+`ROBOT_NOTES_E2E_API_KEY`. The comparison prints latency and context bytes. In a
+local keyword-only run, the default context used 355 bytes and omitted the
+supporting tail sentence. Scoped expansion recovered that sentence, excluded the
+other folder, and used 941 bytes under a 1400-byte budget. Prefetch took 4.7 ms and
+4.8 ms respectively in that single run. These are observations, not thresholds.
+
+This test demonstrates keyword passage expansion. Whole-note semantic embeddings
+still truncate long input; no passage vector index or semantic-tail improvement
+is claimed. A model-backed comparison using a pinned model remains necessary
+before choosing a passage indexing design, tracked in [#378](https://github.com/cedricziel/robot-notes/issues/378). Proposal approval is outside this
+feature; it does not introduce a synthetic pending or accepted state.
