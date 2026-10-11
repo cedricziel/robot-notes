@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:server/src/vault_registry.dart';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
@@ -8,6 +7,7 @@ import 'package:server/src/config.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oidc/discovery.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
+import 'package:server/src/vault_registry.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/oauth/oidc/login.dart' as route;
@@ -52,7 +52,7 @@ RequestContext _ctx({
   final ctx = _MockRequestContext();
   final vaults = _MockVaultRegistry();
   when(vaults.list).thenReturn([
-    {'id': 'default', 'name': 'Default'}
+    {'id': 'default', 'name': 'Default'},
   ]);
   when(() => vaults.contains('default')).thenReturn(true);
   when(() => ctx.read<VaultRegistry>()).thenReturn(vaults);

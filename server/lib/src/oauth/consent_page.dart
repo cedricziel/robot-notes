@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:meta/meta.dart';
-import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oauth/authorize_request.dart';
+import 'package:server/src/oauth/metadata.dart';
 import 'package:shared/shared.dart';
 
 /// One-line human descriptions shown next to each requested scope on the
@@ -234,12 +234,11 @@ String _hidden(String name, String? value) => value == null
 
 String _vaultChoices(ConsentPageParams params) => params.scopes
         .contains(kScopeVaultsManage)
-    ? '<p>This app will be able to manage and use all vaults, including vaults you create later.</p>${_hidden('vault_default', 'yes')}'
-    : '<fieldset><legend>Allow access to vaults</legend>' +
-        params.vaults
-            .map(
-              (v) =>
-                  '<label><input type="checkbox" name="vault_${_esc.convert(v['id']!)}" value="yes" ${v['id'] == 'default' ? 'checked' : ''}> ${_esc.convert(v['name']!)}</label>',
-            )
-            .join() +
-        '</fieldset>';
+    ? '<p>This app will be able to manage and use all vaults, '
+        'including vaults you create later.</p>${_hidden('vault_default', 'yes')}'
+    : '<fieldset><legend>Allow access to vaults</legend>${params.vaults.map(
+          (v) => '<label><input type="checkbox" '
+              'name="vault_${_esc.convert(v['id']!)}" '
+              'value="yes" ${v['id'] == 'default' ? 'checked' : ''}> '
+              '${_esc.convert(v['name']!)}</label>',
+        ).join()}</fieldset>';

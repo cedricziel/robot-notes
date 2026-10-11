@@ -22,7 +22,7 @@ class VaultRegistry {
 
   /// Restores the catalog at server startup.
   Future<void> load() async {
-    if (await _catalog.exists()) {
+    if (_catalog.existsSync()) {
       _names.addAll(
         Map<String, String>.from(
           jsonDecode(await _catalog.readAsString()) as Map,

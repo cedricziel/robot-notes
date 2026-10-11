@@ -1,11 +1,10 @@
 import 'dart:io';
 
-import 'package:server/src/oauth/vault_consent.dart';
-
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/oauth/authorize_request.dart';
 import 'package:server/src/oauth/error_page.dart';
+import 'package:server/src/oauth/vault_consent.dart';
 import 'package:server/src/oidc/discovery.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
 import 'package:server/src/public_url.dart';
@@ -56,8 +55,9 @@ Response _startLogin(
   OidcConfig oidcConfig,
 ) {
   final vaultIds = selectedVaults(context, context.request.uri.queryParameters);
-  if (vaultIds == null)
+  if (vaultIds == null) {
     return oauthErrorPage('Select at least one valid vault.');
+  }
   final discovery = context.read<OidcDiscoveryDocument?>();
   if (discovery == null) {
     // Config.oidc != null guarantees AppDeps.bootstrap already resolved

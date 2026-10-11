@@ -58,13 +58,13 @@ class WsConnection {
   /// the underlying socket.
   WsConnection({
     required this.id,
-    this.vaultId = 'default',
     required WsSink sink,
     required Broadcaster broadcaster,
     required PresenceTracker presence,
     required String apiKey,
     required TokenStore tokenStore,
     required String restResource,
+    this.vaultId = 'default',
     Duration authTimeout = kDefaultWsAuthTimeout,
     Logger? logger,
     Tracer tracer = const NoopTracer('ws_connection'),
