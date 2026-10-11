@@ -461,14 +461,19 @@ class RobotNotesProvider(MemoryProvider):
                 raise error
         if not all(isinstance(result, list) for result in results):
             raise ClientError("Malformed search response", kind=ErrorKind.OTHER, code="invalid_response")
-        selected, seen = [], set()
-        for group in zip_longest(*results):
-            for item in group:
-                if item is None:
-                    continue
-                note_id = item.get("id") if isinstance(item, dict) else None
-                if not isinstance(note_id, str) or not note_id or not isinstance(item.get("title"), str):
+        for result in results:
+            for item in result:
+                if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                        or not item["id"] or not isinstance(item.get("title"), str)
+                        or not isinstance(item.get("snippet", ""), str)):
                     raise ClientError("Malformed search result", kind=ErrorKind.OTHER, code="invalid_response")
+        selected, seen = [], set()
+        exhausted = object()
+        for group in zip_longest(*results, fillvalue=exhausted):
+            for item in group:
+                if item is exhausted:
+                    continue
+                note_id = item["id"]
                 if note_id not in seen:
                     selected.append(item)
                     seen.add(note_id)

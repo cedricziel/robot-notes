@@ -176,3 +176,15 @@ def test_scoped_searches_can_progress_concurrently(tmp_path, monkeypatch):
         assert provider.recall_status().count == 3
     finally:
         provider.shutdown()
+
+
+@pytest.mark.parametrize('payload', [[], {}, {'items': [None]}, {'items': [{'id': 'x', 'title': 'X', 'snippet': 42}]}, {'items': [{'id': str(i), 'title': str(i), 'snippet': ''} for i in range(5)] + [None]}])
+@respx.mock
+def test_invalid_scope_envelopes_and_all_rows_fail_closed(tmp_path, monkeypatch, payload):
+    provider = make_provider(tmp_path, monkeypatch)
+    respx.get('https://notes.example.com/search').mock(return_value=httpx.Response(200, json=payload))
+    try:
+        assert provider.prefetch('project') == ''
+        assert provider.memory_health()['recall']['state'] == 'failed'
+    finally:
+        provider.shutdown()
