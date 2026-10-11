@@ -6,13 +6,7 @@ import 'package:test/test.dart';
 
 import '_test_app.dart';
 
-/// End-to-end lifecycle of a single note over the real HTTP surface:
-/// create -> read -> lock -> update -> search -> delete.
-///
-/// Every other unit test stubs at least one collaborator. This is the
-/// single test that proves the production wiring (config, AppDeps,
-/// middleware order, router tree, atomic writes) holds together when
-/// driven by an actual TCP-level HTTP client.
+/// Exercises note lifecycle over real HTTP with isolated storage.
 void main() {
   late TestApp app;
 
