@@ -181,15 +181,21 @@ void main() {
       expect(calls, contains('PUT /notes/01H'));
     });
 
-    testWidgets('on macOS stays a popup menu, not a sheet', (tester) async {
-      await _pumpViewer(tester, platform: TargetPlatform.macOS);
-
-      expect(find.byType(PopupMenuButton<void>), findsOneWidget);
+    testWidgets('on macOS Delete closes the menu before confirming', (
+      tester,
+    ) async {
+      final calls = await _pumpViewer(tester, platform: TargetPlatform.macOS);
       await tester.tap(find.byKey(const Key('note.menu')));
       await tester.pumpAndSettle();
 
       expect(find.byType(CupertinoActionSheet), findsNothing);
-      expect(find.byKey(const Key('note.delete')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('note.delete')));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete this note?'), findsOneWidget);
+      expect(find.byKey(const Key('note.move')), findsNothing);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(calls, isNot(contains('DELETE /notes/01H')));
     });
   });
 }
