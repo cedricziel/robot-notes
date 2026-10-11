@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -29,6 +30,29 @@ class RobotNotesConfig:
     native_tools: bool = True
     durable_writes: bool = False
     vault_id: str = DEFAULT_VAULT_ID
+    memory_scope: str = "shared"
+    user_id: str = ""
+    agent_id: str = ""
+    shared_memory_path: str = ""
+
+    @property
+    def memory_note(self) -> dict:
+        path = f"Hermes/agents/{self.agent_id}" if self.memory_scope == "identity" else "Hermes"
+        return {"path": path, "title": "Memory"}
+
+    @property
+    def user_note(self) -> dict:
+        path = f"Hermes/users/{self.user_id}" if self.memory_scope == "identity" else "Hermes"
+        return {"path": path, "title": "User"}
+
+    @property
+    def recall_paths(self) -> tuple[Optional[str], ...]:
+        if self.memory_scope == "shared":
+            return (None,)
+        paths = [self.user_note["path"], self.memory_note["path"]]
+        if self.shared_memory_path:
+            paths.append(self.shared_memory_path)
+        return tuple(dict.fromkeys(paths))
 
     @property
     def missing_reason(self) -> Optional[str]:
@@ -43,7 +67,12 @@ class RobotNotesConfig:
         return self.missing_reason is None
 
     @classmethod
-    def create(cls, *, base_url: str = "", actor: str = "", api_key: str = "", native_tools: bool = True, durable_writes: bool = False, vault_id: str = DEFAULT_VAULT_ID) -> "RobotNotesConfig":
+    def create(
+        cls, *, base_url: str = "", actor: str = "", api_key: str = "",
+        native_tools: bool = True, durable_writes: bool = False, vault_id: str = DEFAULT_VAULT_ID,
+        memory_scope: str = "shared", user_id: str = "", agent_id: str = "",
+        shared_memory_path: str = "",
+    ) -> "RobotNotesConfig":
         """The one place ``base_url`` is normalized (trailing slash stripped) and
         ``actor`` and ``vault_id`` defaulted — every constructor path (``load()``, the setup wizard's
         ``save_config()``) should go through this rather than repeating either rule."""
@@ -51,7 +80,26 @@ class RobotNotesConfig:
             raise ValueError("native_tools must be a JSON boolean")
         if not isinstance(durable_writes, bool):
             raise ValueError("durable_writes must be a JSON boolean")
-        return cls(durable_writes=durable_writes, base_url=base_url.rstrip("/"), actor=actor or DEFAULT_ACTOR, api_key=api_key, native_tools=native_tools, vault_id=vault_id.strip() or DEFAULT_VAULT_ID)
+        if memory_scope not in ("shared", "identity"):
+            raise ValueError("memory_scope must be shared or identity")
+        if memory_scope == "identity":
+            for name, identity in (("user_id", user_id), ("agent_id", agent_id)):
+                if not isinstance(identity, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", identity):
+                    raise ValueError(f"{name} must contain 1-64 ASCII letters, digits, underscores or hyphens, starting with a letter or digit")
+        if not isinstance(shared_memory_path, str) or (
+            shared_memory_path and (
+                any(part in ("", ".", "..") for part in shared_memory_path.split("/"))
+                or "\\" in shared_memory_path
+                or any(ord(char) < 32 for char in shared_memory_path)
+            )
+        ):
+            raise ValueError("shared_memory_path must be a relative folder without empty or dot segments")
+        return cls(
+            base_url=base_url.rstrip("/"), actor=actor or DEFAULT_ACTOR,
+            api_key=api_key, native_tools=native_tools, durable_writes=durable_writes, vault_id=vault_id.strip() or DEFAULT_VAULT_ID,
+            memory_scope=memory_scope, user_id=user_id, agent_id=agent_id,
+            shared_memory_path=shared_memory_path,
+        )
 
     @classmethod
     def load(cls, hermes_home: Optional[str] = None) -> "RobotNotesConfig":
@@ -70,6 +118,10 @@ class RobotNotesConfig:
             durable_writes=data.get("durable_writes", False),
             native_tools=data.get("native_tools", True),
             vault_id=str(data.get("vault_id") or DEFAULT_VAULT_ID),
+            memory_scope=data.get("memory_scope", "shared"),
+            user_id=data.get("user_id", ""),
+            agent_id=data.get("agent_id", ""),
+            shared_memory_path=data.get("shared_memory_path", ""),
         )
 
     def save(self, hermes_home: str) -> None:
@@ -79,6 +131,10 @@ class RobotNotesConfig:
         payload = {"base_url": self.base_url, "actor": self.actor, "vault_id": self.vault_id}
         if self.durable_writes:
             payload["durable_writes"] = True
+        if self.memory_scope != "shared":
+            payload.update(memory_scope=self.memory_scope, user_id=self.user_id, agent_id=self.agent_id)
+        if self.shared_memory_path:
+            payload["shared_memory_path"] = self.shared_memory_path
         if not self.native_tools:
             payload["native_tools"] = False
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

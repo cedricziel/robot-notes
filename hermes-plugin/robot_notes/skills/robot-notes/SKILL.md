@@ -128,3 +128,13 @@ is an attribution label, not proof of note ownership.
    MCP calls. Follow task authorization and the configured MCP grant/tool
    visibility. `native_tools: false` only hides native tools; lifecycle hooks
    can still write in primary contexts.
+
+
+## Identity-organized memory
+
+When `memory_scope` is `identity`, the system prompt names the configured user and
+agent mirror destinations. Automatic recall includes only those folders and the
+optional shared folder. Explicit note tools still use server credential access.
+Folder names and actor labels do not prove ownership or make knowledge trusted.
+Changing modes never migrates existing notes; review and copy selected entries
+explicitly before switching.
