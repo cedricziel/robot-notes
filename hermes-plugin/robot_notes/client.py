@@ -212,7 +212,19 @@ class RobotNotesClient:
         if path is not None:
             params["path"] = path
         response = self._request("GET", "/search", params=params, timeout=self._recall_timeout)
-        return response.json().get("items", [])
+        try:
+            payload = response.json()
+        except ValueError:
+            raise ClientError("Malformed search response", kind=ErrorKind.OTHER, code="invalid_response") from None
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            raise ClientError("Malformed search response", kind=ErrorKind.OTHER, code="invalid_response")
+        items = payload["items"]
+        for item in items:
+            if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                    or not item["id"] or not isinstance(item.get("title"), str)
+                    or not isinstance(item.get("snippet", ""), str)):
+                raise ClientError("Malformed search result", kind=ErrorKind.OTHER, code="invalid_response")
+        return items
 
     def list_notes(
         self, *, path: Optional[str] = None, limit: int = 50, after: Optional[str] = None

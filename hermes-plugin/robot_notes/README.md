@@ -214,12 +214,14 @@ to any service other than the `base_url` configured above.
   written back.
 - **Session transcripts** — `on_session_end` sends the session's messages as
   the content of one summary note per session, under
-  `conversations/<actor>/<session id>`. This currently includes the raw
-  role/content of every message in the session, so treat the robot-notes
-  workspace as within the conversation's trust boundary.
+  `conversations/<actor>/<session id>`. The readable transcript includes
+  filtered user and assistant text, with a bounded body; tool results and
+  non-text content are excluded. Treat the workspace as within the conversation's
+  trust boundary.
 - **Built-in memory mirror** — content written to Hermes' own
-  `MEMORY.md`/`USER.md` is mirrored one-directionally into
-  `Hermes/Memory.md`/`Hermes/User.md` notes (see Write behavior below);
+  `MEMORY.md`/`USER.md` is mirrored one-directionally by default into
+  the configured memory notes, defaulting to `Hermes/Memory` and
+  `Hermes/User` (see Write behavior below);
   whatever text lands in those files is sent to the server.
 - **Explicit tool writes** — `robotnotes_remember` sends the model-authored
   `title`/`content` as a new note; `robotnotes_forget` sends a note id to
@@ -291,8 +293,8 @@ conversation turn:
   `robotnotes_forget`) let the model manage notes directly — search before
   creating, and append rather than duplicate a note on the same topic.
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
-  are mirrored one-directionally into `Hermes/Memory.md` and
-  `Hermes/User.md` in the workspace.
+  are mirrored one-directionally by default into the configured memory notes, defaulting to `Hermes/Memory` and
+  `Hermes/User` in the workspace.
 
 `initialize()` also honors the host's `agent_context` kwarg
 (`"primary"` | `"subagent"` | `"cron"` | `"flush"`): every write path above
@@ -388,9 +390,10 @@ an empty search or outage does not fabricate a recalled note. Background searche
 cannot overwrite a newer attempt's status, and session switches reset health.
 
 `writes_enabled` reflects the provider's context write restrictions.
-`retry_queue: "unsupported"` means automatic writes remain best-effort; failed
-writes are not queued for delivery. A later successful operation does not retry
-an earlier failed write. Successful operation produces no additional log output.
+`retry_queue: "disabled"` means durable automatic writes are disabled. When enabled,
+queue metadata reports pending operations, permanent failures, and expired writes.
+A successful latest operation alone does not establish delivery of earlier writes.
+Successful operation produces no additional log output.
 
 ### Durable automatic writes
 
@@ -399,3 +402,56 @@ Set `"durable_writes": true` in `robot_notes.json` to queue automatic memory mir
 The queue lives under `$HERMES_HOME/robot_notes_outbox/<destination-hash>/queue.sqlite`. The destination includes server, vault, actor, credential hash, and available scope identity. Queue files have mode `0600`. Each queue retains at most 1000 operations and 2 MiB for 30 days. Capacity failures and expired writes appear in `robotnotes_health`.
 
 Delivery runs at initialization, when automatic writes arrive, and at turn start. Network failures and server errors remain pending. Authorization failures and conflicts block the queue until corrected. `flush_memory_writes(retry_blocked=True)` explicitly permits another attempt. A prepared note mutation retains its intended content and original version, so a lost acknowledgement cannot reapply a remove selector or duplicate a multiline addition. An intervening edit blocks replay for review.
+### Choose memory destinations
+
+Identity scope searches run concurrently with the host profile and secret context.
+Results retain configured-root order; a failed scope suppresses the whole recall block.
+
+The default `memory_scope: "shared"` keeps the existing `Hermes/Memory` and
+`Hermes/User` mirrors and searches the selected vault. To organize personal and
+agent memory separately, configure stable IDs explicitly in `robot_notes.json`:
+
+```json
+{
+  "base_url": "https://notes.example.com",
+  "memory_scope": "identity",
+  "user_id": "alice",
+  "agent_id": "research-assistant",
+  "shared_memory_path": "Team/Knowledge"
+}
+```
+
+Identity mode mirrors `USER.md` into `Hermes/users/alice/User` and `MEMORY.md`
+into `Hermes/agents/research-assistant/Memory`. Each ID must contain 1 to 64 lowercase ASCII
+letters, digits, underscores, or hyphens and start with a letter or digit. Keep
+these IDs stable across restarts. Uppercase IDs are rejected because the server
+checks path collisions without regard to case. They are explicit configuration, independent
+of the mutable `actor` attribution label and host-provided identity hints.
+
+Automatic recall searches the user and agent folders, including subfolders.
+The optional `shared_memory_path` adds one explicitly shared folder; omit it to
+search only the two identity folders. It must be a relative folder without empty
+or dot segments. Results interleave user, agent, and shared matches in that
+order, deduplicate note IDs, and retain at most five notes. If any scoped search
+fails, automatic recall returns no context rather than treating partial results
+as a successful search. The existing client timeout applies to each search.
+
+These folders organize retrieval; they do not establish ownership, change server
+permissions, or make a fact authoritative. Native search and list tools remain
+explicit, credential-authorized operations across the selected vault. Session
+transcripts retain their existing actor-scoped destination. Configure server
+access separately when users require enforced isolation.
+
+To migrate existing shared mirrors:
+
+1. Read `Hermes/Memory` and `Hermes/User` and decide which entries belong to the
+   configured user, agent, or shared knowledge folder.
+2. Copy reviewed entries into the chosen destination notes using ordinary note
+   tools. Keep the original notes until all clients have been reviewed.
+3. Enable identity mode with the same stable IDs and restart the provider.
+4. Verify automatic recall and mirror writes before retiring any shared notes.
+
+Changing the configuration does not move, copy, merge, or delete existing notes.
+A missing destination is created on the next applicable mirror write. Returning
+to shared mode uses the original shared destinations again. Setup preserves these
+manually configured fields.

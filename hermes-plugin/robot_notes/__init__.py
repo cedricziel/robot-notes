@@ -13,6 +13,7 @@ import logging
 import re
 import sqlite3
 import threading
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -33,8 +34,6 @@ class _DeliveryCancelled(Exception):
 
 
 CONVERSATIONS_ROOT = "conversations"
-MEMORY_NOTE = {"title": "Memory", "path": "Hermes"}
-USER_NOTE = {"title": "User", "path": "Hermes"}
 
 SKILLS_DIR = Path(__file__).parent / "skills"
 SKILL_NAME = "robot-notes"
@@ -169,7 +168,10 @@ class RobotNotesProvider(MemoryProvider):
             vault_id=self._config.vault_id,
         )
         if self._config.durable_writes and self._can_write():
-            identity = {key: getattr(self._config, key, None) for key in ("base_url", "vault_id", "actor", "api_key", "memory_scope", "user_id", "agent_id")}
+            identity = {key: getattr(self._config, key) for key in ("base_url", "vault_id", "actor", "api_key")}
+            identity.update(memory_scope=None, user_id=None, agent_id=None)
+            if self._config.memory_scope == "identity":
+                identity.update(memory_scope="identity", user_id=self._config.user_id, agent_id=self._config.agent_id)
             destination = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
             home = Path(self._hermes_home or _default_hermes_home())
             self._outbox = Outbox(home / "robot_notes_outbox" / destination / "queue.sqlite")
@@ -184,10 +186,14 @@ class RobotNotesProvider(MemoryProvider):
 
     def system_prompt_block(self) -> str:
         convo_path = self._conversations_path() if self._config else f"{CONVERSATIONS_ROOT}/<actor>"
+        config = self._load_config()
+        memory_note, user_note = config.memory_note, config.user_note
+        scope_hint = f"Memory organization mode: {config.memory_scope}. Folder scope does not grant server access. "
         if not self._load_config().native_tools:
             return (
                 "A shared robot-notes workspace is connected for automatic memory recall. "
                 f"Selected vault: {self._config.vault_id}. Automatic memory hooks use this vault. "
+                f"{scope_hint}"
                 "Native note tools are disabled. Use the separately configured robot-notes "
                 "MCP tools, if available, for explicit note and database operations. "
                 "Search or list before creating; append to existing notes when appropriate. "
@@ -195,8 +201,8 @@ class RobotNotesProvider(MemoryProvider):
                 "explicitly; a vault-root source with subfolders includes the entire vault. "
                 "Respect version conflicts and schema validation errors. "
                 f"Session transcripts are filed under {convo_path}. Built-in memory and "
-                f"user notes are mirrored into {MEMORY_NOTE['path']}/{MEMORY_NOTE['title']} "
-                f"and {USER_NOTE['path']}/{USER_NOTE['title']}. "
+                f"user notes are mirrored into {memory_note['path']}/{memory_note['title']} "
+                f"and {user_note['path']}/{user_note['title']}. "
                 "The provider's context write restrictions apply to its own hooks; "
                 "MCP authorization and tool visibility are configured separately."
             )
@@ -204,6 +210,7 @@ class RobotNotesProvider(MemoryProvider):
             "A shared robot-notes workspace is connected as external memory — notes are "
             "shared between humans and agents in this workspace, so writes here are "
             f"visible to others too. Selected vault: {self._config.vault_id if self._config else 'default'}. "
+            f"{scope_hint}"
             "All recall, tools, transcripts, and memory mirrors use this vault. Tools:\n"
             "- robotnotes_search(query, path?, limit?): keyword full-text search, not a "
             "wildcard — there is no query that means \"every note\".\n"
@@ -225,8 +232,8 @@ class RobotNotesProvider(MemoryProvider):
             "different title.\n"
             f"This session's own transcripts are filed one note per session under "
             f"{convo_path}. The built-in memory and user notes are mirrored "
-            f"one-directionally into {MEMORY_NOTE['path']}/{MEMORY_NOTE['title']} and "
-            f"{USER_NOTE['path']}/{USER_NOTE['title']} in the workspace — the workspace "
+            f"one-directionally into {memory_note['path']}/{memory_note['title']} and "
+            f"{user_note['path']}/{user_note['title']} in the workspace — the workspace "
             "copy is the shared, authoritative one that other agents and humans read."
         )
 
@@ -275,7 +282,7 @@ class RobotNotesProvider(MemoryProvider):
         return self._recall_cache.status("robot-notes")
 
     def memory_health(self) -> Dict[str, Any]:
-        """Return content-free outcomes of latest automatic operations, without I/O."""
+        """Return content-free outcomes of latest automatic operations, without network requests."""
         try:
             queue = self._outbox.status() if self._outbox else "disabled"
         except (OSError, sqlite3.Error):
@@ -415,7 +422,7 @@ class RobotNotesProvider(MemoryProvider):
         health = health or self._health
         generation = health.begin("recall")
         try:
-            items = client.search(query, limit=5)
+            items = self._recall_items(client, query)
         except ClientError as exc:
             if exc.kind is ErrorKind.CIRCUIT_OPEN:
                 logger.debug("robot_notes: search unavailable (circuit_open)")
@@ -431,6 +438,48 @@ class RobotNotesProvider(MemoryProvider):
             for item in items
         ]
         return "Relevant notes from robot-notes:\n" + "\n".join(lines), len(items)
+
+    def _recall_items(self, client: RobotNotesClient, query: str) -> List[Dict[str, Any]]:
+        paths = self._load_config().recall_paths
+        if paths == (None,):
+            return client.search(query, limit=5)
+        results, errors = [None] * len(paths), [None] * len(paths)
+
+        def search(index, path):
+            try:
+                results[index] = client.search(query, path=path, limit=5)
+            except Exception as exc:
+                errors[index] = exc
+
+        threads = [spawn_context_thread(lambda index=index, path=path: search(index, path), name="robot-notes-scope") for index, path in enumerate(paths)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        for error in errors:
+            if error is not None:
+                raise error
+        if not all(isinstance(result, list) for result in results):
+            raise ClientError("Malformed search response", kind=ErrorKind.OTHER, code="invalid_response")
+        for result in results:
+            for item in result:
+                if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                        or not item["id"] or not isinstance(item.get("title"), str)
+                        or not isinstance(item.get("snippet", ""), str)):
+                    raise ClientError("Malformed search result", kind=ErrorKind.OTHER, code="invalid_response")
+        selected, seen = [], set()
+        exhausted = object()
+        for group in zip_longest(*results, fillvalue=exhausted):
+            for item in group:
+                if item is exhausted:
+                    continue
+                note_id = item["id"]
+                if note_id not in seen:
+                    selected.append(item)
+                    seen.add(note_id)
+                    if len(selected) == 5:
+                        return selected
+        return selected
 
     # -- Explicit tools ---------------------------------------------------
 
@@ -554,7 +603,7 @@ class RobotNotesProvider(MemoryProvider):
         """
         if not self._client or not self._can_write():
             return
-        note = USER_NOTE if target == "user" else MEMORY_NOTE
+        note = self._config.user_note if target == "user" else self._config.memory_note
         if self._outbox:
             self._enqueue_automatic({"kind": "mirror", "note": note, "action": action, "content": content, "metadata": metadata or {}})
             return
@@ -708,6 +757,10 @@ class RobotNotesProvider(MemoryProvider):
             native_tools=values.get("native_tools", existing.native_tools),
             durable_writes=values.get("durable_writes", existing.durable_writes),
             vault_id=str(values.get("vault_id", existing.vault_id) or "default"),
+            memory_scope=values.get("memory_scope", existing.memory_scope),
+            user_id=values.get("user_id", existing.user_id),
+            agent_id=values.get("agent_id", existing.agent_id),
+            shared_memory_path=values.get("shared_memory_path", existing.shared_memory_path),
         ).save(hermes_home)
 
 
