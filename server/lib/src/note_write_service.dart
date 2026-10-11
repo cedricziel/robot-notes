@@ -131,7 +131,7 @@ class NoteWriteService {
     required this.metaIndex,
     required this.searchIndex,
     required this.broadcaster,
-    NoteAuthorizationService? authorization,
+    required this.authorization,
     KnowledgePrincipal Function()? principalResolver,
     LinkIndex? linkIndex,
     LockManager? lockManager,
@@ -139,9 +139,7 @@ class NoteWriteService {
     Tracer? tracer,
     this.embeddingProvider,
     this.registry,
-  })  : authorization =
-            authorization ?? (throw ArgumentError.notNull('authorization')),
-        _principalResolver =
+  })  : _principalResolver =
             principalResolver ?? (() => currentKnowledgePrincipal),
         linkIndex = linkIndex ?? LinkIndex(),
         lockManager = lockManager ?? LockManager(),

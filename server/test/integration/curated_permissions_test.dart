@@ -639,22 +639,29 @@ void main() {
     }
     expect(app.deps.lockManager.lockOf(curated['id'] as String), null);
   });
-  test('a writer cannot omit policy even inside an authenticated agent context',
-      () async {
-    final identity = KnowledgePrincipal.agent(
-      credentialId: 'authenticated',
-      scopes: {'notes:read', 'notes:write'},
+  test('accepted read and write authorization cannot diverge', () {
+    final mismatched =
+        NoteAuthorizationService(store: KnowledgePolicyStore.memory());
+    addTearDown(mismatched.store.dispose);
+    final deps = app.deps;
+    expect(
+      () => AppDeps(
+        storage: deps.storage,
+        metaIndex: deps.metaIndex,
+        searchIndex: deps.searchIndex,
+        inviteStore: deps.inviteStore,
+        clientStore: deps.clientStore,
+        codeStore: deps.codeStore,
+        tokenStore: deps.tokenStore,
+        consentThrottle: deps.consentThrottle,
+        lockManager: deps.lockManager,
+        broadcaster: deps.broadcaster,
+        presence: deps.presence,
+        clock: deps.clock,
+        authorization: mismatched,
+        noteWriteService: deps.noteWriteService,
+      ),
+      throwsArgumentError,
     );
-    await withKnowledgePrincipal(identity, () async {
-      expect(
-        () => NoteWriteService(
-          storage: app.deps.storage,
-          metaIndex: app.deps.metaIndex,
-          searchIndex: app.deps.searchIndex,
-          broadcaster: app.deps.broadcaster,
-        ),
-        throwsArgumentError,
-      );
-    });
   });
 }

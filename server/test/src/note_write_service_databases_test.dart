@@ -139,7 +139,7 @@ void main() {
           registry: s.registry,
         );
 
-        expect(
+        await expectLater(
           () => svc.create(
             title: 'Task A',
             content: '',
@@ -264,6 +264,7 @@ void main() {
         // scan (as a real hand-edited file would be), rather than routed
         // through svc.create — which would have (correctly) rejected its
         // invalid `status` value.
+        s.meta.upsert(row.toSummary());
         s.link.upsert(row.id, row.content);
 
         final other = await svc.create(
@@ -529,7 +530,7 @@ void main() {
       final def = await makeDatabase(svc);
       s.registry.upsert(def.toSummary(), def.extra);
 
-      expect(
+      await expectLater(
         () => svc.createRow(
           databaseId: def.id,
           title: 'Row Two',
@@ -588,7 +589,7 @@ void main() {
         registry: s.registry,
       );
 
-      expect(
+      await expectLater(
         () => svc.createRow(databaseId: 'nope', title: 'Row', actor: 'a'),
         throwsA(isA<DatabaseNotFoundException>()),
       );
@@ -638,7 +639,7 @@ void main() {
         registry: s.registry,
       );
 
-      expect(
+      await expectLater(
         () => svc.createDatabase(
           title: 'Projects',
           actor: 'a',
@@ -670,7 +671,7 @@ void main() {
         source: const DatabaseSource.folder('Projects'),
       );
 
-      expect(
+      await expectLater(
         () => svc.updateDatabase(
           id: note.id,
           ifMatch: note.version + 99,
