@@ -575,6 +575,22 @@ def test_handle_tool_call_forget_deletes_note(provider):
 
 
 @respx.mock
+def test_handle_tool_call_forget_preserves_server_authorization_denial(provider):
+    respx.delete("https://notes.example.com/notes/01NEW").mock(
+        return_value=httpx.Response(
+            403,
+            json={"error": {"code": "insufficient_scope", "message": "Deletion denied.", "details": {}}},
+        )
+    )
+
+    result = json.loads(provider.handle_tool_call("robotnotes_forget", {"id": "01NEW"}))
+
+    assert result["code"] == "insufficient_scope"
+    assert result["error"] == "Deletion denied."
+    assert "deleted" not in result
+
+
+@respx.mock
 def test_handle_tool_call_remember_path_conflict_tells_model_to_search_instead(provider):
     respx.post("https://notes.example.com/notes").mock(
         return_value=httpx.Response(409, json={"error": "path_conflict"})

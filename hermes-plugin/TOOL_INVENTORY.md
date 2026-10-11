@@ -24,7 +24,7 @@ literal MCP parity. There are also REST-only workspace capabilities.
 | `robotnotes_note` | `get_note` | Already returns the raw note response, including properties/type when supplied by the server; document that it can read rows and definitions. |
 | `robotnotes_remember` | `create_note` | Add optional `properties`; teach agents to use create-row for database membership and schema validation. Keep search-before-create guidance. |
 | `robotnotes_append` | `append_to_note` | Retain atomic append and the old-server fallback; test property preservation. |
-| `robotnotes_forget` | `delete_note` | Document that rows/definitions are notes. Current tool wording says “this agent created,” but the handler does not enforce ownership. Do not claim an ownership restriction that does not exist. |
+| `robotnotes_forget` | `delete_note` | Rows and definitions are notes. Deletion requires server credential authorization and is not restricted by the creating actor. |
 
 ## Seven database tools
 
