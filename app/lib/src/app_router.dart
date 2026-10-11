@@ -250,7 +250,8 @@ class ConfigHolder extends ChangeNotifier {
         final refreshed = await _refresher.refresh(stored);
         await _store.write(refreshed);
         return refreshed;
-      } on OidcRefreshException {
+      } on OidcRefreshException catch (error) {
+        if (error.retryable) return stored;
         await _store.clear();
         return null;
       }

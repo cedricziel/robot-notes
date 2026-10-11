@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app/src/auth/oidc_session_refresher.dart';
@@ -5,6 +6,18 @@ import 'package:app/src/config/app_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+class CloseTrackingClient extends MockClient {
+  CloseTrackingClient(super.fn);
+
+  bool closed = false;
+
+  @override
+  void close() {
+    closed = true;
+    super.close();
+  }
+}
 
 void main() {
   const session = AppConfig(
@@ -16,6 +29,30 @@ void main() {
   );
 
   group('OidcSessionRefresher.refresh', () {
+    testWidgets('timeout is retryable and closes the stalled client', (
+      tester,
+    ) async {
+      final response = Completer<http.Response>();
+      final client = CloseTrackingClient((_) => response.future);
+      final refresher = OidcSessionRefresher(clientFactory: () => client);
+      final result = expectLater(
+        refresher.refresh(session),
+        throwsA(
+          isA<OidcRefreshException>().having(
+            (error) => error.retryable,
+            'retryable',
+            isTrue,
+          ),
+        ),
+      );
+
+      await tester.pump(const Duration(seconds: 30));
+      await result;
+      expect(client.closed, isTrue);
+      response.complete(http.Response('{}', 200));
+      await tester.pump();
+    });
+
     test('posts the refresh grant and returns the rotated session', () async {
       final mock = MockClient((request) async {
         expect(request.url.path, '/oauth/token');

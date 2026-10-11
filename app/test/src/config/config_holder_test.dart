@@ -68,6 +68,43 @@ void main() {
     },
   );
 
+  test(
+    'temporary startup refresh failure preserves the saved session',
+    () async {
+      final store = InMemoryConfigStore();
+      await store.write(oauth);
+      final holder = ConfigHolder(
+        store,
+        refresher: OidcSessionRefresher(
+          clientFactory: () => MockClient((_) async => http.Response('', 503)),
+        ),
+      );
+      addTearDown(holder.dispose);
+      await Future<void>.delayed(Duration.zero);
+      expect(holder.loaded, isTrue);
+      expect(holder.config, oauth);
+      expect(holder.sessionExpired, isFalse);
+      expect(await store.read(), oauth);
+    },
+  );
+
+  test('starting offline preserves credentials and finishes loading', () async {
+    final store = InMemoryConfigStore();
+    await store.write(oauth);
+    final holder = ConfigHolder(
+      store,
+      refresher: OidcSessionRefresher(
+        clientFactory: () =>
+            MockClient((_) async => throw http.ClientException('offline')),
+      ),
+    );
+    addTearDown(holder.dispose);
+    await Future<void>.delayed(Duration.zero);
+    expect(holder.loaded, isTrue);
+    expect(holder.config, oauth);
+    expect(await store.read(), oauth);
+  });
+
   test('rejected refresh marks the session expired', () async {
     final holder = ConfigHolder(
       InMemoryConfigStore(),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app/src/app_router.dart';
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/config/config_store.dart';
@@ -8,6 +10,89 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 void main() {
+  testWidgets(
+    'repeated resumes recover after a stalled refresh and wake network failure',
+    (tester) async {
+      final stalled = Completer<http.Response>();
+      var refreshes = 0;
+      final store = InMemoryConfigStore();
+      final holder = ConfigHolder(
+        store,
+        refresher: OidcSessionRefresher(
+          clientFactory: () => MockClient((_) {
+            refreshes++;
+            return switch (refreshes) {
+              1 => stalled.future,
+              2 => Future.error(http.ClientException('Network unavailable')),
+              _ => Future.value(
+                http.Response(
+                  '{"access_token":"recovered","refresh_token":"rotated"}',
+                  200,
+                ),
+              ),
+            };
+          }),
+        ),
+      );
+      await tester.pump();
+      const config = AppConfig(
+        baseUrl: 'https://notes.example',
+        apiKey: 'old',
+        actor: 'Alice',
+        oauthClientId: 'client',
+        oauthRefreshToken: 'refresh',
+      );
+      holder.set(config);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AppRouterShell(
+            configHolder: holder,
+            child: const Text('Open draft'),
+          ),
+        ),
+      );
+      final workspace = tester.element(find.text('Open draft'));
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(refreshes, 1);
+      await tester.pump(const Duration(seconds: 31));
+      expect(holder.config, config);
+      expect(holder.sessionExpired, isFalse);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(refreshes, 2);
+      expect(holder.config, config);
+      expect(holder.sessionExpired, isFalse);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(refreshes, 3);
+      expect(holder.config?.apiKey, 'recovered');
+      expect((await store.read())?.oauthRefreshToken, 'rotated');
+      expect(tester.element(find.text('Open draft')), same(workspace));
+
+      stalled.complete(
+        http.Response(
+          '{"access_token":"late","refresh_token":"late-refresh"}',
+          200,
+        ),
+      );
+      await tester.pump();
+      expect(holder.config?.apiKey, 'recovered');
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 31));
+      holder.dispose();
+    },
+  );
+
   testWidgets(
     'renews periodically and on resume without replacing the workspace',
     (tester) async {

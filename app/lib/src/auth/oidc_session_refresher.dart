@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -46,15 +47,17 @@ class OidcSessionRefresher {
 
     final client = _clientFactory();
     try {
-      final response = await client.post(
-        Uri.parse('${config.baseUrl}/oauth/token'),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {
-          'grant_type': 'refresh_token',
-          'refresh_token': config.oauthRefreshToken!,
-          'client_id': config.oauthClientId!,
-        },
-      );
+      final response = await client
+          .post(
+            Uri.parse('${config.baseUrl}/oauth/token'),
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: {
+              'grant_type': 'refresh_token',
+              'refresh_token': config.oauthRefreshToken!,
+              'client_id': config.oauthClientId!,
+            },
+          )
+          .timeout(const Duration(seconds: 30));
       if (response.statusCode != 200) {
         throw OidcRefreshException(
           'Token refresh failed with HTTP ${response.statusCode}.',
@@ -81,6 +84,16 @@ class OidcSessionRefresher {
         vaultId: config.vaultId,
         oauthClientId: config.oauthClientId,
         oauthRefreshToken: refreshToken,
+      );
+    } on http.ClientException {
+      throw const OidcRefreshException(
+        'Token refresh could not reach the server.',
+        retryable: true,
+      );
+    } on TimeoutException {
+      throw const OidcRefreshException(
+        'Token refresh timed out.',
+        retryable: true,
       );
     } on FormatException {
       throw const OidcRefreshException('Token refresh response was malformed.');
