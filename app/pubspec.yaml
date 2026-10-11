@@ -23,6 +23,9 @@ dependencies:
   device_info_plus: ^13.3.0
   file_picker: ^13.1.0
   flutter_markdown_plus: ^1.0.12
+  super_editor: 0.3.0-dev.52
+  adaptive_super_editor:
+    path: ../packages/adaptive_super_editor
   markdown: ^7.3.1
   flutter_otel: ^0.1.0
   dart_otel_api: ^0.1.0

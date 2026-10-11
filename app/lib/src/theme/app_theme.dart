@@ -294,6 +294,8 @@ abstract final class AppTheme {
         border: Border(top: BorderSide(color: scheme.outlineVariant)),
       ),
       tableBorder: TableBorder.all(color: scheme.outlineVariant),
+      tableColumnWidth: const IntrinsicColumnWidth(),
+      tableHeadAlign: TextAlign.left,
       tableHead: text.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
       tableBody: body,
       a: TextStyle(

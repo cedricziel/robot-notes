@@ -9,27 +9,96 @@ Page<void> notesPage(
   required Widget child,
   required bool splitView,
 }) {
-  if (splitView || MediaQuery.disableAnimationsOf(context)) {
-    return NoTransitionPage<void>(key: key, child: child);
-  }
+  final stationary = splitView || MediaQuery.disableAnimationsOf(context);
   switch (Theme.of(context).platform) {
     case TargetPlatform.iOS:
-      return CupertinoPage<void>(key: key, child: child);
+      return _NotesCupertinoPage(
+        key: key,
+        child: child,
+        stationary: stationary,
+      );
     case TargetPlatform.android:
     case TargetPlatform.fuchsia:
-      return MaterialPage<void>(key: key, child: child);
+      return _NotesMaterialPage(key: key, child: child, stationary: stationary);
     case TargetPlatform.macOS:
     case TargetPlatform.windows:
     case TargetPlatform.linux:
       return CustomTransitionPage<void>(
         key: key,
         child: child,
-        transitionDuration: const Duration(milliseconds: 120),
-        reverseTransitionDuration: const Duration(milliseconds: 120),
+        transitionDuration: stationary
+            ? Duration.zero
+            : const Duration(milliseconds: 120),
+        reverseTransitionDuration: stationary
+            ? Duration.zero
+            : const Duration(milliseconds: 120),
         transitionsBuilder: (context, animation, secondaryAnimation, child) =>
             FadeTransition(opacity: animation, child: child),
       );
   }
+}
+
+// Changing Page type across breakpoints disposes the active note and its draft.
+class _NotesCupertinoPage extends CupertinoPage<void> {
+  const _NotesCupertinoPage({
+    required super.key,
+    required super.child,
+    required this.stationary,
+  });
+
+  final bool stationary;
+
+  @override
+  Route<void> createRoute(BuildContext context) => _NotesCupertinoRoute(this);
+}
+
+class _NotesCupertinoRoute extends CupertinoPageRoute<void> {
+  _NotesCupertinoRoute(_NotesCupertinoPage page)
+    : super(settings: page, builder: (_) => page.child);
+
+  _NotesCupertinoPage get _page => settings as _NotesCupertinoPage;
+
+  @override
+  Widget buildContent(BuildContext context) => _page.child;
+
+  @override
+  Duration get transitionDuration =>
+      _page.stationary ? Duration.zero : super.transitionDuration;
+
+  @override
+  Duration get reverseTransitionDuration =>
+      _page.stationary ? Duration.zero : super.reverseTransitionDuration;
+}
+
+class _NotesMaterialPage extends MaterialPage<void> {
+  const _NotesMaterialPage({
+    required super.key,
+    required super.child,
+    required this.stationary,
+  });
+
+  final bool stationary;
+
+  @override
+  Route<void> createRoute(BuildContext context) => _NotesMaterialRoute(this);
+}
+
+class _NotesMaterialRoute extends MaterialPageRoute<void> {
+  _NotesMaterialRoute(_NotesMaterialPage page)
+    : super(settings: page, builder: (_) => page.child);
+
+  _NotesMaterialPage get _page => settings as _NotesMaterialPage;
+
+  @override
+  Widget buildContent(BuildContext context) => _page.child;
+
+  @override
+  Duration get transitionDuration =>
+      _page.stationary ? Duration.zero : super.transitionDuration;
+
+  @override
+  Duration get reverseTransitionDuration =>
+      _page.stationary ? Duration.zero : super.reverseTransitionDuration;
 }
 
 /// Matches dialog motion to the platform and accessibility preference.

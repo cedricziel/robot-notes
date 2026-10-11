@@ -70,6 +70,7 @@ RUN sed -i '/^  - server$/d' pubspec.yaml \
  && sed -i '/^dart_pre_commit:$/,$d' pubspec.yaml
 COPY shared/ ./shared/
 COPY app/ ./app/
+COPY packages/adaptive_super_editor/ ./packages/adaptive_super_editor/
 
 # Resolve the workspace, then build the web bundle in release mode.
 # `--no-tree-shake-icons` keeps icon glyphs reachable from runtime data

@@ -71,6 +71,10 @@ abstract final class PaneSizes {
   /// Comfortable line length for reading and writing prose.
   static const double readingColumn = 760;
 
-  /// Editor + preview side by side, each near a reading column.
+  /// Maximum width of the server and local draft conflict comparison.
   static const double editorSplit = 1400;
+
+  static const double editorPadding = 16;
+  static const double blockGutter = 28;
+  static const double blockActions = 48;
 }

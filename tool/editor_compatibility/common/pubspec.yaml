@@ -1,0 +1,11 @@
+name: robot_notes_editor_compatibility
+publish_to: none
+environment:
+  sdk: ^3.13.0
+  flutter: '>=3.47.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_test:
+    sdk: flutter
+  material_ui: 1.6.0

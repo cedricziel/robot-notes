@@ -20,9 +20,11 @@ import '../widgets/adaptive.dart';
 import '../widgets/platform_motion.dart';
 import '../widgets/platform_feedback.dart';
 import '../widgets/status_strip.dart';
+import 'block_note_editor.dart';
 import 'link_autocomplete.dart';
 import 'markdown_toolbar.dart';
 import 'note_controller.dart';
+import 'note_navigation_scope.dart';
 import 'note_property_panel.dart';
 import 'save_shortcut.dart';
 
@@ -39,7 +41,7 @@ enum NotePresentation {
 /// Single-note view. Renders three modes off [NoteController]:
 ///
 /// - viewing: rendered Markdown + presence/lock indicators.
-/// - editing: title and content text fields, save / cancel actions.
+/// - editing: block document or Markdown source, with save and note actions.
 /// - conflict: 409 reconcile UI showing both versions.
 ///
 /// Locking is handled by the controller; this widget just dispatches.
@@ -121,11 +123,11 @@ class _NoteScreenState extends State<NoteScreen> {
   late final _DiffTextController _content = _DiffTextController(_serverContent);
   late final LinkAutocompleteController _linkAutocomplete;
 
-  /// The user's explicit choice for the editor's live preview, if they've
-  /// made one this session. `null` means "whatever the width suggests":
-  /// shown side-by-side at [WindowSizeClass.medium] and up, hidden on a
-  /// compact window where it would halve an already small editor.
-  bool? _previewOverride;
+  bool _sourceMode = false;
+  bool _transitionPending = false;
+  bool _allowPop = false;
+  bool _resumeEditingOnReturn = false;
+  NoteNavigationRegistry? _navigationRegistry;
 
   String? _serverContent() {
     final s = widget.controller.value;
@@ -155,15 +157,36 @@ class _NoteScreenState extends State<NoteScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final navigation = NoteNavigationScope.maybeOf(context);
+    if (_navigationRegistry != navigation?.registry) {
+      _navigationRegistry?.unregister(this);
+      _navigationRegistry = navigation?.registry;
+    }
+    if (navigation != null && ModalRoute.of(context)?.isCurrent != false) {
+      navigation.registry.register(this, navigation.location, _leaveRoute);
+    } else {
+      _navigationRegistry?.unregister(this);
+    }
     _menuActions = AppMenuActionsScope.maybeOf(context);
     // Re-runs when this route stops or resumes being the current one, so
     // a note pushed over this one takes the Note menu with it and hands it
     // back on pop.
     _syncMenuActions();
+    if (_resumeEditingOnReturn && ModalRoute.of(context)?.isCurrent != false) {
+      _resumeEditingOnReturn = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            widget.controller.value.mode == NoteMode.viewing &&
+            !widget.controller.value.isDirty) {
+          unawaited(_edit());
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    _navigationRegistry?.unregister(this);
     _menuActions?.clearNote(this);
     widget.controller.removeListener(_syncBuffersFromState);
     _uninstallWebSaveShortcut();
@@ -202,7 +225,11 @@ class _NoteScreenState extends State<NoteScreen> {
   /// only the top-most note saves; a background note stays untouched, same
   /// as native `CallbackShortcuts` (which only fires for the focused route).
   void _saveIfEditing() {
-    if (widget.controller.value.mode != NoteMode.editing) return;
+    if (_transitionPending) return;
+    if (widget.controller.value.mode != NoteMode.editing &&
+        widget.controller.value.mode != NoteMode.saving) {
+      return;
+    }
     if (ModalRoute.of(context)?.isCurrent == false) return;
     unawaited(_save());
   }
@@ -258,9 +285,17 @@ class _NoteScreenState extends State<NoteScreen> {
   Future<void> _open() async {
     if (!mounted) return;
     await widget.controller.open();
-    if (!mounted || !widget.startEditing) return;
+    if (!mounted ||
+        widget.controller.value.mode != NoteMode.viewing ||
+        widget.controller.value.note == null) {
+      return;
+    }
     await _edit();
-    if (!mounted || widget.controller.value.mode != NoteMode.editing) return;
+    if (!mounted ||
+        !widget.startEditing ||
+        widget.controller.value.mode != NoteMode.editing) {
+      return;
+    }
     // The title field mounts on the rebuild that follows the mode change.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -286,11 +321,7 @@ class _NoteScreenState extends State<NoteScreen> {
     _syncMenuActions();
   }
 
-  /// Publishes this note's commands to the macOS menu bar while this
-  /// screen is the one in front, mirroring the app bar: Edit while
-  /// viewing, Save while editing, Move/Delete only while viewing, Close
-  /// whenever a note is loaded. Withdraws them while another route covers
-  /// this one.
+  /// Publishes this note's commands while its route is in front.
   void _syncMenuActions() {
     final actions = _menuActions;
     if (actions == null || !mounted) return;
@@ -301,58 +332,265 @@ class _NoteScreenState extends State<NoteScreen> {
     final state = widget.controller.value;
     final loaded = state.note != null;
     final viewing = state.mode == NoteMode.viewing && loaded;
-    final editing = state.mode == NoteMode.editing;
+    final editing =
+        state.mode == NoteMode.editing || state.mode == NoteMode.saving;
+    final manage = !_transitionPending && _canManageNote(state);
     actions.setNote(
       this,
       NoteMenuHandlers(
         edit: viewing ? _edit : null,
-        save: editing ? _save : null,
-        close: loaded ? _close : null,
-        move: viewing ? _confirmMove : null,
-        delete: viewing ? _confirmDelete : null,
+        save: editing && !_transitionPending ? _save : null,
+        close: loaded && !_transitionPending ? _close : null,
+        move: manage ? _confirmMove : null,
+        delete: manage ? _confirmDelete : null,
       ),
     );
   }
+
+  bool _canManageNote(NoteState state) =>
+      state.note != null &&
+      (state.mode == NoteMode.editing ||
+          state.mode == NoteMode.saving ||
+          (state.mode == NoteMode.viewing && !state.isDirty));
 
   static void _syncField(TextEditingController field, String? buffer) {
     final next = buffer ?? '';
     if (field.text != next) field.text = next;
   }
 
-  /// With autosave, there's nothing meaningful to confirm discarding —
-  /// instead, a pending edit is flushed with an immediate save before
-  /// leaving. Returns whether it's now safe to actually close: `false`
-  /// keeps the note open, either because the flush landed on a conflict
-  /// (the conflict view takes over) or because it failed with a plain
-  /// error (edits stay intact, the existing error snackbar explains why).
-  /// Losing the lock during the flush (423) still counts as safe to
-  /// close — same as any other save that gets overtaken mid-edit.
-  Future<bool> _flushPendingEdit() async {
-    if (!widget.controller.value.isDirty) return true;
+  Future<void> _copyDraft() async {
+    final state = widget.controller.value;
+    final title = state.editTitle ?? state.note?.title ?? '';
+    final content = state.editContent ?? state.note?.content ?? '';
+    await Clipboard.setData(ClipboardData(text: '# $title\n\n$content'));
+  }
+
+  Future<bool> _confirmDiscardDraft({
+    String discardLabel = 'Discard and close',
+  }) async {
+    final result = await showPlatformDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog.adaptive(
+        title: const Text('Unsaved changes'),
+        content: const Text('Retry editing or copy your draft before leaving.'),
+        actions: [
+          adaptiveDialogAction(
+            ctx,
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep open'),
+          ),
+          adaptiveDialogAction(
+            ctx,
+            onPressed: () async {
+              await _copyDraft();
+              if (ctx.mounted) Navigator.of(ctx).pop(false);
+            },
+            child: const Text('Copy draft'),
+          ),
+          adaptiveDialogAction(
+            ctx,
+            destructive: true,
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(discardLabel),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
+  Future<bool> _flushPendingEdit({
+    bool allowDiscard = true,
+    String discardLabel = 'Discard and close',
+  }) async {
+    final before = widget.controller.value;
+    if (before.mode == NoteMode.conflict) return false;
+    if (!before.isDirty && before.mode != NoteMode.saving) return true;
+    if (before.mode == NoteMode.viewing) {
+      return allowDiscard
+          ? _confirmDiscardDraft(discardLabel: discardLabel)
+          : false;
+    }
     widget.controller.cancelPendingAutosave();
     await widget.controller.save();
     if (!mounted) return false;
     final after = widget.controller.value;
     if (after.mode == NoteMode.conflict) return false;
-    if (after.mode == NoteMode.editing && after.isDirty) {
+    if (after.isDirty) {
+      if (after.mode == NoteMode.viewing) {
+        return allowDiscard
+            ? _confirmDiscardDraft(discardLabel: discardLabel)
+            : false;
+      }
       _announceOutcome(failed: 'Could not save');
       return false;
     }
     return true;
   }
 
-  Future<void> _close() async {
-    if (!await _flushPendingEdit()) return;
-    await widget.controller.exitEditing();
-    if (mounted) widget.onClose?.call();
+  Future<void> _withFlushedDraft(
+    Future<void> Function() action, {
+    bool releaseLock = false,
+    bool resumeEditing = false,
+    bool allowDiscard = false,
+    String discardLabel = 'Discard and leave',
+  }) async {
+    if (_transitionPending) return;
+    final mode = widget.controller.value.mode;
+    final wasEditing = mode == NoteMode.editing || mode == NoteMode.saving;
+    setState(() => _transitionPending = true);
+    _syncMenuActions();
+    try {
+      if (!await _flushPendingEdit(
+            allowDiscard: allowDiscard,
+            discardLabel: discardLabel,
+          ) ||
+          !mounted) {
+        return;
+      }
+      if (releaseLock) await widget.controller.exitEditing();
+      if (!mounted) return;
+      await action();
+      if (mounted &&
+          resumeEditing &&
+          wasEditing &&
+          widget.controller.value.mode == NoteMode.viewing &&
+          widget.controller.value.error is! LockedException) {
+        await _edit();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _transitionPending = false);
+        _syncMenuActions();
+      }
+    }
+  }
+
+  Future<void> _finishClose() async {
+    _navigationRegistry?.unregister(this);
+    setState(() => _allowPop = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final onClose = widget.onClose;
+    if (onClose != null) {
+      onClose();
+    } else if (widget.presentation == NotePresentation.page &&
+        Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _close() => _withFlushedDraft(
+    _finishClose,
+    releaseLock: true,
+    allowDiscard: true,
+    discardLabel: 'Discard and close',
+  );
+
+  Future<bool> _leaveRoute() async {
+    var allowed = false;
+    final mode = widget.controller.value.mode;
+    final wasEditing = mode == NoteMode.editing || mode == NoteMode.saving;
+    await _withFlushedDraft(
+      () async {
+        _resumeEditingOnReturn = wasEditing;
+        allowed = true;
+      },
+      releaseLock: true,
+      allowDiscard: true,
+    );
+    return allowed;
+  }
+
+  Future<void> _navigate(VoidCallback action) async {
+    final mode = widget.controller.value.mode;
+    final wasEditing = mode == NoteMode.editing || mode == NoteMode.saving;
+    await _withFlushedDraft(
+      () async {
+        _resumeEditingOnReturn = wasEditing;
+        _navigationRegistry?.unregister(this);
+        action();
+      },
+      releaseLock: true,
+      allowDiscard: true,
+    );
+  }
+
+  void _openNote(String id) =>
+      unawaited(_navigate(() => widget.onOpenNote?.call(id)));
+  void _selectTag(String tag) =>
+      unawaited(_navigate(() => widget.onTagTap?.call(tag)));
+  void _openDatabase(String id, String view) =>
+      unawaited(_navigate(() => widget.onOpenDatabase?.call(id, view)));
+
+  Future<void> _showDetails() async {
+    await showPlatformDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog.adaptive(
+        title: const Text('Note details'),
+        content: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(ctx).height * .6,
+          ),
+          child: SingleChildScrollView(
+            key: const Key('note.details.panel'),
+            child: ValueListenableBuilder<NoteState>(
+              valueListenable: widget.controller,
+              builder: (context, state, _) {
+                final note = state.note;
+                if (note == null) return const SizedBox.shrink();
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _MetadataLine(note: note),
+                    if (note.tags.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      _TagChips(
+                        tags: note.tags,
+                        onTap: widget.onTagTap == null
+                            ? null
+                            : (tag) {
+                                Navigator.of(ctx).pop();
+                                _selectTag(tag);
+                              },
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    _BacklinksPanel(
+                      backlinks: state.backlinks,
+                      loading: state.backlinksLoading,
+                      onOpen: widget.onOpenNote == null
+                          ? null
+                          : (id) {
+                              Navigator.of(ctx).pop();
+                              _openNote(id);
+                            },
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+        actions: [
+          adaptiveDialogAction(
+            ctx,
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _onPopInvoked(bool didPop, Object? result) async {
-    if (!didPop) await _close();
-  }
-
-  void _setPreviewShown(bool shown) {
-    setState(() => _previewOverride = shown);
+    if (didPop) {
+      _navigationRegistry?.unregister(this);
+      await widget.controller.exitEditing();
+    } else {
+      await _close();
+    }
   }
 
   DatabaseEmbedBuilder? _embedBuilder() {
@@ -365,8 +603,8 @@ class _NoteScreenState extends State<NoteScreen> {
         databases: databases,
         api: widget.controller.api,
         events: widget.events,
-        onOpenNote: widget.onOpenNote,
-        onShowAll: widget.onOpenDatabase,
+        onOpenNote: widget.onOpenNote == null ? null : _openNote,
+        onShowAll: widget.onOpenDatabase == null ? null : _openDatabase,
       ),
     );
   }
@@ -387,7 +625,12 @@ class _NoteScreenState extends State<NoteScreen> {
       NotePresentation.pane => (Icons.close, 'Close'),
     };
     return PopScope(
-      canPop: !state.isDirty,
+      canPop:
+          _allowPop ||
+          (!_transitionPending &&
+              !state.isDirty &&
+              state.mode != NoteMode.saving &&
+              state.mode != NoteMode.conflict),
       onPopInvokedWithResult: _onPopInvoked,
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
@@ -396,7 +639,7 @@ class _NoteScreenState extends State<NoteScreen> {
             key: const Key('note.close'),
             tooltip: leadingTooltip,
             icon: Icon(leadingIcon),
-            onPressed: _close,
+            onPressed: _transitionPending ? null : _close,
           ),
           title: Text(
             viewing && roomy
@@ -448,22 +691,38 @@ class _NoteScreenState extends State<NoteScreen> {
                 onPressed: _save,
                 child: const Text('Save'),
               ),
-            if (viewing)
+            if (note != null && !_transitionPending)
               AdaptiveMoreMenu(
                 key: const Key('note.menu'),
                 tooltip: 'More',
                 entries: [
                   AdaptiveMenuEntry(
-                    key: const Key('note.move'),
-                    label: 'Move to folder…',
-                    onSelected: _confirmMove,
+                    key: const Key('note.details'),
+                    label: 'Note details',
+                    onSelected: _showDetails,
                   ),
-                  AdaptiveMenuEntry(
-                    key: const Key('note.delete'),
-                    label: 'Delete note',
-                    destructive: true,
-                    onSelected: _confirmDelete,
-                  ),
+                  if (!_sourceMode &&
+                      (state.mode == NoteMode.editing ||
+                          state.mode == NoteMode.saving ||
+                          (state.mode == NoteMode.viewing && state.isDirty)))
+                    AdaptiveMenuEntry(
+                      key: const Key('note.source'),
+                      label: 'Markdown source',
+                      onSelected: () => setState(() => _sourceMode = true),
+                    ),
+                  if (_canManageNote(state))
+                    AdaptiveMenuEntry(
+                      key: const Key('note.move'),
+                      label: 'Move to folder…',
+                      onSelected: _confirmMove,
+                    ),
+                  if (_canManageNote(state))
+                    AdaptiveMenuEntry(
+                      key: const Key('note.delete'),
+                      label: 'Delete note',
+                      destructive: true,
+                      onSelected: _confirmDelete,
+                    ),
                 ],
               ),
           ],
@@ -473,7 +732,8 @@ class _NoteScreenState extends State<NoteScreen> {
         // stay here everywhere.
         body: CallbackShortcuts(
           bindings: withoutMenuOwnedShortcuts(<ShortcutActivator, VoidCallback>{
-            if (state.mode == NoteMode.editing) ...{
+            if (state.mode == NoteMode.editing ||
+                state.mode == NoteMode.saving) ...{
               const SingleActivator(LogicalKeyboardKey.keyS, meta: true): _save,
               const SingleActivator(LogicalKeyboardKey.keyS, control: true):
                   _save,
@@ -547,20 +807,25 @@ class _NoteScreenState extends State<NoteScreen> {
     );
     if (target == null || !mounted) return;
     final feedback = PlatformFeedback.of(context);
-    await widget.controller.move(target);
-    if (!mounted) return;
-    final error = widget.controller.value.error;
-    if (error is PathConflictException) {
-      feedback.show('A note already exists at "$target".', error: true);
-    } else if (error is LockedException) {
-      // Surfaced by the existing "<holder> is editing this note" banner
-      // (state.lock is now set to the holder) — no separate snackbar, same
-      // as a 423 on save.
-    } else if (error != null) {
-      feedback.show('Could not move note: ${_describe(error)}', error: true);
-    } else {
-      feedback.show('Note moved');
-    }
+    await _withFlushedDraft(
+      () async {
+        await widget.controller.move(target);
+        if (!mounted) return;
+        final error = widget.controller.value.error;
+        if (error is PathConflictException) {
+          feedback.show('A note already exists at "$target".', error: true);
+        } else if (error != null && error is! LockedException) {
+          feedback.show(
+            'Could not move note: ${_describe(error)}',
+            error: true,
+          );
+        } else if (error == null) {
+          feedback.show('Note moved');
+        }
+      },
+      releaseLock: true,
+      resumeEditing: true,
+    );
   }
 
   Future<void> _confirmDelete() async {
@@ -588,16 +853,17 @@ class _NoteScreenState extends State<NoteScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    // Capture feedback before closing the note so its result remains on the list.
     final feedback = PlatformFeedback.of(context);
-    await widget.controller.delete();
-    if (!mounted) return;
-    if (widget.controller.value.mode != NoteMode.deleted) {
-      feedback.show("Couldn't delete the note", error: true);
-      return;
-    }
-    feedback.show('Note deleted');
-    widget.onClose?.call();
+    await _withFlushedDraft(() async {
+      await widget.controller.delete();
+      if (!mounted) return;
+      if (widget.controller.value.mode != NoteMode.deleted) {
+        feedback.show("Couldn't delete the note", error: true);
+        return;
+      }
+      feedback.show('Note deleted');
+      await _finishClose();
+    }, resumeEditing: true);
   }
 
   Widget _buildBody(BuildContext context, NoteState state) {
@@ -657,6 +923,7 @@ class _NoteScreenState extends State<NoteScreen> {
 
     final editing =
         state.mode == NoteMode.editing || state.mode == NoteMode.saving;
+    final recoveringDraft = state.mode == NoteMode.viewing && state.isDirty;
     final properties = NotePropertyPanel(
       key: _propertyPanelKey,
       properties: state.properties,
@@ -667,6 +934,22 @@ class _NoteScreenState extends State<NoteScreen> {
     return Column(
       children: [
         ...banners,
+        if (recoveringDraft)
+          Wrap(
+            spacing: 8,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(8),
+                child: Text('Your unsaved draft is kept here.'),
+              ),
+              TextButton.icon(
+                onPressed: _copyDraft,
+                icon: const Icon(Icons.copy),
+                label: const Text('Copy draft'),
+              ),
+              TextButton(onPressed: _edit, child: const Text('Retry editing')),
+            ],
+          ),
         if (editing &&
             (state.properties.isNotEmpty ||
                 state.coveringDefinitions.isNotEmpty))
@@ -682,27 +965,87 @@ class _NoteScreenState extends State<NoteScreen> {
             ),
           ),
         Expanded(
-          child: editing
-              ? _Editor(
-                  title: _title,
-                  autofocusTitle: widget.startEditing,
-                  content: _content,
-                  onTitle: widget.controller.setEditTitle,
-                  onContent: _onContentChanged,
-                  saving: state.mode == NoteMode.saving,
-                  linkAutocomplete: _linkAutocomplete,
-                  onSelectLink: _insertLink,
-                  previewOverride: _previewOverride,
-                  onPreviewShown: _setPreviewShown,
-                  embedBuilder: _embedBuilder(),
+          child: editing || recoveringDraft
+              ? BlockNoteEditor(
+                  key: ObjectKey(widget.controller),
+                  markdown: state.editContent ?? note.content,
+                  sourceMode: _sourceMode,
+                  onSourceModeChanged: (source) {
+                    if (_sourceMode != source) {
+                      setState(() => _sourceMode = source);
+                    }
+                  },
+                  sourceController: _content,
+                  onChanged: widget.controller.setEditContent,
+                  readOnly: !editing || _transitionPending,
+                  searchLinkTitles: widget.controller.searchLinkTitles,
+                  header: Padding(
+                    padding: const EdgeInsets.only(
+                      left: PaneSizes.editorPadding + PaneSizes.blockGutter,
+                      right: PaneSizes.editorPadding + PaneSizes.blockActions,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          key: const Key('note.editor.title'),
+                          controller: _title,
+                          autofocus: widget.startEditing && editing,
+                          readOnly: !editing || _transitionPending,
+                          onChanged: widget.controller.setEditTitle,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            filled: false,
+                            contentPadding: EdgeInsets.zero,
+                            hintText: 'Title',
+                            constraints: BoxConstraints(minHeight: 44),
+                          ),
+                        ),
+                        _MetadataLine(note: note),
+                        const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
+                  sourceBuilder: (context, source, readOnly) => _Editor(
+                    note: note,
+                    title: _title,
+                    autofocusTitle: false,
+                    content: source,
+                    onTitle: widget.controller.setEditTitle,
+                    onContent: _onContentChanged,
+                    saving: state.mode == NoteMode.saving,
+                    readOnly: readOnly,
+                    linkAutocomplete: _linkAutocomplete,
+                    onSelectLink: _insertLink,
+                  ),
+                  opaqueBuilder: (context, source) {
+                    final embeds = _embedBuilder();
+                    return MarkdownBody(
+                      data: source,
+                      selectable: true,
+                      styleSheet: AppTheme.markdown(context),
+                      imageBuilder: (uri, title, alt) =>
+                          Text(alt ?? uri.toString()),
+                      blockSyntaxes: embeds == null
+                          ? const []
+                          : const [DatabaseEmbedSyntax()],
+                      builders: embeds == null
+                          ? const {}
+                          : {databaseEmbedTag: embeds},
+                    );
+                  },
                 )
               : _ReadingView(
                   note: note,
                   properties: properties,
                   backlinks: state.backlinks,
                   backlinksLoading: state.backlinksLoading,
-                  onOpenNote: widget.onOpenNote,
-                  onTagTap: widget.onTagTap,
+                  onOpenNote: widget.onOpenNote == null ? null : _openNote,
+                  onTagTap: widget.onTagTap == null ? null : _selectTag,
                   onEdit: state.mode == NoteMode.viewing ? _edit : null,
                   onRefresh: _refresh,
                   embedBuilder: _embedBuilder(),
@@ -877,29 +1220,20 @@ class _Editor extends StatelessWidget {
     required this.saving,
     required this.linkAutocomplete,
     required this.onSelectLink,
-    required this.previewOverride,
-    required this.onPreviewShown,
-    this.embedBuilder,
+    this.readOnly = false,
+    this.note,
   });
 
+  final Note? note;
   final TextEditingController title;
   final bool autofocusTitle;
   final TextEditingController content;
   final ValueChanged<String> onTitle;
   final ValueChanged<String> onContent;
   final bool saving;
+  final bool readOnly;
   final LinkAutocompleteController linkAutocomplete;
   final ValueChanged<String> onSelectLink;
-
-  /// See `_NoteScreenState._previewOverride`.
-  final bool? previewOverride;
-  final ValueChanged<bool> onPreviewShown;
-
-  /// Resolves `![[Title]]` embeds in the preview pane — "the split-view
-  /// preview pane, being a rendering surface, shall render embeds like view
-  /// mode". Never applied to [content]'s own `TextField`, which always
-  /// shows the literal source.
-  final DatabaseEmbedBuilder? embedBuilder;
 
   /// Applies [transform] to [content]'s current value and reports the
   /// result the same way typing does, so undo/dirty-tracking/autocomplete
@@ -915,126 +1249,82 @@ class _Editor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide =
-            Breakpoints.fromConstraints(constraints) >= WindowSizeClass.medium;
-        final showPreview = previewOverride ?? wide;
-        final sideBySide = showPreview && wide;
-
-        final contentField = Column(
-          children: [
-            Expanded(
-              child: TextField(
-                key: const Key('note.editor.content'),
-                controller: content,
-                onChanged: onContent,
-                style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Start writing…',
-                  contentPadding: EdgeInsets.symmetric(vertical: 12),
-                ),
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                enabled: !saving,
-              ),
+    final contentField = Column(
+      children: [
+        Expanded(
+          child: TextField(
+            key: const Key('note.editor.content'),
+            controller: content,
+            onChanged: onContent,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              height: 1.5,
+              fontFamily: AppTheme.codeFont(theme.platform).fontFamily,
+              fontFamilyFallback: AppTheme.codeFont(theme.platform)
+                  .fontFamilyFallback,
             ),
-            _LinkSuggestions(
-              linkAutocomplete: linkAutocomplete,
-              onSelect: onSelectLink,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              filled: false,
+              hintText: 'Start writing…',
+              contentPadding: EdgeInsets.zero,
             ),
-          ],
-        );
-
-        final Widget workspace;
-        if (!showPreview) {
-          workspace = contentField;
-        } else {
-          final preview = ListenableBuilder(
-            listenable: content,
-            builder: (context, _) => Markdown(
-              key: const Key('note.editor.preview'),
-              data: content.text,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              styleSheet: AppTheme.markdown(context),
-              imageBuilder: (uri, title, alt) => Text(alt ?? uri.toString()),
-              blockSyntaxes: embedBuilder == null
-                  ? const []
-                  : const [DatabaseEmbedSyntax()],
-              builders: embedBuilder == null
-                  ? const {}
-                  : {databaseEmbedTag: embedBuilder!},
-            ),
-          );
-          workspace = sideBySide
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: contentField),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: VerticalDivider(),
-                    ),
-                    Expanded(child: preview),
-                  ],
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: contentField),
-                    const Divider(),
-                    Expanded(child: preview),
-                  ],
-                );
-        }
-
-        return Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: sideBySide
-                  ? PaneSizes.editorSplit
-                  : PaneSizes.readingColumn,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    key: const Key('note.editor.title'),
-                    controller: title,
-                    autofocus: autofocusTitle,
-                    onChanged: onTitle,
-                    style: theme.textTheme.headlineSmall,
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'Title',
-                      contentPadding: EdgeInsets.symmetric(vertical: 8),
-                    ),
-                    enabled: !saving,
-                  ),
-                  _FormattingToolbar(
-                    enabled: !saving,
-                    onBold: () => _applyFormat((v) => wrapSelection(v, '**')),
-                    onItalic: () => _applyFormat((v) => wrapSelection(v, '*')),
-                    onHeading: () =>
-                        _applyFormat((v) => toggleLinePrefix(v, '# ')),
-                    onList: () =>
-                        _applyFormat((v) => toggleLinePrefix(v, '- ')),
-                    onLink: () => _applyFormat(insertMarkdownLink),
-                    previewShown: showPreview,
-                    onTogglePreview: () => onPreviewShown(!showPreview),
-                  ),
-                  const Divider(),
-                  Expanded(child: workspace),
-                ],
-              ),
-            ),
+            maxLines: null,
+            expands: true,
+            textAlignVertical: TextAlignVertical.top,
+            readOnly: readOnly,
           ),
-        );
-      },
+        ),
+        _LinkSuggestions(
+          linkAutocomplete: linkAutocomplete,
+          onSelect: onSelectLink,
+        ),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        PaneSizes.editorPadding,
+        8,
+        PaneSizes.editorPadding,
+        16,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            key: const Key('note.editor.title'),
+            controller: title,
+            autofocus: autofocusTitle,
+            onChanged: onTitle,
+            style: theme.textTheme.headlineSmall,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              filled: false,
+              hintText: 'Title',
+              constraints: BoxConstraints(minHeight: 44),
+              contentPadding: EdgeInsets.zero,
+            ),
+            readOnly: readOnly,
+          ),
+          if (note != null) _MetadataLine(note: note!),
+          _FormattingToolbar(
+            enabled: !readOnly,
+            onBold: () => _applyFormat((v) => wrapSelection(v, '**')),
+            onItalic: () => _applyFormat((v) => wrapSelection(v, '*')),
+            onHeading: () => _applyFormat((v) => toggleLinePrefix(v, '# ')),
+            onList: () => _applyFormat((v) => toggleLinePrefix(v, '- ')),
+            onLink: () => _applyFormat(insertMarkdownLink),
+          ),
+          const Divider(),
+          Expanded(child: contentField),
+        ],
+      ),
     );
   }
 }
@@ -1043,7 +1333,7 @@ class _Editor extends StatelessWidget {
 /// the selection, heading/list toggle a marker on the current line, link
 /// inserts a `[title](url)` template. All operate on the same
 /// [TextEditingController] typing does, via [markdown_toolbar.dart]'s
-/// pure `TextEditingValue` transforms. Ends with the live-preview toggle.
+/// pure `TextEditingValue` transforms.
 /// Scrolls sideways rather than overflowing on a narrow window.
 class _FormattingToolbar extends StatelessWidget {
   const _FormattingToolbar({
@@ -1053,8 +1343,6 @@ class _FormattingToolbar extends StatelessWidget {
     required this.onHeading,
     required this.onList,
     required this.onLink,
-    required this.previewShown,
-    required this.onTogglePreview,
   });
 
   final bool enabled;
@@ -1063,8 +1351,6 @@ class _FormattingToolbar extends StatelessWidget {
   final VoidCallback onHeading;
   final VoidCallback onList;
   final VoidCallback onLink;
-  final bool previewShown;
-  final VoidCallback onTogglePreview;
 
   @override
   Widget build(BuildContext context) {
@@ -1102,15 +1388,6 @@ class _FormattingToolbar extends StatelessWidget {
             tooltip: 'Link',
             icon: const Icon(Icons.link),
             onPressed: enabled ? onLink : null,
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            key: const Key('note.toolbar.preview'),
-            tooltip: previewShown ? 'Hide preview' : 'Show preview',
-            isSelected: previewShown,
-            icon: const Icon(Icons.visibility),
-            selectedIcon: const Icon(Icons.visibility_off),
-            onPressed: onTogglePreview,
           ),
         ],
       ),

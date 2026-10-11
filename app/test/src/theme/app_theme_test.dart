@@ -164,6 +164,38 @@ void main() {
       }
     }
 
+    testWidgets('small Markdown tables keep their natural width', (
+      tester,
+    ) async {
+      await _mountTable(tester, '| A | B |\n| --- | --- |\n| one | two |', 700);
+      expect(tester.getSize(find.byType(Table)).width, lessThan(350));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('wide Markdown tables scroll inside the available width', (
+      tester,
+    ) async {
+      final cells = List.generate(8, (index) => 'Long column $index');
+      final table =
+          '| ${cells.join(' | ')} |\n| ${List.filled(8, '---').join(' | ')} |\n| ${cells.join(' | ')} |';
+      await _mountTable(tester, table, 320);
+      final scroll = tester.state<ScrollableState>(find.byType(Scrollable));
+      expect(scroll.position.axis, Axis.horizontal);
+      expect(scroll.position.viewportDimension, 320);
+      expect(scroll.position.maxScrollExtent, greaterThan(0));
+      final before = tester.getTopLeft(find.text('Long column 7').first).dx;
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(-200, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(find.text('Long column 7').first).dx,
+        lessThan(before),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('dark Markdown checkboxes use the visible accent', (
       tester,
     ) async {
@@ -201,4 +233,34 @@ void main() {
       expect(codeFamily, 'Menlo');
     });
   });
+}
+
+Future<void> _mountTable(
+  WidgetTester tester,
+  String source,
+  double width,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: AppTheme.light(platform: TargetPlatform.linux),
+      builder: (context, child) =>
+          // ignore: deprecated_member_use
+          MaterialUiCompatibilityBridge(child: child!),
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: width,
+            child: Builder(
+              builder: (context) => MarkdownBody(
+                data: source,
+                styleSheet: AppTheme.markdown(context),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
 }

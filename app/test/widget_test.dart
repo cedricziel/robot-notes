@@ -2,16 +2,13 @@ import 'package:app/main.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Smoke test: the app boots without crashing and renders the splash while
-/// the persisted config is being read. Real screen-level coverage lives in
-/// `test/src/**/*_test.dart`; the bootstrap path itself is integration-shaped
-/// (it touches `flutter_secure_storage`) so we only assert the initial frame
-/// here.
 void main() {
-  testWidgets('boots into the splash on first frame', (tester) async {
+  testWidgets('boots into the splash while configuration loads', (
+    tester,
+  ) async {
     await tester.pumpWidget(const RobotNotesApp());
+    await tester.pump();
 
-    // First frame: the config read is still resolving, so we see the splash.
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 }

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:app/src/notes/block_note_editor.dart';
+
 import 'package:app/main.dart';
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
@@ -29,6 +31,18 @@ Map<String, Object?> _noteJson() => <String, Object?>{
 void main() {
   testWidgets('the close button pops the note route', (tester) async {
     final mock = MockClient((request) async {
+      if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
+        return http.Response(
+          jsonEncode({
+            'holder': 'cedric',
+            'expires_at': '2099-01-01T00:00:00.000Z',
+          }),
+          200,
+        );
+      }
+      if (request.method == 'DELETE') {
+        return http.Response('', 204);
+      }
       return http.Response(jsonEncode(_noteJson()), 200);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
@@ -60,12 +74,12 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('open')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('note.body')), findsOneWidget);
+    expect(find.byType(BlockNoteEditor), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('note.close')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('note.body')), findsNothing);
+    expect(find.byType(BlockNoteEditor), findsNothing);
     expect(find.byKey(const Key('open')), findsOneWidget);
   });
 }
