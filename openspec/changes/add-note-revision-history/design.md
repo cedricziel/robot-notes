@@ -4,7 +4,7 @@ A note opts in through its `history: true` property. Existing defaults remain un
 ## Persistence and recovery
 Snapshots live beside the content directory in `<contentDir>.history`, outside note discovery, uploads, and search. Note IDs become base64url directory names. A flushed pending record contains the intended canonical content, old and new paths, version, actor when available, and any missing baseline.
 
-Commit order is durable pending intent, canonical replacement or deletion, immutable accepted snapshots, then pending removal. Pending records are not returned as accepted history. Startup completes them before scans. A durable dirty marker forces search rebuild before it is cleared. An interrupted commit blocks further mutations until restart, preventing reuse of paths reserved by its intent. A request interrupted after intent publication may take effect on restart; callers must reread state before retrying.
+Commit order is durable pending intent, canonical replacement or deletion, immutable accepted snapshots, then pending removal. Pending records are not returned as accepted history. Startup completes them before scans. A durable dirty marker forces search rebuild before it is cleared. An interrupted commit blocks note reads, history reads, scans, and mutations until restart, preventing reuse of paths reserved by its intent. A request interrupted after intent publication may take effect on restart; callers must reread state before retrying.
 
 This guarantees recovery from process interruption. It does not claim protection against storage-device failure, directory-metadata loss after power failure, multiple server processes sharing a vault, or manual edits to journal files.
 

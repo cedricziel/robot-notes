@@ -57,8 +57,14 @@ Future<Response> onRequest(RequestContext context, String id) async {
     return Response.json(statusCode: 400, body: {'error': 'bad_request'});
   } on NoteNotFoundException {
     return Response.json(statusCode: 404, body: {'error': 'not_found'});
-  } on VersionConflictException {
-    return Response.json(statusCode: 409, body: {'error': 'version_conflict'});
+  } on HistoryVersionConflictException catch (e) {
+    return Response.json(
+      statusCode: 409,
+      body: {
+        'error': 'version_conflict',
+        'current_version': e.currentVersion,
+      },
+    );
   } on PathConflictException {
     return Response.json(statusCode: 409, body: {'error': 'path_conflict'});
   }

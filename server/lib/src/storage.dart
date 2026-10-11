@@ -174,6 +174,15 @@ class StoredNote {
       );
 }
 
+/// Restore precondition failed against latest accepted version or tombstone.
+class HistoryVersionConflictException implements Exception {
+  /// Records the latest version without inventing live deleted content.
+  HistoryVersionConflictException(this.currentVersion);
+
+  /// Latest accepted note or deletion tombstone version.
+  final int currentVersion;
+}
+
 /// Thrown by [Storage.read] / [Storage.update] / [Storage.delete] when the
 /// requested id has no file on disk.
 class NoteNotFoundException implements Exception {
@@ -258,6 +267,7 @@ class Storage {
     NoteId Function()? idGenerator,
     Logger? logger,
     this.beforeHistoryApply,
+    this.afterHistoryPublish,
   })  : _clock = clock,
         _idGenerator = idGenerator ?? _ulid,
         _log = logger ?? Logger('storage');
@@ -269,6 +279,10 @@ class Storage {
   /// Failure injection after durable intent, before canonical publication.
   @visibleForTesting
   final Future<void> Function()? beforeHistoryApply;
+
+  /// Failure injection after canonical publication, before snapshot commit.
+  @visibleForTesting
+  final Future<void> Function()? afterHistoryPublish;
 
   Directory get _historyDir => Directory('${contentDir.path}.history');
   Future<void>? _historyRecovery;
@@ -562,6 +576,7 @@ class Storage {
   /// [contentDir]. Concurrent callers await the same in-flight build
   /// rather than triggering redundant scans.
   Future<void> _ensureIndexed() {
+    _assertHistoryHealthy();
     if (_relPathById.isNotEmpty || _indexBuild != null) {
       return _indexBuild ?? Future.value();
     }
@@ -571,6 +586,7 @@ class Storage {
   }
 
   Future<List<StoredNote>> _scanAll() async {
+    _assertHistoryHealthy();
     await (_historyRecovery ??= _recoverHistory());
     _relPathById.clear();
     _idByKey.clear();
@@ -790,7 +806,7 @@ class Storage {
     await _atomicText(pending, jsonEncode(event));
     try {
       await beforeHistoryApply?.call();
-      await _applyHistory(history, event);
+      await _applyHistory(history, event, injectFailure: true);
       await pending.delete();
     } on Object {
       _historyFaulted = true;
@@ -800,8 +816,9 @@ class Storage {
 
   Future<void> _applyHistory(
     Directory history,
-    Map<String, dynamic> event,
-  ) async {
+    Map<String, dynamic> event, {
+    bool injectFailure = false,
+  }) async {
     final path = event['path'] as String?;
     final oldPath = event['previous_path'] as String?;
     if (path != null) {
@@ -811,6 +828,7 @@ class Storage {
       final old = _fileForRelative(oldPath);
       if (old.existsSync()) await old.delete();
     }
+    if (injectFailure) await afterHistoryPublish?.call();
     final baseline = event['baseline'] as String?;
     if (baseline != null) {
       final metadata = parseFrontmatter(baseline).metadata;
@@ -907,10 +925,7 @@ class Storage {
         final current = _relPathById.containsKey(id) ? await read(id) : null;
         final latest = current?.version ?? history.last['version'] as int;
         if (latest != ifMatch) {
-          throw VersionConflictException(
-            current: current ?? source,
-            suppliedIfMatch: ifMatch,
-          );
+          throw HistoryVersionConflictException(latest);
         }
         final next = StoredNote(
           id: id,
@@ -996,6 +1011,12 @@ class Storage {
         : file.path;
   }
 
+  void _assertHistoryHealthy() {
+    if (_historyFaulted) {
+      throw StateError('Incomplete history commit requires restart');
+    }
+  }
+
   Future<T> _withLock<T>(NoteId id, Future<T> Function() body) =>
       _withKeyedLock(_locks, id, body);
 
@@ -1018,9 +1039,7 @@ class Storage {
           // Predecessor's failure should not block this turn.
         }
       }
-      if (_historyFaulted) {
-        throw StateError('Incomplete history commit requires restart');
-      }
+      _assertHistoryHealthy();
       return await body();
     } finally {
       completer.complete();

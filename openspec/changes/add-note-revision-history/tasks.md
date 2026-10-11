@@ -7,4 +7,4 @@
 ## Definition of Done
 - [x] Relevant tests, formatting, and analysis pass.
 - [x] OpenSpec validation passes.
-- [ ] One pull request links #349 and documents retention and authorization limits.
+- [x] One pull request links #349 and documents retention and authorization limits.

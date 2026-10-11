@@ -96,4 +96,28 @@ void main() {
     expect(response.statusCode, 403);
     expect((await app.deps.storage.revisions(id)).length, 2);
   });
+  test('deleted restore conflict reports latest tombstone version', () async {
+    await app.deps.noteWriteService.delete(id: id, actor: 'tester');
+    final response = await http.post(
+      Uri.parse('${app.baseUrl}/notes/$id/history'),
+      headers: app.headers(),
+      body: jsonEncode({'version': 1, 'if_match': 2}),
+    );
+    expect(response.statusCode, 409);
+    expect(
+      (jsonDecode(response.body) as Map<String, dynamic>)['current_version'],
+      3,
+    );
+    final restored = await http.post(
+      Uri.parse('${app.baseUrl}/notes/$id/history'),
+      headers: app.headers(),
+      body: jsonEncode({'version': 1, 'if_match': 3}),
+    );
+    expect(restored.statusCode, 200);
+    expect((jsonDecode(restored.body) as Map<String, dynamic>)['version'], 4);
+    expect(
+      (await app.deps.searchIndex.search('originalknowledge')).single.id,
+      id,
+    );
+  });
 }

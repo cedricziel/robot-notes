@@ -60,7 +60,7 @@ void main() {
       storage.update(id: note.id, title: 'B', content: 'next', ifMatch: 1),
       throwsStateError,
     );
-    expect((await storage.revisions(note.id)).length, 1);
+    await expectLater(storage.revisions(note.id), throwsStateError);
     storage = Storage(contentDir: Directory('${dir.path}/content'));
     final recovered = await storage.read(note.id);
     expect(recovered.title, 'B');
@@ -161,7 +161,7 @@ void main() {
     );
     await expectLater(
       storage.restoreRevision(note.id, 1, ifMatch: 1),
-      throwsA(isA<VersionConflictException>()),
+      throwsA(isA<HistoryVersionConflictException>()),
     );
     expect((await storage.read(note.id)).content, 'second');
     expect((await storage.revisions(note.id)).length, 2);
@@ -182,5 +182,40 @@ void main() {
     storage = Storage(contentDir: Directory('${dir.path}/content'));
     expect(await storage.revisions(note.id), isEmpty);
     expect(File('${history.path}.purge').existsSync(), false);
+  });
+  test('post-publication failure hides uncommitted state until recovery',
+      () async {
+    final note = await storage.create(
+      title: 'A',
+      content: 'first',
+      properties: {'history': true},
+    );
+    final dbFile = File('${dir.path}/search.db');
+    final initial = await SearchIndex.open(dbFile: dbFile, storage: storage);
+    initial.close();
+    storage = Storage(
+      contentDir: Directory('${dir.path}/content'),
+      afterHistoryPublish: () async => throw StateError('crash'),
+    );
+    await expectLater(
+      storage.update(
+        id: note.id,
+        title: 'A',
+        content: 'nextword',
+        ifMatch: 1,
+      ),
+      throwsStateError,
+    );
+    await expectLater(storage.read(note.id), throwsStateError);
+    await expectLater(storage.revisions(note.id), throwsStateError);
+    await expectLater(storage.list(), throwsStateError);
+    storage = Storage(contentDir: Directory('${dir.path}/content'));
+    final recovered = await SearchIndex.open(dbFile: dbFile, storage: storage);
+    addTearDown(recovered.close);
+    expect((await storage.read(note.id)).version, 2);
+    expect((await storage.revisions(note.id)).last['version'], 2);
+    expect((await recovered.search('nextword')).single.id, note.id);
+    expect(await recovered.search('first'), isEmpty);
+    expect(storage.historyNeedsReindex, false);
   });
 }
