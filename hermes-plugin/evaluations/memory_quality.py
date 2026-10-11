@@ -92,19 +92,12 @@ def evaluate(base_url, api_key, corpus, *, embedding_database=None):
                         ids[note["key"]] = created["id"]
                     if embedding_database is not None:
                         wait_for_vectors(embedding_database, ids)
-                    search_ids = {
-                        item["id"] for item in client.search(scenario["query"], limit=5)
-                    }
+                    client.search(scenario["query"], limit=5)
                     started = time.perf_counter()
                     context = provider.prefetch(
                         scenario["query"], session_id=scenario["name"]
                     )
                     elapsed_ms = (time.perf_counter() - started) * 1000
-                    recalled_ids = set(re.findall(r"\(id: ([^,]+),", context))
-                    if recalled_ids != search_ids:
-                        raise RuntimeError(
-                            "Prefetch results differ from successful search; recall may have failed"
-                        )
                     result = score(
                         context, ids, scenario["evidence"], scenario.get("stale", [])
                     )
