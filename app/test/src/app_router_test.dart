@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoSheetRoute;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -630,8 +631,11 @@ void main() {
       LogicalKeyboardKey.control,
       LogicalKeyboardKey.keyK,
     );
-    expect(find.byType(BottomSheet), findsOneWidget);
-    expect(find.byKey(const Key('search.sheet.handle')), findsNothing);
+    expect(
+      ModalRoute.of(tester.element(find.byType(SearchScreen))),
+      isA<CupertinoSheetRoute<void>>(),
+    );
+    expect(find.byType(BottomSheet), findsNothing);
     await tester.tap(find.byKey(const Key('search.close')));
     await tester.pumpAndSettle();
     expect(find.byType(BottomSheet), findsNothing);
@@ -1515,6 +1519,108 @@ void main() {
     );
   });
 
+  testWidgets(
+    'desktop search and settings respect reduced motion',
+    (tester) async {
+      _setWindow(tester, const Size(400, 800));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          wrapContent: (child) => MediaQuery(
+            data: const MediaQueryData(
+              size: Size(400, 800),
+              disableAnimations: true,
+            ),
+            child: child,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.keyK,
+      );
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(
+        ModalRoute.of(tester.element(find.byType(SearchScreen)))!
+            .transitionDuration,
+        Duration.zero,
+      );
+      await tester.tap(find.byKey(const Key('search.close')));
+      await tester.pumpAndSettle();
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.comma,
+      );
+      expect(
+        ModalRoute.of(tester.element(find.byKey(const Key('account.sheet'))))!
+            .transitionDuration,
+        Duration.zero,
+      );
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
+    }),
+  );
+
+  testWidgets(
+    'mobile search and settings skip motion when requested',
+    (tester) async {
+      _setWindow(tester, const Size(400, 800));
+      final api = RobotNotesClient(config: _config, httpClient: _mockClient());
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        _harness(
+          api: api,
+          initialLocation: '/',
+          wrapContent: (child) => MediaQuery(
+            data: const MediaQueryData(
+              size: Size(400, 800),
+              disableAnimations: true,
+            ),
+            child: child,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.keyK,
+      );
+      expect(
+        ModalRoute.of(tester.element(find.byType(SearchScreen)))!
+            .transitionDuration,
+        Duration.zero,
+      );
+      await tester.tap(find.byKey(const Key('search.close')));
+      await tester.pumpAndSettle();
+      await _pressChord(
+        tester,
+        LogicalKeyboardKey.control,
+        LogicalKeyboardKey.comma,
+      );
+      expect(find.byKey(const Key('account.server')), findsOneWidget);
+      expect(
+        ModalRoute.of(tester.element(find.byKey(const Key('account.sheet'))))!
+            .transitionDuration,
+        Duration.zero,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.iOS,
+      TargetPlatform.android,
+    }),
+  );
+
   group('search overlay', () {
     testWidgets('opens above the list rather than replacing it', (
       tester,
@@ -1565,7 +1671,7 @@ void main() {
       expect(find.byType(Dialog), findsNothing);
     });
 
-    testWidgets('is a top sheet, not a dialog, on a compact window', (
+    testWidgets('uses a Material bottom sheet on compact Android', (
       tester,
     ) async {
       _setWindow(tester, const Size(400, 800));
@@ -1582,11 +1688,8 @@ void main() {
 
       expect(find.byKey(const Key('search.input')), findsOneWidget);
       expect(find.byType(Dialog), findsNothing);
-      // Anchored to the top edge of the window.
-      expect(
-        tester.getTopLeft(find.byKey(const Key('search.input'))).dy,
-        lessThan(100),
-      );
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(tester.getBottomLeft(find.byType(BottomSheet)).dy, 800);
 
       await tester.tap(find.byKey(const Key('search.close')));
       await tester.pumpAndSettle();
@@ -1625,49 +1728,39 @@ void main() {
       },
     );
 
-    testWidgets(
-      'on a compact window the sheet has a grab handle; swiping it up '
-      'dismisses without a fresh fetch',
-      (tester) async {
-        _setWindow(tester, const Size(400, 800));
-        var listFetches = 0;
-        final mock = MockClient((request) async {
-          if (request.method == 'GET' && request.url.path == '/notes') {
-            listFetches += 1;
-          }
-          return _fakeBackend(request);
-        });
-        final api = RobotNotesClient(config: _config, httpClient: mock);
-        addTearDown(api.close);
+    testWidgets('on Android the search sheet can be swiped down '
+        'dismisses without a fresh fetch', (tester) async {
+      _setWindow(tester, const Size(400, 800));
+      var listFetches = 0;
+      final mock = MockClient((request) async {
+        if (request.method == 'GET' && request.url.path == '/notes') {
+          listFetches += 1;
+        }
+        return _fakeBackend(request);
+      });
+      final api = RobotNotesClient(config: _config, httpClient: mock);
+      addTearDown(api.close);
 
-        await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
-        await tester.pumpAndSettle();
-        expect(listFetches, 1);
+      await tester.pumpWidget(_harness(api: api, initialLocation: '/'));
+      await tester.pumpAndSettle();
+      expect(listFetches, 1);
 
-        await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
-        await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
-        await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
-        await tester.pumpAndSettle();
-        expect(find.byKey(const Key('search.input')), findsOneWidget);
-        final handle = find.byKey(const Key('search.sheet.handle'));
-        expect(handle, findsOneWidget);
-        // The handle sits directly under the search content, along the
-        // sheet's bottom edge (0.92 of the 800px window).
-        expect(
-          tester.getTopLeft(handle).dy,
-          moreOrLessEquals(tester.getBottomLeft(find.byType(SearchScreen)).dy),
-        );
-        expect(tester.getBottomLeft(handle).dy, moreOrLessEquals(0.92 * 800));
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('search.input')), findsOneWidget);
+      final sheetTop = tester.getTopLeft(find.byType(BottomSheet));
+      await tester.dragFrom(
+        sheetTop + const Offset(200, 16),
+        const Offset(0, 650),
+      );
+      await tester.pumpAndSettle();
 
-        // Well past the 40% dismiss threshold of a 0.92 * 800 sheet.
-        await tester.drag(handle, const Offset(0, -450));
-        await tester.pumpAndSettle();
-
-        expect(find.byKey(const Key('search.input')), findsNothing);
-        expect(find.byKey(const Key('notes.title')), findsOneWidget);
-        expect(listFetches, 1, reason: 'closing search should not refetch');
-      },
-    );
+      expect(find.byKey(const Key('search.input')), findsNothing);
+      expect(find.byKey(const Key('notes.title')), findsOneWidget);
+      expect(listFetches, 1, reason: 'closing search should not refetch');
+    });
 
     testWidgets('a short drag on the handle springs the sheet back', (
       tester,
@@ -1682,10 +1775,14 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
       await tester.pumpAndSettle();
-      final handle = find.byKey(const Key('search.sheet.handle'));
+      final sheetTop = tester.getTopLeft(find.byType(BottomSheet));
       final restingTop = tester.getTopLeft(find.byType(SearchScreen)).dy;
 
-      await tester.drag(handle, const Offset(0, -60));
+      await tester.timedDragFrom(
+        sheetTop + const Offset(200, 16),
+        const Offset(0, 30),
+        const Duration(seconds: 1),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('search.input')), findsOneWidget);
