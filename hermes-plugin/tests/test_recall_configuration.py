@@ -38,7 +38,7 @@ def test_invalid_recall_settings_are_rejected(options):
 @respx.mock
 def test_evidence_fetch_uses_recall_timeout():
     route = respx.get("https://notes.example.com/notes/1").respond(
-        200, json={"id": "1"}
+        200, json={"id": "1", "title": "Evidence", "content": "match", "path": ""}
     )
     client = RobotNotesClient(
         base_url="https://notes.example.com",
@@ -74,3 +74,58 @@ def test_failed_expansion_returns_no_partial_evidence(tmp_path, monkeypatch):
         assert provider.prefetch("match") == ""
     finally:
         provider.shutdown()
+
+
+@pytest.fixture
+def bounded_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv('ROBOT_NOTES_API_KEY', 'test')
+    configured = RobotNotesConfig.create(base_url='https://notes.example.com',
+                                         recall_max_bytes=1000, recall_expand_chars=100)
+    configured.save(str(tmp_path))
+    provider = RobotNotesProvider()
+    provider.initialize('session', hermes_home=str(tmp_path))
+    yield provider
+    provider.shutdown()
+
+
+@respx.mock
+def test_successful_bounded_expansion_finishes_recall_health(bounded_provider):
+    respx.get('https://notes.example.com/search').respond(200, json={'items': [
+        {'id': '1', 'title': 'Evidence', 'snippet': 'match', 'path': ''},
+    ]})
+    respx.get('https://notes.example.com/notes/1').respond(200, json={
+        'id': '1', 'title': 'Evidence', 'content': 'match expanded', 'path': '', 'updated_at': 'current',
+    })
+    assert 'match expanded' in bounded_provider.prefetch('match')
+    assert bounded_provider.memory_health()['recall'] == {'state': 'matched'}
+
+
+@respx.mock
+def test_budget_omitting_all_results_finishes_recall_health_as_empty(bounded_provider):
+    bounded_provider._config = RobotNotesConfig.create(base_url='https://notes.example.com', recall_max_bytes=10)
+    respx.get('https://notes.example.com/search').respond(200, json={'items': [
+        {'id': '1', 'title': 'Evidence', 'snippet': 'match', 'path': ''},
+    ]})
+    assert bounded_provider.prefetch('match') == ''
+    assert bounded_provider.memory_health()['recall'] == {'state': 'empty'}
+
+
+@respx.mock
+@pytest.mark.parametrize('invalid', [
+    None, [], {'id': '1', 'title': None, 'content': 'match', 'path': ''},
+    {'id': '1', 'title': 'Evidence', 'content': {}, 'path': ''},
+    {'id': '1', 'title': 'Evidence', 'content': 'match', 'path': []},
+    {'id': 'wrong', 'title': 'Evidence', 'content': 'match', 'path': ''},
+    {'id': '1', 'title': 'Evidence', 'content': 'match', 'path': '', 'updated_at': None},
+])
+def test_malformed_expansion_rejects_the_entire_context_and_finishes_health(bounded_provider, invalid):
+    respx.get('https://notes.example.com/search').respond(200, json={'items': [
+        {'id': 'good', 'title': 'Good evidence', 'snippet': 'match', 'path': ''},
+        {'id': '1', 'title': 'Bad evidence', 'snippet': 'match', 'path': ''},
+    ]})
+    respx.get('https://notes.example.com/notes/good').respond(200, json={
+        'id': 'good', 'title': 'Good evidence', 'content': 'match expanded', 'path': '', 'updated_at': 'current',
+    })
+    respx.get('https://notes.example.com/notes/1').respond(200, json=invalid)
+    assert bounded_provider.prefetch('match') == ''
+    assert bounded_provider.memory_health()['recall'] == {'state': 'failed', 'reason': 'other'}

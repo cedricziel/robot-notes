@@ -287,7 +287,18 @@ class RobotNotesClient:
 
     def get_note(self, note_id: str, *, recall: bool = False) -> Dict[str, Any]:
         options = {"timeout": self._recall_timeout} if recall else {}
-        return self._request("GET", f"/notes/{note_id}", **options).json()
+        response = self._request("GET", f"/notes/{note_id}", **options)
+        if not recall:
+            return response.json()
+        try:
+            note = response.json()
+        except ValueError as exc:
+            raise ClientError("Malformed note response", kind=ErrorKind.OTHER, code="invalid_response") from exc
+        if (not isinstance(note, dict) or note.get("id") != note_id
+                or not all(isinstance(note.get(field), str) for field in ("title", "content", "path"))
+                or ("updated_at" in note and not isinstance(note["updated_at"], str))):
+            raise ClientError("Malformed note response", kind=ErrorKind.OTHER, code="invalid_response")
+        return note
 
     def find_note_by_title(self, title: str, *, path: str) -> Optional[Dict[str, Any]]:
         """Looks up a note by exact title within ``path``. The item returned already

@@ -463,10 +463,12 @@ class RobotNotesProvider(MemoryProvider):
             items = self._recall_items(client, query)
             config = self._load_config()
             if config.recall_max_bytes:
-                return evidence_context(items[:5], max_bytes=config.recall_max_bytes,
-                                        expand_chars=config.recall_expand_chars,
-                                        recall_paths=narrow_paths(config.recall_paths, config.recall_path),
-                                        load_note=lambda note_id: client.get_note(note_id, recall=True))
+                formatted, count = evidence_context(items[:5], max_bytes=config.recall_max_bytes,
+                                                     expand_chars=config.recall_expand_chars,
+                                                     recall_paths=narrow_paths(config.recall_paths, config.recall_path),
+                                                     load_note=lambda note_id: client.get_note(note_id, recall=True))
+                health.finish("recall", generation, "matched" if count else "empty")
+                return formatted, count
         except ClientError as exc:
             if exc.kind is ErrorKind.CIRCUIT_OPEN:
                 logger.debug("robot_notes: search unavailable (circuit_open)")
