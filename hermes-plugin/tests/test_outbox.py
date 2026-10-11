@@ -88,3 +88,29 @@ def test_enqueue_remains_available_during_network_delivery(tmp_path):
     delivered = []
     assert other.deliver_one(lambda operation: delivered.append(operation['content']))
     assert delivered == ['second']
+
+
+def test_idempotency_key_retains_first_pending_payload_across_restart(tmp_path):
+    path = tmp_path / 'queue.sqlite'
+    queue = Outbox(path, max_operations=1)
+    queue.enqueue({'content': 'original'}, idempotency_key='stable')
+    resumed = Outbox(path, max_operations=1)
+    resumed.enqueue({'content': 'changed'}, idempotency_key='stable')
+    delivered = []
+    assert resumed.deliver_one(lambda operation: delivered.append(operation['content']))
+    assert delivered == ['original']
+    resumed.enqueue({'content': 'later'}, idempotency_key='stable')
+    assert resumed.status()['pending'] == 1
+
+
+def test_pending_deduplication_does_not_extend_local_expiry(tmp_path):
+    now = [0.0]
+    queue = Outbox(tmp_path / 'queue.sqlite', retention_seconds=10, clock=lambda: now[0])
+    queue.enqueue({'content': 'original'}, idempotency_key='stable')
+    now[0] = 9.0
+    queue.enqueue({'content': 'duplicate'}, idempotency_key='stable')
+    now[0] = 10.0
+    assert not queue.deliver_one(lambda operation: pytest.fail('expired effect delivered'))
+    assert queue.status()['expired'] == 1
+    queue.enqueue({'content': 'new'}, idempotency_key='stable')
+    assert queue.status()['pending'] == 1

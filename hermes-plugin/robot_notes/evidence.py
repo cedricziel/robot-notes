@@ -42,11 +42,12 @@ class EvidenceArchive:
             payload = json.dumps({
                 'session_id': session_id, 'kind': kind, 'messages': messages, 'capture': capture,
             }, sort_keys=True, ensure_ascii=False, separators=(',', ':'), allow_nan=False)
+            digest = hashlib.sha256(payload.encode('utf-8')).hexdigest()
             self.outbox.enqueue({
-                'id': hashlib.sha256(payload.encode('utf-8')).hexdigest(),
+                'id': digest,
                 'payload': payload, 'retention_days': self.config.evidence_retention_days,
                 'lineage': lineage,
-            })
+            }, idempotency_key=digest)
         except Exception:
             # The marker survives restart even when the raw snapshot could not be queued.
             try:

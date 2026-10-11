@@ -185,3 +185,14 @@ def test_capture_loss_during_checkpoint_delivery_prevents_success(make_provider,
     respx.put(url__regex=BASE + '/evidence/.*').mock(side_effect=acknowledge_and_lose_raw_capture)
     with pytest.raises(RuntimeError, match='evidence'):
         provider.on_pre_compress([], require_checkpoint=True)
+
+
+def test_repeated_pending_snapshot_does_not_consume_queue_capacity(make_provider, monkeypatch):
+    provider = make_provider()
+    monkeypatch.setattr(provider, '_start_evidence_delivery', lambda: None)
+    provider._evidence_outbox.max_operations = 1
+    messages = [{'role': 'tool', 'content': 'same completed turn', 'id': 'stable-uid'}]
+    provider.sync_turn('hi', 'hello', messages=messages)
+    provider.sync_turn('hi', 'hello', messages=messages)
+    assert provider._evidence_outbox.status()['pending'] == 1
+    assert provider._evidence_capture_error is False
