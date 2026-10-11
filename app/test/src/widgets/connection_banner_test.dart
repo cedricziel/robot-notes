@@ -1,6 +1,5 @@
 import 'package:app/src/realtime/connection_status.dart';
 import 'package:app/src/widgets/connection_banner.dart';
-import 'package:app/src/widgets/status_strip.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -24,55 +23,37 @@ void main() {
     expect(find.byKey(const Key('connection.banner')), findsNothing);
   });
 
-  testWidgets('shows a strip per offline state and hides it on reconnect', (
+  testWidgets('shows a reconnecting message while reconnecting', (
     tester,
   ) async {
+    status.value = ConnectionStatus.reconnecting;
     await pumpBanner(tester);
 
-    status.value = ConnectionStatus.reconnecting;
-    await tester.pump();
     expect(find.text('Reconnecting…'), findsOneWidget);
+    expect(find.byIcon(Icons.sync), findsOneWidget);
+  });
 
+  testWidgets('shows cached-note warning when the connection is stale', (
+    tester,
+  ) async {
     status.value = ConnectionStatus.stale;
-    await tester.pump();
-    expect(find.text('Reconnecting…'), findsNothing);
+    await pumpBanner(tester);
+
     expect(find.text('Connection lost — showing cached notes'), findsOneWidget);
+    expect(find.byIcon(Icons.cloud_off), findsOneWidget);
+  });
+
+  testWidgets('removes the warning when the connection recovers', (
+    tester,
+  ) async {
+    status.value = ConnectionStatus.stale;
+    await pumpBanner(tester);
 
     status.value = ConnectionStatus.connected;
     await tester.pump();
-    expect(find.byKey(const Key('connection.banner')), findsNothing);
-  });
 
-  testWidgets('the visible strip is a dense StatusStrip inside a SafeArea', (
-    tester,
-  ) async {
-    status.value = ConnectionStatus.reconnecting;
-    await pumpBanner(tester);
-
-    final strip = find.byKey(const Key('connection.banner'));
-    expect(strip, findsOneWidget);
-    expect(tester.widget<StatusStrip>(strip).dense, isTrue);
-    expect(tester.widget<StatusStrip>(strip).tone, StatusTone.warning);
-    expect(
-      find.ancestor(of: strip, matching: find.byType(SafeArea)),
-      findsOneWidget,
-    );
-    expect(
-      tester
-          .widget<SafeArea>(
-            find.ancestor(of: strip, matching: find.byType(SafeArea)),
-          )
-          .bottom,
-      isFalse,
-    );
-
-    status.value = ConnectionStatus.stale;
-    await tester.pump();
-    expect(tester.widget<StatusStrip>(strip).tone, StatusTone.error);
-    expect(
-      find.ancestor(of: strip, matching: find.byType(SafeArea)),
-      findsOneWidget,
-    );
+    expect(find.text('Connection lost — showing cached notes'), findsNothing);
+    expect(tester.getSize(find.byType(ConnectionBanner)), Size.zero);
   });
 
   testWidgets('the strip is inset below the status bar on phones', (
@@ -81,7 +62,9 @@ void main() {
     status.value = ConnectionStatus.stale;
     await tester.pumpWidget(
       MediaQuery(
-        data: const MediaQueryData(padding: EdgeInsets.only(top: 44)),
+        data: const MediaQueryData(
+          padding: EdgeInsets.only(top: 44, bottom: 34),
+        ),
         child: MaterialApp(
           home: Scaffold(body: ConnectionBanner(status: status)),
         ),
@@ -90,25 +73,26 @@ void main() {
 
     final top = tester.getTopLeft(find.byKey(const Key('connection.banner')));
     expect(top.dy, 44);
+    expect(
+      tester.getSize(find.byType(ConnectionBanner)).height,
+      tester.getSize(find.byKey(const Key('connection.banner'))).height + 44,
+    );
   });
 
-  testWidgets('no SafeArea is reserved while connected', (tester) async {
+  testWidgets('reserves no space while connected despite system insets', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MediaQuery(
-        data: const MediaQueryData(padding: EdgeInsets.only(top: 44)),
+        data: const MediaQueryData(
+          padding: EdgeInsets.only(top: 44, bottom: 34),
+        ),
         child: MaterialApp(
           home: Scaffold(body: ConnectionBanner(status: status)),
         ),
       ),
     );
 
-    expect(
-      find.descendant(
-        of: find.byType(ConnectionBanner),
-        matching: find.byType(SafeArea),
-      ),
-      findsNothing,
-    );
     expect(tester.getSize(find.byType(ConnectionBanner)), Size.zero);
   });
 }

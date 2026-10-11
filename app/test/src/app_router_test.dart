@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show Tristate;
 
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/app_router.dart';
@@ -1734,11 +1735,11 @@ void main() {
         expect(_listRow(), findsOneWidget);
         expect(
           tester
-              .widget<ListTile>(
-                find.ancestor(of: _listRow(), matching: find.byType(ListTile)),
-              )
-              .selected,
-          isFalse,
+              .getSemantics(_listRow())
+              .getSemanticsData()
+              .flagsCollection
+              .isSelected,
+          Tristate.isFalse,
         );
 
         await tester.tap(_listRow());
@@ -1759,11 +1760,11 @@ void main() {
         );
         expect(
           tester
-              .widget<ListTile>(
-                find.ancestor(of: _listRow(), matching: find.byType(ListTile)),
-              )
-              .selected,
-          isTrue,
+              .getSemantics(_listRow())
+              .getSemanticsData()
+              .flagsCollection
+              .isSelected,
+          Tristate.isTrue,
         );
         // Pane presentation: a close button rather than a back arrow, and
         // nothing was pushed (the shell replaced the detail pane).
@@ -1848,11 +1849,11 @@ void main() {
       expect(find.byType(NotesListScreen), findsOneWidget);
       expect(
         tester
-            .widget<ListTile>(
-              find.ancestor(of: _listRow(), matching: find.byType(ListTile)),
-            )
-            .selected,
-        isTrue,
+            .getSemantics(_listRow())
+            .getSemanticsData()
+            .flagsCollection
+            .isSelected,
+        Tristate.isTrue,
       );
     });
 

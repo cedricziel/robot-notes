@@ -111,17 +111,24 @@ void main() {
     );
   });
 
-  testWidgets('rounded gives the surface a radius; dense shrinks its height', (
-    tester,
-  ) async {
+  testWidgets('strips have square corners by default', (tester) async {
+    await pump(tester, const StatusStrip(message: 'A'));
+
+    expect(material(tester).borderRadius, isNull);
+  });
+
+  testWidgets('rounded strips render with rounded corners', (tester) async {
+    await pump(tester, const StatusStrip(message: 'A', rounded: true));
+
+    expect(material(tester).borderRadius, BorderRadius.circular(8));
+  });
+
+  testWidgets('dense strips occupy less vertical space', (tester) async {
     await pump(tester, const StatusStrip(message: 'A'));
     final plainHeight = tester.getSize(find.byType(StatusStrip)).height;
-    expect(material(tester).borderRadius, isNull);
-
-    await pump(tester, const StatusStrip(message: 'A', rounded: true));
-    expect(material(tester).borderRadius, BorderRadius.circular(8));
 
     await pump(tester, const StatusStrip(message: 'A', dense: true));
+
     expect(
       tester.getSize(find.byType(StatusStrip)).height,
       lessThan(plainHeight),
