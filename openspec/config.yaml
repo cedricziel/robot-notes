@@ -1,17 +1,13 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-Example:
-  context: |
-    Tech stack: TypeScript, React, Node.js
-    We use conventional commits
-    Domain: knowledge graph for humans and agents
+context: |
+  Robot Notes provides real-time knowledge management for humans and AI agents.
+  This repository is a Dart pub workspace with three packages:
+  - server/: Dart Frog HTTP and WebSocket server with Markdown file storage and SQLite FTS5 search.
+  - app/: Flutter client for mobile, desktop, and web.
+  - shared/: Pure Dart API contracts shared by the server and client.
+  Use conventional commits and keep changes small and coherent.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
 rules:
   proposal:
     - Keep proposals under 500 words
@@ -21,8 +17,3 @@ rules:
     - Always include a "Definition of Done" section
     - Always follow TDD principles, failing tests first
     - Atomic commits with conventional commit messages
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
