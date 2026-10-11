@@ -1,3 +1,6 @@
+from dataclasses import asdict
+from types import SimpleNamespace
+
 import hashlib
 import json
 
@@ -7,6 +10,7 @@ import respx
 
 from robot_notes import RobotNotesProvider
 from robot_notes.config import RobotNotesConfig
+from robot_notes.evidence import EvidenceArchive
 
 BASE = 'https://notes.example.com'
 
@@ -196,3 +200,29 @@ def test_repeated_pending_snapshot_does_not_consume_queue_capacity(make_provider
     provider.sync_turn('hi', 'hello', messages=messages)
     assert provider._evidence_outbox.status()['pending'] == 1
     assert provider._evidence_capture_error is False
+
+
+def test_default_scope_fields_preserve_pending_legacy_evidence_queue(make_provider, monkeypatch, tmp_path):
+    provider = make_provider()
+    monkeypatch.setattr(provider, '_start_evidence_delivery', lambda: None)
+    provider.sync_turn('hi', 'hello', messages=[{'role': 'tool', 'content': 'pending before scope fields'}])
+    configured = SimpleNamespace(**{
+        **asdict(provider._config), 'memory_scope': 'shared', 'user_id': '', 'agent_id': '',
+    })
+    resumed = EvidenceArchive(configured, tmp_path)
+    assert resumed.outbox.status()['pending'] == 1
+
+
+def test_identity_scope_cannot_replay_another_identities_pending_evidence(make_provider, monkeypatch, tmp_path):
+    provider = make_provider()
+    first_config = SimpleNamespace(**{
+        **asdict(provider._config), 'memory_scope': 'identity', 'user_id': 'alice', 'agent_id': 'planner',
+    })
+    first = EvidenceArchive(first_config, tmp_path)
+    first.enqueue('session', 'turn', [{'role': 'tool', 'content': 'private pending'}], 'raw_messages', {})
+    other_config = SimpleNamespace(**{
+        **asdict(provider._config), 'memory_scope': 'identity', 'user_id': 'bob', 'agent_id': 'planner',
+    })
+    other = EvidenceArchive(other_config, tmp_path)
+    assert first.outbox.status()['pending'] == 1
+    assert other.outbox.status()['pending'] == 0

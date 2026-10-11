@@ -25,9 +25,10 @@ class EvidenceArchive:
 
     def __init__(self, config: RobotNotesConfig, home: Path):
         self.config = config
-        identity = {key: getattr(config, key, None) for key in (
-            'base_url', 'vault_id', 'actor', 'api_key', 'memory_scope', 'user_id', 'agent_id',
-        )}
+        identity = {key: getattr(config, key) for key in ('base_url', 'vault_id', 'actor', 'api_key')}
+        identity.update(memory_scope=None, user_id=None, agent_id=None)
+        if getattr(config, 'memory_scope', 'shared') == 'identity':
+            identity.update(memory_scope='identity', user_id=config.user_id, agent_id=config.agent_id)
         destination = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         directory = home / 'robot_notes_outbox' / destination / 'evidence'
         self.outbox = Outbox(directory / 'queue.sqlite', max_bytes=32 * 1024 * 1024,
