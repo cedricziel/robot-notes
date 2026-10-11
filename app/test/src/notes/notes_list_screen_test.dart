@@ -559,7 +559,7 @@ void main() {
       expect(find.text('Note deleted'), findsOneWidget);
     });
 
-    testWidgets('cancelling the confirm dialog sends no request', (
+    testWidgets('reduced-motion list delete cancels without a request', (
       tester,
     ) async {
       final calls = <String>[];
@@ -575,7 +575,13 @@ void main() {
       addTearDown(ctrl.dispose);
 
       await tester.pumpWidget(
-        MaterialApp(home: NotesListScreen(controller: ctrl)),
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child!,
+          ),
+          home: NotesListScreen(controller: ctrl),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -584,12 +590,18 @@ void main() {
       await tester.tap(find.byKey(const Key('notes.tile.01H.delete')));
       await tester.pumpAndSettle();
 
+      final route = ModalRoute.of(
+        tester.element(find.byKey(const Key('notes.delete.cancel'))),
+      )!;
+      expect(route.transitionDuration, Duration.zero);
+      expect(route.reverseTransitionDuration, Duration.zero);
       await tester.tap(find.byKey(const Key('notes.delete.cancel')));
       await tester.pumpAndSettle();
 
+      expect(find.text('Delete this note?'), findsNothing);
       expect(calls, isNot(contains('DELETE /notes/01H')));
       expect(find.text('stays'), findsOneWidget);
-    });
+    }, variant: TargetPlatformVariant.all());
 
     testWidgets('hover keeps note text and row geometry stable', (
       tester,
