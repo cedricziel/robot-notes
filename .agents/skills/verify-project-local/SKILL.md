@@ -19,6 +19,8 @@ Seed a small note/folder through the local API if helpful (`POST /notes` with be
 
 Run Flutter widget tests from `app/` (for example, `cd app && flutter test test/src/notes/note_screen_test.dart`). Running them from the workspace root can omit the app package’s shader assets and produce misleading missing-asset failures.
 
+For Flutter web forms, use fresh DOM labels and Playwright locators when accessibility-index actions fail on shadow roots. Confirm saved values through the server API; changing visible input text alone does not prove the Flutter controller received the change. If a fill changes only the displayed text, focus the field, select all, and enter text through keyboard events before saving.
+
 ## Responsive and platform checks
 
 For layout changes, resize the same browser session through phone portrait/landscape, tablet portrait/landscape, and desktop widths. Check overflow, navigation, reading/editing, and state retention. Representative logical sizes: 390×844, 844×390, 768×1024, 1024×768, 1440×900. Reset temporary viewport overrides afterward.
