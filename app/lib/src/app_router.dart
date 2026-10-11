@@ -48,6 +48,7 @@ import 'widgets/connection_banner.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/error_strip.dart';
 import 'widgets/platform_motion.dart';
+import 'widgets/platform_feedback.dart';
 import 'widgets/resizable_panel.dart';
 
 /// Builds the placeholder title for a freshly-created note, prefixed
@@ -1126,29 +1127,21 @@ Future<void> _openNewDatabaseForm(
   );
 }
 
-/// Opens the file picker via [pickFile] and, unless cancelled, uploads the
-/// chosen file into [path] (the currently selected folder), reporting the
-/// outcome via a SnackBar — the stored filename on success, or the
-/// server's error message on failure. Mirrors [_createNote]'s
-/// SnackBar-on-`ApiException` convention rather than [_createFolder]'s
-/// dialog, since the native picker is already the "choose what to act on"
-/// UI here — there's no freeform input left for a dialog to collect.
+/// Reports upload results through the platform feedback presenter.
 Future<void> _uploadFile(
   BuildContext context,
   AppSession session, {
   required PickFile pickFile,
   String path = '',
 }) async {
-  final messenger = ScaffoldMessenger.of(context);
+  final feedback = PlatformFeedback.of(context);
   try {
     final result = await uploadPickedFile(session.api, pickFile, path: path);
     if (result == null) return; // user cancelled the picker
-    messenger.showSnackBar(
-      SnackBar(content: Text('Uploaded ${result.filename}')),
-    );
+    feedback.show('Uploaded ${result.filename}');
   } on ApiException catch (e) {
     final message = describeError(e, fallback: 'Could not upload file.');
-    messenger.showSnackBar(SnackBar(content: Text(message)));
+    feedback.show(message, error: true);
   }
 }
 

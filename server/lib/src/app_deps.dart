@@ -3,10 +3,12 @@ import 'dart:io';
 
 import 'package:dart_otel_api/dart_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
+import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/embeddings/embedding_provider_factory.dart';
+import 'package:server/src/evidence_store.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/legacy_migration.dart';
 import 'package:server/src/link_index.dart';
@@ -59,6 +61,8 @@ class AppDeps {
     required Broadcaster broadcaster,
     required PresenceTracker presence,
     required Clock clock,
+    AgentCredentialStore? agentCredentials,
+    EvidenceStore? evidenceStore,
     LinkIndex? linkIndex,
     NoteWriteService? noteWriteService,
     DatabaseRegistry? registry,
@@ -82,6 +86,12 @@ class AppDeps {
           registry: resolvedRegistry,
         );
     return AppDeps._(
+      evidenceStore: evidenceStore ??
+          EvidenceStore(
+            file: File('${storage.contentDir.parent.path}/evidence.db'),
+            clock: clock,
+            sweepInterval: const Duration(hours: 1),
+          ),
       storage: storage,
       metaIndex: metaIndex,
       searchIndex: searchIndex,
@@ -89,6 +99,11 @@ class AppDeps {
       clientStore: clientStore,
       codeStore: codeStore,
       tokenStore: tokenStore,
+      agentCredentials: agentCredentials ??
+          AgentCredentialStore(
+            dir: Directory('${inviteStore.inviteDir.parent.path}/credentials'),
+            clock: clock,
+          ),
       consentThrottle: consentThrottle,
       lockManager: lockManager,
       broadcaster: broadcaster,
@@ -116,6 +131,7 @@ class AppDeps {
   }
 
   AppDeps._({
+    required this.evidenceStore,
     required this.storage,
     required this.metaIndex,
     required this.searchIndex,
@@ -123,6 +139,7 @@ class AppDeps {
     required this.clientStore,
     required this.codeStore,
     required this.tokenStore,
+    required this.agentCredentials,
     required this.consentThrottle,
     required this.lockManager,
     required this.broadcaster,
@@ -299,6 +316,9 @@ class AppDeps {
   /// Canonical filesystem-backed note store.
   final Storage storage;
 
+  /// Durable conversation evidence, excluded from note indexes.
+  final EvidenceStore evidenceStore;
+
   /// Write path for uploaded (non-note) files, rooted at the same
   /// `contentDir` as [storage].
   final FileStore fileStore;
@@ -334,6 +354,9 @@ class AppDeps {
 
   /// Filesystem-backed OAuth access/refresh token store.
   final TokenStore tokenStore;
+
+  /// Server-wide scoped agent identities and revocations.
+  final AgentCredentialStore agentCredentials;
 
   /// Process-local rate limit on failed `/oauth/authorize` consent
   /// submissions.
@@ -386,6 +409,8 @@ class AppDeps {
     await broadcaster.close();
     await lockManager.close();
     searchIndex.close();
+    evidenceStore.close();
     uploadSessions.dispose();
+    await agentCredentials.dispose();
   }
 }

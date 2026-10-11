@@ -4,6 +4,7 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/oauth/authorize_request.dart';
 import 'package:server/src/oauth/error_page.dart';
+import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oauth/vault_consent.dart';
 import 'package:server/src/oidc/discovery.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
@@ -54,6 +55,13 @@ Response _startLogin(
   AuthorizeValid valid,
   OidcConfig oidcConfig,
 ) {
+  if (requiresOperatorKnowledgeConsent(valid.scopes)) {
+    return _redirectWithError(
+      valid.redirectUri,
+      error: 'access_denied',
+      state: valid.state,
+    );
+  }
   final vaultIds = selectedVaults(context, context.request.uri.queryParameters);
   if (vaultIds == null) {
     return oauthErrorPage('Select at least one valid vault.');

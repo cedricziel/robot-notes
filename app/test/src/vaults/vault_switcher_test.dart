@@ -67,7 +67,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Default'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<String>, 'Work'));
+    await tester.tap(find.byKey(const ValueKey('vault.select.work')));
     await tester.pumpAndSettle();
     expect(selected, ['work']);
     await tester.tap(find.byTooltip('Rename vault'));
@@ -84,6 +84,68 @@ void main() {
     expect(selected, ['work', 'projects']);
     expect(requests.last.headers['X-Vault-Id'], 'default');
   });
+
+  testWidgets(
+    'vault menu marks current selection and switches once',
+    (tester) async {
+      final selections = <String>[];
+      final api = RobotNotesClient(
+        config: const AppConfig(
+          baseUrl: 'https://notes.example',
+          apiKey: 'key',
+          actor: 'tester',
+        ),
+        httpClient: MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'can_manage': false,
+              'vaults': [
+                {'id': 'default', 'name': 'Default'},
+                {'id': 'work', 'name': 'Work'},
+              ],
+            }),
+            200,
+          ),
+        ),
+      );
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: VaultSwitcher(
+              api: api,
+              selectedId: 'default',
+              onSelect: selections.add,
+              canManage: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Default'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byIcon(Icons.check).evaluate().length +
+            find.byIcon(CupertinoIcons.check_mark).evaluate().length,
+        1,
+      );
+      await tester.tap(find.byKey(const ValueKey('vault.select.default')));
+      await tester.pumpAndSettle();
+      expect(selections, isEmpty);
+      await tester.tap(find.text('Default'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('vault.select.work')));
+      await tester.pumpAndSettle();
+      expect(selections, ['work']);
+      expect(find.text('Work'), findsNothing);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
+      TargetPlatform.iOS,
+    }),
+  );
 
   for (final rename in [false, true]) {
     testWidgets(

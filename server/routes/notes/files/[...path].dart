@@ -36,6 +36,7 @@ Future<Response> onRequest(RequestContext context, String path) async {
   }
 
   final storage = context.read<Storage>();
+  await storage.prepareHistory();
   final relFile = segments.join('/');
   final file = File('${storage.contentDir.path}/$relFile');
   if (!file.existsSync()) {

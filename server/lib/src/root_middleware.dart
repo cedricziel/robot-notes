@@ -1,11 +1,13 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:dart_otel_api/dart_otel_api.dart';
 import 'package:server/src/actor_middleware.dart';
+import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/auth_middleware.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/databases/registry.dart';
+import 'package:server/src/evidence_store.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
@@ -45,12 +47,18 @@ Handler applyRootMiddleware(
   return handler
       .use(vaultSelection(deps.vaults!))
       .use(actorIdentity())
-      .use(bearerAuth(configuredKey: config.apiKey))
+      .use(
+        bearerAuth(
+          configuredKey: config.apiKey,
+          agentCredentials: deps.agentCredentials,
+        ),
+      )
       .use(wellKnownMiddleware())
       .use(provider<PresenceTracker>((_) => deps.presence))
       .use(provider<Broadcaster>((_) => deps.broadcaster))
       .use(provider<LockManager>((_) => deps.lockManager))
       .use(provider<SearchIndex>((_) => deps.searchIndex))
+      .use(provider<AgentCredentialStore>((_) => deps.agentCredentials))
       .use(provider<InviteStore>((_) => deps.inviteStore))
       .use(provider<ClientStore>((_) => deps.clientStore))
       .use(provider<CodeStore>((_) => deps.codeStore))
@@ -65,6 +73,7 @@ Handler applyRootMiddleware(
       .use(provider<NoteWriteService>((_) => deps.noteWriteService))
       .use(provider<DatabaseRegistry>((_) => deps.registry))
       .use(provider<Storage>((_) => deps.storage))
+      .use(provider<EvidenceStore>((_) => deps.evidenceStore))
       .use(provider<FileStore>((_) => deps.fileStore))
       .use(provider<UploadSessionStore>((_) => deps.uploadSessions))
       .use(provider<VaultRegistry>((_) => deps.vaults!))

@@ -3,6 +3,8 @@ import 'package:app/src/widgets/adaptive.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 Widget _host(TargetPlatform platform, WidgetBuilder builder) => MaterialApp(
   theme: AppTheme.light(platform: platform),
@@ -188,6 +190,40 @@ void main() {
       expect(sheetRouteCurrentWhenRun, isFalse);
       expect(find.byType(CupertinoActionSheet), findsNothing);
     });
+
+    testWidgets(
+      'desktop menu supports keyboard selection and Escape',
+      (tester) async {
+        var deleted = false;
+        await tester.pumpWidget(
+          _host(
+            defaultTargetPlatform,
+            (_) => menu(onDelete: () => deleted = true),
+          ),
+        );
+        await tester.tap(find.byKey(const Key('more')));
+        await tester.pumpAndSettle();
+        expect(find.byType(MenuItemButton), findsOneWidget);
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(deleted, isTrue);
+        expect(find.text('Delete'), findsNothing);
+        await tester.tap(find.byKey(const Key('more')));
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(find.text('Delete'), findsNothing);
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(find.text('Delete'), findsOneWidget);
+      },
+      variant: const TargetPlatformVariant({
+        TargetPlatform.macOS,
+        TargetPlatform.windows,
+        TargetPlatform.linux,
+      }),
+    );
 
     testWidgets('on Android is a popup menu whose item runs the handler', (
       tester,

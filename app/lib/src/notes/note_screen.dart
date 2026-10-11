@@ -18,6 +18,7 @@ import '../realtime/ws_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/adaptive.dart';
 import '../widgets/platform_motion.dart';
+import '../widgets/platform_feedback.dart';
 import '../widgets/status_strip.dart';
 import 'block_note_editor.dart';
 import 'link_autocomplete.dart';
@@ -260,7 +261,7 @@ class _NoteScreenState extends State<NoteScreen> {
     _announceOutcome(failed: 'Could not save', succeeded: 'Saved');
   }
 
-  /// Snackbar for an outcome the state machine does not render itself.
+  /// Reports outcomes not already rendered by conflict or lock interfaces.
   /// 409 (conflict view) and 423 (lock banner) already have their own UI.
   void _announceOutcome({required String failed, String? succeeded}) {
     if (!mounted) return;
@@ -275,7 +276,7 @@ class _NoteScreenState extends State<NoteScreen> {
     } else {
       text = '$failed: ${_describe(error)}';
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+    PlatformFeedback.of(context).show(text, error: error != null);
   }
 
   static String _describe(ApiException e) =>
@@ -805,20 +806,21 @@ class _NoteScreenState extends State<NoteScreen> {
       ),
     );
     if (target == null || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
+    final feedback = PlatformFeedback.of(context);
     await _withFlushedDraft(
       () async {
         await widget.controller.move(target);
         if (!mounted) return;
         final error = widget.controller.value.error;
         if (error is PathConflictException) {
-          messenger.showSnackBar(
-            SnackBar(content: Text('A note already exists at "$target".')),
-          );
+          feedback.show('A note already exists at "$target".', error: true);
         } else if (error != null && error is! LockedException) {
-          messenger.showSnackBar(
-            SnackBar(content: Text('Could not move note: ${_describe(error)}')),
+          feedback.show(
+            'Could not move note: ${_describe(error)}',
+            error: true,
           );
+        } else if (error == null) {
+          feedback.show('Note moved');
         }
       },
       releaseLock: true,
@@ -851,19 +853,15 @@ class _NoteScreenState extends State<NoteScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    // Resolve the messenger before the screen is popped: the root messenger
-    // outlives this route, so the confirmation still shows on the list.
-    final messenger = ScaffoldMessenger.of(context);
+    final feedback = PlatformFeedback.of(context);
     await _withFlushedDraft(() async {
       await widget.controller.delete();
       if (!mounted) return;
       if (widget.controller.value.mode != NoteMode.deleted) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text("Couldn't delete the note")),
-        );
+        feedback.show("Couldn't delete the note", error: true);
         return;
       }
-      messenger.showSnackBar(const SnackBar(content: Text('Note deleted')));
+      feedback.show('Note deleted');
       await _finishClose();
     }, resumeEditing: true);
   }

@@ -3,6 +3,9 @@ the existing /notes and /search endpoints, no MCP framing involved."""
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional
 
@@ -212,7 +215,19 @@ class RobotNotesClient:
         if path is not None:
             params["path"] = path
         response = self._request("GET", "/search", params=params, timeout=self._recall_timeout)
-        return response.json().get("items", [])
+        try:
+            payload = response.json()
+        except ValueError:
+            raise ClientError("Malformed search response", kind=ErrorKind.OTHER, code="invalid_response") from None
+        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+            raise ClientError("Malformed search response", kind=ErrorKind.OTHER, code="invalid_response")
+        items = payload["items"]
+        for item in items:
+            if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                    or not item["id"] or not isinstance(item.get("title"), str)
+                    or not isinstance(item.get("snippet", ""), str)):
+                raise ClientError("Malformed search result", kind=ErrorKind.OTHER, code="invalid_response")
+        return items
 
     def list_notes(
         self, *, path: Optional[str] = None, limit: int = 50, after: Optional[str] = None
@@ -230,8 +245,60 @@ class RobotNotesClient:
         response = self._request("GET", "/notes", params=params)
         return response.json()
 
-    def get_note(self, note_id: str) -> Dict[str, Any]:
-        return self._request("GET", f"/notes/{note_id}").json()
+    def get_evidence(self, digest: str) -> Dict[str, Any]:
+        """Read a retained snapshot and verify its immutable payload identity."""
+        if not isinstance(digest, str) or not re.fullmatch(r'[a-f0-9]{64}', digest):
+            raise ClientError("Evidence id must be a SHA-256 digest", code="invalid_evidence_id")
+        response = self._request("GET", f"/evidence/{digest}")
+        try:
+            body = response.json()
+            if not isinstance(body, dict) or body.get("id") != digest or not isinstance(body.get("payload"), str):
+                raise ValueError("invalid envelope")
+            payload = body["payload"]
+            if hashlib.sha256(payload.encode('utf-8')).hexdigest() != digest:
+                raise ValueError("invalid digest")
+            snapshot = json.loads(payload)
+            if (not isinstance(snapshot, dict) or not isinstance(snapshot.get("session_id"), str)
+                    or not snapshot["session_id"] or snapshot.get("kind") not in {"turn", "checkpoint"}
+                    or not isinstance(snapshot.get("messages"), list)
+                    or not all(isinstance(message, dict) for message in snapshot["messages"])
+                    or not isinstance(body.get("lineage"), dict)
+                    or not isinstance(body.get("created_at"), str) or not body["created_at"]
+                    or not isinstance(body.get("expires_at"), str) or not body["expires_at"]):
+                raise ValueError("invalid snapshot metadata")
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise ClientError("Invalid evidence response", code="invalid_evidence") from exc
+        capture = snapshot.get("capture")
+        return {
+            "id": digest, "capture": capture if isinstance(capture, str) else "unknown",
+            "snapshot": snapshot, "lineage": body["lineage"],
+            "created_at": body["created_at"], "expires_at": body["expires_at"],
+        }
+
+    def put_evidence(self, digest: str, *, payload: str, retention_days: int,
+                     lineage: Dict[str, Any]) -> Dict[str, Any]:
+        """Require an acknowledgement of the exact immutable snapshot."""
+        body = self._request("PUT", f"/evidence/{digest}", json={
+            "payload": payload, "retention_days": retention_days, "lineage": lineage,
+        }).json()
+        if not isinstance(body, dict) or body.get("id") != digest or body.get("payload") != payload or not body.get("expires_at"):
+            raise ClientError("Invalid durable evidence acknowledgement", kind=ErrorKind.OTHER)
+        return body
+
+    def get_note(self, note_id: str, *, recall: bool = False) -> Dict[str, Any]:
+        options = {"timeout": self._recall_timeout} if recall else {}
+        response = self._request("GET", f"/notes/{note_id}", **options)
+        if not recall:
+            return response.json()
+        try:
+            note = response.json()
+        except ValueError as exc:
+            raise ClientError("Malformed note response", kind=ErrorKind.OTHER, code="invalid_response") from exc
+        if (not isinstance(note, dict) or note.get("id") != note_id
+                or not all(isinstance(note.get(field), str) for field in ("title", "content", "path"))
+                or ("updated_at" in note and not isinstance(note["updated_at"], str))):
+            raise ClientError("Malformed note response", kind=ErrorKind.OTHER, code="invalid_response")
+        return note
 
     def find_note_by_title(self, title: str, *, path: str) -> Optional[Dict[str, Any]]:
         """Looks up a note by exact title within ``path``. The item returned already

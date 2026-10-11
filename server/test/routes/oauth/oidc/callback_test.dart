@@ -122,13 +122,16 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  PendingLogin startPendingLogin({String? clientState = 'original-state'}) =>
+  PendingLogin startPendingLogin({
+    String? clientState = 'original-state',
+    String scope = 'notes:read notes:write',
+  }) =>
       pendingLoginStore.start(
         consentRequest: {
           'client_id': client.client.clientId,
           'redirect_uri': client.client.redirectUris.first,
           'code_challenge': 'client-code-challenge',
-          'scope': 'notes:read notes:write',
+          'scope': scope,
           'resource': _publicUrl,
           if (clientState != null) 'state': clientState,
         },
@@ -160,6 +163,24 @@ void main() {
 
   HttpPostForm tokenEndpointReturning(String idToken) =>
       (uri, form) async => jsonEncode({'id_token': idToken});
+
+  test('a pending OIDC login cannot mint an elevated knowledge grant',
+      () async {
+    final pending = startPendingLogin(scope: 'notes:read knowledge:review');
+    final idToken = signRs256(idTokenPayload(pending), rsa);
+    final response = await route.onRequest(
+      _ctx(
+        queryParameters: {'code': 'provider-code', 'state': pending.state},
+        clientStore: clientStore,
+        codeStore: codeStore,
+        pendingLoginStore: pendingLoginStore,
+        jwksCache: jwksCache,
+        httpPostForm: tokenEndpointReturning(idToken),
+      ),
+    );
+    expect(response.statusCode, HttpStatus.badRequest);
+    expect(await response.body(), contains('operator approval'));
+  });
 
   test('a successful callback mints a code and redirects to the client',
       () async {

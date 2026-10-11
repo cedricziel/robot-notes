@@ -115,3 +115,41 @@ def test_forget_deletes_credential_authorized_notes_regardless_of_creator(
         assert exc.value.not_found
     finally:
         provider.shutdown()
+
+
+def test_identity_recall_separates_users_and_includes_explicit_shared_notes(
+    tmp_path, monkeypatch, e2e_base_url, e2e_api_key, e2e_client
+):
+    from robot_notes.config import RobotNotesConfig
+
+    marker = f"scope{_uid()}"
+    alice_id, bob_id = f"alice-{_uid()}", f"bob-{_uid()}"
+    shared_path = f"e2e-shared-{_uid()}"
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", e2e_api_key)
+    alice_home, bob_home = tmp_path / "alice", tmp_path / "bob"
+    RobotNotesConfig.create(
+        base_url=e2e_base_url, actor="same-actor", memory_scope="identity",
+        user_id=alice_id, agent_id=alice_id, shared_memory_path=shared_path,
+    ).save(str(alice_home))
+    RobotNotesConfig.create(
+        base_url=e2e_base_url, actor="same-actor", memory_scope="identity",
+        user_id=bob_id, agent_id=bob_id, shared_memory_path=shared_path,
+    ).save(str(bob_home))
+    alice, bob = RobotNotesProvider(), RobotNotesProvider()
+    alice.initialize("alice-session", hermes_home=str(alice_home))
+    bob.initialize("bob-session", hermes_home=str(bob_home))
+    try:
+        alice.on_memory_write("add", "user", f"{marker} Alice preference")
+        bob.on_memory_write("add", "user", f"{marker} Bob preference")
+        e2e_client.create_note(title="Shared", path=shared_path, content=f"{marker} Shared decision")
+        e2e_client.create_note(title="Outsider", path=f"Hermes/users/{alice_id}-other", content=f"{marker} Outsider")
+
+        alice_recall, bob_recall = alice.prefetch(marker), bob.prefetch(marker)
+
+        assert "Alice preference" in alice_recall and "Shared decision" in alice_recall
+        assert "Bob preference" not in alice_recall and "Outsider" not in alice_recall
+        assert "Bob preference" in bob_recall and "Shared decision" in bob_recall
+        assert "Alice preference" not in bob_recall
+    finally:
+        alice.shutdown()
+        bob.shutdown()

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:dart_frog_web_socket/dart_frog_web_socket.dart';
 import 'package:dart_otel_api/dart_otel_api.dart';
+import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/otel/otel_tracer_holder.dart' as otel_tracer_holder;
@@ -50,6 +51,7 @@ FutureOr<Response> onRequest(RequestContext context) {
       presence: presence,
       apiKey: apiKey,
       tokenStore: tokenStore,
+      agentCredentials: context.read<AgentCredentialStore>(),
       restResource: restResource,
       tracer: tracer,
       connectionSpanContext: connectionSpanContext,

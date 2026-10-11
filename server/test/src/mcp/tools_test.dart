@@ -95,6 +95,7 @@ class _FlakyStorage extends Storage {
     required String title,
     required String content,
     required int ifMatch,
+    String? actor,
     String? path,
     Map<String, Object?>? properties,
   }) async {
@@ -108,6 +109,7 @@ class _FlakyStorage extends Storage {
       );
     }
     return super.update(
+      actor: actor,
       id: id,
       title: title,
       content: content,
@@ -130,6 +132,10 @@ Future<AppDeps> _bootstrapFlaky(
     failCount: failCount,
     onConflict: onConflict,
   );
+  return _bootstrapWithStorage(tmp, storage);
+}
+
+Future<AppDeps> _bootstrapWithStorage(Directory tmp, Storage storage) async {
   return AppDeps(
     storage: storage,
     metaIndex: MetaIndex(),
@@ -1372,6 +1378,49 @@ void main() {
         deps.storage.filesIn('Ideas').map((f) => f.relativePath),
         ['Ideas/photo.png'],
       );
+    });
+
+    test('rejects finalization after interrupted history deletion', () async {
+      var failPublication = false;
+      final storage = Storage(
+        contentDir: Directory('${tmp.path}/faulted-content'),
+        afterHistoryPublish: () async {
+          if (failPublication) throw StateError('crash');
+        },
+      );
+      final faultedDeps = await _bootstrapWithStorage(tmp, storage);
+      addTearDown(faultedDeps.close);
+      final faultedRegistry = McpToolRegistry.forDeps(faultedDeps);
+      final note = await storage.create(
+        title: 'A',
+        content: 'retained',
+        properties: {'history': true},
+      );
+      final requested = _structured(
+        await faultedRegistry.call(
+          'request_upload',
+          {'path': '', 'filename': 'A.md'},
+          fullAccess,
+        ),
+      );
+      final token = requested['token']! as String;
+      await faultedDeps.uploadSessions.complete(
+        token: token,
+        bytes: Stream.value([1, 2, 3]),
+      );
+      failPublication = true;
+      await expectLater(storage.delete(note.id), throwsStateError);
+
+      await expectLater(
+        faultedRegistry.call('finalize_upload', {'token': token}, fullAccess),
+        throwsStateError,
+      );
+
+      expect(File('${storage.contentDir.path}/A.md').existsSync(), isFalse);
+      final recovered = Storage(contentDir: storage.contentDir);
+      expect((await recovered.revisions(note.id)).last['deleted'], isTrue);
+      final restored = await recovered.restoreRevision(note.id, 1, ifMatch: 2);
+      expect(restored.content, 'retained');
     });
 
     test('finalize_upload before the PUT has completed is validation_failed',

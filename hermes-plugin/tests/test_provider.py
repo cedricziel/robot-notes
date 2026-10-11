@@ -337,6 +337,8 @@ def test_get_tool_schemas_lists_expected_tools(provider):
         "robotnotes_remember",
         "robotnotes_append",
         "robotnotes_forget",
+        "robotnotes_health",
+        "robotnotes_evidence",
     }
 
 

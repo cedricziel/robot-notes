@@ -1,5 +1,6 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/databases/registry.dart';
+import 'package:server/src/evidence_store.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
@@ -19,6 +20,8 @@ Middleware vaultSelection(VaultRegistry vaults) =>
           final path = context.request.uri.path;
           if (!(path == '/notes' ||
               path.startsWith('/notes/') ||
+              path == '/evidence' ||
+              path.startsWith('/evidence/') ||
               path == '/search' ||
               path == '/tags' ||
               path == '/ws' ||
@@ -30,7 +33,8 @@ Middleware vaultSelection(VaultRegistry vaults) =>
               context.request.uri.queryParameters['vault_id'] ??
               'default';
           final principal = context.read<RestPrincipal>();
-          if (principal.kind == RestAuthKind.oauthToken &&
+          if (principal.kind != RestAuthKind.staticKey &&
+              principal.kind != RestAuthKind.exempt &&
               !principal.canAccessVault(id)) {
             return Response.json(
               statusCode: 403,
@@ -47,6 +51,7 @@ Middleware vaultSelection(VaultRegistry vaults) =>
           return handler(
             context
                 .provide<Storage>(() => deps.storage)
+                .provide<EvidenceStore>(() => deps.evidenceStore)
                 .provide<MetaIndex>(() => deps.metaIndex)
                 .provide<SearchIndex>(() => deps.searchIndex)
                 .provide<LinkIndex>(() => deps.linkIndex)

@@ -2,30 +2,41 @@
 
 Talks to robot-notes' existing bearer-key REST API directly (no MCP client).
 Writes are deliberately sparse: session-end summaries, explicit tool calls,
-and mirrored built-in-memory writes only — never one write per turn.
+and mirrored built-in-memory writes. Optional evidence capture queues supplied
+completed-turn JSON separately from readable notes.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
+import sqlite3
 import threading
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ._hermes_compat import MemoryProvider, spawn_context_thread, tool_error
 from .client import ClientError, ErrorKind, RobotNotesClient
-from .config import DEFAULT_ACTOR, RobotNotesConfig
+from .config import DEFAULT_ACTOR, RobotNotesConfig, _default_hermes_home
+from .evidence import EvidenceArchive
+from .health import MemoryHealth
+from .outbox import Outbox, QueueFull
 from .recall import RecallCache, RecallStatus, is_trivial_prompt
+from .recall_evidence import evidence_context, narrow_paths
 from .tools import TOOL_HANDLERS, TOOL_SCHEMAS
 from .transcript import build_transcript
 
 logger = logging.getLogger(__name__)
 
+
+class _DeliveryCancelled(Exception):
+    pass
+
+
 CONVERSATIONS_ROOT = "conversations"
-MEMORY_NOTE = {"title": "Memory", "path": "Hermes"}
-USER_NOTE = {"title": "User", "path": "Hermes"}
 
 SKILLS_DIR = Path(__file__).parent / "skills"
 SKILL_NAME = "robot-notes"
@@ -114,6 +125,18 @@ class RobotNotesProvider(MemoryProvider):
         self._platform: str = ""
         self._agent_identity: str = ""
         self._recall_cache = RecallCache()
+        self._evidence_archive: Optional[EvidenceArchive] = None
+        self._evidence_outbox = None
+        self._evidence_thread: Optional[threading.Thread] = None
+        self._evidence_lineage: dict = {}
+        self._evidence_session_lineage: dict = {}
+        self._evidence_capture_error = False
+        self._health = MemoryHealth()
+        self._outbox: Optional[Outbox] = None
+        self._delivery_thread: Optional[threading.Thread] = None
+        self._delivery_lock = threading.Lock()
+        self._delivery_epoch = 0
+        self._delivery_enabled = False
 
     @property
     def name(self) -> str:
@@ -130,13 +153,31 @@ class RobotNotesProvider(MemoryProvider):
             self._config = RobotNotesConfig.load()
         return self._config
 
+    @property
+    def pre_compress_checkpoint_api_version(self) -> int:
+        return 2 if self._evidence_archive and self._client and self._config.is_complete and self._can_write() else 1
+
     def initialize(self, session_id: str, **kwargs) -> None:
+        if self._evidence_archive:
+            self._evidence_archive.stop()
+        if self._evidence_thread:
+            self._evidence_thread.join(timeout=10)
+        self._evidence_thread = None
+        self._evidence_archive = None
+        self._evidence_outbox = None
+        self._evidence_lineage = {}
+        self._evidence_session_lineage = {}
+        self._evidence_capture_error = False
         # Invalidate cached and in-flight recall before rebinding the server/vault.
+        self._delivery_epoch += 1
+        self._delivery_enabled = False
         old_client = self._client
         self._client = None
         self._recall_cache.clear()
+        self._health = MemoryHealth()
         if old_client:
             old_client.close()
+        self._outbox = None
         self._config = RobotNotesConfig.load(kwargs.get("hermes_home"))
         self._session_id = session_id
         self._write_enabled = kwargs.get("agent_context", "") not in {"cron", "flush", "subagent"}
@@ -149,17 +190,46 @@ class RobotNotesProvider(MemoryProvider):
             actor=self._config.actor,
             vault_id=self._config.vault_id,
         )
+        if self._config.durable_writes and self._can_write():
+            identity = {key: getattr(self._config, key) for key in ("base_url", "vault_id", "actor", "api_key")}
+            identity.update(memory_scope=None, user_id=None, agent_id=None)
+            if self._config.memory_scope == "identity":
+                identity.update(memory_scope="identity", user_id=self._config.user_id, agent_id=self._config.agent_id)
+            destination = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+            home = Path(self._hermes_home or _default_hermes_home())
+            self._outbox = Outbox(home / "robot_notes_outbox" / destination / "queue.sqlite")
+            self._delivery_enabled = True
+            self._start_delivery()
+
+        if self._config.evidence_archive and self._config.is_complete and self._can_write():
+            home = Path(self._hermes_home or _default_hermes_home())
+            self._evidence_archive = EvidenceArchive(self._config, home)
+            self._evidence_outbox = self._evidence_archive.outbox
 
     def shutdown(self) -> None:
+        if self._evidence_archive:
+            self._evidence_archive.stop()
+        if self._evidence_thread:
+            self._evidence_thread.join(timeout=10)
+        self._evidence_thread = None
+        self._evidence_archive = None
+        self._evidence_outbox = None
+        self._delivery_enabled = False
+        self._delivery_epoch += 1
         if self._client:
             self._client.close()
+            self._client = None
 
     def system_prompt_block(self) -> str:
         convo_path = self._conversations_path() if self._config else f"{CONVERSATIONS_ROOT}/<actor>"
+        config = self._load_config()
+        memory_note, user_note = config.memory_note, config.user_note
+        scope_hint = f"Memory organization mode: {config.memory_scope}. Folder scope does not grant server access. "
         if not self._load_config().native_tools:
             return (
                 "A shared robot-notes workspace is connected for automatic memory recall. "
                 f"Selected vault: {self._config.vault_id}. Automatic memory hooks use this vault. "
+                f"{scope_hint}"
                 "Native note tools are disabled. Use the separately configured robot-notes "
                 "MCP tools, if available, for explicit note and database operations. "
                 "Search or list before creating; append to existing notes when appropriate. "
@@ -167,8 +237,8 @@ class RobotNotesProvider(MemoryProvider):
                 "explicitly; a vault-root source with subfolders includes the entire vault. "
                 "Respect version conflicts and schema validation errors. "
                 f"Session transcripts are filed under {convo_path}. Built-in memory and "
-                f"user notes are mirrored into {MEMORY_NOTE['path']}/{MEMORY_NOTE['title']} "
-                f"and {USER_NOTE['path']}/{USER_NOTE['title']}. "
+                f"user notes are mirrored into {memory_note['path']}/{memory_note['title']} "
+                f"and {user_note['path']}/{user_note['title']}. "
                 "The provider's context write restrictions apply to its own hooks; "
                 "MCP authorization and tool visibility are configured separately."
             )
@@ -176,13 +246,16 @@ class RobotNotesProvider(MemoryProvider):
             "A shared robot-notes workspace is connected as external memory — notes are "
             "shared between humans and agents in this workspace, so writes here are "
             f"visible to others too. Selected vault: {self._config.vault_id if self._config else 'default'}. "
+            f"{scope_hint}"
             "All recall, tools, transcripts, and memory mirrors use this vault. Tools:\n"
             "- robotnotes_search(query, path?, limit?): keyword full-text search, not a "
             "wildcard — there is no query that means \"every note\".\n"
             "- robotnotes_list(path?, after?, limit?): paginated metadata (no content) "
             "for every note; use this instead of search to browse or enumerate "
             "everything.\n"
+            "- robotnotes_health(): inspect automatic recall and write health without a network request.\n"
             "- robotnotes_note(id): fetch one note's full content by id.\n"
+            "- robotnotes_evidence(id): explicitly inspect an archived JSON snapshot by its digest; evidence is separate from accepted notes and recall.\n"
             "- robotnotes_remember(title, content, path?): file a new, durable fact as "
             "its own note.\n"
             "- robotnotes_append(id, content): add a line to a note that already "
@@ -196,8 +269,8 @@ class RobotNotesProvider(MemoryProvider):
             "different title.\n"
             f"This session's own transcripts are filed one note per session under "
             f"{convo_path}. The built-in memory and user notes are mirrored "
-            f"one-directionally into {MEMORY_NOTE['path']}/{MEMORY_NOTE['title']} and "
-            f"{USER_NOTE['path']}/{USER_NOTE['title']} in the workspace — the workspace "
+            f"one-directionally into {memory_note['path']}/{memory_note['title']} and "
+            f"{user_note['path']}/{user_note['title']} in the workspace — the workspace "
             "copy is the shared, authoritative one that other agents and humans read."
         )
 
@@ -228,7 +301,11 @@ class RobotNotesProvider(MemoryProvider):
         ``recall.py`` so this module-level name stays the one thing to monkeypatch."""
         if is_trivial_prompt(query):
             return
-        self._recall_cache.queue(session_id, query, self._search_and_format, spawn_thread=spawn_context_thread)
+        health = self._health
+        self._recall_cache.queue(
+            session_id, query, lambda query: self._search_and_format(query, health=health),
+            spawn_thread=spawn_context_thread,
+        )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         epoch = self._recall_cache.epoch
@@ -241,16 +318,163 @@ class RobotNotesProvider(MemoryProvider):
     def recall_status(self) -> Optional[RecallStatus]:
         return self._recall_cache.status("robot-notes")
 
-    def _search_and_format(self, query: str) -> "tuple[str, int]":
+    def memory_health(self) -> Dict[str, Any]:
+        """Return content-free automatic operation outcomes without network requests."""
+        try:
+            queue = self._outbox.status() if self._outbox else "disabled"
+        except (OSError, sqlite3.Error):
+            queue = {"state": "unavailable", "reason": "queue_error"}
+        return {**self._health.snapshot(), "writes_enabled": self._can_write(), "retry_queue": queue}
+
+    def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
+        self._start_delivery()
+        self._start_evidence_delivery()
+
+    def flush_memory_writes(self, timeout: float = 2.0, *, retry_blocked: bool = False) -> None:
+        """Request delivery and wait briefly; permanent failures retry only when explicit."""
+        if retry_blocked and self._outbox:
+            self._outbox.retry_blocked()
+        self._start_delivery()
+        thread = self._delivery_thread
+        if thread:
+            thread.join(timeout)
+
+    def _enqueue_automatic(self, operation: Dict[str, Any]) -> None:
+        try:
+            self._outbox.enqueue(operation)
+        except (QueueFull, OSError, sqlite3.Error) as exc:
+            operation_name = "mirror" if operation["kind"] == "mirror" else "transcript"
+            generation = self._health.begin(operation_name)
+            self._health.finish(operation_name, generation, "failed", "queue_full" if isinstance(exc, QueueFull) else "queue_error")
+            return
+        self._start_delivery()
+
+    def _start_delivery(self) -> None:
+        outbox, config, health, epoch = self._outbox, self._config, self._health, self._delivery_epoch
+        if not self._delivery_enabled or not outbox or not self._can_write() or not self._delivery_lock.acquire(blocking=False):
+            return
+
+        def classify(exc):
+            if isinstance(exc, _DeliveryCancelled):
+                return "cancelled", True
+            if isinstance(exc, ClientError):
+                retryable = exc.kind in {ErrorKind.NETWORK_ERROR, ErrorKind.CIRCUIT_OPEN} or (exc.status or 0) >= 500
+                return exc.kind.name.lower(), retryable
+            return "delivery_error", False
+
+        def run():
+            sender = RobotNotesProvider()
+            sender._config = config
+            sender._client = RobotNotesClient(base_url=config.base_url, api_key=config.api_key, actor=config.actor, vault_id=config.vault_id)
+            try:
+                def deliver(operation):
+                    if not self._delivery_enabled or self._delivery_epoch != epoch:
+                        raise _DeliveryCancelled()
+                    name = "mirror" if operation["kind"] == "mirror" else "transcript"
+                    generation = health.begin(name)
+                    try:
+                        sender._deliver_automatic(operation)
+                    except Exception as exc:
+                        health.finish(name, generation, "failed", classify(exc)[0])
+                        raise
+                    health.finish(name, generation, "succeeded")
+
+                for _ in range(20):
+                    if not self._delivery_enabled or self._delivery_epoch != epoch:
+                        break
+                    if not outbox.deliver_one(deliver, classify, sender._prepare_automatic):
+                        break
+            finally:
+                sender._client.close()
+                self._delivery_lock.release()
+                if self._delivery_epoch != epoch and self._delivery_enabled:
+                    self._start_delivery()
+
+        try:
+            thread = spawn_context_thread(run, name="robot-notes-delivery")
+            thread.daemon = True
+            self._delivery_thread = thread
+            thread.start()
+        except Exception:
+            self._delivery_lock.release()
+            raise
+
+    def _prepare_automatic(self, operation: Dict[str, Any]) -> Dict[str, Any]:
+        note = operation.get("note") or operation
+        existing = self._client.find_note_by_title(note["title"], path=note["path"])
+        current = self._client.get_note(existing["id"]) if existing else None
+        content = current.get("content", "") if current else ""
+        desired = operation["content"]
+        if operation["kind"] == "mirror":
+            action = operation["action"]
+            identifier = str(operation["metadata"].get("old_text") or "").strip()
+            entries = content.split("\n") if content else []
+            index = _find_entry_index(entries, identifier or (desired if action == "remove" else ""))
+            if action == "remove":
+                if index is None:
+                    return {**operation, "prepared": {"noop": True}}
+                del entries[index]
+                desired = "\n".join(entries)
+            elif action == "replace" and index is not None:
+                entries[index] = desired
+                desired = "\n".join(entries)
+            else:
+                if re.search(r"(?:^|\n)" + re.escape(desired.strip()) + r"(?=\n|$)", content):
+                    return {**operation, "prepared": {"noop": True}}
+                desired = f"{content.rstrip(chr(10))}\n{desired}" if content else desired
+        prepared = {"title": note["title"], "path": note["path"], "content": desired}
+        if current:
+            if desired == current.get("content", ""):
+                prepared = {"noop": True}
+            else:
+                prepared.update(id=current["id"], version=current["version"])
+        return {**operation, "prepared": prepared}
+
+    def _deliver_automatic(self, operation: Dict[str, Any]) -> None:
+        prepared = operation["prepared"]
+        if prepared.get("noop"):
+            return
+        if "id" in prepared:
+            current = self._client.get_note(prepared["id"])
+            if current.get("content", "") == prepared["content"]:
+                return
+            if current["version"] != prepared["version"]:
+                raise ClientError("Prepared note changed", kind=ErrorKind.VERSION_CONFLICT, status=409)
+            self._client.update_note(prepared["id"], version=prepared["version"], content=prepared["content"])
+            return
+        existing = self._client.find_note_by_title(prepared["title"], path=prepared["path"])
+        if existing:
+            current = self._client.get_note(existing["id"])
+            if current.get("content", "") == prepared["content"]:
+                return
+            raise ClientError("Prepared destination changed", kind=ErrorKind.PATH_CONFLICT)
+        self._client.create_note(title=prepared["title"], path=prepared["path"], content=prepared["content"])
+
+    def _tool_health(self, args: Dict[str, Any]) -> str:
+        return json.dumps(self.memory_health())
+
+    def _search_and_format(self, query: str, *, health: Optional[MemoryHealth] = None) -> "tuple[str, int]":
         client = self._client
         if not client or not query:
             return "", 0
+        health = health or self._health
+        generation = health.begin("recall")
         try:
-            items = client.search(query, limit=5)
+            items = self._recall_items(client, query)
+            config = self._load_config()
+            if config.recall_max_bytes:
+                formatted, count = evidence_context(items[:5], max_bytes=config.recall_max_bytes,
+                                                     expand_chars=config.recall_expand_chars,
+                                                     recall_paths=narrow_paths(config.recall_paths, config.recall_path),
+                                                     load_note=lambda note_id: client.get_note(note_id, recall=True))
+                health.finish("recall", generation, "matched" if count else "empty")
+                return formatted, count
         except ClientError as exc:
             if exc.kind is ErrorKind.CIRCUIT_OPEN:
-                logger.debug("robot_notes: skipping search, %s", exc)
+                logger.debug("robot_notes: search unavailable (circuit_open)")
+            health.finish("recall", generation, "failed", exc.kind.name.lower())
             return "", 0
+        health.finish("recall", generation, "matched" if items else "empty")
         if not items:
             return "", 0
         items = items[:5]
@@ -260,6 +484,49 @@ class RobotNotesProvider(MemoryProvider):
             for item in items
         ]
         return "Relevant notes from robot-notes:\n" + "\n".join(lines), len(items)
+
+    def _recall_items(self, client: RobotNotesClient, query: str) -> List[Dict[str, Any]]:
+        config = self._load_config()
+        paths = narrow_paths(config.recall_paths, config.recall_path)
+        if paths == (None,):
+            return client.search(query, limit=5)
+        results, errors = [None] * len(paths), [None] * len(paths)
+
+        def search(index, path):
+            try:
+                results[index] = client.search(query, path=path, limit=5)
+            except Exception as exc:
+                errors[index] = exc
+
+        threads = [spawn_context_thread(lambda index=index, path=path: search(index, path), name="robot-notes-scope") for index, path in enumerate(paths)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        for error in errors:
+            if error is not None:
+                raise error
+        if not all(isinstance(result, list) for result in results):
+            raise ClientError("Malformed search response", kind=ErrorKind.OTHER, code="invalid_response")
+        for result in results:
+            for item in result:
+                if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                        or not item["id"] or not isinstance(item.get("title"), str)
+                        or not isinstance(item.get("snippet", ""), str)):
+                    raise ClientError("Malformed search result", kind=ErrorKind.OTHER, code="invalid_response")
+        selected, seen = [], set()
+        exhausted = object()
+        for group in zip_longest(*results, fillvalue=exhausted):
+            for item in group:
+                if item is exhausted:
+                    continue
+                note_id = item["id"]
+                if note_id not in seen:
+                    selected.append(item)
+                    seen.add(note_id)
+                    if len(selected) == 5:
+                        return selected
+        return selected
 
     # -- Explicit tools ---------------------------------------------------
 
@@ -294,6 +561,9 @@ class RobotNotesProvider(MemoryProvider):
                 path=args.get("path"), after=args.get("after"), limit=args.get("limit", 50)
             )
         )
+
+    def _tool_evidence(self, args: Dict[str, Any]) -> str:
+        return json.dumps(self._client.get_evidence(args["id"]))
 
     def _tool_note(self, args: Dict[str, Any]) -> str:
         return json.dumps(self._client.get_note(args["id"]))
@@ -332,11 +602,70 @@ class RobotNotesProvider(MemoryProvider):
 
     # -- Sparse writes: session summary + built-in memory mirror ----------
 
+    def _start_evidence_delivery(self) -> None:
+        archive = self._evidence_archive
+        if not archive or (self._evidence_thread and self._evidence_thread.is_alive()):
+            return
+        thread = spawn_context_thread(archive.flush_best_effort, name="robot-notes-evidence")
+        thread.daemon = True
+        self._evidence_thread = thread
+        thread.start()
+
+    def sync_turn(
+        self, user_content: str, assistant_content: str, *, session_id: str = "",
+        messages: Optional[List[Dict[str, Any]]] = None,
+        turn_author: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self._evidence_archive or not self._can_write():
+            return
+        capture = "raw_messages" if messages is not None else "text_fallback"
+        supplied = messages if messages is not None else [
+            {"role": "user", "content": user_content},
+            {"role": "assistant", "content": assistant_content},
+        ]
+        capture_session = session_id or self._session_id
+        lineage = self._evidence_session_lineage.get(capture_session, {})
+        try:
+            self._evidence_archive.enqueue(capture_session, "turn", supplied, capture, lineage)
+        except Exception as exc:
+            self._evidence_capture_error = True
+            logger.warning("Conversation evidence capture failed (%s)", EvidenceArchive.failure_category(exc))
+            return
+        self._start_evidence_delivery()
+
+    def flush_evidence(self, *, retry_blocked: bool = False) -> None:
+        """Require acknowledgement of pending snapshots; explicitly retry permanent errors."""
+        if self._evidence_archive and self._can_write():
+            if retry_blocked:
+                self._evidence_outbox.retry_blocked()
+            self._evidence_archive.flush()
+
+    def on_pre_compress(self, messages: List[Dict[str, Any]], *, require_checkpoint: bool = False) -> str:
+        if not self._evidence_archive or not self._client or not self._can_write():
+            if require_checkpoint:
+                raise RuntimeError("Conversation evidence archive is disabled")
+            return ""
+        if self._evidence_capture_error:
+            raise RuntimeError("Conversation evidence capture failed")
+        self._evidence_archive.flush()
+        digest = self._evidence_archive.enqueue(self._session_id, "checkpoint", messages,
+                                       "host_normalized", self._evidence_lineage)
+        self._evidence_archive.flush()
+        if self._evidence_capture_error:
+            raise RuntimeError("Conversation evidence capture failed")
+        reference = f"Durable robot-notes evidence checkpoint {digest} (capture: host_normalized)."
+        if self._config.native_tools:
+            reference += f' Explicit inspection: robotnotes_evidence(id="{digest}").'
+        return reference
+
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
         if not self._client or not self._can_write():
             return
         title = self._session_id or "unknown-session"
         content = build_transcript(messages, session_id=title, actor=self._config.actor)
+        if self._outbox:
+            self._enqueue_automatic({"kind": "transcript", "title": title, "path": self._conversations_path(), "content": content})
+            return
         self._overwrite_note(title=title, path=self._conversations_path(), content=content)
 
     def on_session_switch(
@@ -357,7 +686,11 @@ class RobotNotesProvider(MemoryProvider):
         session or another one sharing this provider instance — cannot land in the cache
         and be injected after it."""
         self._session_id = str(new_session_id or "").strip() or self._session_id
+        self._evidence_lineage = {"parent_session_id": parent_session_id,
+                                  "reset": reset, "rewound": rewound}
+        self._evidence_session_lineage[self._session_id] = self._evidence_lineage
         self._recall_cache.clear()
+        self._health = MemoryHealth()
 
     def _conversations_path(self) -> str:
         return f"{CONVERSATIONS_ROOT}/{_sanitize_actor(self._config.actor)}"
@@ -379,8 +712,13 @@ class RobotNotesProvider(MemoryProvider):
         """
         if not self._client or not self._can_write():
             return
-        note = USER_NOTE if target == "user" else MEMORY_NOTE
+        note = self._config.user_note if target == "user" else self._config.memory_note
+        if self._outbox:
+            self._enqueue_automatic({"kind": "mirror", "note": note, "action": action, "content": content, "metadata": metadata or {}})
+            return
         old_text = str((metadata or {}).get("old_text") or "").strip()
+        health = self._health
+        generation = health.begin("mirror")
         try:
             if action == "add":
                 self._append_note(title=note["title"], path=note["path"], addition=content)
@@ -393,8 +731,11 @@ class RobotNotesProvider(MemoryProvider):
                     title=note["title"], path=note["path"], identifier=old_text, new_entry=content
                 )
         except ClientError as exc:
+            health.finish("mirror", generation, "failed", exc.kind.name.lower())
             log = logger.debug if exc.kind is ErrorKind.CIRCUIT_OPEN else logger.warning
-            log("robot_notes: failed to mirror memory write (target=%s action=%s): %s", target, action, exc)
+            log("robot_notes: automatic mirror failed (%s)", exc.kind.name.lower())
+        else:
+            health.finish("mirror", generation, "succeeded")
 
     def _overwrite_note(self, *, title: str, path: str, content: str, create_if_missing: bool = True) -> None:
         """Create-or-blind-overwrite a fixed note by title, swallowing failures with a
@@ -402,16 +743,21 @@ class RobotNotesProvider(MemoryProvider):
         of a MemoryProvider hook and take the host session down with them. Used only
         for whole-note content (session summaries); memory-write mirroring never
         overwrites a whole note — see ``_read_edit_write``."""
+        health = self._health
+        generation = health.begin("transcript")
         try:
             existing = self._client.find_note_by_title(title, path=path)
             if existing is None:
                 if create_if_missing:
                     self._client.create_note(title=title, content=content, path=path)
+                health.finish("transcript", generation, "succeeded")
                 return
             self._client.write_note_with_retry(existing["id"], version=existing["version"], content=content)
+            health.finish("transcript", generation, "succeeded")
         except ClientError as exc:
+            health.finish("transcript", generation, "failed", exc.kind.name.lower())
             log = logger.debug if exc.kind is ErrorKind.CIRCUIT_OPEN else logger.warning
-            log("robot_notes: failed to write note %r under %r: %s", title, path, exc)
+            log("robot_notes: automatic transcript failed (%s)", exc.kind.name.lower())
 
     def _append_note(self, *, title: str, path: str, addition: str) -> None:
         """Append ``addition`` as a new entry, skipping it if an identical entry
@@ -517,8 +863,15 @@ class RobotNotesProvider(MemoryProvider):
         RobotNotesConfig.create(
             base_url=str(values.get("base_url", "")),
             actor=str(values.get("actor") or existing.actor),
+            evidence_archive=values.get("evidence_archive", existing.evidence_archive),
+            evidence_retention_days=values.get("evidence_retention_days", existing.evidence_retention_days),
             native_tools=values.get("native_tools", existing.native_tools),
+            durable_writes=values.get("durable_writes", existing.durable_writes),
             vault_id=str(values.get("vault_id", existing.vault_id) or "default"),
+            memory_scope=values.get("memory_scope", existing.memory_scope),
+            user_id=values.get("user_id", existing.user_id),
+            agent_id=values.get("agent_id", existing.agent_id),
+            shared_memory_path=values.get("shared_memory_path", existing.shared_memory_path),
         ).save(hermes_home)
 
 

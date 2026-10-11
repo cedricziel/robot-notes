@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:logging/logging.dart';
@@ -6,6 +7,7 @@ import 'package:meta/meta.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/excerpt.dart';
 import 'package:server/src/frontmatter.dart';
+import 'package:server/src/markdown_blocks.dart';
 import 'package:server/src/note_path.dart';
 import 'package:server/src/tags.dart';
 import 'package:ulid/ulid.dart';
@@ -173,6 +175,15 @@ class StoredNote {
       );
 }
 
+/// Restore precondition failed against latest accepted version or tombstone.
+class HistoryVersionConflictException implements Exception {
+  /// Records the latest version without inventing live deleted content.
+  HistoryVersionConflictException(this.currentVersion);
+
+  /// Latest accepted note or deletion tombstone version.
+  final int currentVersion;
+}
+
 /// Thrown by [Storage.read] / [Storage.update] / [Storage.delete] when the
 /// requested id has no file on disk.
 class NoteNotFoundException implements Exception {
@@ -230,6 +241,15 @@ class PathConflictException implements Exception {
   String toString() => 'PathConflictException: $path/$title';
 }
 
+/// A revision predates block metadata or its canonical source was changed.
+class BlockMapUnavailableException implements Exception {
+  /// Reports whether persisted metadata conflicts with the current source.
+  const BlockMapUnavailableException({this.stale = false});
+
+  /// True when the accepted map differs from the inspected canonical source.
+  final bool stale;
+}
+
 /// File-backed note store. Owns the `<dataDir>/content/` directory and is
 /// the canonical source of truth for note bodies and metadata. Higher
 /// layers (notes API, search index, lock manager) call into this class
@@ -256,6 +276,8 @@ class Storage {
     Clock clock = const Clock(),
     NoteId Function()? idGenerator,
     Logger? logger,
+    this.beforeHistoryApply,
+    this.afterHistoryPublish,
   })  : _clock = clock,
         _idGenerator = idGenerator ?? _ulid,
         _log = logger ?? Logger('storage');
@@ -263,6 +285,51 @@ class Storage {
   /// Filesystem directory holding `*.md` note files (recursively, under
   /// per-note folders).
   final Directory contentDir;
+
+  /// Failure injection after durable intent, before canonical publication.
+  @visibleForTesting
+  final Future<void> Function()? beforeHistoryApply;
+
+  /// Failure injection after canonical publication, before snapshot commit.
+  @visibleForTesting
+  final Future<void> Function()? afterHistoryPublish;
+
+  Directory get _historyDir => Directory('${contentDir.path}.history');
+  final _blockReconciler = MarkdownBlockReconciler();
+  Future<void>? _historyRecovery;
+  bool _historyFaulted = false;
+
+  File get _historyDirty => File('${_historyDir.path}/index-dirty');
+
+  Directory get _historyIndexPending =>
+      Directory('${_historyDir.path}/index-pending');
+
+  File _historyIndexTicket(String id, int version) => File(
+        '${_historyIndexPending.path}/${base64Url.encode(utf8.encode(id))}-$version',
+      );
+
+  /// Indicates accepted history may be newer than persisted search data.
+  bool get historyNeedsReindex =>
+      _historyDirty.existsSync() ||
+      (_historyIndexPending.existsSync() &&
+          _historyIndexPending.listSync().isNotEmpty);
+
+  /// Acknowledges only the indexed accepted revision, preserving other writes.
+  Future<void> acknowledgeIndexedRevision(String id, int version) async {
+    final ticket = _historyIndexTicket(id, version);
+    if (ticket.existsSync()) await ticket.delete();
+  }
+
+  /// Prepares canonical notes before derived indices open.
+  Future<void> prepareHistory() => _ensureIndexed();
+
+  /// Clears startup invalidation only after rebuilding search successfully.
+  Future<void> acknowledgeHistoryReindex() async {
+    if (_historyDirty.existsSync()) await _historyDirty.delete();
+    if (_historyIndexPending.existsSync()) {
+      await _historyIndexPending.delete(recursive: true);
+    }
+  }
 
   final Clock _clock;
   final NoteId Function() _idGenerator;
@@ -362,6 +429,7 @@ class Storage {
   Future<StoredNote> create({
     required String title,
     required String content,
+    String? actor,
     String path = '',
     Map<String, Object?>? properties,
   }) async {
@@ -385,7 +453,7 @@ class Storage {
         content: content,
         extra: properties ?? const {},
       );
-      await _writeAtNewLocation(note, relPath);
+      await _writeAtNewLocation(note, relPath, actor: actor);
       _claim(id: id, key: key, relPath: relPath);
       return note;
     });
@@ -416,6 +484,7 @@ class Storage {
     required String title,
     required String content,
     required int ifMatch,
+    String? actor,
     String? path,
     Map<String, Object?>? properties,
   }) {
@@ -451,9 +520,9 @@ class Storage {
           extra: _rebuildExtra(current.extra, properties),
         );
         if (newRelPath == oldRelPath) {
-          await _writeAtNewLocation(next, newRelPath);
+          await _writeAtNewLocation(next, newRelPath, actor: actor);
         } else {
-          await _writeAtNewLocation(next, newRelPath);
+          await _writeAtNewLocation(next, newRelPath, actor: actor);
           final oldFile = _fileForRelative(oldRelPath);
           if (oldFile.existsSync()) await oldFile.delete();
           _idByKey.remove(oldKey);
@@ -478,6 +547,7 @@ class Storage {
   /// the validation layer, rather than relying on this ordering).
   Future<StoredNote> patchExtra({
     required NoteId id,
+    String? actor,
     Map<String, Object?> set = const {},
     Set<String> unset = const {},
   }) {
@@ -501,17 +571,22 @@ class Storage {
         extra: nextExtra,
       );
       final relPath = _relPathById[id]!;
-      await _writeAtNewLocation(next, relPath);
+      await _writeAtNewLocation(next, relPath, actor: actor);
       return next;
     });
   }
 
   /// Deletes the file backing [id]. Idempotent: deleting a missing id
   /// throws [NoteNotFoundException].
-  Future<void> delete(NoteId id) {
+  Future<void> delete(NoteId id, {String? actor}) {
     return _withLock(id, () async {
       final file = await _locate(id);
-      await file.delete();
+      final current = await _readFile(file);
+      if (await _retainsHistory(current)) {
+        await _commitHistory(current, null, deleted: true, actor: actor);
+      } else {
+        await file.delete();
+      }
       final relPath = _relPathById.remove(id);
       if (relPath != null) _idByKey.remove(collisionKey(relPath));
     });
@@ -531,6 +606,7 @@ class Storage {
   /// [contentDir]. Concurrent callers await the same in-flight build
   /// rather than triggering redundant scans.
   Future<void> _ensureIndexed() {
+    _assertHistoryHealthy();
     if (_relPathById.isNotEmpty || _indexBuild != null) {
       return _indexBuild ?? Future.value();
     }
@@ -540,6 +616,8 @@ class Storage {
   }
 
   Future<List<StoredNote>> _scanAll() async {
+    _assertHistoryHealthy();
+    await (_historyRecovery ??= _recoverHistory());
     _relPathById.clear();
     _idByKey.clear();
     _emptyFolderPaths.clear();
@@ -678,7 +756,11 @@ class Storage {
   /// the new location) — in both cases the rename to the final path is
   /// the same atomic step, so a crash never leaves a torn or missing
   /// canonical file at the final location.
-  Future<void> _writeAtNewLocation(StoredNote note, String relPath) async {
+  Future<void> _writeAtNewLocation(
+    StoredNote note,
+    String relPath, {
+    String? actor,
+  }) async {
     final finalFile = _fileForRelative(relPath);
     final parent = finalFile.parent;
     if (!parent.existsSync()) {
@@ -690,6 +772,10 @@ class Storage {
     );
     final text = serializeFrontmatter(fm);
 
+    if (await _retainsHistory(note)) {
+      await _commitHistory(note, relPath, actor: actor);
+      return;
+    }
     final tmp = File('${finalFile.path}.tmp');
     final raf = await tmp.open(mode: FileMode.writeOnly);
     try {
@@ -700,6 +786,278 @@ class Storage {
     }
     await tmp.rename(finalFile.path);
   }
+
+  Directory _noteHistory(String id) => Directory(
+        '${_historyDir.path}/${base64Url.encode(utf8.encode(id))}',
+      );
+
+  Future<bool> _retainsHistory(StoredNote note) async =>
+      note.extra['history'] == true || _noteHistory(note.id).existsSync();
+
+  String _serializeNote(StoredNote note) => serializeFrontmatter(
+        Frontmatter(metadata: _buildMetadataMap(note), body: note.content),
+      );
+
+  Future<void> _atomicText(File file, String text) async {
+    await file.parent.create(recursive: true);
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsString(text, flush: true);
+    await tmp.rename(file.path);
+  }
+
+  Future<void> _commitHistory(
+    StoredNote note,
+    String? path, {
+    bool deleted = false,
+    String? actor,
+  }) async {
+    final history = _noteHistory(note.id);
+    final oldPath = _relPathById[note.id];
+    final previousVersion = note.version - (deleted ? 0 : 1);
+    final previousFile = File('${history.path}/$previousVersion.json');
+    MarkdownBlockMap? previousMap;
+    String? previousSource;
+    if (previousFile.existsSync()) {
+      final previous =
+          jsonDecode(await previousFile.readAsString()) as Map<String, dynamic>;
+      final rawMap = previous['block_map'];
+      if (rawMap is Map<String, dynamic>) {
+        previousMap = MarkdownBlockMap.fromJson(rawMap);
+        previousSource = previous['deleted'] == true
+            ? ''
+            : parseFrontmatter(previous['markdown'] as String).body;
+      }
+    }
+    if (oldPath != null && _fileForRelative(oldPath).existsSync()) {
+      previousSource =
+          parseFrontmatter(await _fileForRelative(oldPath).readAsString()).body;
+    }
+    final blockMap = _blockReconciler.reconcile(
+      deleted ? '' : note.content,
+      version: note.version + (deleted ? 1 : 0),
+      previous: previousMap,
+      previousSource: previousSource,
+    );
+    final event = <String, Object?>{
+      'id': note.id,
+      if (actor != null) 'actor': actor,
+      'version': note.version + (deleted ? 1 : 0),
+      'deleted': deleted,
+      'recorded_at': _clock.nowUtc().toIso8601String(),
+      'markdown': _serializeNote(note),
+      'block_map': blockMap.toJson(),
+      'path': path,
+      'previous_path': oldPath,
+      if (oldPath != null &&
+          !File('${history.path}/${note.version - (deleted ? 0 : 1)}.json')
+              .existsSync())
+        'baseline': await _fileForRelative(oldPath).readAsString(),
+    };
+    final pending = File('${history.path}/pending.json');
+    if (pending.existsSync()) {
+      throw StateError('Incomplete history commit requires recovery');
+    }
+    await _historyDir.create(recursive: true);
+    await _atomicText(
+      _historyIndexTicket(note.id, note.version + (deleted ? 1 : 0)),
+      '',
+    );
+    await _atomicText(pending, jsonEncode(event));
+    try {
+      await beforeHistoryApply?.call();
+      await _applyHistory(history, event, injectFailure: true);
+      await pending.delete();
+    } on Object {
+      _historyFaulted = true;
+      rethrow;
+    }
+  }
+
+  Future<void> _applyHistory(
+    Directory history,
+    Map<String, dynamic> event, {
+    bool injectFailure = false,
+  }) async {
+    final path = event['path'] as String?;
+    final oldPath = event['previous_path'] as String?;
+    if (path != null) {
+      await _atomicText(_fileForRelative(path), event['markdown'] as String);
+    }
+    if (oldPath != null && oldPath != path) {
+      final old = _fileForRelative(oldPath);
+      if (old.existsSync()) await old.delete();
+    }
+    if (injectFailure) await afterHistoryPublish?.call();
+    final baseline = event['baseline'] as String?;
+    if (baseline != null) {
+      final metadata = parseFrontmatter(baseline).metadata;
+      final previous = File('${history.path}/${metadata['version']}.json');
+      if (!previous.existsSync()) {
+        await _atomicText(
+          previous,
+          jsonEncode({
+            'id': metadata['id'],
+            'version': metadata['version'],
+            'deleted': false,
+            'markdown': baseline,
+            'recorded_at': event['recorded_at'],
+          }),
+        );
+      }
+    }
+    final snapshot = File('${history.path}/${event['version']}.json');
+    if (!snapshot.existsSync()) {
+      await _atomicText(
+        snapshot,
+        jsonEncode(Map.of(event)..remove('baseline')),
+      );
+    }
+  }
+
+  Future<void> _recoverHistory() async {
+    if (!_historyDir.existsSync()) return;
+    final entries = await _historyDir.list().toList();
+    for (final marker in entries.whereType<File>()) {
+      if (!marker.path.endsWith('.purge')) continue;
+      final target =
+          Directory(marker.path.substring(0, marker.path.length - 6));
+      if (target.existsSync()) await target.delete(recursive: true);
+      await marker.delete();
+    }
+    for (final directory in entries.whereType<Directory>()) {
+      if (!directory.existsSync()) continue;
+      final pending = File('${directory.path}/pending.json');
+      if (!pending.existsSync()) continue;
+      final event =
+          jsonDecode(await pending.readAsString()) as Map<String, dynamic>;
+      await _applyHistory(directory, event);
+      await pending.delete();
+    }
+  }
+
+  /// Retained accepted revisions, oldest first; empty when history disabled.
+  Future<List<Map<String, dynamic>>> revisions(String id) async {
+    await _ensureIndexed();
+    final directory = _noteHistory(id);
+    if (!directory.existsSync()) return [];
+    final result = <Map<String, dynamic>>[];
+    await for (final file in directory.list()) {
+      if (file is! File || !RegExp(r'/[0-9]+\.json$').hasMatch(file.path)) {
+        continue;
+      }
+      result.add(jsonDecode(await file.readAsString()) as Map<String, dynamic>);
+    }
+    result.sort((a, b) => (a['version'] as int).compareTo(b['version'] as int));
+    return result;
+  }
+
+  /// Reads accepted block metadata without creating or changing identities.
+  /// Omitting [version] verifies the current canonical body against its map.
+  /// Throws [BlockMapUnavailableException] for legacy or stale metadata.
+  Future<MarkdownBlockMap> readBlockMap(String id, {int? version}) =>
+      _withLock(id, () async {
+        await _ensureIndexed();
+        final current = version == null ? await read(id) : null;
+        final wanted = version ?? current!.version;
+        final snapshot = File('${_noteHistory(id).path}/$wanted.json');
+        if (!snapshot.existsSync()) {
+          if (current != null) throw const BlockMapUnavailableException();
+          throw NoteNotFoundException(id);
+        }
+        final accepted =
+            jsonDecode(await snapshot.readAsString()) as Map<String, dynamic>;
+        final raw = accepted['block_map'];
+        if (raw is! Map<String, dynamic>) {
+          throw const BlockMapUnavailableException();
+        }
+        final map = MarkdownBlockMap.fromJson(raw);
+        final body = current?.content ??
+            (accepted['deleted'] == true
+                ? ''
+                : parseFrontmatter(accepted['markdown'] as String).body);
+        if (map.version != wanted || !map.matches(body)) {
+          throw const BlockMapUnavailableException(stale: true);
+        }
+        return map;
+      });
+
+  /// Reads retained content; deletion tombstones cannot be restored directly.
+  Future<StoredNote> readRevision(String id, int version) async {
+    final history = await revisions(id);
+    final candidates = history.where(
+      (r) => r['version'] == version && r['deleted'] == false,
+    );
+    if (candidates.isEmpty) throw NoteNotFoundException(id);
+    return _toStoredNote(
+      parseFrontmatter(candidates.single['markdown'] as String),
+      id,
+    );
+  }
+
+  /// Restores retained content with a new version, including deleted notes.
+  /// [ifMatch] must match latest accepted version or deletion tombstone.
+  Future<StoredNote> restoreRevision(
+    String id,
+    int version, {
+    required int ifMatch,
+    String? actor,
+  }) =>
+      _withLock(id, () async {
+        final history = await revisions(id);
+        final candidates = history
+            .where((r) => r['version'] == version && r['deleted'] == false);
+        if (candidates.isEmpty) throw NoteNotFoundException(id);
+        final source = _toStoredNote(
+          parseFrontmatter(candidates.single['markdown'] as String),
+          id,
+        );
+        final current = _relPathById.containsKey(id) ? await read(id) : null;
+        final latest = current?.version ?? history.last['version'] as int;
+        if (latest != ifMatch) {
+          throw HistoryVersionConflictException(latest);
+        }
+        final next = StoredNote(
+          id: id,
+          title: source.title,
+          path: source.path,
+          version: latest + 1,
+          createdAt: source.createdAt,
+          updatedAt: _clock.nowUtc(),
+          content: source.content,
+          extra: source.extra,
+        );
+        final path = _relativeFilePath(path: next.path, title: next.title);
+        final key = collisionKey(path);
+        return _withPathLock(key, () async {
+          final owner = _idByKey[key];
+          if (owner != null && owner != id) {
+            throw PathConflictException(path: next.path, title: next.title);
+          }
+          await _commitHistory(next, path, actor: actor);
+          final oldPath = _relPathById[id];
+          if (oldPath != null) _idByKey.remove(collisionKey(oldPath));
+          _claim(id: id, key: key, relPath: path);
+          return next;
+        });
+      });
+
+  /// Permanently removes retained content; live history-enabled notes keep
+  /// recording future writes. No automatic retention expiry applies.
+  Future<void> purgeHistory(String id) => _withLock(id, () async {
+        await _ensureIndexed();
+        final directory = _noteHistory(id);
+        if (directory.existsSync()) {
+          final marker = File('${directory.path}.purge');
+          await _atomicText(marker, '');
+          try {
+            await directory.delete(recursive: true);
+            await marker.delete();
+          } on Object {
+            _historyFaulted = true;
+            rethrow;
+          }
+        }
+      });
 
   void _claim({
     required NoteId id,
@@ -742,6 +1100,12 @@ class Storage {
         : file.path;
   }
 
+  void _assertHistoryHealthy() {
+    if (_historyFaulted) {
+      throw StateError('Incomplete history commit requires restart');
+    }
+  }
+
   Future<T> _withLock<T>(NoteId id, Future<T> Function() body) =>
       _withKeyedLock(_locks, id, body);
 
@@ -764,6 +1128,7 @@ class Storage {
           // Predecessor's failure should not block this turn.
         }
       }
+      _assertHistoryHealthy();
       return await body();
     } finally {
       completer.complete();

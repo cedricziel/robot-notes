@@ -146,22 +146,20 @@ class _VaultSwitcherState extends State<VaultSwitcher> {
               Flexible(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 280),
-                  child: PopupMenuButton<String>(
+                  child: AdaptiveMenu(
                     tooltip: 'Switch vault',
                     enabled: _vaults.isNotEmpty,
-                    initialValue: current?['id'],
-                    onSelected: (id) {
-                      if (id != widget.selectedId) widget.onSelect(id);
-                    },
-                    itemBuilder: (_) => [
+                    entries: [
                       for (final vault in _vaults)
-                        CheckedPopupMenuItem(
-                          value: vault['id'],
-                          checked: vault['id'] == widget.selectedId,
-                          child: Text(
-                            vault['name']!,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                        AdaptiveMenuEntry(
+                          key: ValueKey('vault.select.${vault['id']}'),
+                          label: vault['name']!,
+                          selected: vault['id'] == widget.selectedId,
+                          onSelected: () {
+                            if (vault['id'] != widget.selectedId) {
+                              widget.onSelect(vault['id']!);
+                            }
+                          },
                         ),
                     ],
                     child: Padding(

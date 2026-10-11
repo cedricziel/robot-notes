@@ -10,6 +10,7 @@ import '../format/note_time.dart';
 import '../layout/breakpoints.dart';
 import '../widgets/adaptive.dart';
 import '../widgets/platform_motion.dart';
+import '../widgets/platform_feedback.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_strip.dart';
 import '../widgets/resizable_panel.dart';
@@ -169,10 +170,10 @@ class _NotesListScreenState extends State<NotesListScreen> {
       ),
     );
     if (confirmed != true || !mounted) return false;
-    final messenger = ScaffoldMessenger.of(context);
+    final feedback = PlatformFeedback.of(context);
     final deleted = await widget.controller.delete(id);
     if (!mounted || !deleted) return false;
-    messenger.showSnackBar(const SnackBar(content: Text('Note deleted')));
+    feedback.show('Note deleted');
     return true;
   }
 

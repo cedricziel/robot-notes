@@ -109,6 +109,26 @@ void main() {
         'state': 'original-client-state',
       };
 
+  for (final scope in [
+    'knowledge:review',
+    'knowledge:edit',
+    'knowledge:policy',
+    'knowledge:purge',
+  ]) {
+    test('OIDC login cannot self-grant $scope', () async {
+      final response = await route.onRequest(
+        _ctx(
+          queryParameters: validQuery()..['scope'] = 'notes:read $scope',
+          clientStore: clientStore,
+        ),
+      );
+      expect(response.statusCode, HttpStatus.found);
+      final redirect = Uri.parse(response.headers[HttpHeaders.locationHeader]!);
+      expect(redirect.queryParameters['error'], 'access_denied');
+      expect(redirect.origin, 'http://127.0.0.1:53421');
+    });
+  }
+
   test('redirects to the provider with the expected authorize parameters',
       () async {
     final pendingLoginStore = PendingLoginStore();

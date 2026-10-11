@@ -19,10 +19,13 @@ import 'package:server/src/otel/otel_tracer_holder.dart' as otel_tracer_holder;
 import 'package:server/src/root_middleware.dart';
 import 'package:server/src/vault_registry.dart';
 
+import '../../routes/credentials/[id].dart' as credential_route;
+import '../../routes/credentials/index.dart' as credentials_route;
 import '../../routes/databases/[id]/index.dart' as databases_id_route;
 import '../../routes/databases/[id]/query.dart' as databases_id_query_route;
 import '../../routes/databases/[id]/rows.dart' as databases_id_rows_route;
 import '../../routes/databases/index.dart' as databases_index_route;
+import '../../routes/evidence/[id].dart' as evidence_route;
 import '../../routes/healthz.dart' as healthz_route;
 import '../../routes/index.dart' as root_index;
 import '../../routes/invites/[token]/index.dart' as invites_token_route;
@@ -32,6 +35,8 @@ import '../../routes/invites/index.dart' as invites_index_route;
 import '../../routes/mcp/index.dart' as mcp_route;
 import '../../routes/notes/[id]/append.dart' as notes_append_route;
 import '../../routes/notes/[id]/backlinks.dart' as notes_backlinks_route;
+import '../../routes/notes/[id]/blocks.dart' as notes_blocks_route;
+import '../../routes/notes/[id]/history.dart' as notes_history_route;
 import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/links.dart' as notes_links_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
@@ -93,10 +98,15 @@ Future<HttpServer> startTestServer({
   );
 
   final root = Router()
+    ..all('/credentials', credentials_route.onRequest)
+    ..all('/credentials/<id>', credential_route.onRequest)
+    ..all('/evidence/<id>', evidence_route.onRequest)
     ..all('/notes/file-uploads/<token>', upload_route.onRequest)
     ..all('/notes/tree', notes_tree_route.onRequest)
     ..all('/notes/files', files_route.onRequest)
     ..all('/notes/files/<path|.*>', file_route.onRequest)
+    ..all('/notes/<id>/blocks', notes_blocks_route.onRequest)
+    ..all('/notes/<id>/history', notes_history_route.onRequest)
     ..all('/notes/<id>/append', notes_append_route.onRequest)
     ..all('/notes/<id>/backlinks', notes_backlinks_route.onRequest)
     ..all('/notes/<id>/links', notes_links_route.onRequest)

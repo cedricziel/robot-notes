@@ -115,69 +115,210 @@ class _AdaptiveDialogTextFieldState extends State<AdaptiveDialogTextField> {
   }
 }
 
-/// One entry of an [AdaptiveMoreMenu].
+/// An action or selected choice in an [AdaptiveMenu].
 class AdaptiveMenuEntry {
   const AdaptiveMenuEntry({
     required this.label,
     required this.onSelected,
     this.key,
     this.destructive = false,
+    this.selected,
   });
 
   final String label;
   final VoidCallback onSelected;
   final Key? key;
-
-  /// Painted red in an iOS action sheet; no effect on the Material menu.
   final bool destructive;
+  final bool? selected;
 }
 
-/// The trailing "more" button of an app bar, with the platform's own idea
-/// of a contextual menu behind it: an iOS action sheet sliding up from the
-/// bottom (with a Cancel button, as Apple's HIG expects for a short list of
-/// actions on a phone) and a Material popup menu everywhere else, macOS
-/// included — a sheet is a phone idiom; a Mac expects a menu near the
-/// pointer.
-class AdaptiveMoreMenu extends StatelessWidget {
-  const AdaptiveMoreMenu({required this.entries, this.tooltip, super.key});
+/// Opens an iOS action sheet, a desktop anchored menu, or a Material popup.
+class AdaptiveMenu extends StatefulWidget {
+  const AdaptiveMenu({
+    required this.entries,
+    this.tooltip,
+    this.child,
+    this.enabled = true,
+    super.key,
+  });
 
   final List<AdaptiveMenuEntry> entries;
   final String? tooltip;
+  final Widget? child;
+  final bool enabled;
+
+  @override
+  State<AdaptiveMenu> createState() => _AdaptiveMenuState();
+}
+
+class _AdaptiveMenuState extends State<AdaptiveMenu> {
+  final _focusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Widget _button(VoidCallback? onPressed) => widget.child == null
+      ? IconButton(
+          focusNode: _focusNode,
+          icon: Icon(adaptiveMoreIcon(context)),
+          onPressed: onPressed,
+        )
+      : TextButton(
+          focusNode: _focusNode,
+          onPressed: onPressed,
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            foregroundColor: Theme.of(context).colorScheme.onSurface,
+          ),
+          child: widget.child!,
+        );
 
   @override
   Widget build(BuildContext context) {
-    if (Theme.of(context).platform == TargetPlatform.iOS) {
-      return IconButton(
-        tooltip: tooltip,
-        icon: Icon(adaptiveMoreIcon(context)),
-        onPressed: () => _showActionSheet(context),
+    final platform = Theme.of(context).platform;
+    if (platform == TargetPlatform.iOS) {
+      return Tooltip(
+        message: widget.tooltip ?? '',
+        child: _button(widget.enabled ? _showActionSheet : null),
       );
     }
-    return PopupMenuButton<void>(
-      tooltip: tooltip,
-      icon: Icon(adaptiveMoreIcon(context)),
-      itemBuilder: (_) => [
-        for (final entry in entries)
-          PopupMenuItem<void>(
-            key: entry.key,
-            onTap: entry.onSelected,
-            child: Text(entry.label),
+    if (platform == TargetPlatform.macOS ||
+        platform == TargetPlatform.windows ||
+        platform == TargetPlatform.linux) {
+      final theme = Theme.of(context);
+      final apple = platform == TargetPlatform.macOS;
+      return MenuAnchor(
+        childFocusNode: _focusNode,
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(
+            theme.colorScheme.surfaceContainer,
           ),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(4),
+          padding: const WidgetStatePropertyAll(EdgeInsets.all(4)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(apple ? 6 : 4),
+              side: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+          ),
+        ),
+        menuChildren: [
+          for (final entry in widget.entries)
+            MenuItemButton(
+              key: entry.key,
+              onPressed: entry.onSelected,
+              leadingIcon: entry.selected == null
+                  ? null
+                  : SizedBox(
+                      width: 18,
+                      child: entry.selected!
+                          ? const Icon(Icons.check, size: 16)
+                          : null,
+                    ),
+              style: ButtonStyle(
+                minimumSize: const WidgetStatePropertyAll(Size(180, 30)),
+                padding: const WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 10),
+                ),
+                shape: WidgetStatePropertyAll(
+                  RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                backgroundColor: WidgetStateProperty.resolveWith(
+                  (states) =>
+                      states.contains(WidgetState.focused) ||
+                          states.contains(WidgetState.hovered)
+                      ? (apple
+                            ? CupertinoColors.activeBlue
+                            : theme.colorScheme.primaryContainer)
+                      : Colors.transparent,
+                ),
+                foregroundColor: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.focused) ||
+                      states.contains(WidgetState.hovered)) {
+                    return apple
+                        ? Colors.white
+                        : theme.colorScheme.onPrimaryContainer;
+                  }
+                  return entry.destructive
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.onSurface;
+                }),
+              ),
+              child: Semantics(
+                selected: entry.selected,
+                child: Text(entry.label),
+              ),
+            ),
+        ],
+        builder: (context, controller, child) => Tooltip(
+          message: widget.tooltip ?? '',
+          child: _button(
+            widget.enabled
+                ? () {
+                    controller.isOpen ? controller.close() : controller.open();
+                  }
+                : null,
+          ),
+        ),
+      );
+    }
+    return PopupMenuButton<AdaptiveMenuEntry>(
+      tooltip: widget.tooltip,
+      enabled: widget.enabled,
+      onSelected: (entry) => entry.onSelected(),
+      icon: widget.child == null ? Icon(adaptiveMoreIcon(context)) : null,
+      itemBuilder: (_) => [
+        for (final entry in widget.entries)
+          if (entry.selected != null)
+            CheckedPopupMenuItem<AdaptiveMenuEntry>(
+              key: entry.key,
+              value: entry,
+              checked: entry.selected!,
+              child: Text(entry.label),
+            )
+          else
+            PopupMenuItem<AdaptiveMenuEntry>(
+              key: entry.key,
+              value: entry,
+              child: Text(entry.label),
+            ),
       ],
+      child: widget.child,
     );
   }
 
-  Future<void> _showActionSheet(BuildContext context) async {
+  Future<void> _showActionSheet() async {
     final selected = await showCupertinoModalPopup<AdaptiveMenuEntry>(
       context: context,
       builder: (ctx) => CupertinoActionSheet(
+        title: widget.child == null ? null : Text(widget.tooltip ?? ''),
         actions: [
-          for (final entry in entries)
+          for (final entry in widget.entries)
             CupertinoActionSheetAction(
               key: entry.key,
               isDestructiveAction: entry.destructive,
               onPressed: () => Navigator.of(ctx).pop(entry),
-              child: Text(entry.label),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (entry.selected == true) ...[
+                    const Icon(CupertinoIcons.check_mark, size: 18),
+                    const SizedBox(width: 8),
+                  ],
+                  Flexible(
+                    child: Semantics(
+                      selected: entry.selected,
+                      child: Text(entry.label),
+                    ),
+                  ),
+                ],
+              ),
             ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -187,8 +328,18 @@ class AdaptiveMoreMenu extends StatelessWidget {
         ),
       ),
     );
-    // Run the handler only once the sheet has gone: a handler that opens a
-    // dialog of its own (Delete, Move) must not stack it on the sheet.
-    selected?.onSelected();
+    if (mounted) selected?.onSelected();
   }
+}
+
+/// The note toolbar's platform menu with an adaptive More icon.
+class AdaptiveMoreMenu extends StatelessWidget {
+  const AdaptiveMoreMenu({required this.entries, this.tooltip, super.key});
+
+  final List<AdaptiveMenuEntry> entries;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) =>
+      AdaptiveMenu(entries: entries, tooltip: tooltip);
 }

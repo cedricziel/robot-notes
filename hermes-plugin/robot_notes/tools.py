@@ -32,6 +32,11 @@ def _p(description: str, type_: str = "string", **extra) -> dict:
 
 TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
     _schema(
+        "robotnotes_health",
+        "Inspect the latest automatic recall and write outcomes without contacting the server. "
+        "Contains no note content.",
+    ),
+    _schema(
         "robotnotes_search",
         "Search the shared robot-notes workspace. This is keyword full-text search, not "
         "a wildcard — there is no query that means \"every note\" (a query like '*' is "
@@ -62,6 +67,15 @@ TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
         "robotnotes_note",
         "Fetch a note from the shared robot-notes workspace by id.",
         {"id": _p("The note's id, as returned by search, list, or remember.")},
+        ("id",),
+    ),
+    _schema(
+        "robotnotes_evidence",
+        "Explicitly inspect a retained JSON evidence snapshot by its SHA-256 digest. "
+        "Returns capture labels, messages, lineage, and retention metadata. "
+        "Archived observations are separate from accepted notes and normal recall.",
+        {"id": _p("The exact snapshot digest from an acknowledged checkpoint or evidence reference.",
+                  pattern="^[a-f0-9]{64}$")},
         ("id",),
     ),
     _schema(
@@ -103,9 +117,11 @@ TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
 # resolves this with getattr(self, ...) rather than holding bound methods in a list
 # built in __init__, so this table can be a flat, inspectable piece of data.
 TOOL_HANDLERS: Dict[str, str] = {
+    "robotnotes_health": "_tool_health",
     "robotnotes_search": "_tool_search",
     "robotnotes_list": "_tool_list",
     "robotnotes_note": "_tool_note",
+    "robotnotes_evidence": "_tool_evidence",
     "robotnotes_remember": "_tool_remember",
     "robotnotes_append": "_tool_append",
     "robotnotes_forget": "_tool_forget",

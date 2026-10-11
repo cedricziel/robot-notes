@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/clock.dart';
-import 'package:server/src/config.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/onboarding_bundle.dart';
 
@@ -14,8 +14,8 @@ import 'package:server/src/onboarding_bundle.dart';
 /// Missing or expired invites return 404. Any other method is 405.
 ///
 /// This endpoint is exempt from bearer auth (the token in the URL IS
-/// the credential). It is the sole channel through which the configured
-/// API key is delivered to a freshly onboarded agent.
+/// the credential). It is the channel through which a new
+/// scoped agent credential is delivered to a freshly onboarded agent.
 Future<Response> onRequest(RequestContext context, String token) async {
   if (context.request.method != HttpMethod.get) {
     return Response.json(
@@ -56,7 +56,9 @@ Future<Response> onRequest(RequestContext context, String token) async {
     );
   }
 
-  final config = context.read<Config>();
+  final credential = await context
+      .read<AgentCredentialStore>()
+      .issue(actor: onboardingActor(invite.label));
   final scheme =
       context.request.uri.scheme.isEmpty ? 'http' : context.request.uri.scheme;
   final host = context.request.headers['host'] ?? 'localhost';
@@ -64,7 +66,7 @@ Future<Response> onRequest(RequestContext context, String token) async {
 
   final body = buildOnboardingBundle(
     invite: invite,
-    apiKey: config.apiKey,
+    apiKey: credential.secret,
     baseUrl: baseUrl,
   );
 

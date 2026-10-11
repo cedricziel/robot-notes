@@ -27,7 +27,7 @@ default vault. Vault selection does not itself restrict a static API key's acces
 - Session transcripts are filed one note per session under
   `conversations/<actor>/<session id>` and updated (not duplicated) for a
   resumed session.
-- `Hermes/Memory` and `Hermes/User` mirror this agent's built-in
+- By default, `Hermes/Memory` and `Hermes/User` mirror this agent's built-in
   `MEMORY.md`/`USER.md` one-directionally. Once mirrored, the workspace copy
   is the shared, authoritative one — other actors may read or extend it.
 
@@ -66,6 +66,14 @@ default vault. Vault selection does not itself restrict a static API key's acces
 | `robotnotes_remember`  | Create a new note when search turns up nothing to extend.                       |
 | `robotnotes_append`    | Append content to an existing note's end; retries on write races.               |
 | `robotnotes_forget`    | Permanently delete a note by id. No undo.                                       |
+
+## Memory health
+
+Use `robotnotes_health` to distinguish an empty automatic recall from a failed
+search and to inspect the latest mirror and transcript outcomes. This is a local
+status snapshot, not a connectivity probe. `auth` requires checking credentials
+and permissions; `network_error` requires checking connectivity; `circuit_open`
+requires waiting for the client cooldown. Failed automatic writes are not queued.
 
 ## Errors
 
@@ -120,3 +128,13 @@ is an attribution label, not proof of note ownership.
    MCP calls. Follow task authorization and the configured MCP grant/tool
    visibility. `native_tools: false` only hides native tools; lifecycle hooks
    can still write in primary contexts.
+
+
+## Identity-organized memory
+
+When `memory_scope` is `identity`, the system prompt names the configured user and
+agent mirror destinations. Automatic recall includes only those folders and the
+optional shared folder. Explicit note tools still use server credential access.
+Folder names and actor labels do not prove ownership or make knowledge trusted.
+Changing modes never migrates existing notes; review and copy selected entries
+explicitly before switching.

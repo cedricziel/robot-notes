@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:logging/logging.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/invite_store.dart';
@@ -42,6 +43,12 @@ RequestContext _ctx({
   when(() => req.headers).thenReturn(lower);
   when(() => ctx.request).thenReturn(req);
   when(() => ctx.read<InviteStore>()).thenReturn(store);
+  when(() => ctx.read<AgentCredentialStore>()).thenReturn(
+    AgentCredentialStore(
+      dir: Directory('${store.inviteDir.parent.path}/credentials'),
+      clock: clock,
+    ),
+  );
   when(() => ctx.read<Clock>()).thenReturn(clock);
   when(() => ctx.read<Config>()).thenReturn(config);
   return ctx;
@@ -95,7 +102,8 @@ void main() {
         'text/plain; charset=utf-8',
       );
       final body = await res.body();
-      expect(body, contains('rn_test_key'));
+      expect(body, isNot(contains('rn_test_key')));
+      expect(body, contains('rn_agent_'));
       expect(body, contains('orbit-bot'));
       expect(body, contains('http://localhost:8080'));
       expect(body, contains(invite.token));

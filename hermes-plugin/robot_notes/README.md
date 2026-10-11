@@ -141,7 +141,7 @@ Set `$HERMES_HOME/robot_notes.json` to:
 ```
 
 Keep `ROBOT_NOTES_API_KEY` configured for the provider's REST lifecycle hooks.
-`native_tools: false` hides its six native schemas, rejects direct native tool
+`native_tools: false` hides all eight native schemas, rejects direct native tool
 calls with `tools_disabled`, and removes native tool instructions from its
 prompt. It does not disable recall, transcripts, or mirroring, and it does not
 connect MCP automatically. Setup preserves this setting and your actor.
@@ -214,12 +214,14 @@ to any service other than the `base_url` configured above.
   written back.
 - **Session transcripts** — `on_session_end` sends the session's messages as
   the content of one summary note per session, under
-  `conversations/<actor>/<session id>`. This currently includes the raw
-  role/content of every message in the session, so treat the robot-notes
-  workspace as within the conversation's trust boundary.
+  `conversations/<actor>/<session id>`. The readable transcript includes
+  filtered user and assistant text, with a bounded body; tool results and
+  non-text content are excluded. Treat the workspace as within the conversation's
+  trust boundary.
 - **Built-in memory mirror** — content written to Hermes' own
-  `MEMORY.md`/`USER.md` is mirrored one-directionally into
-  `Hermes/Memory.md`/`Hermes/User.md` notes (see Write behavior below);
+  `MEMORY.md`/`USER.md` is mirrored one-directionally by default into
+  the configured memory notes, defaulting to `Hermes/Memory` and
+  `Hermes/User` (see Write behavior below);
   whatever text lands in those files is sent to the server.
 - **Explicit tool writes** — `robotnotes_remember` sends the model-authored
   `title`/`content` as a new note; `robotnotes_forget` sends a note id to
@@ -243,6 +245,8 @@ model; the table below is a quick reference.
 | --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------- |
 | `robotnotes_search`   | `query`, `path?`, `limit?`           | Keyword search the shared workspace — not a wildcard; no query means "everything"    |
 | `robotnotes_list`     | `path?`, `after?`, `limit?`          | Paginated metadata for every note, optionally under a `path` — use this to enumerate |
+| `robotnotes_health`   | none | Inspect local automatic-operation outcomes without a server request |
+| `robotnotes_evidence` | `id` | Explicitly inspect a retained JSON snapshot by its SHA-256 digest, including capture and retention metadata |
 | `robotnotes_note`     | `id`                                 | Fetch a note by id                                                                    |
 | `robotnotes_remember` | `title`, `content`, `path?`          | Store a durable fact as a *new* note; a duplicate title under `path` returns `path_conflict` — search then `robotnotes_append` instead |
 | `robotnotes_append`   | `id`, `content`                      | Append content to an existing note on a new line, instead of duplicating it — via the server's `POST /notes/{id}/append` (falls back to a client-side read-modify-write only against a server old enough to 404/405 that route) |
@@ -291,8 +295,8 @@ conversation turn:
   `robotnotes_forget`) let the model manage notes directly — search before
   creating, and append rather than duplicate a note on the same topic.
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
-  are mirrored one-directionally into `Hermes/Memory.md` and
-  `Hermes/User.md` in the workspace.
+  are mirrored one-directionally by default into the configured memory notes, defaulting to `Hermes/Memory` and
+  `Hermes/User` in the workspace.
 
 `initialize()` also honors the host's `agent_context` kwarg
 (`"primary"` | `"subagent"` | `"cron"` | `"flush"`): every write path above
@@ -301,7 +305,7 @@ conversation turn:
 `"subagent"`, `"cron"`, or `"flush"`, so a spawned subagent or a scheduled
 cron/flush tick never files its own conversation note or mutates shared
 memory. Reads (`robotnotes_search`, `robotnotes_list`, `robotnotes_note`,
-and recall/prefetch) stay available in every context. A gated write tool
+`robotnotes_evidence`, `robotnotes_health`, and recall/prefetch) stay available in every context. A gated write tool
 call returns a `read_only` tool error instead of silently no-oping. A
 missing `agent_context` (older hosts) defaults to writes enabled.
 
@@ -365,3 +369,146 @@ export ROBOT_NOTES_E2E_BASE_URL=http://127.0.0.1:8080
 export ROBOT_NOTES_E2E_API_KEY=dev-secret-do-not-ship
 cd hermes-plugin && .venv/bin/python -m pytest -m e2e
 ```
+
+
+### Memory health
+
+Call `robotnotes_health()` to inspect automatic memory operations without a server
+request. Embedders can call `provider.memory_health()` even when native tools are
+disabled. The snapshot contains separate `recall`, `mirror`, and `transcript`
+outcomes for the current provider session. It reports the latest started attempt
+for each operation, not an audit history or proof that all earlier writes arrived.
+
+Each outcome has a `state`: `not_attempted`, `in_progress`, `failed`, or
+`succeeded` for writes. Successful recall uses `empty` or `matched`. A failed
+operation adds a `reason` from the client's error categories. For `auth`, check
+the configured credentials and permissions. For `network_error`, check server
+connectivity. For `circuit_open`, allow the client's cooldown before retrying.
+
+Health contains no prompts, note bodies, server error messages, or credentials.
+Trivial prompts and cached recall do not start a new search or change the last
+search outcome. The Hermes recall indicator still counts only injected notes;
+an empty search or outage does not fabricate a recalled note. Background searches
+cannot overwrite a newer attempt's status, and session switches reset health.
+
+`writes_enabled` reflects the provider's context write restrictions.
+`retry_queue: "disabled"` means durable automatic writes are disabled. When enabled,
+queue metadata reports pending operations, permanent failures, and expired writes.
+A successful latest operation alone does not establish delivery of earlier writes.
+Successful operation produces no additional log output.
+
+### Durable automatic writes
+
+Set `"durable_writes": true` in `robot_notes.json` to queue automatic memory mirrors and readable session notes on disk. The default is false. Explicit tool calls continue to return their immediate result or error.
+
+The queue lives under `$HERMES_HOME/robot_notes_outbox/<destination-hash>/queue.sqlite`. The destination includes server, vault, actor, credential hash, and available scope identity. Queue files have mode `0600`. Each queue retains at most 1000 operations and 2 MiB for 30 days. Capacity failures and expired writes appear in `robotnotes_health`.
+
+Delivery runs at initialization, when automatic writes arrive, and at turn start. Network failures and server errors remain pending. Authorization failures and conflicts block the queue until corrected. `flush_memory_writes(retry_blocked=True)` explicitly permits another attempt. A prepared note mutation retains its intended content and original version, so a lost acknowledgement cannot reapply a remove selector or duplicate a multiline addition. An intervening edit blocks replay for review.
+### Choose memory destinations
+
+Identity scope searches run concurrently with the host profile and secret context.
+Results retain configured-root order; a failed scope suppresses the whole recall block.
+
+The default `memory_scope: "shared"` keeps the existing `Hermes/Memory` and
+`Hermes/User` mirrors and searches the selected vault. To organize personal and
+agent memory separately, configure stable IDs explicitly in `robot_notes.json`:
+
+```json
+{
+  "base_url": "https://notes.example.com",
+  "memory_scope": "identity",
+  "user_id": "alice",
+  "agent_id": "research-assistant",
+  "shared_memory_path": "Team/Knowledge"
+}
+```
+
+Identity mode mirrors `USER.md` into `Hermes/users/alice/User` and `MEMORY.md`
+into `Hermes/agents/research-assistant/Memory`. Each ID must contain 1 to 64 lowercase ASCII
+letters, digits, underscores, or hyphens and start with a letter or digit. Keep
+these IDs stable across restarts. Uppercase IDs are rejected because the server
+checks path collisions without regard to case. They are explicit configuration, independent
+of the mutable `actor` attribution label and host-provided identity hints.
+
+Automatic recall searches the user and agent folders, including subfolders.
+The optional `shared_memory_path` adds one explicitly shared folder; omit it to
+search only the two identity folders. It must be a relative folder without empty
+or dot segments. Results interleave user, agent, and shared matches in that
+order, deduplicate note IDs, and retain at most five notes. If any scoped search
+fails, automatic recall returns no context rather than treating partial results
+as a successful search. The existing client timeout applies to each search.
+
+These folders organize retrieval; they do not establish ownership, change server
+permissions, or make a fact authoritative. Native search and list tools remain
+explicit, credential-authorized operations across the selected vault. Session
+transcripts retain their existing actor-scoped destination. Configure server
+access separately when users require enforced isolation.
+
+To migrate existing shared mirrors:
+
+1. Read `Hermes/Memory` and `Hermes/User` and decide which entries belong to the
+   configured user, agent, or shared knowledge folder.
+2. Copy reviewed entries into the chosen destination notes using ordinary note
+   tools. Keep the original notes until all clients have been reviewed.
+3. Enable identity mode with the same stable IDs and restart the provider.
+4. Verify automatic recall and mirror writes before retiring any shared notes.
+
+Changing the configuration does not move, copy, merge, or delete existing notes.
+A missing destination is created on the next applicable mirror write. Returning
+to shared mode uses the original shared destinations again. Setup preserves these
+manually configured fields.
+
+
+### Optional conversation evidence
+
+Set `"evidence_archive": true` in `robot_notes.json` to capture JSON evidence separately from accepted notes and normal search. `"evidence_retention_days": 30` controls archive and local queue retention. Valid values are integers from 1 through 3650. Capture is disabled by default and unavailable in cron, flush, and subagent contexts.
+
+Completed-turn callbacks durably queue supplied JSON messages without the readable transcript's truncation. Tool results, structured message parts, stable message IDs, and media URL references remain in those snapshots. The provider does not fetch remote media or accept Python objects that cannot be serialized as JSON. When the host omits `messages`, the archive explicitly marks the user and assistant text as `text_fallback`. Identical message lists in one session share a snapshot digest unless supplied IDs distinguish them. The archive records snapshots, not an exact event timeline.
+
+The pinned Hermes checkpoint API v2 hands the provider normalized user and assistant evidence. It omits tool rows, system messages, summaries, and assistant tool-call wrappers without prose. Supported surviving JSON content is retained. Before reporting checkpoint success, the provider requires remote acknowledgement of pending raw snapshots and the supplied normalized checkpoint. A failed write, malformed acknowledgement, expired pending snapshot, or failed local capture prevents success. Checkpoints do not reconstruct evidence that the host never supplied.
+
+Each vault stores evidence in `evidence.db` beside its disposable indexes, outside ordinary content. `PUT /evidence/{sha256}` accepts the exact JSON string in `payload`, `retention_days`, and optional `lineage`. `GET` returns it until expiry. The operator key can purge it with `DELETE`. Expiry or purge removes payload and lineage while retaining a digest tombstone that prevents delayed retries from restoring erased content. Expired server payloads are cleared at startup, during archive operations, and hourly.
+
+Pending evidence lives in `$HERMES_HOME/robot_notes_outbox/<destination-hash>/evidence/queue.sqlite`, with a limit of 1000 snapshots and 32 MiB. Permanent errors block replay. After correcting a credential or server error, `flush_evidence(retry_blocked=True)` permits another attempt. A `capture_failed` marker or an expired-operation count means raw evidence was lost. Required checkpoints remain blocked until an operator inspects and removes that evidence queue directory to acknowledge the loss. Keep the uncompressed host context before that reset. The local queue and remote archive have independent erasure operations.
+
+A successful pre-compression checkpoint returns its exact digest and `host_normalized` capture label after durable acknowledgement. With native tools enabled, `robotnotes_evidence(id)` retrieves that snapshot explicitly and verifies the returned payload digest. Inspection remains available in read-only contexts and when capture is disabled, subject to server credentials. Expired or purged snapshots return a read error. Evidence inspection never enters automatic recall; `native_tools: false` hides and disables this tool along with the rest of the native catalog.
+### Bound automatic recall evidence
+
+The following optional settings narrow recall to a task folder and expand evidence:
+
+```json
+{
+  "recall_path": "projects/launch",
+  "recall_max_bytes": 4096,
+  "recall_expand_chars": 1000
+}
+```
+
+`recall_path` intersects the configured identity roots within the selected vault.
+An unrelated folder produces no recall. It never grants access or broadens an
+identity root. Omit it to retain the configured roots.
+
+`recall_max_bytes` bounds the entire injected UTF-8 text, including note IDs,
+titles, paths, and update timestamps. Its range is 0–65536, with 0 preserving the
+existing snippet format. This is a byte budget, not a tokenizer-specific token
+count. A source whose metadata cannot fit is omitted.
+
+`recall_expand_chars` expands around a search snippet in current note content,
+up to 8192 characters per note. It defaults to 0 and requires a positive byte
+budget when enabled. Expansion adds up to five note reads, each using the recall
+timeout. Any failed read follows the existing recall failure behavior rather
+than injecting a partial result. Fetched notes provide current source timestamps.
+
+Run `python -m pytest tests/e2e/test_recall_evidence_e2e.py -s` from `hermes-plugin`
+against a disposable server configured through `ROBOT_NOTES_E2E_BASE_URL` and
+`ROBOT_NOTES_E2E_API_KEY`. The comparison prints latency and context bytes. In a
+local keyword-only run, the default context used 355 bytes and omitted the
+supporting tail sentence. Scoped expansion recovered that sentence, excluded the
+other folder, and used 941 bytes under a 1400-byte budget. Prefetch took 4.7 ms and
+4.8 ms respectively in that single run. These are observations, not thresholds.
+
+This test demonstrates keyword passage expansion. Whole-note semantic embeddings
+still truncate long input; no passage vector index or semantic-tail improvement
+is claimed. A model-backed comparison using a pinned model remains necessary
+before choosing a passage indexing design, tracked in [#378](https://github.com/cedricziel/robot-notes/issues/378). Proposal approval is outside this
+feature; it does not introduce a synthetic pending or accepted state.

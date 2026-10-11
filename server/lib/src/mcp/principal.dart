@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'package:server/src/oauth/metadata.dart';
 
 /// Scope granting `list_notes`, `get_note`, and `search_notes`.
 const String kScopeNotesRead = 'notes:read';
@@ -23,6 +24,7 @@ class McpPrincipal {
     required this.scopes,
     required this.isStaticKey,
     this.vaultIds = const {'default'},
+    this.principalId,
   });
 
   /// Convenience constructor for the static API key, which is the root
@@ -30,12 +32,25 @@ class McpPrincipal {
   /// scopes, regardless of any caller-supplied header.
   const McpPrincipal.staticKey(this.actor)
       : scopes = const {kScopeNotesRead, kScopeNotesWrite},
+        principalId = 'operator',
         isStaticKey = true,
         vaultIds = const {};
 
   /// Actor name attributed to this call's writes: the `X-Actor` header for
   /// the static key, or the actor name captured at OAuth consent.
   final String actor;
+
+  /// Trusted credential identity, independent of attribution.
+  final String? principalId;
+
+  /// Whether this credential permits a capability.
+  bool hasScope(String scope) => isStaticKey || scopes.contains(scope);
+
+  /// Applies explicit vault grants, including vault management.
+  bool canAccessVault(String id) =>
+      isStaticKey ||
+      scopes.contains(kScopeVaultsManage) ||
+      vaultIds.contains(id);
 
   /// Allowed vault IDs; static keys have access to all vaults.
   final Set<String> vaultIds;
