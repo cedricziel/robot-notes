@@ -50,6 +50,7 @@ jobs:
 
       - name: Resolve editor compatibility probe dependencies
         run: |
+          (cd packages/adaptive_super_editor && flutter pub get)
           for probe in common flutter_quill super_editor; do
             (cd "tool/editor_compatibility/$probe" && flutter pub get)
           done
