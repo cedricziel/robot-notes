@@ -67,7 +67,9 @@ extension RestKnowledgeIdentity on RestPrincipal {
 extension McpKnowledgeIdentity on McpPrincipal {
   /// Unknown identity fails closed even when a scope set was supplied.
   KnowledgePrincipal get knowledgePrincipal {
-    if (isStaticKey) return const KnowledgePrincipal.operator();
+    if (isStaticKey) {
+      return KnowledgePrincipal.operator(agentOrigin: agentOrigin);
+    }
     final id = principalId;
     if (id != null && id.startsWith('agent:')) {
       return KnowledgePrincipal.agent(
@@ -77,11 +79,12 @@ extension McpKnowledgeIdentity on McpPrincipal {
       );
     }
     if (id != null && id.startsWith('oauth:')) {
-      return KnowledgePrincipal.oauth(
+      final principal = KnowledgePrincipal.oauth(
         grantId: id.substring(6),
         scopes: scopes,
         vaultIds: vaultIds,
       );
+      return agentOrigin ? principal.withAgentOrigin() : principal;
     }
     return const KnowledgePrincipal.unidentified();
   }

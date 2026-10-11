@@ -45,11 +45,23 @@ enum KnowledgePrincipalKind {
 
 /// Trusted credential identity and permissions passed to content services.
 class KnowledgePrincipal {
-  const KnowledgePrincipal._(this.id, this.kind, this.scopes, this.vaultIds);
+  const KnowledgePrincipal._(
+    this.id,
+    this.kind,
+    this.scopes,
+    this.vaultIds, {
+    bool agentOrigin = false,
+  }) : _agentOrigin = agentOrigin;
 
   /// Full administration remains available to the configured operator.
-  const KnowledgePrincipal.operator()
-      : this._('operator', KnowledgePrincipalKind.operator, const {}, const {});
+  const KnowledgePrincipal.operator({bool agentOrigin = false})
+      : this._(
+          'operator',
+          KnowledgePrincipalKind.operator,
+          const {},
+          const {},
+          agentOrigin: agentOrigin,
+        );
 
   /// Missing credential identity fails closed, including ordinary notes.
   const KnowledgePrincipal.unidentified()
@@ -93,6 +105,16 @@ class KnowledgePrincipal {
   /// Explicit vault grants; vault management never implies knowledge authority.
   final Set<String> vaultIds;
 
+  final bool _agentOrigin;
+
+  /// A known agent or an explicitly restrictive transport origin.
+  bool get isAgentOrigin =>
+      kind == KnowledgePrincipalKind.agent || _agentOrigin;
+
+  /// Restricts a credential without changing its recorded identity or grants.
+  KnowledgePrincipal withAgentOrigin() =>
+      KnowledgePrincipal._(id, kind, scopes, vaultIds, agentOrigin: true);
+
   /// Whether the selected vault is permitted by the recorded grant.
   bool canAccessVault(String id) =>
       kind == KnowledgePrincipalKind.operator ||
@@ -105,8 +127,9 @@ class KnowledgePrincipal {
 
   /// Whether direct human actions can be authorized by an elevated scope.
   bool get canActAsHuman =>
-      kind == KnowledgePrincipalKind.operator ||
-      kind == KnowledgePrincipalKind.oauth;
+      !isAgentOrigin &&
+      (kind == KnowledgePrincipalKind.operator ||
+          kind == KnowledgePrincipalKind.oauth);
 }
 
 /// A resource path resolved from server storage, or a prospective folder.
@@ -576,7 +599,17 @@ class NoteAuthorizationService {
     if (principal.kind == KnowledgePrincipalKind.unidentified) return false;
     final policy = store.effective(target);
     if (!principal.canAccessVault(vaultId)) return false;
-    if (principal.kind == KnowledgePrincipalKind.operator) return true;
+    if (principal.kind == KnowledgePrincipalKind.operator) {
+      if (!principal.isAgentOrigin) return true;
+      return switch (action) {
+        KnowledgeAction.read || KnowledgeAction.propose => true,
+        KnowledgeAction.edit => !policy.curated,
+        KnowledgeAction.review ||
+        KnowledgeAction.policy ||
+        KnowledgeAction.purge =>
+          false,
+      };
+    }
     final readers = policy.access[KnowledgeAction.read];
     final canRead = principal.hasScope('notes:read') &&
         (readers == null ||
@@ -746,6 +779,7 @@ class NoteAuthorizationService {
       'policy_revision': store.revision,
       'policy_fingerprint': policy.fingerprint(target),
       'principal_kind': principal.kind.name,
+      'agent_origin': principal.isAgentOrigin,
       'allowed_actions': [
         for (final action in KnowledgeAction.values)
           if (allows(principal, action, target)) action.name,

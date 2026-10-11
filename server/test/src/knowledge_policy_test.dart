@@ -421,4 +421,31 @@ void main() {
     await reopened.replayAcceptedNoteDesignation(delta);
     expect(reopened.revision, revision);
   });
+  test('restrictive operator origin never supplies human authority', () async {
+    const principal = KnowledgePrincipal.operator(agentOrigin: true);
+    expect(principal.id, 'operator');
+    expect(principal.kind, KnowledgePrincipalKind.operator);
+    expect(principal.isAgentOrigin, true);
+    expect(principal.canActAsHuman, false);
+    final target = KnowledgeTarget.note('NOTE', 'ordinary');
+    expect(authorization.allows(principal, KnowledgeAction.edit, target), true);
+    await authorization.putNotePolicy(
+      operator,
+      target,
+      KnowledgePolicyPatch(curated: true),
+    );
+    expect(
+      authorization.allows(principal, KnowledgeAction.propose, target),
+      true,
+    );
+    for (final action in [
+      KnowledgeAction.edit,
+      KnowledgeAction.review,
+      KnowledgeAction.policy,
+      KnowledgeAction.purge,
+    ]) {
+      expect(authorization.allows(principal, action, target), false);
+    }
+    expect(agent().isAgentOrigin, true);
+  });
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:server/src/knowledge_identity.dart';
 import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/mcp/principal.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -44,5 +45,12 @@ void main() {
     });
     trigger.complete();
     expect(await deferred, KnowledgePrincipalKind.unidentified);
+  });
+  test('MCP restrictive origin preserves credential identity', () {
+    const recorded = McpPrincipal.staticKey('human', agentOrigin: true);
+    final principal = recorded.knowledgePrincipal;
+    expect(principal.id, 'operator');
+    expect(principal.isAgentOrigin, true);
+    expect(principal.canActAsHuman, false);
   });
 }
