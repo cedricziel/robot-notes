@@ -1,5 +1,6 @@
 import 'package:adaptive_super_editor/src/markdown_document.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:markdown/markdown.dart' as md;
 import 'package:super_editor/super_editor.dart';
 
 void main() {
@@ -107,6 +108,44 @@ void main() {
       '**bold** *italic* `code` [link](https://example.com)!\n\n# untouched  ',
     );
   });
+
+  test('indented fences retain exact CRLF source and rendered code after edits', () {
+    const source =
+        '   ~~~python\r\n   value\r\n x\r\n     nested\r\n\tTabbed\r\n  \tMixed\r\n   ~~~\r\n';
+    final draft = MarkdownEditingDocument.fromMarkdown(source);
+    final node = draft.document.first as TextNode;
+    final editor = _editor(draft);
+
+    expect(draft.toMarkdown(), source);
+    expect(node.text.toPlainText(), 'value\nx\n  nested\n\tTabbed\n\tMixed');
+
+    _append(editor, node.id, node.text.length, '!');
+
+    expect(
+      md.markdownToHtml(draft.toMarkdown()),
+      '<pre><code class="language-python">value\nx\n  nested\n\tTabbed\n\tMixed!\n</code></pre>\n',
+    );
+    editor.undo();
+    expect(draft.toMarkdown(), source);
+  });
+
+  test(
+    'editing indented backtick fences preserves intentional code spaces',
+    () {
+      final draft = MarkdownEditingDocument.fromMarkdown(
+        '  ```dart\n  first\n    second\n  ```',
+      );
+      final node = draft.document.first as TextNode;
+      final editor = _editor(draft);
+
+      _append(editor, node.id, node.text.length, '\n  third');
+
+      expect(
+        md.markdownToHtml(draft.toMarkdown()),
+        '<pre><code class="language-dart">first\n  second\n  third\n</code></pre>\n',
+      );
+    },
+  );
 
   test('edited code chooses a fence longer than embedded closing fences', () {
     final draft = MarkdownEditingDocument.fromMarkdown('```dart\nvalue\n```\n');

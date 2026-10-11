@@ -297,9 +297,10 @@ class _MarkdownParser {
         }
         if (index == lines.length) return _allOpaque();
         final language = fence.group(2)!.trim();
+        final contentIndent = RegExp('^ {0,${text.indexOf(marker)}}');
         final content = lines
             .sublist(start + 1, index)
-            .map((line) => line.text)
+            .map((line) => line.text.replaceFirst(contentIndent, ''))
             .join('\n');
         index++;
         _add(
