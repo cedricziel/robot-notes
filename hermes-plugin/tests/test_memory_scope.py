@@ -26,7 +26,7 @@ def test_shared_defaults_preserve_existing_notes_and_recall():
     assert config.recall_paths == (None,)
 
 
-@pytest.mark.parametrize("identity", ["", "../alice", "a/b", "a\\b", ".", "alice bob", "a\n"])
+@pytest.mark.parametrize("identity", ["", "../alice", "a/b", "a\\b", ".", "alice bob", "a\n", "Alice", "ALICE"])
 def test_identity_requires_unambiguous_path_safe_identifiers(identity):
     with pytest.raises(ValueError):
         RobotNotesConfig.create(memory_scope="identity", user_id=identity, agent_id="assistant")

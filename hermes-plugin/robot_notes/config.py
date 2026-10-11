@@ -84,8 +84,8 @@ class RobotNotesConfig:
             raise ValueError("memory_scope must be shared or identity")
         if memory_scope == "identity":
             for name, identity in (("user_id", user_id), ("agent_id", agent_id)):
-                if not isinstance(identity, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", identity):
-                    raise ValueError(f"{name} must contain 1-64 ASCII letters, digits, underscores or hyphens, starting with a letter or digit")
+                if not isinstance(identity, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", identity):
+                    raise ValueError(f"{name} must contain 1-64 lowercase ASCII letters, digits, underscores or hyphens, starting with a letter or digit")
         if not isinstance(shared_memory_path, str) or (
             shared_memory_path and (
                 any(part in ("", ".", "..") for part in shared_memory_path.split("/"))

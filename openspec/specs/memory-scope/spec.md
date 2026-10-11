@@ -6,7 +6,7 @@ Organize Hermes memory mirrors and automatic recall with explicit identity desti
 ## Requirements
 
 ### Requirement: Preserve shared defaults and opt into identity destinations
-The provider SHALL default to shared mirrors at `Hermes/Memory` and `Hermes/User`, with existing vault-wide recall. Identity mode SHALL require explicit stable, path-safe `user_id` and `agent_id` values. It SHALL mirror user memory under `Hermes/users/<user_id>/User` and agent memory under `Hermes/agents/<agent_id>/Memory`. Actor attribution and host identity hints SHALL NOT determine these IDs.
+The provider SHALL default to shared mirrors at `Hermes/Memory` and `Hermes/User`, with existing vault-wide recall. Identity mode SHALL require explicit stable, lowercase ASCII path-safe `user_id` and `agent_id` values. It SHALL mirror user memory under `Hermes/users/<user_id>/User` and agent memory under `Hermes/agents/<agent_id>/Memory`. Actor attribution and host identity hints SHALL NOT determine these IDs.
 
 #### Scenario: Two identities use one actor label
 - **WHEN** two identity-mode providers use distinct configured IDs and the same actor label

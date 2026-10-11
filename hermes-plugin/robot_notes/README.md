@@ -417,9 +417,10 @@ agent memory separately, configure stable IDs explicitly in `robot_notes.json`:
 ```
 
 Identity mode mirrors `USER.md` into `Hermes/users/alice/User` and `MEMORY.md`
-into `Hermes/agents/research-assistant/Memory`. Each ID must contain 1 to 64 ASCII
+into `Hermes/agents/research-assistant/Memory`. Each ID must contain 1 to 64 lowercase ASCII
 letters, digits, underscores, or hyphens and start with a letter or digit. Keep
-these IDs stable across restarts. They are explicit configuration, independent
+these IDs stable across restarts. Uppercase IDs are rejected because the server
+checks path collisions without regard to case. They are explicit configuration, independent
 of the mutable `actor` attribution label and host-provided identity hints.
 
 Automatic recall searches the user and agent folders, including subfolders.
