@@ -49,6 +49,33 @@ class FakeConnection implements WsConnection {
 
 void main() {
   group('RobotNotesWsClient', () {
+    test('renews rejected credentials before reconnecting', () async {
+      var config = _config;
+      final first = FakeConnection();
+      final second = FakeConnection();
+      var attempts = 0;
+      final client = RobotNotesWsClient(
+        config: config,
+        currentConfig: () => config,
+        onAuthRejected: (token) async {
+          expect(token, 'test-key');
+          config = const AppConfig(
+            baseUrl: 'https://notes.example',
+            apiKey: 'renewed',
+            actor: 'cedric',
+          );
+        },
+        connect: (_) async => attempts++ == 0 ? first : second,
+        delay: (_) async {},
+      );
+      await client.start();
+      await Future<void>.delayed(Duration.zero);
+      first.closeRemote();
+      await Future<void>.delayed(Duration.zero);
+      expect(jsonDecode(second.sent.first)['key'], 'renewed');
+      await client.dispose();
+    });
+
     test('sends auth before any subscribe frame on connect', () async {
       // Auth-then-subscribe is a structural guarantee (`_runLoop` sends auth
       // before it ever touches `_subscriptions`), so we assert order instead
