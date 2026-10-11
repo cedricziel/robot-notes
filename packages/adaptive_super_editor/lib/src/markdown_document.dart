@@ -535,7 +535,7 @@ class _MarkdownParser {
 AttributedText? _parseInline(String source) {
   if (RegExp(r'!\[').hasMatch(source)) return null;
   final validation = source
-      .replaceAll(RegExp(r'\\[\\`*_{}\[\]()#+\-.!>~]'), 'x')
+      .replaceAll(RegExp(r'\\[\\`*_{}\[\]()#+\-.!<>~|=$]'), 'x')
       .replaceAll(_wikiToken, 'x');
   if (RegExp(r'\{\{|<|~~|\$|[ \t]{2,}\n|\\\n').hasMatch(validation))
     return null;
@@ -600,13 +600,14 @@ String _serializeNode(DocumentNode node) {
     throw StateError('Unsupported document node ${node.runtimeType}');
   if (node.getMetadataValue('blockType') == codeAttribution) {
     final text = node.text.toPlainText();
+    final language = node.getMetadataValue('language') as String? ?? '';
+    final marker = language.contains('`') ? '~' : '`';
     var fenceLength = 3;
-    for (final match in RegExp(r'`+').allMatches(text)) {
+    for (final match in RegExp('${RegExp.escape(marker)}+').allMatches(text)) {
       if (match.group(0)!.length >= fenceLength)
         fenceLength = match.group(0)!.length + 1;
     }
-    final fence = '`' * fenceLength;
-    final language = node.getMetadataValue('language') as String? ?? '';
+    final fence = marker * fenceLength;
     return '$fence$language\n$text\n$fence';
   }
   final text = _serializeInline(node.text);
@@ -721,7 +722,7 @@ String _serializeInline(AttributedText text) {
 String _escapeInline(String text) => text
     .replaceAll('&', '&amp;')
     .replaceAllMapped(
-      RegExp(r'[\\`*_\[\]<>#|~+=-]'),
+      RegExp(r'[\\`*_\[\]<>#|~+=${}-]'),
       (match) => '\\${match.group(0)}',
     );
 

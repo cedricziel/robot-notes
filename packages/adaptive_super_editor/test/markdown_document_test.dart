@@ -4,6 +4,36 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:super_editor/super_editor.dart';
 
 void main() {
+  test('typed punctuation stays editable after a Markdown round trip', () {
+    final draft = MarkdownEditingDocument.fromMarkdown('Start');
+    _append(
+      _editor(draft),
+      draft.document.first.id,
+      5,
+      r' a < b costs $5 {{x | =',
+    );
+    final reparsed = MarkdownEditingDocument.fromMarkdown(draft.toMarkdown());
+    expect(reparsed.document.first, isA<ParagraphNode>());
+    expect(
+      (reparsed.document.first as TextNode).text.toPlainText(),
+      r'Start a < b costs $5 {{x | =',
+    );
+  });
+
+  test('edited fence retains a language containing a backtick', () {
+    final draft = MarkdownEditingDocument.fromMarkdown('~~~a`b\ncode\n~~~');
+    _append(_editor(draft), draft.document.first.id, 4, '\n~~~~');
+    final serialized = draft.toMarkdown();
+    expect(serialized, '~~~~~a`b\ncode\n~~~~\n~~~~~');
+    final reparsed = MarkdownEditingDocument.fromMarkdown(serialized);
+    expect(reparsed.document.first, isA<TextNode>());
+    final node = reparsed.document.first as TextNode;
+    expect(node.getMetadataValue('blockType'), codeAttribution);
+    expect(node.getMetadataValue('language'), 'a`b');
+    expect(node.text.toPlainText(), 'code\n~~~~');
+    expect(md.markdownToHtml(serialized), contains('<pre><code'));
+  });
+
   test('all supported blocks retain exact CRLF source without edits', () {
     const source =
         '\r\n# H1  \r\n## H2\r\n### H3\r\n#### H4\r\n##### H5\r\n###### H6\r\n\r\nParagraph **bold** and _italic_.\r\n\r\n* bullet\r\n7) numbered\r\n- [X] done\r\n- [ ] todo\r\n\r\n> quoted\r\n> second line\r\n\r\n~~~dart\r\nprint(1);\r\n~~~\r\n\r\n***\r\n';
