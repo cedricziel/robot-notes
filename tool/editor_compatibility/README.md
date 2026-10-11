@@ -45,13 +45,19 @@ The theme probe showed that `package:flutter/material.dart` and `package:materia
 
 The semantics probe focuses a mounted editor and checks for an editable-text role in the semantics tree. The same test passes with the standalone `TextField`. `AdaptiveSuperEditor` now supplies document text, focus and selection state, text replacement, selection updates, and cursor movement by character or word through semantics actions. Package widget tests verify cross-block selection and editing, undo, preserved formatting and opaque source, and read-only behavior. A label-only wrapper would not provide these actions.
 
-The opaque-source tests demonstrate that each document model can retain a raw Markdown region while surrounding text changes. They do not implement Markdown parsing, custom block rendering, or a complete lossless serializer. Those remain later tasks.
+Real browser verification then exposed a gap that widget semantics actions did not cover: typing into a block with web accessibility enabled did not change the document. In Flutter 3.47.6, `SemanticsTextEditingStrategy.addEventHandlers` omits the `beforeinput` listener used by the default text-editing strategy. The delta model consequently reported selection updates without the inserted text.
+
+`AdaptiveSuperEditor` now configures web input with `enableDeltaModel: false`. Its `imeOverrides` decorator converts complete editing values into minimal insertion, deletion, replacement, or selection deltas for Super Editor's existing editing pipeline. Native platforms retain the default delta configuration, and the web keyboard brightness follows the adaptive theme. This uses public configuration hooks and does not modify the Flutter SDK or the editor package.
+
+All 46 `adaptive_super_editor` package tests pass, including complete-value typing with formatting and undo, composition, emoji replacement, and deletion. In the rebuilt web app against a throwaway local server, direct block typing with accessibility enabled appended text to the visible paragraph, marked the draft dirty, and updated the focused accessibility input value. This verifies that browser typing path; it does not establish native screen-reader behavior.
+
+The opaque-source tests demonstrate that each document model can retain a raw Markdown region while surrounding text changes. The production Markdown adapter has separate round-trip fixtures; these isolated opaque-source probes do not cover its complete parser or serializer.
 
 ## Limits and decision
 
-Super Editor 0.3.0-dev.52 passes the widget compatibility gate with the local `adaptive_super_editor` bridge and is the selected editing engine. The bridge projects app themes and adds functional editable-text semantics. The app can proceed with the Markdown adapter and note-screen integration.
+Super Editor 0.3.0-dev.52 passes the widget compatibility gate with the local `adaptive_super_editor` bridge and is the selected editing engine. The bridge projects app themes, adds functional editable-text semantics, and adapts complete web IME values to the document editing pipeline. The app uses it for the Markdown adapter and note-screen integration.
 
-Widget tests simulate keyboard, tap, and IME interactions and exercise semantics actions against the document editing pipeline. They do not prove physical software-keyboard behavior, native screen-reader operation on VoiceOver or TalkBack, browser accessibility, or Android, iOS, Linux, and Windows runtime behavior. No native app or production note was used. Verify those targets during platform integration.
+Widget tests simulate keyboard, tap, and IME interactions and exercise semantics actions against the document editing pipeline. Browser verification additionally covers direct block typing with web accessibility enabled. Physical software keyboards, VoiceOver and TalkBack on native devices, the remaining browser accessibility interactions, and Android, iOS, Linux, and Windows runtime behavior remain unverified. No native app or production note was used. Verify those targets during platform integration.
 
 Published upstream metadata and APIs provide additional context:
 

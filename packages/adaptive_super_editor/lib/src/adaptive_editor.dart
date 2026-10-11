@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
@@ -41,6 +42,7 @@ class AdaptiveSuperEditor extends StatefulWidget {
 
 class _AdaptiveSuperEditorState extends State<AdaptiveSuperEditor> {
   final _inputRole = Editor.createNodeId();
+  final _imeValues = _CompleteImeValues();
 
   @override
   void initState() {
@@ -267,6 +269,10 @@ class _AdaptiveSuperEditorState extends State<AdaptiveSuperEditor> {
         : SuperEditor(
             editor: widget.editor,
             inputRole: _inputRole,
+            imeOverrides: _imeValues,
+            imeConfiguration: kIsWeb
+                ? _WebImeConfiguration(keyboardBrightness: theme.brightness)
+                : null,
             focusNode: widget.focusNode,
             documentLayoutKey: widget.documentLayoutKey,
             componentBuilders: widget.componentBuilders,
@@ -367,4 +373,90 @@ class _DocumentSemanticsRender extends RenderSemanticsAnnotations {
     super.describeSemanticsConfiguration(config);
     if (_selection != null) config.textSelection = _selection;
   }
+}
+
+// Web semantics omits beforeinput, so its delta model loses inserted text.
+// Complete values also support engines that send a non-delta update unexpectedly.
+class _CompleteImeValues extends DeltaTextInputClientDecorator {
+  @override
+  void updateEditingValue(TextEditingValue value) {
+    final previous = currentTextEditingValue;
+    if (previous == null) return;
+    if (previous.text == value.text) {
+      updateEditingValueWithDeltas([
+        TextEditingDeltaNonTextUpdate(
+          oldText: previous.text,
+          selection: value.selection,
+          composing: value.composing,
+        ),
+      ]);
+      return;
+    }
+    var start = 0;
+    while (start < previous.text.length &&
+        start < value.text.length &&
+        previous.text.codeUnitAt(start) == value.text.codeUnitAt(start)) {
+      start++;
+    }
+    if (start > 0 &&
+        start < previous.text.length &&
+        _AdaptiveSuperEditorState._highSurrogate(
+          previous.text.codeUnitAt(start - 1),
+        )) {
+      start--;
+    }
+    var oldEnd = previous.text.length;
+    var newEnd = value.text.length;
+    while (oldEnd > start &&
+        newEnd > start &&
+        previous.text.codeUnitAt(oldEnd - 1) ==
+            value.text.codeUnitAt(newEnd - 1)) {
+      oldEnd--;
+      newEnd--;
+    }
+    if (oldEnd < previous.text.length &&
+        oldEnd > start &&
+        _AdaptiveSuperEditorState._highSurrogate(
+          previous.text.codeUnitAt(oldEnd - 1),
+        )) {
+      oldEnd++;
+      newEnd++;
+    }
+    final inserted = value.text.substring(start, newEnd);
+    updateEditingValueWithDeltas([
+      if (oldEnd == start)
+        TextEditingDeltaInsertion(
+          oldText: previous.text,
+          textInserted: inserted,
+          insertionOffset: start,
+          selection: value.selection,
+          composing: value.composing,
+        )
+      else if (inserted.isEmpty)
+        TextEditingDeltaDeletion(
+          oldText: previous.text,
+          deletedRange: TextRange(start: start, end: oldEnd),
+          selection: value.selection,
+          composing: value.composing,
+        )
+      else
+        TextEditingDeltaReplacement(
+          oldText: previous.text,
+          replacementText: inserted,
+          replacedRange: TextRange(start: start, end: oldEnd),
+          selection: value.selection,
+          composing: value.composing,
+        ),
+    ]);
+  }
+}
+
+class _WebImeConfiguration extends SuperEditorImeConfiguration {
+  const _WebImeConfiguration({super.keyboardBrightness});
+
+  @override
+  TextInputConfiguration toTextInputConfiguration({required int viewId}) =>
+      super
+          .toTextInputConfiguration(viewId: viewId)
+          .copyWith(enableDeltaModel: false);
 }

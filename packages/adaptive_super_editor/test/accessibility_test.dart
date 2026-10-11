@@ -9,6 +9,85 @@ import 'package:super_editor/super_editor.dart';
 import '../lib/src/adaptive_editor.dart';
 
 void main() {
+  testWidgets('complete IME values edit text with accessibility enabled', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final scene = await mount(tester, inputSource: TextInputSource.ime);
+    final previous = TextEditingValue.fromJSON(
+      tester.testTextInput.editingState!,
+    );
+    final next = previous.copyWith(
+      text: previous.text.replaceFirst('First', 'First typed'),
+      selection: TextSelection.collapsed(
+        offset: previous.text.indexOf('First') + 11,
+      ),
+    );
+    tester.testTextInput.updateEditingValue(next);
+    await tester.pump();
+    expect(
+      (scene.document.first as ParagraphNode).text.toPlainText(),
+      'First typed',
+    );
+    expect(
+      (scene.document.first as ParagraphNode).text.hasAttributionAt(
+        0,
+        attribution: boldAttribution,
+      ),
+      isTrue,
+    );
+    scene.editor.undo();
+    await tester.pump();
+    expect((scene.document.first as ParagraphNode).text.toPlainText(), 'First');
+    handle.dispose();
+  });
+  testWidgets(
+    'complete IME values preserve composition and emoji replacement',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      final scene = await mount(tester, inputSource: TextInputSource.ime);
+      var current = TextEditingValue.fromJSON(
+        tester.testTextInput.editingState!,
+      );
+      final start = current.text.indexOf('First');
+      current = current.copyWith(
+        text: current.text.replaceFirst('First', '😀First'),
+        selection: TextSelection.collapsed(offset: start + 2),
+        composing: TextRange(start: start, end: start + 2),
+      );
+      tester.testTextInput.updateEditingValue(current);
+      await tester.pump();
+      expect(
+        (scene.document.first as ParagraphNode).text.toPlainText(),
+        '😀First',
+      );
+      expect(scene.composer.composingRegion.value, isNotNull);
+      current = current.copyWith(
+        text: current.text.replaceFirst('😀', '😁'),
+        selection: TextSelection.collapsed(offset: start + 2),
+        composing: TextRange.empty,
+      );
+      tester.testTextInput.updateEditingValue(current);
+      await tester.pump();
+      expect(
+        (scene.document.first as ParagraphNode).text.toPlainText(),
+        '😁First',
+      );
+      expect(scene.composer.composingRegion.value, isNull);
+      current = current.copyWith(
+        text: current.text.replaceFirst('😁', ''),
+        selection: TextSelection.collapsed(offset: start),
+      );
+      tester.testTextInput.updateEditingValue(current);
+      await tester.pump();
+      expect(
+        (scene.document.first as ParagraphNode).text.toPlainText(),
+        'First',
+      );
+      handle.dispose();
+    },
+  );
+
   testWidgets('opening without a caret does not focus or mutate the document', (
     tester,
   ) async {
@@ -240,6 +319,7 @@ Future<
 mount(
   WidgetTester tester, {
   bool readOnly = false,
+  TextInputSource inputSource = TextInputSource.keyboard,
   bool initialSelection = true,
   bool focusEditor = true,
   bool extraTask = false,
@@ -292,7 +372,7 @@ mount(
           composer: composer,
           focusNode: focus,
           readOnly: readOnly,
-          inputSource: TextInputSource.keyboard,
+          inputSource: inputSource,
         ),
       ),
     ),
