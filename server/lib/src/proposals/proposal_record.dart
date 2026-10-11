@@ -256,6 +256,8 @@ class ProposalRecord {
     String? blockId,
     int? blockRevision,
     String? replyTo,
+    int? noteVersion,
+    String? anchorKind,
   }) {
     _check(expectedRecordRevision, allowTerminal: true);
     if (body.trim().isEmpty || (blockId == null) != (blockRevision == null)) {
@@ -280,6 +282,10 @@ class ProposalRecord {
         'thread_id': parent?['thread_id'] ?? commentId,
         'body': body,
         if (replyTo != null) 'reply_to': replyTo,
+        if (anchorKind != null || parent?['anchor_kind'] != null)
+          'anchor_kind': parent?['anchor_kind'] ?? anchorKind,
+        if (noteVersion != null || parent?['note_version'] != null)
+          'note_version': parent?['note_version'] ?? noteVersion,
         if (blockId != null || parent?['block_id'] != null)
           'block_id': blockId ?? parent!['block_id'],
         if (blockRevision != null || parent?['block_revision'] != null)
@@ -312,6 +318,7 @@ class ProposalRecord {
     required ProposalAuthor reviewer,
     required DateTime at,
     required int noteVersion,
+    bool automatic = false,
   }) {
     _check(expectedRecordRevision);
     if (!const {'pending', 'changes_requested'}.contains(state) ||
@@ -321,7 +328,22 @@ class ProposalRecord {
     return _next(
       at,
       'accepted',
-      [...events, _event('approve', reviewer, at, proposalRevision)],
+      [
+        ...events,
+        _event(
+          automatic ? 'auto_approve' : 'approve',
+          reviewer,
+          at,
+          proposalRevision,
+        ),
+        if (automatic)
+          {
+            'type': 'eligibility_verified',
+            'eligibility': 'source_attachment_only',
+            'proposal_revision': proposalRevision,
+            'created_at': at.toUtc().toIso8601String(),
+          },
+      ],
       acceptedVersion: noteVersion,
     );
   }

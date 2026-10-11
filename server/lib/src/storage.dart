@@ -937,6 +937,34 @@ class Storage {
         await _atomicText(file, jsonEncode(record.toStoredJson()));
       });
 
+  /// Loads immutable accepted-block comment events, independent of proposals.
+  Future<Map<String, dynamic>> readBlockComments(String id) =>
+      withProposalMutation(id, () async {
+        final file = File('${_noteHistory(id).path}/comments.json');
+        if (!file.existsSync()) {
+          return {'record_revision': 0, 'items': <Object?>[]};
+        }
+        return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      });
+
+  /// Appends accepted-block activity under the same canonical note lock.
+  Future<void> writeBlockComments(
+    String id,
+    Map<String, dynamic> next, {
+    required int expectedRecordRevision,
+  }) =>
+      withProposalMutation(id, () async {
+        final current = await readBlockComments(id);
+        if (current['record_revision'] != expectedRecordRevision ||
+            next['record_revision'] != expectedRecordRevision + 1) {
+          throw const ProposalRecordConflictException('comments_changed');
+        }
+        await _atomicText(
+          File('${_noteHistory(id).path}/comments.json'),
+          jsonEncode(next),
+        );
+      });
+
   /// Reads accepted source associations without any pending candidate data.
   Future<Map<String, dynamic>> readAcceptedProvenance(
     String id, {
@@ -1049,6 +1077,7 @@ class Storage {
     ProposalRecord? acceptedProposal,
     Map<String, dynamic>? acceptedProvenance,
     Map<String, dynamic>? acceptedPolicyDelta,
+    int? restoredVersion,
   }) async {
     final history = _noteHistory(note.id);
     final oldPath = _relPathById[note.id];
@@ -1105,7 +1134,36 @@ class Storage {
     }
     final provenance = acceptedProvenance ??
         await readAcceptedProvenance(note.id, version: previousVersion);
-    if (acceptedProvenance == null) {
+    if (restoredVersion != null) {
+      provenance.clear();
+      final restoredFile = File('${history.path}/$restoredVersion.json');
+      final restored = jsonDecode(await restoredFile.readAsString()) as Map;
+      final rawMap = restored['block_map'];
+      final links =
+          (restored['accepted_provenance'] as Map?)?.cast<String, dynamic>() ??
+              {};
+      if (rawMap is Map<String, dynamic>) {
+        final sourceMap = MarkdownBlockMap.fromJson(rawMap);
+        for (final block in sourceMap.blocks) {
+          final target = blockMap.blocks
+              .where(
+                (candidate) =>
+                    candidate.start == block.start &&
+                    candidate.end == block.end &&
+                    candidate.kind == block.kind &&
+                    candidate.hash == block.hash,
+              )
+              .firstOrNull;
+          final source = links[block.id];
+          if (target != null && source is Map<String, dynamic>) {
+            provenance[target.id] = {
+              ...source,
+              'block_revision': target.revision,
+            };
+          }
+        }
+      }
+    } else if (acceptedProvenance == null) {
       provenance.removeWhere((id, _) => changed.contains(id));
     }
     final event = <String, Object?>{
@@ -1347,7 +1405,12 @@ class Storage {
           if (owner != null && owner != id) {
             throw PathConflictException(path: next.path, title: next.title);
           }
-          await _commitHistory(next, path, actor: actor);
+          await _commitHistory(
+            next,
+            path,
+            actor: actor,
+            restoredVersion: version,
+          );
           final oldPath = _relPathById[id];
           if (oldPath != null) _idByKey.remove(collisionKey(oldPath));
           _claim(id: id, key: key, relPath: path);

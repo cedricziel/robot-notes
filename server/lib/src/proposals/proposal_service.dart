@@ -36,6 +36,7 @@ class ProposalService {
     required this.authorization,
     required this.onAccepted,
     this.archiveReader,
+    this.validateDraft,
     Clock clock = const Clock(),
     String Function()? idGenerator,
     ProposalBlockCompiler? compiler,
@@ -58,6 +59,9 @@ class ProposalService {
 
   /// Reads an explicitly authorized archive digest in this selected vault.
   final Future<Map<String, dynamic>?> Function(String digest)? archiveReader;
+
+  /// Validates draft properties against the current database registry.
+  final void Function(StoredNote note)? validateDraft;
   final Clock _clock;
   final String Function() _idGenerator;
   final ProposalBlockCompiler _compiler;
@@ -107,7 +111,7 @@ class ProposalService {
             candidate: candidate,
           );
           await storage.writeProposalRecord(record);
-          return record;
+          return _maybeAcceptAutomatically(record, _target(note), actor);
         }),
       );
 
@@ -222,6 +226,7 @@ class ProposalService {
         for (final entry in gaps.entries) '${entry.key}': entry.value.toJson(),
       },
       'introduced_identities': compiled.introducedIdentities,
+      'base_map': map.toJson(),
       'preview_map': compiled.blockMap.toJson(),
       'preview_content': compiled.content,
     };
@@ -270,19 +275,31 @@ class ProposalService {
             KnowledgeAction.propose,
             target,
           );
-          if (record.current.candidate['new_note'] == true) {
-            throw const FormatException(
-              'Use a new draft for a revised target',
-            );
-          }
-          _fields(input, const {
-            'proposal_revision',
-            'record_revision',
-            'base_version',
-            'operations',
-            'evidence_refs',
-          });
-          final candidate = await _candidate(await storage.read(id), input);
+          final draft = record.current.candidate['new_note'] == true;
+          _fields(
+            input,
+            draft
+                ? const {
+                    'proposal_revision',
+                    'record_revision',
+                    'path',
+                    'title',
+                    'content',
+                    'properties',
+                    'evidence_refs',
+                    'curated_intent',
+                  }
+                : const {
+                    'proposal_revision',
+                    'record_revision',
+                    'base_version',
+                    'operations',
+                    'evidence_refs',
+                  },
+          );
+          final candidate = draft
+              ? await _amendedDraft(record, input)
+              : await _candidate(await storage.read(id), input);
           final updated = record.amend(
             expectedRecordRevision: _revision(input, 'record_revision'),
             expectedProposalRevision: _revision(input, 'proposal_revision'),
@@ -294,9 +311,68 @@ class ProposalService {
             updated,
             expectedRecordRevision: record.recordRevision,
           );
-          return updated;
+          return draft
+              ? updated
+              : _maybeAcceptAutomatically(
+                  updated,
+                  await _recordTarget(updated),
+                  actor,
+                );
         }),
       );
+
+  Future<Map<String, dynamic>> _amendedDraft(
+    ProposalRecord record,
+    Map<String, dynamic> input,
+  ) async {
+    final previous = record.current.candidate;
+    final path =
+        sanitizedPathSegments(_string(input, 'path', empty: true)).join('/');
+    final target = KnowledgeTarget.folder(path);
+    authorization.require(
+      currentKnowledgePrincipal,
+      KnowledgeAction.propose,
+      target,
+    );
+    final title = _string(input, 'title');
+    sanitizedTitleForFilename(title);
+    final content = _string(input, 'content', empty: true);
+    final refs = _refs(input['evidence_refs']);
+    final resolution = await _resolve(refs);
+    final properties = _properties(input['properties']);
+    if (input['curated_intent'] != null && input['curated_intent'] is! bool) {
+      throw const FormatException('curated_intent must be boolean');
+    }
+    final map = MarkdownBlockReconciler().reconcile(
+      content,
+      version: 1,
+      previous: MarkdownBlockMap.fromJson(
+        previous['preview_map'] as Map<String, dynamic>,
+      ),
+      previousSource: (previous['draft'] as Map)['content'] as String,
+    );
+    final permissions =
+        authorization.permissions(currentKnowledgePrincipal, target);
+    return {
+      'new_note': true,
+      'path': path,
+      'title': title,
+      'draft': {
+        'path': path,
+        'title': title,
+        'content': content,
+        'properties': properties,
+        'curated_intent': input['curated_intent'] ?? true,
+      },
+      'base_version': 0,
+      'operations': <Object?>[],
+      'evidence_refs': [for (final ref in refs) ref.toJson()],
+      'evidence_resolution': resolution,
+      'preview_map': map.toJson(),
+      'policy_revision': permissions['policy_revision'],
+      'policy_fingerprint': permissions['policy_fingerprint'],
+    };
+  }
 
   Future<KnowledgeTarget> _recordTarget(ProposalRecord record) async {
     final candidate = record.current.candidate;
@@ -335,18 +411,7 @@ class ProposalService {
             KnowledgeAction.read,
             target,
           );
-          if (!_policyCurrent(record, target) &&
-              const {'pending', 'changes_requested'}.contains(record.state)) {
-            final previous = record;
-            record = record.invalidate(
-              reason: 'policy_changed',
-              at: _clock.nowUtc(),
-            );
-            await storage.writeProposalRecord(
-              record,
-              expectedRecordRevision: previous.recordRevision,
-            );
-          }
+          record = await _refresh(record, target);
           final detail = record.inspect()
             ..removeWhere(
               (key, value) =>
@@ -358,9 +423,88 @@ class ProposalService {
                   }.contains(key),
             )
             ..['allowed_actions'] = _actions(record, target);
+          final preview = MarkdownBlockMap.fromJson(
+            record.current.candidate['preview_map'] as Map<String, dynamic>,
+          );
+          MarkdownBlockMap? accepted;
+          try {
+            accepted = await storage.readBlockMap(id);
+          } on NoteNotFoundException {
+            // Deleted notes and unaccepted drafts retain their comment history.
+          } on BlockMapUnavailableException {
+            // External edits cannot manufacture a current comment anchor.
+          }
+          detail['comments'] = [
+            for (final comment in record.comments)
+              {
+                ...comment,
+                'anchor_status': comment['anchor_kind'] == 'proposed'
+                    ? (const {'needs_re_review', 'conflicted'}
+                                .contains(record.state) ||
+                            comment['proposal_revision'] !=
+                                record.proposalRevision
+                        ? 'stale'
+                        : _anchorStatus(comment, preview.blocks))
+                    : _anchorStatus(comment, accepted?.blocks ?? []),
+              },
+          ];
           return detail;
         }),
       );
+
+  Future<ProposalRecord> _refresh(
+    ProposalRecord record,
+    KnowledgeTarget target,
+  ) async {
+    if (!const {'pending', 'changes_requested'}.contains(record.state)) {
+      return record;
+    }
+    String? reason;
+    var conflicted = false;
+    if (!_policyCurrent(record, target)) {
+      reason = 'policy_changed';
+    } else if (record.current.candidate['new_note'] != true) {
+      try {
+        final note = await storage.read(record.noteId);
+        final map = await storage.readBlockMap(record.noteId);
+        final candidate = record.current.candidate;
+        _compiler.compile(
+          note.content,
+          map,
+          ProposalOperation.parseAll(candidate['operations']),
+          baseVersion: candidate['base_version'] as int,
+          gaps: {
+            for (final entry in (candidate['insertion_gaps'] as Map).entries)
+              int.parse(entry.key as String): ProposalInsertionGap.fromJson(
+                entry.value as Map<String, dynamic>,
+              ),
+          },
+          introducedIdentities: (candidate['introduced_identities'] as Map)
+              .cast<String, String>(),
+        );
+      } on ProposalBlockConflictException catch (error) {
+        reason = error.reason;
+        conflicted = true;
+      } on BlockMapUnavailableException {
+        reason = 'accepted_block_map_unavailable';
+        conflicted = true;
+      } on NoteNotFoundException {
+        reason = 'note_deleted';
+        conflicted = true;
+      }
+    }
+    if (reason == null) return record;
+    final next = record.invalidate(
+      reason: reason,
+      at: _clock.nowUtc(),
+      conflicted: conflicted,
+    );
+    await storage.writeProposalRecord(
+      next,
+      expectedRecordRevision: record.recordRevision,
+    );
+    return next;
+  }
 
   List<String> _actions(ProposalRecord record, KnowledgeTarget target) {
     final principal = currentKnowledgePrincipal;
@@ -391,12 +535,26 @@ class ProposalService {
   Future<List<Map<String, dynamic>>> list({
     String? noteId,
     bool includeTerminal = false,
+    String? state,
   }) =>
       authorization.store.withMutationLock(() async {
+        if (state != null &&
+            !const {
+              'pending',
+              'changes_requested',
+              'needs_re_review',
+              'conflicted',
+              'accepted',
+              'denied',
+            }.contains(state)) {
+          throw const FormatException('Invalid proposal state filter');
+        }
         final items = <Map<String, dynamic>>[];
         for (final record in await storage.proposalRecords(noteId: noteId)) {
-          if (!includeTerminal &&
-              const {'accepted', 'denied'}.contains(record.state)) {
+          if ((state != null && record.state != state) ||
+              (state == null &&
+                  !includeTerminal &&
+                  const {'accepted', 'denied'}.contains(record.state))) {
             continue;
           }
           final target = await _recordTarget(record);
@@ -447,13 +605,23 @@ class ProposalService {
             'block_revision',
             'reply_to',
           });
+          _commentInput(input);
           final blockId = input['block_id'] as String?;
           final blockRevision = input['block_revision'] as int?;
+          final baseRaw = record.current.candidate['base_map'];
+          final base = baseRaw is Map<String, dynamic>
+              ? MarkdownBlockMap.fromJson(baseRaw)
+              : null;
+          final acceptedAnchor = base?.blocks.any(
+                (block) =>
+                    block.id == blockId && block.revision == blockRevision,
+              ) ??
+              false;
           if (blockId != null) {
             final preview = MarkdownBlockMap.fromJson(
               record.current.candidate['preview_map'] as Map<String, dynamic>,
             );
-            if (!preview.blocks.any(
+            if (![...preview.blocks, ...?base?.blocks].any(
               (b) => b.id == blockId && b.revision == blockRevision,
             )) {
               throw const ProposalRecordConflictException(
@@ -470,12 +638,165 @@ class ProposalService {
             blockId: blockId,
             blockRevision: blockRevision,
             replyTo: input['reply_to'] as String?,
+            noteVersion: acceptedAnchor
+                ? record.current.candidate['base_version'] as int?
+                : (record.current.candidate['preview_map'] as Map)['version']
+                    as int,
+            anchorKind: acceptedAnchor ? 'accepted' : 'proposed',
           );
           await storage.writeProposalRecord(
             updated,
             expectedRecordRevision: record.recordRevision,
           );
           return updated;
+        }),
+      );
+
+  /// Reads accepted-block threads without wrapping them in a fake proposal.
+  Future<Map<String, dynamic>> acceptedComments(String id) =>
+      authorization.store.withMutationLock(
+        () => storage.withProposalMutation(id, () async {
+          MarkdownBlockMap? map;
+          KnowledgeTarget target;
+          try {
+            final note = await storage.read(id);
+            target = _target(note);
+            authorization.require(
+              currentKnowledgePrincipal,
+              KnowledgeAction.read,
+              target,
+            );
+            map = await storage.readBlockMap(id);
+          } on NoteNotFoundException {
+            final history = await storage.revisions(id);
+            if (history.isEmpty) throw NoteNotFoundException(id);
+            final metadata =
+                parseFrontmatter(history.last['markdown'] as String).metadata;
+            target =
+                KnowledgeTarget.note(id, metadata['path'] as String? ?? '');
+            authorization.require(
+              currentKnowledgePrincipal,
+              KnowledgeAction.read,
+              target,
+            );
+            map = await storage.readBlockMap(
+              id,
+              version: history.last['version'] as int,
+            );
+          }
+          final stored = await storage.readBlockComments(id);
+          return {
+            ...stored,
+            'items': [
+              for (final comment in stored['items'] as List)
+                {
+                  ...comment as Map<String, dynamic>,
+                  'anchor_status': _anchorStatus(comment, map.blocks),
+                },
+            ],
+          };
+        }),
+      );
+
+  /// Appends accepted-block comments with exact anchor and record CAS.
+  Future<Map<String, dynamic>> commentAccepted(
+    String id,
+    Map<String, dynamic> input, {
+    String? actor,
+  }) =>
+      authorization.store.withMutationLock(
+        () => storage.withProposalMutation(id, () async {
+          final note = await storage.read(id);
+          final target = _target(note);
+          final principal = currentKnowledgePrincipal;
+          authorization.require(principal, KnowledgeAction.read, target);
+          if (!authorization.allows(
+                principal,
+                KnowledgeAction.propose,
+                target,
+              ) &&
+              !authorization.allows(
+                principal,
+                KnowledgeAction.review,
+                target,
+              )) {
+            throw const KnowledgeAccessDeniedException(KnowledgeAction.propose);
+          }
+          _fields(input, const {
+            'record_revision',
+            'body',
+            'block_id',
+            'block_revision',
+            'reply_to',
+          });
+          final generation = input['record_revision'];
+          if (generation is! int || generation < 0) {
+            throw const FormatException('Invalid comments generation');
+          }
+          final stored = await storage.readBlockComments(id);
+          if (stored['record_revision'] != generation) {
+            throw const ProposalRecordConflictException('comments_changed');
+          }
+          final items = (stored['items'] as List).cast<Map<String, dynamic>>();
+          _commentInput(input);
+          final replyTo = input['reply_to'] as String?;
+          Map<String, dynamic>? parent;
+          if (replyTo != null) {
+            parent = items
+                .where((comment) => comment['comment_id'] == replyTo)
+                .firstOrNull;
+            if (parent == null) {
+              throw const FormatException('Comment thread not found');
+            }
+          }
+          final blockId = input['block_id'] ?? parent?['block_id'];
+          final revision = input['block_revision'] ?? parent?['block_revision'];
+          if (blockId is! String || revision is! int || revision < 1) {
+            throw const FormatException('Accepted block anchor required');
+          }
+          if (parent != null &&
+              (blockId != parent['block_id'] ||
+                  revision != parent['block_revision'])) {
+            throw const FormatException(
+              'Reply cannot change its thread anchor',
+            );
+          }
+          if (parent == null) {
+            final map = await storage.readBlockMap(id);
+            if (!map.blocks
+                .any((b) => b.id == blockId && b.revision == revision)) {
+              throw const ProposalRecordConflictException(
+                'comment_anchor_changed',
+              );
+            }
+          }
+          final author = _author(actor);
+          final commentId = _idGenerator();
+          final next = {
+            'record_revision': generation + 1,
+            'items': [
+              ...items,
+              {
+                'comment_id': commentId,
+                'thread_id': parent?['thread_id'] ?? commentId,
+                'author_label': author.label,
+                'author_kind': author.kind,
+                'author_principal_id': author.principalId,
+                'body': _string(input, 'body'),
+                'block_id': blockId,
+                'block_revision': revision,
+                'note_version': parent?['note_version'] ?? note.version,
+                if (replyTo != null) 'reply_to': replyTo,
+                'created_at': _clock.nowUtc().toIso8601String(),
+              }
+            ],
+          };
+          await storage.writeBlockComments(
+            id,
+            next,
+            expectedRecordRevision: generation,
+          );
+          return acceptedComments(id);
         }),
       );
 
@@ -501,6 +822,10 @@ class ProposalService {
             throw const ProposalRecordConflictException('record_changed');
           }
           final decision = _string(input, 'decision');
+          if (!const {'approve', 'deny', 'request_changes'}
+              .contains(decision)) {
+            throw const FormatException('Unsupported decision');
+          }
           if (decision != 'approve') {
             var updated = record.decide(
               expectedRecordRevision: revision,
@@ -523,191 +848,239 @@ class ProposalService {
             );
             return updated;
           }
-          if (!_policyCurrent(record, target)) {
-            final invalid = record.invalidate(
-              reason: 'policy_changed',
-              at: _clock.nowUtc(),
-            );
-            await storage.writeProposalRecord(
-              invalid,
-              expectedRecordRevision: record.recordRevision,
-            );
-            throw const ProposalRecordConflictException('policy_changed');
-          }
-          final candidate = record.current.candidate;
-          final newNote = candidate['new_note'] == true;
-          final refs = _refs(candidate['evidence_refs']);
-          late StoredNote note;
-          late MarkdownBlockMap map;
-          var deleted = false;
-          var provenance = <String, dynamic>{};
-          Map<String, dynamic>? policyDelta;
-          if (newNote) {
-            final draft = candidate['draft'] as Map<String, dynamic>;
-            final content = draft['content'] as String;
-            if (draft['curated_intent'] == true &&
-                !authorization.store.effective(target).curated) {
-              authorization.require(
-                currentKnowledgePrincipal,
-                KnowledgeAction.policy,
-                target,
-              );
-              policyDelta = {
-                'id': id,
-                'path': target.path,
-                'approval': 'human',
-                'operation_id': '$proposalId:${record.proposalRevision}',
-              };
-              if (storage.acceptedPolicyReplay == null) {
-                throw StateError(
-                  'Accepted designation replay is not configured',
-                );
-              }
-            }
-            await _resolve(refs);
-            map = MarkdownBlockMap.fromJson(
-              candidate['preview_map'] as Map<String, dynamic>,
-            );
-            final at = _clock.nowUtc();
-            note = StoredNote(
-              id: id,
-              title: draft['title'] as String,
-              path: target.path,
-              version: 1,
-              createdAt: at,
-              updatedAt: at,
-              content: content,
-              extra: _properties(draft['properties']),
-            );
-            for (final block in map.blocks) {
-              provenance[block.id] =
-                  _association(block.revision, refs, const []);
-            }
-          } else {
-            final current = await storage.read(id);
-            final currentMap = await storage.readBlockMap(id);
-            final operations =
-                ProposalOperation.parseAll(candidate['operations']);
-            await _resolve([
-              ...refs,
-              for (final op in operations) ...op.evidenceRefs,
-              for (final op in operations) ...op.supersedes,
-            ]);
-            CompiledBlockProposal compiled;
-            try {
-              compiled = _compiler.compile(
-                current.content,
-                currentMap,
-                operations,
-                baseVersion: candidate['base_version'] as int,
-                gaps: {
-                  for (final entry
-                      in (candidate['insertion_gaps'] as Map).entries)
-                    int.parse(entry.key as String):
-                        ProposalInsertionGap.fromJson(
-                      entry.value as Map<String, dynamic>,
-                    ),
-                },
-                introducedIdentities:
-                    (candidate['introduced_identities'] as Map)
-                        .cast<String, String>(),
-              );
-            } on ProposalBlockConflictException catch (error) {
-              final invalid = record.invalidate(
-                reason: error.reason,
-                at: _clock.nowUtc(),
-                conflicted: true,
-              );
-              await storage.writeProposalRecord(
-                invalid,
-                expectedRecordRevision: record.recordRevision,
-              );
-              rethrow;
-            }
-            deleted = compiled.deleted;
-            map = compiled.blockMap;
-            note = deleted
-                ? current
-                : StoredNote(
-                    id: id,
-                    title: current.title,
-                    path: current.path,
-                    version: current.version + 1,
-                    createdAt: current.createdAt,
-                    updatedAt: _clock.nowUtc(),
-                    content: compiled.content,
-                    extra: current.extra,
-                  );
-            provenance = await storage.readAcceptedProvenance(id);
-            final ids = map.blocks.map((b) => b.id).toSet();
-            provenance.removeWhere((id, _) => !ids.contains(id));
-            for (var index = 0; index < operations.length; index++) {
-              final operation = operations[index];
-              if (operation.type == 'delete' ||
-                  operation.type == 'delete_note') {
-                continue;
-              }
-              final targets = operation.type == 'insert_after'
-                  ? compiled.introducedIdentities.entries
-                      .where((e) => e.key.startsWith('$index:'))
-                      .map((e) => e.value)
-                  : [operation.blockId!];
-              for (final blockId in targets) {
-                final block =
-                    map.blocks.where((b) => b.id == blockId).firstOrNull;
-                if (block == null) continue;
-                final attached = [...refs, ...operation.evidenceRefs];
-                final previous = operation.type == 'attach_evidence'
-                    ? provenance[blockId] as Map<String, dynamic>?
-                    : null;
-                provenance[blockId] = _association(
-                  block.revision,
-                  attached,
-                  operation.supersedes,
-                  previous: previous,
-                );
-              }
-            }
-          }
-          var accepted = record.acceptedForJournal(
-            expectedRecordRevision: revision,
-            reviewer: _author(actor),
-            at: _clock.nowUtc(),
-            noteVersion: map.version,
-          );
-          if (input['comment'] != null) {
-            accepted = accepted.comment(
-              expectedRecordRevision: accepted.recordRevision,
-              author: _author(actor),
-              body: _string(input, 'comment'),
-              at: _clock.nowUtc(),
-              commentId: _idGenerator(),
-            );
-          }
-          final permit = ProposalAcceptancePermit._(
-            storage: storage,
-            record: accepted,
-            note: note,
-            blockMap: map,
-            provenance: provenance,
-            deleted: deleted,
-            newNote: newNote,
-            actor: actor ?? _author(actor).label,
-            policyDelta: policyDelta,
-          );
-          try {
-            await storage.acceptProposal(
-              permit,
-              expectedRecordRevision: record.recordRevision,
-            );
-            await onAccepted(note, permit.actor, deleted: deleted);
-            await storage.acknowledgeIndexedRevision(id, map.version);
-          } finally {
-            permit._active = false;
-          }
-          return accepted;
+          return _accept(record, target, input, actor);
         }),
       );
+
+  Future<ProposalRecord> _maybeAcceptAutomatically(
+    ProposalRecord record,
+    KnowledgeTarget target,
+    String? actor,
+  ) async {
+    if (authorization.store.effective(target).approval !=
+        'evidence_no_conflict') {
+      return record;
+    }
+    final candidate = record.current.candidate;
+    final operations = ProposalOperation.parseAll(candidate['operations']);
+    final refs = [
+      ..._refs(candidate['evidence_refs']),
+      for (final operation in operations) ...operation.evidenceRefs,
+    ];
+    if (operations.isEmpty ||
+        operations.any(
+          (operation) =>
+              operation.type != 'attach_evidence' ||
+              operation.evidenceRefs.isEmpty ||
+              operation.supersedes.isNotEmpty,
+        ) ||
+        refs.any((ref) => !ref.requiresResolution)) {
+      return record;
+    }
+    authorization.require(
+      currentKnowledgePrincipal,
+      KnowledgeAction.propose,
+      target,
+    );
+    await _resolve(refs);
+    return _accept(
+      record,
+      target,
+      {'decision': 'approve', 'record_revision': record.recordRevision},
+      actor,
+      automatic: true,
+    );
+  }
+
+  Future<ProposalRecord> _accept(
+    ProposalRecord record,
+    KnowledgeTarget target,
+    Map<String, dynamic> input,
+    String? actor, {
+    bool automatic = false,
+  }) async {
+    final id = record.noteId;
+    final proposalId = record.id;
+    final revision = _revision(input, 'record_revision');
+    if (!_policyCurrent(record, target)) {
+      final invalid = record.invalidate(
+        reason: 'policy_changed',
+        at: _clock.nowUtc(),
+      );
+      await storage.writeProposalRecord(
+        invalid,
+        expectedRecordRevision: record.recordRevision,
+      );
+      throw const ProposalRecordConflictException('policy_changed');
+    }
+    final candidate = record.current.candidate;
+    final newNote = candidate['new_note'] == true;
+    final refs = _refs(candidate['evidence_refs']);
+    late StoredNote note;
+    late MarkdownBlockMap map;
+    var deleted = false;
+    var provenance = <String, dynamic>{};
+    Map<String, dynamic>? policyDelta;
+    if (newNote) {
+      final draft = candidate['draft'] as Map<String, dynamic>;
+      final content = draft['content'] as String;
+      if (draft['curated_intent'] == true &&
+          !authorization.store.effective(target).curated) {
+        authorization.require(
+          currentKnowledgePrincipal,
+          KnowledgeAction.policy,
+          target,
+        );
+        policyDelta = {
+          'id': id,
+          'path': target.path,
+          'approval': 'human',
+          'operation_id': '$proposalId:${record.proposalRevision}',
+        };
+        if (storage.acceptedPolicyReplay == null) {
+          throw StateError(
+            'Accepted designation replay is not configured',
+          );
+        }
+      }
+      await _resolve(refs);
+      map = MarkdownBlockMap.fromJson(
+        candidate['preview_map'] as Map<String, dynamic>,
+      );
+      final at = _clock.nowUtc();
+      note = StoredNote(
+        id: id,
+        title: draft['title'] as String,
+        path: target.path,
+        version: 1,
+        createdAt: at,
+        updatedAt: at,
+        content: content,
+        extra: _properties(draft['properties']),
+      );
+      validateDraft?.call(note);
+      for (final block in map.blocks) {
+        provenance[block.id] = _association(block.revision, refs, const []);
+      }
+    } else {
+      final current = await storage.read(id);
+      final currentMap = await storage.readBlockMap(id);
+      final operations = ProposalOperation.parseAll(candidate['operations']);
+      await _resolve([
+        ...refs,
+        for (final op in operations) ...op.evidenceRefs,
+        for (final op in operations) ...op.supersedes,
+      ]);
+      CompiledBlockProposal compiled;
+      try {
+        compiled = _compiler.compile(
+          current.content,
+          currentMap,
+          operations,
+          baseVersion: candidate['base_version'] as int,
+          gaps: {
+            for (final entry in (candidate['insertion_gaps'] as Map).entries)
+              int.parse(entry.key as String): ProposalInsertionGap.fromJson(
+                entry.value as Map<String, dynamic>,
+              ),
+          },
+          introducedIdentities: (candidate['introduced_identities'] as Map)
+              .cast<String, String>(),
+        );
+      } on ProposalBlockConflictException catch (error) {
+        final invalid = record.invalidate(
+          reason: error.reason,
+          at: _clock.nowUtc(),
+          conflicted: true,
+        );
+        await storage.writeProposalRecord(
+          invalid,
+          expectedRecordRevision: record.recordRevision,
+        );
+        rethrow;
+      }
+      deleted = compiled.deleted;
+      map = compiled.blockMap;
+      note = deleted
+          ? current
+          : StoredNote(
+              id: id,
+              title: current.title,
+              path: current.path,
+              version: current.version + 1,
+              createdAt: current.createdAt,
+              updatedAt: _clock.nowUtc(),
+              content: compiled.content,
+              extra: current.extra,
+            );
+      provenance = await storage.readAcceptedProvenance(id);
+      final ids = map.blocks.map((b) => b.id).toSet();
+      provenance.removeWhere((id, _) => !ids.contains(id));
+      for (var index = 0; index < operations.length; index++) {
+        final operation = operations[index];
+        if (operation.type == 'delete' || operation.type == 'delete_note') {
+          continue;
+        }
+        final targets = operation.type == 'insert_after'
+            ? compiled.introducedIdentities.entries
+                .where((e) => e.key.startsWith('$index:'))
+                .map((e) => e.value)
+            : [operation.blockId!];
+        for (final blockId in targets) {
+          final block = map.blocks.where((b) => b.id == blockId).firstOrNull;
+          if (block == null) continue;
+          final attached = [...refs, ...operation.evidenceRefs];
+          final previous = operation.type == 'attach_evidence'
+              ? provenance[blockId] as Map<String, dynamic>?
+              : null;
+          provenance[blockId] = _association(
+            block.revision,
+            attached,
+            operation.supersedes,
+            previous: previous,
+          );
+        }
+      }
+    }
+    var accepted = record.acceptedForJournal(
+      expectedRecordRevision: revision,
+      reviewer: _author(actor),
+      at: _clock.nowUtc(),
+      noteVersion: map.version,
+      automatic: automatic,
+    );
+    if (input['comment'] != null) {
+      accepted = accepted.comment(
+        expectedRecordRevision: accepted.recordRevision,
+        author: _author(actor),
+        body: _string(input, 'comment'),
+        at: _clock.nowUtc(),
+        commentId: _idGenerator(),
+      );
+    }
+    final permit = ProposalAcceptancePermit._(
+      storage: storage,
+      record: accepted,
+      note: note,
+      blockMap: map,
+      provenance: provenance,
+      deleted: deleted,
+      newNote: newNote,
+      actor: actor ?? _author(actor).label,
+      policyDelta: policyDelta,
+    );
+    try {
+      await storage.acceptProposal(
+        permit,
+        expectedRecordRevision: record.recordRevision,
+      );
+      await onAccepted(note, permit.actor, deleted: deleted);
+      await storage.acknowledgeIndexedRevision(id, map.version);
+    } finally {
+      permit._active = false;
+    }
+    return accepted;
+  }
 
   Map<String, dynamic> _association(
     int revision,
@@ -821,8 +1194,7 @@ List<EvidenceReference> _refs(Object? raw) {
     throw const FormatException('evidence_refs must be an array');
   }
   return [
-    for (final ref in raw)
-      EvidenceReference.fromJson(ref as Map<String, dynamic>),
+    for (final ref in raw) _reference(ref),
   ];
 }
 
@@ -850,4 +1222,35 @@ Map<String, Object?> _properties(Object? raw) {
     );
   }
   return raw.cast<String, Object?>();
+}
+
+String _anchorStatus(Map<String, dynamic> comment, List<MarkdownBlock> blocks) {
+  final id = comment['block_id'];
+  if (id == null) return 'current';
+  final matches = blocks.where((block) => block.id == id);
+  if (matches.isEmpty) return 'orphaned';
+  return matches.any((b) => b.revision == comment['block_revision'])
+      ? 'current'
+      : 'stale';
+}
+
+EvidenceReference _reference(Object? raw) {
+  if (raw is! Map<String, dynamic>) {
+    throw const FormatException('Evidence reference must be an object');
+  }
+  return EvidenceReference.fromJson(raw);
+}
+
+void _commentInput(Map<String, dynamic> input) {
+  for (final key in const {'block_id', 'reply_to'}) {
+    if (input.containsKey(key) &&
+        (input[key] is! String || (input[key] as String).trim().isEmpty)) {
+      throw FormatException('Invalid $key');
+    }
+  }
+  if (input.containsKey('block_revision') &&
+      (input['block_revision'] is! int ||
+          (input['block_revision'] as int) < 1)) {
+    throw const FormatException('Invalid block_revision');
+  }
 }

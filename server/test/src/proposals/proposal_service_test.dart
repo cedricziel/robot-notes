@@ -291,4 +291,311 @@ void main() {
     expect((await storage.read(note.id)).content, 'proposed\n\nlast');
     expect(storage.historyNeedsReindex, isTrue);
   });
+  test('read alone cannot comment and human review can comment', () async {
+    final record = await submit();
+    final reader =
+        KnowledgePrincipal.oauth(grantId: 'reader', scopes: {'notes:read'});
+    await expectLater(
+      withKnowledgePrincipal(
+        reader,
+        () => service.comment(
+          note.id,
+          record.id,
+          {'record_revision': 1, 'body': 'read only'},
+        ),
+      ),
+      throwsA(isA<KnowledgeAccessDeniedException>()),
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final updated = await withKnowledgePrincipal(
+      reviewer,
+      () => service.comment(note.id, record.id, {
+        'record_revision': 1,
+        'body': 'review context',
+        'block_id': block.id,
+        'block_revision': block.revision,
+      }),
+    );
+    expect(updated.recordRevision, 2);
+    expect(updated.comments.single['note_version'], 1);
+  });
+
+  test('accepted block comments need no proposal and retain stale threads',
+      () async {
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final added = await withKnowledgePrincipal(
+      reviewer,
+      () => service.commentAccepted(note.id, {
+        'record_revision': 0,
+        'body': 'why?',
+        'block_id': block.id,
+        'block_revision': 1,
+      }),
+    );
+    final comment = (added['items'] as List).single as Map;
+    expect(await storage.proposalRecords(), isEmpty);
+    await storage.update(
+      id: note.id,
+      title: 'A',
+      content: 'changed\n\nlast',
+      ifMatch: 1,
+    );
+    final stale = await withKnowledgePrincipal(
+      reviewer,
+      () => service.acceptedComments(note.id),
+    );
+    expect(((stale['items'] as List).single as Map)['anchor_status'], 'stale');
+    final reply = await withKnowledgePrincipal(
+      reviewer,
+      () => service.commentAccepted(
+        note.id,
+        {
+          'record_revision': 1,
+          'body': 'answer',
+          'reply_to': comment['comment_id'],
+        },
+      ),
+    );
+    expect(reply['items'] as List, hasLength(2));
+    expect(
+      ((reply['items'] as List).last as Map)['thread_id'],
+      comment['thread_id'],
+    );
+    await expectLater(
+      withKnowledgePrincipal(
+        reviewer,
+        () => service.commentAccepted(note.id, {
+          'record_revision': 1,
+          'body': 'stale activity',
+          'block_id': block.id,
+          'block_revision': 1,
+        }),
+      ),
+      throwsA(isA<ProposalRecordConflictException>()),
+    );
+  });
+
+  test('draft amendments retain earlier source and reserve the same note ID',
+      () async {
+    final draft = await withKnowledgePrincipal(
+      proposer,
+      () => service.submitNew({
+        'path': '',
+        'title': 'Draft',
+        'content': 'first',
+        'idempotency_key': 'new',
+      }),
+    );
+    final amended = await withKnowledgePrincipal(
+      proposer,
+      () => service.amend(draft.noteId, draft.id, {
+        'proposal_revision': 1,
+        'record_revision': 1,
+        'path': '',
+        'title': 'Revised',
+        'content': 'second',
+      }),
+    );
+    expect(amended.noteId, draft.noteId);
+    expect(amended.proposalRevision, 2);
+    expect(
+      (amended.versions.first.candidate['draft'] as Map)['content'],
+      'first',
+    );
+    await withKnowledgePrincipal(
+      reviewer,
+      () => service.decide(
+        amended.noteId,
+        amended.id,
+        {'decision': 'approve', 'record_revision': 2},
+      ),
+    );
+    expect((await storage.read(draft.noteId)).title, 'Revised');
+  });
+
+  test(
+      'automatic verified attachment changes linkage only, never accepted text',
+      () async {
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      '',
+      KnowledgePolicyPatch(curated: true, approval: 'evidence_no_conflict'),
+    );
+    final source = await storage.create(
+      title: 'Source',
+      content: 'source text',
+      properties: {'history': true},
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final accepted = await withKnowledgePrincipal(
+      proposer,
+      () => service.submit(note.id, {
+        'base_version': 1,
+        'idempotency_key': 'auto',
+        'operations': [
+          {
+            'type': 'attach_evidence',
+            'block_id': block.id,
+            'expected_revision': 1,
+            'evidence_refs': [
+              {'kind': 'note_revision', 'note_id': source.id, 'version': 1},
+            ],
+          }
+        ],
+      }),
+    );
+    expect(accepted.state, 'accepted');
+    expect((await storage.read(note.id)).content, 'first\n\nlast');
+    expect((await storage.readBlockMap(note.id)).blocks.first.revision, 1);
+    expect(accepted.events.any((e) => e['type'] == 'auto_approve'), isTrue);
+    final provenance = await storage.readAcceptedProvenance(note.id);
+    expect((provenance[block.id] as Map)['evidence_refs'], hasLength(1));
+  });
+
+  test('valid evidence never automatically accepts changed claim text',
+      () async {
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      '',
+      KnowledgePolicyPatch(curated: true, approval: 'evidence_no_conflict'),
+    );
+    final source = await storage.create(
+      title: 'Source',
+      content: 'source text',
+      properties: {'history': true},
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final record = await withKnowledgePrincipal(
+      proposer,
+      () => service.submit(note.id, {
+        'base_version': 1,
+        'idempotency_key': 'text',
+        'operations': [
+          {
+            'type': 'replace',
+            'block_id': block.id,
+            'expected_revision': 1,
+            'text': 'claim\n',
+            'evidence_refs': [
+              {'kind': 'note_revision', 'note_id': source.id, 'version': 1},
+            ],
+          }
+        ],
+      }),
+    );
+    expect(record.state, 'pending');
+    expect((await storage.read(note.id)).version, 1);
+  });
+
+  test('unverified source attachment remains pending under automatic policy',
+      () async {
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      '',
+      KnowledgePolicyPatch(curated: true, approval: 'evidence_no_conflict'),
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final record = await withKnowledgePrincipal(
+      proposer,
+      () => service.submit(note.id, {
+        'base_version': 1,
+        'idempotency_key': 'unknown',
+        'operations': [
+          {
+            'type': 'attach_evidence',
+            'block_id': block.id,
+            'expected_revision': 1,
+            'evidence_refs': [
+              {'kind': 'conversation', 'session_id': 'session'},
+            ],
+          }
+        ],
+      }),
+    );
+    expect(record.state, 'pending');
+    expect(indexed, 0);
+  });
+
+  test('source read ACL applies to referenced immutable evidence', () async {
+    final source = await storage.create(
+      title: 'Private',
+      content: 'secret',
+      path: 'private',
+      properties: {'history': true},
+    );
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      'private',
+      KnowledgePolicyPatch(access: {KnowledgeAction.read: {}}),
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    await expectLater(
+      withKnowledgePrincipal(
+        proposer,
+        () => service.submit(note.id, {
+          'base_version': 1,
+          'idempotency_key': 'denied',
+          'operations': [
+            {
+              'type': 'attach_evidence',
+              'block_id': block.id,
+              'expected_revision': 1,
+              'evidence_refs': [
+                {'kind': 'note_revision', 'note_id': source.id, 'version': 1},
+              ],
+            }
+          ],
+        }),
+      ),
+      throwsA(isA<KnowledgeAccessDeniedException>()),
+    );
+    expect(await storage.proposalRecords(), isEmpty);
+  });
+  test('restoring before an automatic link removes active links, retains audit',
+      () async {
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      '',
+      KnowledgePolicyPatch(curated: true, approval: 'evidence_no_conflict'),
+    );
+    final source = await storage.create(
+      title: 'Source',
+      content: 'evidence',
+      properties: {'history': true},
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final accepted = await withKnowledgePrincipal(
+      proposer,
+      () => service.submit(note.id, {
+        'base_version': 1,
+        'idempotency_key': 'reversible',
+        'operations': [
+          {
+            'type': 'attach_evidence',
+            'block_id': block.id,
+            'expected_revision': 1,
+            'evidence_refs': [
+              {'kind': 'note_revision', 'note_id': source.id, 'version': 1},
+            ],
+          }
+        ],
+      }),
+    );
+    expect(await storage.readAcceptedProvenance(note.id), isNotEmpty);
+    await storage.restoreRevision(note.id, 1, ifMatch: 2);
+    expect(await storage.readAcceptedProvenance(note.id), isEmpty);
+    expect(
+      await storage.readAcceptedProvenance(note.id, version: 2),
+      isNotEmpty,
+    );
+    expect(
+      (await storage.readProposalRecord(note.id, accepted.id)).state,
+      'accepted',
+    );
+    final index = await withKnowledgePrincipal(
+      reviewer,
+      () => service.list(state: 'accepted'),
+    );
+    expect(index.single['proposal_id'], accepted.id);
+  });
 }
