@@ -345,7 +345,8 @@ class SearchIndex {
     final log = logger ?? Logger('search_index');
     await dbFile.parent.create(recursive: true);
 
-    var rebuild = forceRebuild;
+    await storage.prepareHistory();
+    var rebuild = forceRebuild || storage.historyNeedsReindex;
     if (!dbFile.existsSync()) {
       log.info('search.db missing, rebuilding from storage');
       rebuild = true;
@@ -371,6 +372,7 @@ class SearchIndex {
     if (rebuild) {
       final loaded = await index._rebuild(storage);
       log.info('search.db rebuilt with $loaded note(s)');
+      await storage.acknowledgeHistoryReindex();
     }
     if (embeddingProvider != null && autoBackfill) {
       // Detached on purpose: startup must not block on backfill, per the

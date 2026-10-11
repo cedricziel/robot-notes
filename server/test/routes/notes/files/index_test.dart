@@ -129,6 +129,47 @@ void main() {
       );
     });
 
+    test('rejects uploads after interrupted history deletion', () async {
+      final note = await storage.create(
+        title: 'A',
+        content: 'retained',
+        properties: {'history': true},
+      );
+      storage = Storage(
+        contentDir: storage.contentDir,
+        afterHistoryPublish: () async => throw StateError('crash'),
+      );
+      await expectLater(storage.delete(note.id), throwsStateError);
+      final formData = FormData(
+        fields: {'path': ''},
+        files: {
+          'file': UploadedFile(
+            'A.md',
+            ContentType('text', 'markdown'),
+            Stream.value([1, 2, 3]),
+          ),
+        },
+      );
+
+      await expectLater(
+        route.onRequest(
+          _ctx(
+            method: HttpMethod.post,
+            storage: storage,
+            fileStore: fileStore,
+            formData: formData,
+          ),
+        ),
+        throwsStateError,
+      );
+
+      expect(File('${tmp.path}/content/A.md').existsSync(), isFalse);
+      final recovered = Storage(contentDir: storage.contentDir);
+      expect((await recovered.revisions(note.id)).last['deleted'], isTrue);
+      final restored = await recovered.restoreRevision(note.id, 1, ifMatch: 2);
+      expect(restored.content, 'retained');
+    });
+
     test('a filename collision returns 409', () async {
       await fileStore.write(
         path: 'Ideas',

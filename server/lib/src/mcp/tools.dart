@@ -1010,6 +1010,7 @@ McpTool _finalizeUploadTool(
       handler: (args, principal) async {
         final token = _requiredString(args, 'token');
         try {
+          await storage.prepareHistory();
           final result = await uploadSessions.finalize(token, fileStore);
           storage.registerFile(
             StoredFile(

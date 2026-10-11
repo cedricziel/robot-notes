@@ -108,4 +108,32 @@ void main() {
 
     expect(res.statusCode, HttpStatus.methodNotAllowed);
   });
+  test('does not stream canonical content from a faulted history commit',
+      () async {
+    final note = await storage.create(
+      title: 'A',
+      content: 'accepted',
+      properties: {'history': true},
+    );
+    storage = Storage(
+      contentDir: Directory('${tmp.path}/content'),
+      afterHistoryPublish: () async => throw StateError('crash'),
+    );
+    await expectLater(
+      storage.update(
+        id: note.id,
+        title: 'A',
+        content: 'uncommitted',
+        ifMatch: 1,
+      ),
+      throwsStateError,
+    );
+    await expectLater(
+      route.onRequest(
+        _ctx(method: HttpMethod.get, storage: storage),
+        'A.md',
+      ),
+      throwsStateError,
+    );
+  });
 }
