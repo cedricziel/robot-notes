@@ -6,6 +6,7 @@ import 'package:app/src/config/app_config.dart';
 import 'package:app/src/desktop/app_menu_actions.dart';
 import 'package:app/src/notes/note_controller.dart';
 import 'package:app/src/notes/note_screen.dart';
+import 'package:app/src/notes/block_note_editor.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -75,62 +76,61 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('note.body')), findsOneWidget);
+    expect(find.byType(BlockNoteEditor), findsOneWidget);
   });
 
-  testWidgets('publishes Edit/Move/Delete/Close while viewing, Save while '
-      'editing, and withdraws them on dispose', (tester) async {
-    final actions = AppMenuActions();
-    addTearDown(actions.dispose);
-    final calls = <String>[];
-    final ctrl = _controller(_api(calls));
-    addTearDown(ctrl.dispose);
-    var closed = false;
+  testWidgets(
+    'publishes Save/Move/Delete/Close during editing and withdraws on dispose',
+    (tester) async {
+      final actions = AppMenuActions();
+      addTearDown(actions.dispose);
+      final calls = <String>[];
+      final ctrl = _controller(_api(calls));
+      addTearDown(ctrl.dispose);
+      var closed = false;
 
-    await tester.pumpWidget(
-      AppMenuActionsScope(
-        actions: actions,
-        child: MaterialApp(
-          home: NoteScreen(controller: ctrl, onClose: () => closed = true),
+      await tester.pumpWidget(
+        AppMenuActionsScope(
+          actions: actions,
+          child: MaterialApp(
+            home: NoteScreen(controller: ctrl, onClose: () => closed = true),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(actions.note.edit, isNotNull);
-    expect(actions.note.move, isNotNull);
-    expect(actions.note.delete, isNotNull);
-    expect(actions.note.close, isNotNull);
-    expect(actions.note.save, isNull);
+      expect(actions.note.edit, isNull);
+      expect(actions.note.move, isNotNull);
+      expect(actions.note.delete, isNotNull);
+      expect(actions.note.close, isNotNull);
+      expect(actions.note.save, isNotNull);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
+      expect(
+        calls.where((call) => call == 'POST /notes/01H/lock'),
+        hasLength(1),
+      );
 
-    // Edit Note from the menu acquires the lock and opens the editor.
-    actions.note.edit!();
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('note.editor.content')), findsOneWidget);
-    expect(actions.note.edit, isNull);
-    expect(actions.note.move, isNull);
-    expect(actions.note.save, isNotNull);
+      // Save from the menu sends the PUT.
+      actions.note.save!();
+      await tester.pumpAndSettle();
+      expect(calls, contains('PUT /notes/01H'));
+      expect(find.text('Saved (v2)'), findsOneWidget);
 
-    // Save from the menu sends the PUT.
-    actions.note.save!();
-    await tester.pumpAndSettle();
-    expect(calls, contains('PUT /notes/01H'));
-    expect(find.text('Saved (v2)'), findsOneWidget);
+      // Close Note from the menu.
+      actions.note.close!();
+      await tester.pumpAndSettle();
+      expect(closed, isTrue);
 
-    // Close Note from the menu.
-    actions.note.close!();
-    await tester.pumpAndSettle();
-    expect(closed, isTrue);
-
-    await tester.pumpWidget(
-      AppMenuActionsScope(
-        actions: actions,
-        child: const MaterialApp(home: SizedBox.shrink()),
-      ),
-    );
-    expect(actions.note.close, isNull);
-    expect(actions.note.edit, isNull);
-  });
+      await tester.pumpWidget(
+        AppMenuActionsScope(
+          actions: actions,
+          child: const MaterialApp(home: SizedBox.shrink()),
+        ),
+      );
+      expect(actions.note.close, isNull);
+      expect(actions.note.edit, isNull);
+    },
+  );
 
   testWidgets('a note pushed on top takes the Note menu and hands it back', (
     tester,
@@ -142,7 +142,7 @@ void main() {
     final above = _controller(api);
     addTearDown(below.dispose);
     addTearDown(above.dispose);
-    var belowEdits = 0;
+    var belowSaves = 0;
     late NavigatorState navigator;
 
     await tester.pumpWidget(
@@ -159,8 +159,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final belowEdit = actions.note.edit;
-    expect(belowEdit, isNotNull);
+    final belowSave = actions.note.save;
+    expect(belowSave, isNotNull);
 
     unawaited(
       navigator.push(
@@ -169,19 +169,19 @@ void main() {
     );
     await tester.pumpAndSettle();
     // The top note now owns the menu; it is a different handler.
-    expect(actions.note.edit, isNotNull);
-    expect(identical(actions.note.edit, belowEdit), isFalse);
+    expect(actions.note.save, isNotNull);
+    expect(identical(actions.note.save, belowSave), isFalse);
 
     navigator.pop();
     await tester.pumpAndSettle();
     // The note underneath has re-registered, and its handler works.
-    expect(actions.note.edit, isNotNull);
+    expect(actions.note.save, isNotNull);
     below.addListener(() {
-      if (below.value.mode == NoteMode.editing) belowEdits++;
+      if (below.value.mode == NoteMode.saving) belowSaves++;
     });
-    actions.note.edit!();
+    actions.note.save!();
     await tester.pumpAndSettle();
-    expect(belowEdits, greaterThan(0));
-    expect(find.byKey(const Key('note.editor.content')), findsOneWidget);
+    expect(belowSaves, greaterThan(0));
+    expect(find.byType(BlockNoteEditor), findsOneWidget);
   });
 }

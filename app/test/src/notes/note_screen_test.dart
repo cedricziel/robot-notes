@@ -5,6 +5,8 @@ import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/databases/databases_controller.dart';
 import 'package:app/src/notes/note_controller.dart';
+import 'package:app/src/notes/block_note_editor.dart';
+import 'package:adaptive_super_editor/adaptive_super_editor.dart';
 import 'package:app/src/notes/note_screen.dart';
 import 'package:app/src/realtime/ws_client.dart';
 import 'package:app/src/widgets/status_strip.dart';
@@ -68,8 +70,8 @@ List<String> _markedLines(InlineSpan span) {
   return marked;
 }
 
-/// Pumps a [NoteScreen] into edit mode, by tapping edit or, with
-/// [startEditing], by opening straight into it. [onLock] answers the
+/// Opens a [NoteScreen], acquires its lock, and selects Markdown source.
+/// [startEditing] leaves new notes in Blocks to verify title focus. [onLock] answers the
 /// `POST /notes/{id}/lock` (granted by default); [onSave] answers the
 /// `PUT /notes/{id}` the save button sends.
 Future<NoteController> _pumpEditor(
@@ -79,6 +81,7 @@ Future<NoteController> _pumpEditor(
   http.Response Function(http.Request)? onSearch,
   ValueChanged<String>? onOpenNote,
   bool startEditing = false,
+  bool sourceMode = true,
 }) async {
   final mock = MockClient((request) async {
     if (request.method == 'GET' && request.url.path == '/notes/01H') {
@@ -125,10 +128,16 @@ Future<NoteController> _pumpEditor(
     ),
   );
   await tester.pumpAndSettle();
-  if (startEditing) return ctrl;
-  await tester.tap(find.byKey(const Key('note.edit')));
-  await tester.pumpAndSettle();
+  if (!startEditing && sourceMode && ctrl.value.mode == NoteMode.editing) {
+    await _showSource(tester);
+  }
   return ctrl;
+}
+
+Future<void> _showSource(WidgetTester tester) async {
+  if (find.byKey(_contentField).evaluate().isNotEmpty) return;
+  await tester.tap(find.text('Markdown source'));
+  await tester.pumpAndSettle();
 }
 
 /// Pumps a [NoteScreen] into conflict mode: types the local edits, then
@@ -175,10 +184,9 @@ Future<void> _pumpConflict(
   expect(find.byKey(const Key('note.banner.conflict')), findsOneWidget);
 }
 
-/// Pumps a [NoteScreen] showing a note with [content] in read-only mode.
+/// Opens a note whose initial automatic lock attempt is refused.
 /// [backlinksItems] answers `GET /notes/01H/backlinks` (empty by default).
-/// `POST /notes/01H/lock` is granted, so tests can move into edit mode
-/// from the viewer (double-tap, Cmd+E) without a dedicated mock.
+/// Later lock attempts succeed so retry interactions can enter Blocks.
 Future<void> _pumpViewer(
   WidgetTester tester, {
   required String content,
@@ -195,6 +203,7 @@ Future<void> _pumpViewer(
   ValueChanged<String>? onTagTap,
   NotePresentation presentation = NotePresentation.page,
 }) async {
+  var lockAttempts = 0;
   final mock = MockClient((request) async {
     if (request.method == 'GET' && request.url.path == '/notes/01H/backlinks') {
       return http.Response(
@@ -203,6 +212,13 @@ Future<void> _pumpViewer(
       );
     }
     if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
+      lockAttempts++;
+      if (lockAttempts == 1) {
+        return http.Response(
+          jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+          423,
+        );
+      }
       return http.Response(jsonEncode(_lockJson()), 200);
     }
     return http.Response(
@@ -267,7 +283,7 @@ Future<void> _doubleTap(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
-  testWidgets('renders the note body in read-only view by default', (
+  testWidgets('a refused automatic lock keeps the read-only note available', (
     tester,
   ) async {
     await _pumpViewer(tester, content: 'body text');
@@ -308,7 +324,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('note.edit')));
       await tester.pumpAndSettle();
-      expect(find.byKey(_contentField), findsOneWidget);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
       expect(
         find.byKey(const Key('note.propertyPanel.undeclared.custom')),
         findsNothing,
@@ -446,7 +462,7 @@ void main() {
       await _doubleTap(tester, find.byKey(const Key('note.body')));
 
       expect(find.byKey(_titleField), findsOneWidget);
-      expect(find.byKey(_contentField), findsOneWidget);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
     });
 
     testWidgets('Cmd+E starts editing', (tester) async {
@@ -459,7 +475,7 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
       await tester.pumpAndSettle();
 
-      expect(find.byKey(_contentField), findsOneWidget);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
     });
 
     testWidgets('Ctrl+E starts editing', (tester) async {
@@ -472,7 +488,7 @@ void main() {
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.pumpAndSettle();
 
-      expect(find.byKey(_contentField), findsOneWidget);
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
     });
   });
 
@@ -552,15 +568,35 @@ void main() {
     expect(find.text('tracker pixel'), findsOneWidget);
   });
 
-  testWidgets('tapping edit acquires the lock and reveals the editor', (
-    tester,
-  ) async {
-    await _pumpEditor(tester);
+  testWidgets(
+    'opening acquires the lock and source stays explicitly available',
+    (tester) async {
+      var locks = 0;
+      await _pumpEditor(
+        tester,
+        sourceMode: false,
+        onLock: (_) {
+          locks++;
+          return http.Response(jsonEncode(_lockJson()), 200);
+        },
+      );
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
+      expect(
+        tester
+            .widget<AdaptiveSuperEditor>(find.byType(AdaptiveSuperEditor))
+            .readOnly,
+        isFalse,
+      );
+      expect(find.byKey(_contentField), findsNothing);
+      expect(locks, 1);
+      await _showSource(tester);
+      expect(locks, 1);
 
-    expect(find.byKey(_titleField), findsOneWidget);
-    expect(find.byKey(_contentField), findsOneWidget);
-    expect(find.byKey(const Key('note.save')), findsOneWidget);
-  });
+      expect(find.byKey(_titleField), findsOneWidget);
+      expect(find.byKey(_contentField), findsOneWidget);
+      expect(find.byKey(const Key('note.save')), findsOneWidget);
+    },
+  );
 
   group('editor fields', () {
     testWidgets('are document-style: no outline border, hint text only', (
@@ -649,8 +685,7 @@ void main() {
           MaterialApp(home: NoteScreen(controller: ctrl)),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('note.edit')));
-        await tester.pumpAndSettle();
+        await _showSource(tester);
 
         expect(
           find.byKey(const Key('note.propertyPanel.undeclared.status')),
@@ -684,8 +719,7 @@ void main() {
 
   group('database embeds', () {
     testWidgets(
-      'a resolvable ![[Title]] renders the embedded view in view mode, and '
-      'the raw text stays in the edit field while the preview renders it',
+      'a resolvable embed renders in Blocks and preserves its source and preview',
       (tester) async {
         final mock = MockClient((request) async {
           if (request.method == 'GET' && request.url.path == '/notes/01H') {
@@ -782,14 +816,13 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // View mode: the embed renders instead of the literal text.
+        // The opaque block delegates existing embeds to the database renderer.
         expect(find.byKey(const Key('database.embed.title')), findsOneWidget);
         expect(find.text('Ship it'), findsOneWidget);
         expect(find.textContaining('![[Projects]]'), findsNothing);
 
-        // Edit mode: the raw field holds the literal source...
-        await tester.tap(find.byKey(const Key('note.edit')));
-        await tester.pumpAndSettle();
+        // Source mode keeps the literal embed syntax.
+        await _showSource(tester);
         expect(_fieldController(tester, _contentField).text, '![[Projects]]');
         // ...while the preview pane (shown by default at this window size)
         // renders the embed.
@@ -1022,6 +1055,7 @@ void main() {
     await tester.tap(find.byKey(const Key('note.conflict.acceptServer')));
     await tester.pumpAndSettle();
 
+    await _showSource(tester);
     expect(_fieldController(tester, _contentField).text, 'theirs');
   });
 
@@ -1046,6 +1080,12 @@ void main() {
 
   testWidgets('tapping close in viewing mode calls onClose', (tester) async {
     final mock = MockClient((request) async {
+      if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
+        return http.Response(
+          jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+          423,
+        );
+      }
       return http.Response(jsonEncode(_noteJson()), 200);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
@@ -1111,8 +1151,7 @@ void main() {
 
     Future<void> enterEditMode(WidgetTester tester) async {
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('note.edit')));
-      await tester.pumpAndSettle();
+      await _showSource(tester);
     }
 
     Future<NoteController> pumpEditing(
@@ -1224,25 +1263,39 @@ void main() {
       expect(closed, isFalse);
     });
 
-    testWidgets('a flush that loses the lock still closes', (tester) async {
-      final ctrl = await pumpEditing(
-        tester,
-        onPut: (_) => http.Response(
-          jsonEncode({'message': 'locked', 'lock': _lockJson(holder: 'alice')}),
-          423,
-        ),
-      );
-      await editContent(tester);
+    testWidgets(
+      'a flush that loses the lock retains the draft when close is cancelled',
+      (tester) async {
+        final ctrl = await pumpEditing(
+          tester,
+          onPut: (_) => http.Response(
+            jsonEncode({
+              'message': 'locked',
+              'lock': _lockJson(holder: 'alice'),
+            }),
+            423,
+          ),
+        );
+        await editContent(tester);
 
-      await tapClose(tester);
+        await tapClose(tester);
 
-      expect(puts, 1);
-      expect(ctrl.value.mode, NoteMode.viewing);
-      expect(ctrl.value.lock?.holder, 'alice');
-      // The lock is no longer ours — no DELETE lock is sent for it.
-      expect(lockReleases, 0);
-      expect(closed, isTrue);
-    });
+        expect(puts, 1);
+        expect(ctrl.value.mode, NoteMode.viewing);
+        expect(ctrl.value.lock?.holder, 'alice');
+        // The lock is no longer ours — no DELETE lock is sent for it.
+        expect(lockReleases, 0);
+        expect(find.text('Discard and close'), findsOneWidget);
+        await tester.tap(find.text('Keep open'));
+        await tester.pumpAndSettle();
+        expect(_fieldController(tester, _contentField).text, 'world, edited');
+        expect(
+          tester.widget<TextField>(find.byKey(_contentField)).readOnly,
+          isTrue,
+        );
+        expect(closed, isFalse);
+      },
+    );
 
     testWidgets('system back with a pending edit flushes and pops', (
       tester,
@@ -1356,6 +1409,12 @@ void main() {
       var putCalls = 0;
       final mock = MockClient((request) async {
         if (request.method == 'PUT') putCalls += 1;
+        if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
+          return http.Response(
+            jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+            423,
+          );
+        }
         return http.Response(jsonEncode(_noteJson()), 200);
       });
       final api = RobotNotesClient(config: _config, httpClient: mock);
@@ -1585,8 +1644,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('note.edit')));
-        await tester.pumpAndSettle();
+        await _showSource(tester);
 
         await tester.enterText(find.byKey(_contentField), 'edited');
         await tester.tap(find.byKey(const Key('note.save')));
@@ -1701,6 +1759,7 @@ void main() {
     expect(puts, hasLength(2));
     expect(puts.last.headers['If-Match'], '3');
     expect(jsonDecode(puts.last.body), containsPair('content', 'merged'));
+    await _showSource(tester);
     expect(_fieldController(tester, _contentField).text, 'merged');
   });
 
@@ -1744,6 +1803,12 @@ void main() {
     tester,
   ) async {
     final mock = MockClient((request) async {
+      if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
+        return http.Response(
+          jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+          423,
+        );
+      }
       return http.Response(jsonEncode(_noteJson()), 200);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
@@ -1792,6 +1857,12 @@ void main() {
   ) async {
     final handle = tester.ensureSemantics();
     final mock = MockClient((request) async {
+      if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
+        return http.Response(
+          jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+          423,
+        );
+      }
       return http.Response(jsonEncode(_noteJson()), 200);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
@@ -1822,6 +1893,12 @@ void main() {
     'presence indicator shows a count with a tooltip beyond three viewers',
     (tester) async {
       final mock = MockClient((request) async {
+        if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
+          return http.Response(
+            jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+            423,
+          );
+        }
         return http.Response(jsonEncode(_noteJson()), 200);
       });
       final api = RobotNotesClient(config: _config, httpClient: mock);
@@ -1877,6 +1954,12 @@ void main() {
     tester,
   ) async {
     final mock = MockClient((request) async {
+      if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
+        return http.Response(
+          jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+          423,
+        );
+      }
       return http.Response(jsonEncode(_noteJson()), 200);
     });
     final api = RobotNotesClient(config: _config, httpClient: mock);
@@ -1932,14 +2015,15 @@ void main() {
     addTearDown(ctrl.dispose);
     await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('note.edit')));
-    await tester.pumpAndSettle();
+    await _showSource(tester);
     expect(
       tester
           .widget<StatusStrip>(find.byKey(const Key('note.editingStatus')))
           .tone,
       StatusTone.info,
     );
+
+    await tester.enterText(find.byKey(_contentField), 'retained draft');
 
     events.add(
       RealtimeMessage(
@@ -1957,7 +2041,12 @@ void main() {
     );
     expect(strip.tone, StatusTone.warning);
     expect(find.textContaining('alice'), findsOneWidget);
-    expect(find.byKey(const Key('note.body')), findsOneWidget);
+    expect(find.byType(BlockNoteEditor), findsOneWidget);
+    expect(_fieldController(tester, _contentField).text, 'retained draft');
+    expect(
+      tester.widget<TextField>(find.byKey(_contentField)).readOnly,
+      isTrue,
+    );
   });
 
   group('delete', () {
@@ -1975,6 +2064,12 @@ void main() {
         calls.add('${request.method} ${request.url.path}');
         if (request.method == 'GET' && request.url.path == '/notes/01H') {
           return http.Response(jsonEncode(_noteJson()), 200);
+        }
+        if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
+          return http.Response(
+            jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+            423,
+          );
         }
         if (request.method == 'DELETE' && request.url.path == '/notes/01H') {
           return http.Response('', deleteStatus);
@@ -2342,7 +2437,10 @@ void main() {
           );
         }
         if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
-          return http.Response(jsonEncode(_lockJson()), 200);
+          return http.Response(
+            jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+            423,
+          );
         }
         return http.Response('unexpected ${request.url.path}', 500);
       });
@@ -2440,6 +2538,12 @@ void main() {
         calls.add('${request.method} ${request.url.path}');
         if (request.method == 'GET' && request.url.path == '/notes/01H') {
           return http.Response(jsonEncode(_noteJson()), 200);
+        }
+        if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
+          return http.Response(
+            jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
+            423,
+          );
         }
         if (request.method == 'PUT' && request.url.path == '/notes/01H') {
           return putResponse(request);
