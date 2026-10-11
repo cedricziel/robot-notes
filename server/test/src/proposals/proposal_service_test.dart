@@ -2,6 +2,9 @@ import 'dart:io';
 
 import 'package:server/src/knowledge_identity.dart';
 import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/mcp/principal.dart';
+import 'package:server/src/mcp/tools.dart';
+import 'package:server/src/proposals/proposal_mcp.dart';
 import 'package:server/src/proposals/proposal_record.dart';
 import 'package:server/src/proposals/proposal_service.dart';
 import 'package:server/src/storage.dart';
@@ -597,5 +600,69 @@ void main() {
       () => service.list(state: 'accepted'),
     );
     expect(index.single['proposal_id'], accepted.id);
+  });
+  test('MCP exposes atomic accepted source and propose-only capabilities',
+      () async {
+    final registry = McpToolRegistry(proposalMcpTools(service));
+    const principal = McpPrincipal(
+      actor: 'Writer',
+      principalId: 'agent:worker',
+      isStaticKey: false,
+      scopes: {'notes:read', 'knowledge:propose'},
+    );
+    final source =
+        await registry.call('get_note_blocks', {'id': note.id}, principal);
+    final data = source['structuredContent']! as Map;
+    expect(data['content'], 'first\n\nlast');
+    expect(data['offset_encoding'], 'utf-16');
+    final block = (data['blocks'] as List).first as Map;
+    final result = await registry.call(
+      'propose_note_update',
+      {
+        'id': note.id,
+        'base_version': 1,
+        'idempotency_key': 'mcp',
+        'operations': [
+          {
+            'type': 'replace',
+            'block_id': block['id'],
+            'expected_revision': block['revision'],
+            'text': 'proposed\n',
+          }
+        ],
+      },
+      principal,
+    );
+    expect(result['isError'], isNull);
+    expect((result['structuredContent']! as Map)['accepted'], isFalse);
+    expect((await storage.read(note.id)).version, 1);
+    final record = (await storage.proposalRecords()).single;
+    expect(record.author.principalId, 'agent:worker');
+    expect(record.author.label, 'Writer');
+  });
+
+  test('MCP review denies agent authority even when review scope is supplied',
+      () async {
+    final record = await submit();
+    final registry = McpToolRegistry(proposalMcpTools(service));
+    const principal = McpPrincipal(
+      actor: 'Human',
+      principalId: 'agent:worker',
+      isStaticKey: false,
+      scopes: {'notes:read', 'knowledge:review'},
+    );
+    final result = await registry.call(
+      'review_note_proposal',
+      {
+        'id': note.id,
+        'proposal_id': record.id,
+        'decision': 'approve',
+        'record_revision': 1,
+      },
+      principal,
+    );
+    expect(result['isError'], isTrue);
+    expect((result['structuredContent']! as Map)['error'], 'forbidden');
+    expect((await storage.read(note.id)).version, 1);
   });
 }

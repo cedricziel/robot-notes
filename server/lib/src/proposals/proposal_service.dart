@@ -652,6 +652,60 @@ class ProposalService {
         }),
       );
 
+  /// Reads exact accepted source, map, and active provenance under one lock.
+  Future<Map<String, dynamic>> acceptedBlocks(String id, {int? version}) =>
+      authorization.store.withMutationLock(
+        () => storage.withProposalMutation(id, () async {
+          final source = version == null
+              ? await storage.read(id)
+              : await storage.readRevision(id, version);
+          if (version == null) {
+            authorization.require(
+              currentKnowledgePrincipal,
+              KnowledgeAction.read,
+              _target(source),
+            );
+          } else {
+            String currentPath;
+            try {
+              currentPath = (await storage.read(id)).path;
+            } on NoteNotFoundException {
+              final history = await storage.revisions(id);
+              currentPath =
+                  (parseFrontmatter(history.last['markdown'] as String)
+                          .metadata['path'] as String?) ??
+                      '';
+            }
+            authorization.requireHistoricalRead(
+              currentKnowledgePrincipal,
+              id,
+              source.path,
+              currentPath,
+            );
+          }
+          final map = await storage.readBlockMap(id, version: version);
+          final provenance = await storage.readAcceptedProvenance(
+            id,
+            version: source.version,
+          );
+          return {
+            'id': id,
+            ...map.toJson(),
+            'content': source.content,
+            'provenance': {
+              for (final block in map.blocks)
+                block.id: provenance[block.id] ??
+                    {
+                      'block_revision': block.revision,
+                      'source_unknown': true,
+                      'evidence_refs': <Object?>[],
+                      'supersedes': <Object?>[],
+                    },
+            },
+          };
+        }),
+      );
+
   /// Reads accepted-block threads without wrapping them in a fake proposal.
   Future<Map<String, dynamic>> acceptedComments(String id) =>
       authorization.store.withMutationLock(

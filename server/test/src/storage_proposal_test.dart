@@ -133,6 +133,16 @@ void main() {
     final history = await storage.revisions(note.id);
     expect(history.toString(), isNot(contains('pending secret')));
     expect(history.last.containsKey('proposal_updates'), isFalse);
+    final snapshotFiles = Directory('${storage.contentDir.path}.history')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => RegExp(r'/[0-9]+\.json$').hasMatch(file.path));
+    expect(
+      snapshotFiles.any(
+        (file) => file.readAsStringSync().contains('pending secret'),
+      ),
+      isFalse,
+    );
     expect(
       (await storage.readProposalRecord(note.id, 'p1'))
           .current
