@@ -11,6 +11,8 @@ import 'package:server/src/frontmatter.dart';
 import 'package:server/src/markdown_blocks.dart';
 import 'package:server/src/note_path.dart';
 import 'package:server/src/proposals/proposal_record.dart';
+import 'package:server/src/proposals/proposal_service.dart'
+    show ProposalAcceptancePermit;
 import 'package:server/src/tags.dart';
 import 'package:ulid/ulid.dart';
 
@@ -280,6 +282,7 @@ class Storage {
     Logger? logger,
     this.beforeHistoryApply,
     this.afterHistoryPublish,
+    this.acceptedPolicyReplay,
   })  : _clock = clock,
         _idGenerator = idGenerator ?? _ulid,
         _log = logger ?? Logger('storage');
@@ -295,6 +298,9 @@ class Storage {
   /// Failure injection after canonical publication, before snapshot commit.
   @visibleForTesting
   final Future<void> Function()? afterHistoryPublish;
+
+  /// Replays an authorized note designation before pending history is cleared.
+  Future<void> Function(Map<String, dynamic> delta)? acceptedPolicyReplay;
 
   Directory get _historyDir => Directory('${contentDir.path}.history');
   final _blockReconciler = MarkdownBlockReconciler();
@@ -931,6 +937,94 @@ class Storage {
         await _atomicText(file, jsonEncode(record.toStoredJson()));
       });
 
+  /// Reads accepted source associations without any pending candidate data.
+  Future<Map<String, dynamic>> readAcceptedProvenance(
+    String id, {
+    int? version,
+  }) =>
+      withProposalMutation(id, () async {
+        final wanted = version ?? (await read(id)).version;
+        final snapshot = File('${_noteHistory(id).path}/$wanted.json');
+        if (!snapshot.existsSync()) return {};
+        final event = jsonDecode(await snapshot.readAsString()) as Map;
+        return (event['accepted_provenance'] as Map?)
+                ?.cast<String, dynamic>() ??
+            {};
+      });
+
+  /// Consumes authority issued only by the trusted review service.
+  /// Journals canonical source and final review state together.
+  Future<void> acceptProposal(
+    ProposalAcceptancePermit permit, {
+    required int expectedRecordRevision,
+  }) =>
+      withProposalMutation(permit.note.id, () async {
+        permit.claim(this);
+        final id = permit.note.id;
+        final record = await readProposalRecord(id, permit.record.id);
+        if (record.recordRevision != expectedRecordRevision ||
+            !const {'pending', 'changes_requested'}.contains(record.state) ||
+            permit.record.state != 'accepted' ||
+            permit.record.acceptedVersion != permit.blockMap.version) {
+          throw const ProposalRecordConflictException('record_changed');
+        }
+        if (permit.newNote) {
+          if (_relPathById.containsKey(id) || permit.note.version != 1) {
+            throw const ProposalRecordConflictException(
+              'draft_already_created',
+            );
+          }
+        } else {
+          final current = await read(id);
+          if (current.version != permit.blockMap.version - 1 ||
+              current.title != permit.note.title ||
+              current.path != permit.note.path) {
+            throw VersionConflictException(
+              current: current,
+              suppliedIfMatch: permit.blockMap.version - 1,
+            );
+          }
+        }
+        final body = permit.deleted ? '' : permit.note.content;
+        if (!permit.blockMap.matches(body) ||
+            (!permit.deleted &&
+                permit.note.version != permit.blockMap.version)) {
+          throw StateError('Reviewed source does not match accepted block map');
+        }
+        final path = permit.deleted
+            ? null
+            : _relativeFilePath(
+                path: permit.note.path,
+                title: permit.note.title,
+              );
+        final key = path == null ? 'deleted:$id' : collisionKey(path);
+        await _withPathLock(key, () async {
+          final owner = path == null ? null : _idByKey[key];
+          if (owner != null && owner != id) {
+            throw PathConflictException(
+              path: permit.note.path,
+              title: permit.note.title,
+            );
+          }
+          await _commitHistory(
+            permit.note,
+            path,
+            deleted: permit.deleted,
+            actor: permit.actor,
+            reviewedBlockMap: permit.blockMap,
+            acceptedProposal: permit.record,
+            acceptedProvenance: permit.provenance,
+            acceptedPolicyDelta: permit.policyDelta,
+          );
+          if (path == null) {
+            final oldPath = _relPathById.remove(id);
+            if (oldPath != null) _idByKey.remove(collisionKey(oldPath));
+          } else {
+            _claim(id: id, key: key, relPath: path);
+          }
+        });
+      });
+
   Future<bool> _retainsHistory(StoredNote note) async =>
       note.extra['history'] == true || _noteHistory(note.id).existsSync();
 
@@ -951,6 +1045,10 @@ class Storage {
     bool deleted = false,
     bool captureCurrent = false,
     String? actor,
+    MarkdownBlockMap? reviewedBlockMap,
+    ProposalRecord? acceptedProposal,
+    Map<String, dynamic>? acceptedProvenance,
+    Map<String, dynamic>? acceptedPolicyDelta,
   }) async {
     final history = _noteHistory(note.id);
     final oldPath = _relPathById[note.id];
@@ -973,12 +1071,13 @@ class Storage {
       previousSource =
           parseFrontmatter(await _fileForRelative(oldPath).readAsString()).body;
     }
-    final blockMap = _blockReconciler.reconcile(
-      deleted ? '' : note.content,
-      version: note.version + (deleted ? 1 : 0),
-      previous: previousMap,
-      previousSource: previousSource,
-    );
+    final blockMap = reviewedBlockMap ??
+        _blockReconciler.reconcile(
+          deleted ? '' : note.content,
+          version: note.version + (deleted ? 1 : 0),
+          previous: previousMap,
+          previousSource: previousSource,
+        );
     final invalidated = <Map<String, dynamic>>[];
     final changed = {
       ...blockMap.changedIds,
@@ -986,6 +1085,7 @@ class Storage {
       ...blockMap.ambiguousIds,
     };
     for (final record in await proposalRecords(noteId: note.id)) {
+      if (record.id == acceptedProposal?.id) continue;
       final operations = record.current.candidate['operations'] as List? ?? [];
       final overlaps = operations.any((raw) {
         final operation = raw as Map;
@@ -1000,6 +1100,14 @@ class Storage {
         if (!identical(next, record)) invalidated.add(next.toStoredJson());
       }
     }
+    if (acceptedProposal != null) {
+      invalidated.add(acceptedProposal.toStoredJson());
+    }
+    final provenance = acceptedProvenance ??
+        await readAcceptedProvenance(note.id, version: previousVersion);
+    if (acceptedProvenance == null) {
+      provenance.removeWhere((id, _) => changed.contains(id));
+    }
     final event = <String, Object?>{
       'id': note.id,
       if (actor != null) 'actor': actor,
@@ -1008,6 +1116,9 @@ class Storage {
       'recorded_at': _clock.nowUtc().toIso8601String(),
       'markdown': _serializeNote(note),
       'block_map': blockMap.toJson(),
+      'accepted_provenance': provenance,
+      if (acceptedPolicyDelta != null)
+        'accepted_policy_delta': acceptedPolicyDelta,
       if (invalidated.isNotEmpty) 'proposal_updates': invalidated,
       'path': path,
       'previous_path': oldPath,
@@ -1080,6 +1191,14 @@ class Storage {
             ..remove('accepted_policy_delta'),
         ),
       );
+    }
+    final policyDelta = event['accepted_policy_delta'];
+    if (policyDelta is Map<String, dynamic>) {
+      final replay = acceptedPolicyReplay;
+      if (replay == null) {
+        throw StateError('Accepted designation replay is not configured');
+      }
+      await replay(policyDelta);
     }
     for (final raw in event['proposal_updates'] as List? ?? []) {
       final record = ProposalRecord.fromStoredJson(raw as Map<String, dynamic>);
