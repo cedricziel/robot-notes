@@ -348,6 +348,17 @@ List<_Span> _parse(String source) {
           i = next + 1;
           continue;
         }
+        final currentText = lines[i].text;
+        final unindented =
+            !currentText.startsWith(' ') && !currentText.startsWith('\t');
+        if (kind != 'paragraph' &&
+            unindented &&
+            (_heading.hasMatch(currentText) ||
+                _thematic.hasMatch(currentText) ||
+                _fence.hasMatch(currentText) ||
+                _embedded.hasMatch(currentText))) {
+          break;
+        }
         if (kind == 'paragraph' && _setext.hasMatch(lines[i].text)) {
           kind = 'heading';
           i++;

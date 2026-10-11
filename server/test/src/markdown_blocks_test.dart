@@ -44,6 +44,26 @@ void main() {
     );
   });
 
+  test('unknown constructs after a list cannot expose speculative anchors', () {
+    const source = '- item\n<custom>\n\n# Inner\n\n</custom>\n';
+
+    final map = reconciler.reconcile(source, version: 1);
+
+    expect(map.blocks.map((b) => b.kind), ['list', 'opaque']);
+    expect(
+      map.blocks.last.source(source),
+      '<custom>\n\n# Inner\n\n</custom>\n',
+    );
+  });
+
+  test('an unindented heading ends a preceding compound block', () {
+    const source = '- item\n# Outside\n';
+
+    final map = reconciler.reconcile(source, version: 1);
+
+    expect(map.blocks.map((b) => b.kind), ['list', 'heading']);
+  });
+
   test('unchanged duplicate blocks preserve identity', () {
     const source = 'same\n\nsame\n';
     final before = reconciler.reconcile(source, version: 1);
