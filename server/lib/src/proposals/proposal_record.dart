@@ -404,6 +404,7 @@ class ProposalRecord {
         'proposal_id': id,
         'note_id': noteId,
         'state': state,
+        'accepted': state == 'accepted',
         'proposal_revision': proposalRevision,
         'record_revision': recordRevision,
         'author_label': author.label,

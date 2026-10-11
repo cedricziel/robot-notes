@@ -48,7 +48,7 @@ An institutional draft outside a curated folder requires the human reviewer to h
 | POST | `/notes/{id}/proposals/{proposalId}/decisions` | Approve, deny, or request changes |
 | GET/POST | `/notes/{id}/comments` | Separate accepted-block threads |
 
-Lists return `{items:[...]}`. Summaries include target `title`, `path`, and `new_note`. Use `?state=accepted` to inspect accepted automatic changes, or `?include_terminal=true` for accepted and denied audit records. Draft inspection includes `draft:{title,path,content,properties,curated_intent}`.
+Lists return `{items:[...]}`. Summaries include target `title`, `path`, and `new_note`, with `accepted` derived solely from committed state. Display labels, credential kind, and agent origin do not authorize actions. Use `?state=accepted` to inspect accepted automatic changes, or `?include_terminal=true` for accepted and denied audit records. Draft inspection includes `draft:{title,path,content,properties,curated_intent}`.
 
 Decisions send `{decision,record_revision,comment?}`. Amendments require both `proposal_revision` and `record_revision`; earlier candidates remain retained. Comments send `{record_revision,body,block_id?,block_revision?,reply_to?}`. Standalone accepted comments require a current block anchor for a new thread, with initial record revision zero. Replies preserve the original thread anchor. Anchor status becomes stale or orphaned after revisions or deletion.
 
