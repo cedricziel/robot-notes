@@ -146,23 +146,35 @@ class _KnowledgePolicyScreenState extends State<KnowledgePolicyScreen> {
                     const Text(
                       'Only selected identities can perform this action. No selection denies everyone except the operator.',
                     ),
+                    CheckboxListTile(
+                      title: const Text(
+                        'Any identity with the required permission',
+                      ),
+                      value: selected!.contains('*'),
+                      onChanged: (checked) =>
+                          update(() => selected = checked == true ? ['*'] : []),
+                    ),
                     for (final principal in _principals)
                       CheckboxListTile(
                         title: Text('${principal['label'] ?? principal['id']}'),
                         subtitle: Text('${principal['kind'] ?? ''}'),
                         value: selected!.contains(principal['id']),
-                        onChanged: (checked) => update(() {
-                          if (checked == true) {
-                            selected!.add(principal['id'] as String);
-                          } else {
-                            selected!.remove(principal['id']);
-                          }
-                        }),
+                        onChanged: selected!.contains('*')
+                            ? null
+                            : (checked) => update(() {
+                                if (checked == true) {
+                                  selected!.add(principal['id'] as String);
+                                } else {
+                                  selected!.remove(principal['id']);
+                                }
+                              }),
                       ),
                     for (final id in selected!.where(
-                      (id) => !_principals.any(
-                        (principal) => principal['id'] == id,
-                      ),
+                      (id) =>
+                          id != '*' &&
+                          !_principals.any(
+                            (principal) => principal['id'] == id,
+                          ),
                     ))
                       ListTile(
                         title: Text(

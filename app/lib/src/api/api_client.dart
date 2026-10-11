@@ -689,8 +689,14 @@ class RobotNotesClient {
       case 404:
         return NotFoundException(message: message);
       case 409:
-        if (body?['error'] != 'path_conflict' &&
-            body?['error'] != 'version_conflict') {
+        final code = body?['error'];
+        if (code is String &&
+            [
+              'proposal_',
+              'policy_',
+              'comment_',
+              'record_',
+            ].any(code.startsWith)) {
           return KnowledgeConflictException(
             details: body ?? {},
             message: message,
