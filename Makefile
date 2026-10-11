@@ -1,4 +1,4 @@
-.PHONY: help install hooks fmt format lint analyze test test-shared test-server test-app test-hermes-plugin test-hermes-plugin-contract test-hermes-plugin-e2e run-server run-app web-build outdated upgrade clean docker-build
+.PHONY: help install hooks fmt format lint analyze test test-root test-hooks test-shared test-server test-app test-hermes-plugin test-hermes-plugin-contract test-hermes-plugin-e2e run-server run-app web-build outdated upgrade clean docker-build
 
 # Default target prints the help table
 help:
@@ -8,7 +8,9 @@ help:
 	@printf "  hooks          install the dart_pre_commit git hook\n"
 	@printf "  fmt / format   dart format on the whole tree\n"
 	@printf "  lint / analyze dart analyze on the whole workspace\n"
-	@printf "  test           run every package's test suite\n"
+	@printf "  test           run the Dart and Flutter test suites\n"
+	@printf "  test-root      run workspace tooling tests\n"
+	@printf "  test-hooks     run conversation hook unit tests\n"
 	@printf "  test-shared    run shared/ tests only\n"
 	@printf "  test-server    run server/ tests only\n"
 	@printf "  test-app       run app/ Flutter tests only\n"
@@ -36,9 +38,16 @@ lint analyze:
 	dart analyze
 
 test:
+	$(MAKE) test-root
 	$(MAKE) test-shared
 	$(MAKE) test-server
 	$(MAKE) test-app
+
+test-root:
+	dart test test
+
+test-hooks:
+	$(HERMES_PLUGIN_PYTHON) -m unittest discover -s claude-plugin/hooks -p 'test_*.py'
 
 test-shared:
 	cd shared && dart test
@@ -49,9 +58,7 @@ test-server:
 test-app:
 	cd app && flutter test
 
-# Not part of `test`: this is the repo's only Python component (requires
-# Python >=3.10), and Dart contributors shouldn't need a Python toolchain
-# for the main suites.
+# Python suites run separately from the Dart/Flutter workspace.
 HERMES_PLUGIN_PYTHON ?= $(shell command -v python3.13 || command -v python3.12 || command -v python3.11 || command -v python3.10 || echo python3)
 
 test-hermes-plugin:
