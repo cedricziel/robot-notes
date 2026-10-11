@@ -1,0 +1,58 @@
+[
+  {
+    "name": "restoration_authority",
+    "query": "Who can authorize restoring backups after a disaster?",
+    "padding": "Warehouse status: shelf counts are unchanged. The inventory ledger lists brass bolts and plain cardboard boxes. ",
+    "repeat": 240,
+    "evidence": "Only Morgan may sign off on recovering the archived copies following a catastrophic outage.",
+    "stale": "Previously, Casey signed off on recovering archived copies. This instruction was superseded by Morgan.",
+    "decoys": [
+      "Routine warehouse inventory is filed every Tuesday.",
+      "Fire drills take place in the west courtyard.",
+      "The cafeteria serves lunch at noon.",
+      "Meeting rooms close at six o'clock."
+    ]
+  },
+  {
+    "name": "erasure_deadline",
+    "query": "How long may we keep customer records before erasing them?",
+    "padding": "Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. ",
+    "repeat": 240,
+    "evidence": "Client files must be destroyed exactly forty-five days after account closure.",
+    "stale": "Formerly, client files were destroyed ninety days after account closure. That rule is superseded.",
+    "decoys": [
+      "Routine workshop inventory is filed every Tuesday.",
+      "Fire drills take place in the west courtyard.",
+      "The cafeteria serves lunch at noon.",
+      "Meeting rooms close at six o'clock."
+    ]
+  },
+  {
+    "name": "network_repair",
+    "query": "What should we do when the internet link stops working?",
+    "padding": "Garden log: rainfall was ordinary and the gravel path remained dry. The shed holds empty pots and folded cotton covers. ",
+    "repeat": 240,
+    "evidence": "If connectivity fails, disconnect the router's power supply for twenty seconds and reconnect it.",
+    "stale": "The old connectivity procedure was to disable the firewall permanently. This procedure has been withdrawn.",
+    "decoys": [
+      "Routine garden inventory is filed every Tuesday.",
+      "Fire drills take place in the west courtyard.",
+      "The cafeteria serves lunch at noon.",
+      "Meeting rooms close at six o'clock."
+    ]
+  },
+  {
+    "name": "short_paraphrase_control",
+    "query": "Who can authorize restoring backups after a disaster?",
+    "padding": "Warehouse status: shelf counts are unchanged. The inventory ledger lists brass bolts and plain cardboard boxes. ",
+    "repeat": 0,
+    "evidence": "Only Morgan may sign off on recovering the archived copies following a catastrophic outage.",
+    "stale": "Previously, Casey signed off on recovering archived copies. This instruction was superseded by Morgan.",
+    "decoys": [
+      "Routine warehouse inventory is filed every Tuesday.",
+      "Fire drills take place in the west courtyard.",
+      "The cafeteria serves lunch at noon.",
+      "Meeting rooms close at six o'clock."
+    ]
+  }
+]

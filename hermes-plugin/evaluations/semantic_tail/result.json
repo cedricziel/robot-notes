@@ -1,0 +1,1186 @@
+{
+  "schema_version": 1,
+  "corpus_sha256": "0c279d3d54fc8627f3106ca3bf58004f55affbed5640cc690fb2cf8ace6b4da4",
+  "embedding_manifest": {
+    "provider": "ollama",
+    "model": "nomic-embed-text:v1.5",
+    "model_digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+    "provider_version": "0.40.3",
+    "settings": {
+      "dimensions": 768,
+      "num_ctx": 2048,
+      "truncate": true,
+      "max_input_chars": 8192
+    }
+  },
+  "tokenizer": {
+    "name": "nomic-ai/nomic-embed-text-v1.5",
+    "revision": "e9b6763023c676ca8431644204f50c2b100d9aab",
+    "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+    "library": "tokenizers",
+    "library_version": "0.22.2",
+    "add_special_tokens": false
+  },
+  "scope": "synthetic/current",
+  "server_source_revision": "f279ac1b910c9aeab671129b4b9f6e5f5e3c1aa7",
+  "server_binary_sha256": "ff563381f7d11da788bf6eca74a3a8eb8d8e0c3b79cb3a4e87ad7f16f961004e",
+  "provider_source_revision": "1f9d64d784dc344d87e5d1b4301eae2f48e0765e",
+  "runner_sha256": "efab0291402d1a0784d7043aab45176b83c207d6146479e5f805d431881c1f70",
+  "runs": {
+    "keyword_only": [
+      {
+        "scenario": "restoration_authority",
+        "evidence_recall": 0,
+        "stale_count": 0,
+        "irrelevant_count": 0,
+        "retrieved_count": 0,
+        "retrieved_labels": [],
+        "context_bytes": 0,
+        "injected_tokens": 0,
+        "injected_context": "",
+        "source_ids": {
+          "current": "01m4pabszj2829sf62x5zm7hze",
+          "superseded": "01m4pabszsyer0h54sv58vwjcw",
+          "other_scope": "01m4pabszvgte36n511ybmxy7d",
+          "decoy_0": "01m4pabszwmbmqx8yxgfxsway4",
+          "decoy_1": "01m4pabszynaqdymf5203vz3fb",
+          "decoy_2": "01m4pabszz9e026s43axyhe794",
+          "decoy_3": "01m4pabt004mcmgvnwad6xy3n4"
+        },
+        "latency_ms": [
+          1.2264580000191927,
+          0.8077500001490989,
+          0.6908330001351715
+        ],
+        "median_latency_ms": 0.8077500001490989,
+        "indexing_wall_ms": 17.983791999995447,
+        "index_embeddings": [],
+        "long_note_source_chars": 26973,
+        "long_note_source_tokens": 4577,
+        "evidence_offset_chars": 26882
+      },
+      {
+        "scenario": "erasure_deadline",
+        "evidence_recall": 0,
+        "stale_count": 0,
+        "irrelevant_count": 0,
+        "retrieved_count": 0,
+        "retrieved_labels": [],
+        "context_bytes": 0,
+        "injected_tokens": 0,
+        "injected_context": "",
+        "source_ids": {
+          "current": "01m4pabt0qhjmn9zn31zbsyfkg",
+          "superseded": "01m4pabt0wjgsve8awqznzwrt7",
+          "other_scope": "01m4pabt0x19awac49cepyd8fz",
+          "decoy_0": "01m4pabt0y4c5j37vjr3cafzzh",
+          "decoy_1": "01m4pabt10v94frztjvhn0bh6w",
+          "decoy_2": "01m4pabt12hatr5h9vhg1mh0we",
+          "decoy_3": "01m4pabt13xs6bm69mmn5c29g1"
+        },
+        "latency_ms": [
+          0.7573749999210122,
+          0.694625000051019,
+          0.7353340001827746
+        ],
+        "median_latency_ms": 0.7353340001827746,
+        "indexing_wall_ms": 13.774291999652633,
+        "index_embeddings": [],
+        "long_note_source_chars": 31039,
+        "long_note_source_tokens": 6015,
+        "evidence_offset_chars": 30962
+      },
+      {
+        "scenario": "network_repair",
+        "evidence_recall": 0,
+        "stale_count": 0,
+        "irrelevant_count": 0,
+        "retrieved_count": 0,
+        "retrieved_labels": [],
+        "context_bytes": 0,
+        "injected_tokens": 0,
+        "injected_context": "",
+        "source_ids": {
+          "current": "01m4pabt1q0q5t98xtzwz60w09",
+          "superseded": "01m4pabt1w52ay1ef4zwdb8w2d",
+          "other_scope": "01m4pabt1y2w6qk441b3pv18eb",
+          "decoy_0": "01m4pabt1zrkk4557w4y1md70p",
+          "decoy_1": "01m4pabt20yw3dgqm73www1z80",
+          "decoy_2": "01m4pabt21fedm5wyz5c403mt8",
+          "decoy_3": "01m4pabt23bb3rpck6teptg1aa"
+        },
+        "latency_ms": [
+          0.7813330003045849,
+          0.6662920000053418,
+          0.837250000131462
+        ],
+        "median_latency_ms": 0.7813330003045849,
+        "indexing_wall_ms": 12.546832999760227,
+        "index_embeddings": [],
+        "long_note_source_chars": 28898,
+        "long_note_source_tokens": 5544,
+        "evidence_offset_chars": 28802
+      },
+      {
+        "scenario": "short_paraphrase_control",
+        "evidence_recall": 0,
+        "stale_count": 0,
+        "irrelevant_count": 0,
+        "retrieved_count": 0,
+        "retrieved_labels": [],
+        "context_bytes": 0,
+        "injected_tokens": 0,
+        "injected_context": "",
+        "source_ids": {
+          "current": "01m4pabt2qgpg6tbfsevfyag5p",
+          "superseded": "01m4pabt2rw9zvkpxye5thhde9",
+          "other_scope": "01m4pabt2s8xfw6km76j22mf9b",
+          "decoy_0": "01m4pabt2tdqxb6d8fvt49mp17",
+          "decoy_1": "01m4pabt2vfy1wsvn0br40mt5k",
+          "decoy_2": "01m4pabt2xqv87kyg9rxqc8kf0",
+          "decoy_3": "01m4pabt2yf4bxndkv2qph0h71"
+        },
+        "latency_ms": [
+          0.7222079998427944,
+          0.6813330001023132,
+          0.9377500000482542
+        ],
+        "median_latency_ms": 0.7222079998427944,
+        "indexing_wall_ms": 8.186625000234926,
+        "index_embeddings": [],
+        "long_note_source_chars": 93,
+        "long_note_source_tokens": 17,
+        "evidence_offset_chars": 2
+      }
+    ],
+    "whole_note_hybrid": [
+      {
+        "scenario": "restoration_authority",
+        "evidence_recall": 0,
+        "stale_count": 1,
+        "irrelevant_count": 3,
+        "retrieved_count": 5,
+        "retrieved_labels": [
+          "current",
+          "decoy_0",
+          "decoy_1",
+          "decoy_3",
+          "superseded"
+        ],
+        "context_bytes": 641,
+        "injected_tokens": 209,
+        "injected_context": "Relevant notes from robot-notes:\n- superseded (id: 01m4pabt8keye63ska9vy20dqt, ): Previously, Casey signed off on recovering archived copies. This instruction was superseded by Morgan.\n- decoy_0 (id: 01m4pabt8p6jnn00ak86kzee60, ): Routine warehouse inventory is filed every Tuesday.\n- decoy_3 (id: 01m4pabt90th769f3ynqws7sq2, ): Meeting rooms close at six o'clock.\n- current (id: 01m4pabt8brr3bnndx808anqc7, ): Warehouse status: shelf counts are unchanged. The inventory ledger lists brass bolts and plain cardboard boxes. Warehouse status: shelf\u2026\n- decoy_1 (id: 01m4pabt8rytv2829pyxkr37bw, ): Fire drills take place in the west courtyard.",
+        "source_ids": {
+          "current": "01m4pabt8brr3bnndx808anqc7",
+          "superseded": "01m4pabt8keye63ska9vy20dqt",
+          "other_scope": "01m4pabt8n9py2836g5bn95vde",
+          "decoy_0": "01m4pabt8p6jnn00ak86kzee60",
+          "decoy_1": "01m4pabt8rytv2829pyxkr37bw",
+          "decoy_2": "01m4pabt8vhgmkg4x0sm7d2skk",
+          "decoy_3": "01m4pabt90th769f3ynqws7sq2"
+        },
+        "latency_ms": [
+          26.1337500000991,
+          28.32354200018017,
+          28.147583000190934
+        ],
+        "median_latency_ms": 28.147583000190934,
+        "indexing_wall_ms": 547.5502080003025,
+        "index_embeddings": [
+          {
+            "input_chars": 8192,
+            "input_tokens": 1391,
+            "prompt_eval_count": 1393,
+            "latency_ms": 395.96350000010716,
+            "status": 200
+          },
+          {
+            "input_chars": 114,
+            "input_tokens": 18,
+            "prompt_eval_count": 20,
+            "latency_ms": 399.97500000026776,
+            "status": 200
+          },
+          {
+            "input_chars": 104,
+            "input_tokens": 19,
+            "prompt_eval_count": 21,
+            "latency_ms": 405.83074999995006,
+            "status": 200
+          },
+          {
+            "input_chars": 60,
+            "input_tokens": 12,
+            "prompt_eval_count": 14,
+            "latency_ms": 412.7364999999372,
+            "status": 200
+          },
+          {
+            "input_chars": 54,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 417.4296249998406,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 417.693207999946,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 11,
+            "prompt_eval_count": 13,
+            "latency_ms": 429.4917920001353,
+            "status": 200
+          }
+        ],
+        "long_note_source_chars": 26973,
+        "long_note_source_tokens": 4577,
+        "evidence_offset_chars": 26882
+      },
+      {
+        "scenario": "erasure_deadline",
+        "evidence_recall": 0,
+        "stale_count": 1,
+        "irrelevant_count": 3,
+        "retrieved_count": 5,
+        "retrieved_labels": [
+          "current",
+          "decoy_0",
+          "decoy_2",
+          "decoy_3",
+          "superseded"
+        ],
+        "context_bytes": 627,
+        "injected_tokens": 219,
+        "injected_context": "Relevant notes from robot-notes:\n- superseded (id: 01m4pabtxpw2jbf6ehw0xfe6bw, ): Formerly, client files were destroyed ninety days after account closure. That rule is superseded.\n- decoy_3 (id: 01m4pabtyazr7eqas5z9pqh4pc, ): Meeting rooms close at six o'clock.\n- decoy_0 (id: 01m4pabtxvva86mmztj9rjsm2e, ): Routine workshop inventory is filed every Tuesday.\n- decoy_2 (id: 01m4pabty190p56y0avg25skm1, ): The cafeteria serves lunch at noon.\n- current (id: 01m4pabtxg8r598npfwe8676tq, ): Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. Workshop\u2026",
+        "source_ids": {
+          "current": "01m4pabtxg8r598npfwe8676tq",
+          "superseded": "01m4pabtxpw2jbf6ehw0xfe6bw",
+          "other_scope": "01m4pabtxr1nv8hj34wrz1hvx0",
+          "decoy_0": "01m4pabtxvva86mmztj9rjsm2e",
+          "decoy_1": "01m4pabtxykjfpfepysretdnhh",
+          "decoy_2": "01m4pabty190p56y0avg25skm1",
+          "decoy_3": "01m4pabtyazr7eqas5z9pqh4pc"
+        },
+        "latency_ms": [
+          23.797332999947685,
+          24.772375000338798,
+          25.12295799988351
+        ],
+        "median_latency_ms": 24.772375000338798,
+        "indexing_wall_ms": 456.9336670001576,
+        "index_embeddings": [
+          {
+            "input_chars": 8192,
+            "input_tokens": 1587,
+            "prompt_eval_count": 1589,
+            "latency_ms": 332.8835000002073,
+            "status": 200
+          },
+          {
+            "input_chars": 90,
+            "input_tokens": 17,
+            "prompt_eval_count": 19,
+            "latency_ms": 334.791000000223,
+            "status": 200
+          },
+          {
+            "input_chars": 109,
+            "input_tokens": 18,
+            "prompt_eval_count": 20,
+            "latency_ms": 344.6559580002031,
+            "status": 200
+          },
+          {
+            "input_chars": 59,
+            "input_tokens": 12,
+            "prompt_eval_count": 14,
+            "latency_ms": 347.65645800007405,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 11,
+            "prompt_eval_count": 13,
+            "latency_ms": 348.88308400013557,
+            "status": 200
+          },
+          {
+            "input_chars": 54,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 361.17266600012954,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 351.56199999983073,
+            "status": 200
+          }
+        ],
+        "long_note_source_chars": 31039,
+        "long_note_source_tokens": 6015,
+        "evidence_offset_chars": 30962
+      },
+      {
+        "scenario": "network_repair",
+        "evidence_recall": 0,
+        "stale_count": 1,
+        "irrelevant_count": 3,
+        "retrieved_count": 5,
+        "retrieved_labels": [
+          "current",
+          "decoy_1",
+          "decoy_2",
+          "decoy_3",
+          "superseded"
+        ],
+        "context_bytes": 625,
+        "injected_tokens": 224,
+        "injected_context": "Relevant notes from robot-notes:\n- superseded (id: 01m4pabvny6g18z685n8tywgdq, ): The old connectivity procedure was to disable the firewall permanently. This procedure has been withdrawn.\n- decoy_3 (id: 01m4pabvqq9whsjc171ayj0qem, ): Meeting rooms close at six o'clock.\n- decoy_2 (id: 01m4pabvqk4a3txngf8ae255ss, ): The cafeteria serves lunch at noon.\n- decoy_1 (id: 01m4pabvqhg9fpmymcxp6gxhnk, ): Fire drills take place in the west courtyard.\n- current (id: 01m4pabvnj0k80a9ysetrj7e0j, ): Garden log: rainfall was ordinary and the gravel path remained dry. The shed holds empty pots and folded cotton covers. Garden log:\u2026",
+        "source_ids": {
+          "current": "01m4pabvnj0k80a9ysetrj7e0j",
+          "superseded": "01m4pabvny6g18z685n8tywgdq",
+          "other_scope": "01m4pabvp8mptx3gy7rp4gac3t",
+          "decoy_0": "01m4pabvqeq358zpp2y4ma6t1j",
+          "decoy_1": "01m4pabvqhg9fpmymcxp6gxhnk",
+          "decoy_2": "01m4pabvqk4a3txngf8ae255ss",
+          "decoy_3": "01m4pabvqq9whsjc171ayj0qem"
+        },
+        "latency_ms": [
+          34.354208999957336,
+          29.207249999672058,
+          28.500791000169556
+        ],
+        "median_latency_ms": 29.207249999672058,
+        "indexing_wall_ms": 393.2084580001174,
+        "index_embeddings": [
+          {
+            "input_chars": 8192,
+            "input_tokens": 1570,
+            "prompt_eval_count": 1572,
+            "latency_ms": 280.24079199985863,
+            "status": 200
+          },
+          {
+            "input_chars": 109,
+            "input_tokens": 26,
+            "prompt_eval_count": 28,
+            "latency_ms": 239.56408300000476,
+            "status": 200
+          },
+          {
+            "input_chars": 118,
+            "input_tokens": 20,
+            "prompt_eval_count": 22,
+            "latency_ms": 247.03508399989005,
+            "status": 200
+          },
+          {
+            "input_chars": 54,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 251.22670799964908,
+            "status": 200
+          },
+          {
+            "input_chars": 57,
+            "input_tokens": 12,
+            "prompt_eval_count": 14,
+            "latency_ms": 262.988208999559,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 11,
+            "prompt_eval_count": 13,
+            "latency_ms": 265.74624999966545,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 267.29091599963795,
+            "status": 200
+          }
+        ],
+        "long_note_source_chars": 28898,
+        "long_note_source_tokens": 5544,
+        "evidence_offset_chars": 28802
+      },
+      {
+        "scenario": "short_paraphrase_control",
+        "evidence_recall": 1,
+        "stale_count": 1,
+        "irrelevant_count": 3,
+        "retrieved_count": 5,
+        "retrieved_labels": [
+          "current",
+          "decoy_0",
+          "decoy_1",
+          "decoy_3",
+          "superseded"
+        ],
+        "context_bytes": 594,
+        "injected_tokens": 209,
+        "injected_context": "Relevant notes from robot-notes:\n- current (id: 01m4pabw6gs0db3q53dv2maf39, ): Only Morgan may sign off on recovering the archived copies following a catastrophic outage.\n- superseded (id: 01m4pabw6kndvnt1zyk036rac2, ): Previously, Casey signed off on recovering archived copies. This instruction was superseded by Morgan.\n- decoy_0 (id: 01m4pabw6ts5wd2st1xt3hmsa0, ): Routine warehouse inventory is filed every Tuesday.\n- decoy_3 (id: 01m4pabw7yc2cdv480fw58sj35, ): Meeting rooms close at six o'clock.\n- decoy_1 (id: 01m4pabw71g886qgk3yscafdek, ): Fire drills take place in the west courtyard.",
+        "source_ids": {
+          "current": "01m4pabw6gs0db3q53dv2maf39",
+          "superseded": "01m4pabw6kndvnt1zyk036rac2",
+          "other_scope": "01m4pabw6nj8axecx4vwjp9mnp",
+          "decoy_0": "01m4pabw6ts5wd2st1xt3hmsa0",
+          "decoy_1": "01m4pabw71g886qgk3yscafdek",
+          "decoy_2": "01m4pabw7503x4kvtqkv6945k0",
+          "decoy_3": "01m4pabw7yc2cdv480fw58sj35"
+        },
+        "latency_ms": [
+          47.22525000033784,
+          25.25687499974083,
+          28.554708999763534
+        ],
+        "median_latency_ms": 28.554708999763534,
+        "indexing_wall_ms": 264.9032919998717,
+        "index_embeddings": [
+          {
+            "input_chars": 100,
+            "input_tokens": 17,
+            "prompt_eval_count": 19,
+            "latency_ms": 113.98912499998914,
+            "status": 200
+          },
+          {
+            "input_chars": 114,
+            "input_tokens": 18,
+            "prompt_eval_count": 20,
+            "latency_ms": 161.12599999996746,
+            "status": 200
+          },
+          {
+            "input_chars": 104,
+            "input_tokens": 19,
+            "prompt_eval_count": 21,
+            "latency_ms": 166.5177909999329,
+            "status": 200
+          },
+          {
+            "input_chars": 60,
+            "input_tokens": 12,
+            "prompt_eval_count": 14,
+            "latency_ms": 169.78175000031115,
+            "status": 200
+          },
+          {
+            "input_chars": 54,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 174.52195800024128,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 154.30412500018065,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 11,
+            "prompt_eval_count": 13,
+            "latency_ms": 171.57287500003804,
+            "status": 200
+          }
+        ],
+        "long_note_source_chars": 93,
+        "long_note_source_tokens": 17,
+        "evidence_offset_chars": 2
+      }
+    ],
+    "passage_prototype": [
+      {
+        "scenario": "restoration_authority",
+        "evidence_recall": 1,
+        "stale_count": 1,
+        "irrelevant_count": 3,
+        "retrieved_count": 5,
+        "retrieved_labels": [
+          "current",
+          "decoy_0",
+          "decoy_1",
+          "decoy_3",
+          "superseded"
+        ],
+        "context_bytes": 1402,
+        "injected_tokens": 432,
+        "injected_context": "Relevant notes from robot-notes:\n- superseded (id: 01m4pabww82xr15b1xh8e1pans, synthetic/current, updated: 2026-10-11T20:27:15.720271Z, version: 1): Previously, Casey signed off on recovering archived copies. This instruction was superseded by Morgan.\n- current (id: 01m4pabwvz7vdvvx5415zcy2nm, synthetic/current, updated: 2026-10-11T20:27:15.712957Z, version: 1): plain cardboard boxes. Warehouse status: shelf counts are unchanged. The inventory ledger lists brass bolts and plain cardboard boxes. Warehouse status: shelf counts are unchanged. The inventory ledger lists brass bolts and plain cardboard boxes. Warehouse status: shelf counts are unchanged. The inventory ledger lists brass bolts and plain cardboard boxes. Warehouse status: shelf counts are unchanged. The inventory ledger lists brass bolts and plain cardboard boxes. \n\nOnly Morgan may sign off on recovering the archived copies following a catastrophic outage.\n- decoy_0 (id: 01m4pabwwbtzmm01z9jvqbx4wy, synthetic/current, updated: 2026-10-11T20:27:15.723909Z, version: 1): Routine warehouse inventory is filed every Tuesday.\n- decoy_3 (id: 01m4pabwwhh31y216eyeq6twce, synthetic/current, updated: 2026-10-11T20:27:15.729360Z, version: 1): Meeting rooms close at six o'clock.\n- decoy_1 (id: 01m4pabwwd4pmvtrzmhz9mcjw0, synthetic/current, updated: 2026-10-11T20:27:15.725877Z, version: 1): Fire drills take place in the west courtyard.",
+        "source_ids": {
+          "current": "01m4pabwvz7vdvvx5415zcy2nm",
+          "superseded": "01m4pabww82xr15b1xh8e1pans",
+          "other_scope": "01m4pabwwa7079pnqct5h05avk",
+          "decoy_0": "01m4pabwwbtzmm01z9jvqbx4wy",
+          "decoy_1": "01m4pabwwd4pmvtrzmhz9mcjw0",
+          "decoy_2": "01m4pabwwfev6qwmexcjty469k",
+          "decoy_3": "01m4pabwwhh31y216eyeq6twce"
+        },
+        "latency_ms": [
+          34.23179099991103,
+          33.968791000006604,
+          34.45950000013909
+        ],
+        "median_latency_ms": 34.23179099991103,
+        "indexing_wall_ms": 1214.722291000271,
+        "index_embeddings": [
+          {
+            "input_chars": 2370,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 75.57600000018283,
+            "status": 200
+          },
+          {
+            "input_chars": 2370,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.59070900007646,
+            "status": 200
+          },
+          {
+            "input_chars": 2366,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.033624999756285,
+            "status": 200
+          },
+          {
+            "input_chars": 2367,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 58.89254199973948,
+            "status": 200
+          },
+          {
+            "input_chars": 2362,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.98983400013458,
+            "status": 200
+          },
+          {
+            "input_chars": 2367,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 61.31858299977466,
+            "status": 200
+          },
+          {
+            "input_chars": 2367,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 61.53329100015981,
+            "status": 200
+          },
+          {
+            "input_chars": 2366,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.38566699999137,
+            "status": 200
+          },
+          {
+            "input_chars": 2364,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.02879200013922,
+            "status": 200
+          },
+          {
+            "input_chars": 2366,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.96945900005812,
+            "status": 200
+          },
+          {
+            "input_chars": 2364,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 58.59250000003158,
+            "status": 200
+          },
+          {
+            "input_chars": 2364,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.140332999959355,
+            "status": 200
+          },
+          {
+            "input_chars": 2362,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.15429099988978,
+            "status": 200
+          },
+          {
+            "input_chars": 2362,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.92350000017177,
+            "status": 200
+          },
+          {
+            "input_chars": 573,
+            "input_tokens": 97,
+            "prompt_eval_count": 99,
+            "latency_ms": 26.750208000066777,
+            "status": 200
+          },
+          {
+            "input_chars": 114,
+            "input_tokens": 18,
+            "prompt_eval_count": 20,
+            "latency_ms": 18.32262499965509,
+            "status": 200
+          },
+          {
+            "input_chars": 60,
+            "input_tokens": 12,
+            "prompt_eval_count": 14,
+            "latency_ms": 19.446207999862963,
+            "status": 200
+          },
+          {
+            "input_chars": 54,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 20.050832999913837,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 11,
+            "prompt_eval_count": 13,
+            "latency_ms": 28.530999999929918,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 19.412249999732012,
+            "status": 200
+          }
+        ],
+        "passage_count": 20,
+        "freshness_probe_rejected": 1
+      },
+      {
+        "scenario": "erasure_deadline",
+        "evidence_recall": 1,
+        "stale_count": 1,
+        "irrelevant_count": 3,
+        "retrieved_count": 5,
+        "retrieved_labels": [
+          "current",
+          "decoy_0",
+          "decoy_2",
+          "decoy_3",
+          "superseded"
+        ],
+        "context_bytes": 2137,
+        "injected_tokens": 582,
+        "injected_context": "Relevant notes from robot-notes:\n- superseded (id: 01m4paby7kgp375vvr1zcjd05w, synthetic/current, updated: 2026-10-11T20:27:17.107366Z, version: 1): Formerly, client files were destroyed ninety days after account closure. That rule is superseded.\n- current (id: 01m4paby7dd74sht26k76277wj, synthetic/current, updated: 2026-10-11T20:27:17.101139Z, version: 1): the door. The equipment checklist names ordinary hammers and spare hinges. Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. Workshop bulletin: reusable crates are stacked beside the door. The equipment checklist names ordinary hammers and spare hinges. \n\nClient files must be destroyed exactly forty-five days after account closure.\n- decoy_3 (id: 01m4paby7wb4jdx84rhpm14js6, synthetic/current, updated: 2026-10-11T20:27:17.116129Z, version: 1): Meeting rooms close at six o'clock.\n- decoy_0 (id: 01m4paby7qrez6ef7bm4xr5wrf, synthetic/current, updated: 2026-10-11T20:27:17.111138Z, version: 1): Routine workshop inventory is filed every Tuesday.\n- decoy_2 (id: 01m4paby7tr3zbwwt21rzvj3f0, synthetic/current, updated: 2026-10-11T20:27:17.114530Z, version: 1): The cafeteria serves lunch at noon.",
+        "source_ids": {
+          "current": "01m4paby7dd74sht26k76277wj",
+          "superseded": "01m4paby7kgp375vvr1zcjd05w",
+          "other_scope": "01m4paby7n5v2jvy1stpefw917",
+          "decoy_0": "01m4paby7qrez6ef7bm4xr5wrf",
+          "decoy_1": "01m4paby7rky1384rttttmr5cs",
+          "decoy_2": "01m4paby7tr3zbwwt21rzvj3f0",
+          "decoy_3": "01m4paby7wb4jdx84rhpm14js6"
+        },
+        "latency_ms": [
+          34.84454099998402,
+          35.58012500025143,
+          35.11658300021736
+        ],
+        "median_latency_ms": 35.11658300021736,
+        "indexing_wall_ms": 1504.0549170003032,
+        "index_embeddings": [
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 64.57541700001457,
+            "status": 200
+          },
+          {
+            "input_chars": 2073,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 64.90487500013842,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 61.74270799965598,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 61.18187499987471,
+            "status": 200
+          },
+          {
+            "input_chars": 2073,
+            "input_tokens": 402,
+            "prompt_eval_count": 404,
+            "latency_ms": 58.76516599983006,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 58.60937499983265,
+            "status": 200
+          },
+          {
+            "input_chars": 2073,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 58.54170900011013,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.537999999975,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.37762500000099,
+            "status": 200
+          },
+          {
+            "input_chars": 2073,
+            "input_tokens": 402,
+            "prompt_eval_count": 404,
+            "latency_ms": 60.014125000179774,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.60783299997274,
+            "status": 200
+          },
+          {
+            "input_chars": 2073,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 58.880583999780356,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 58.96283399988533,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.23425000037241,
+            "status": 200
+          },
+          {
+            "input_chars": 2073,
+            "input_tokens": 402,
+            "prompt_eval_count": 404,
+            "latency_ms": 60.676417000195215,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.59875000028114,
+            "status": 200
+          },
+          {
+            "input_chars": 2073,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.4762920002031,
+            "status": 200
+          },
+          {
+            "input_chars": 2072,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.981417000017245,
+            "status": 200
+          },
+          {
+            "input_chars": 1324,
+            "input_tokens": 255,
+            "prompt_eval_count": 257,
+            "latency_ms": 52.556874999936554,
+            "status": 200
+          },
+          {
+            "input_chars": 109,
+            "input_tokens": 18,
+            "prompt_eval_count": 20,
+            "latency_ms": 19.275832999937847,
+            "status": 200
+          },
+          {
+            "input_chars": 59,
+            "input_tokens": 12,
+            "prompt_eval_count": 14,
+            "latency_ms": 18.703750000440778,
+            "status": 200
+          },
+          {
+            "input_chars": 54,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 19.195792000118672,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 11,
+            "prompt_eval_count": 13,
+            "latency_ms": 19.25341700007266,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 20.05933299960816,
+            "status": 200
+          }
+        ],
+        "passage_count": 24,
+        "freshness_probe_rejected": 1
+      },
+      {
+        "scenario": "network_repair",
+        "evidence_recall": 1,
+        "stale_count": 1,
+        "irrelevant_count": 3,
+        "retrieved_count": 5,
+        "retrieved_labels": [
+          "current",
+          "decoy_1",
+          "decoy_2",
+          "decoy_3",
+          "superseded"
+        ],
+        "context_bytes": 1338,
+        "injected_tokens": 445,
+        "injected_context": "Relevant notes from robot-notes:\n- superseded (id: 01m4pabzw3y9qgz3pgz4784p96, synthetic/current, updated: 2026-10-11T20:27:18.787254Z, version: 1): The old connectivity procedure was to disable the firewall permanently. This procedure has been withdrawn.\n- current (id: 01m4pabzvx7wscgxkp9znvdtgp, synthetic/current, updated: 2026-10-11T20:27:18.781228Z, version: 1): . The shed holds empty pots and folded cotton covers. Garden log: rainfall was ordinary and the gravel path remained dry. The shed holds empty pots and folded cotton covers. Garden log: rainfall was ordinary and the gravel path remained dry. The shed holds empty pots and folded cotton covers. Garden log: rainfall was ordinary and the gravel path remained dry. The shed holds empty pots and folded cotton covers. \n\nIf connectivity fails, disconnect the router's power supply for twenty seconds and reconnect it.\n- decoy_3 (id: 01m4pabzwjhe77nnk8gt7jyq2a, synthetic/current, updated: 2026-10-11T20:27:18.802487Z, version: 1): Meeting rooms close at six o'clock.\n- decoy_2 (id: 01m4pabzwgzwt3sfybpfe4ce82, synthetic/current, updated: 2026-10-11T20:27:18.800676Z, version: 1): The cafeteria serves lunch at noon.\n- decoy_1 (id: 01m4pabzwew0mfakb93b69qcae, synthetic/current, updated: 2026-10-11T20:27:18.798672Z, version: 1): Fire drills take place in the west courtyard.",
+        "source_ids": {
+          "current": "01m4pabzvx7wscgxkp9znvdtgp",
+          "superseded": "01m4pabzw3y9qgz3pgz4784p96",
+          "other_scope": "01m4pabzw5qyd7abmcsm476naw",
+          "decoy_0": "01m4pabzw7cktbbvsd8xzzcf1h",
+          "decoy_1": "01m4pabzwew0mfakb93b69qcae",
+          "decoy_2": "01m4pabzwgzwt3sfybpfe4ce82",
+          "decoy_3": "01m4pabzwjhe77nnk8gt7jyq2a"
+        },
+        "latency_ms": [
+          37.64241699991544,
+          36.885833000269486,
+          41.418167000301764
+        ],
+        "median_latency_ms": 37.64241699991544,
+        "indexing_wall_ms": 1453.3727920002093,
+        "index_embeddings": [
+          {
+            "input_chars": 2097,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 62.658750000082364,
+            "status": 200
+          },
+          {
+            "input_chars": 2094,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.585750000223925,
+            "status": 200
+          },
+          {
+            "input_chars": 2095,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.46574999982113,
+            "status": 200
+          },
+          {
+            "input_chars": 2091,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 59.20158399976572,
+            "status": 200
+          },
+          {
+            "input_chars": 2098,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 61.858167000082176,
+            "status": 200
+          },
+          {
+            "input_chars": 2099,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.95683400008056,
+            "status": 200
+          },
+          {
+            "input_chars": 2090,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 68.26454199972432,
+            "status": 200
+          },
+          {
+            "input_chars": 2093,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 66.00424999987808,
+            "status": 200
+          },
+          {
+            "input_chars": 2093,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 63.968584000122064,
+            "status": 200
+          },
+          {
+            "input_chars": 2095,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.779625000122905,
+            "status": 200
+          },
+          {
+            "input_chars": 2103,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 58.88470799982315,
+            "status": 200
+          },
+          {
+            "input_chars": 2095,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 58.83129199992254,
+            "status": 200
+          },
+          {
+            "input_chars": 2092,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 58.964584000023024,
+            "status": 200
+          },
+          {
+            "input_chars": 2097,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.1705829999446,
+            "status": 200
+          },
+          {
+            "input_chars": 2095,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 61.495959000239964,
+            "status": 200
+          },
+          {
+            "input_chars": 2096,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 60.6305420001263,
+            "status": 200
+          },
+          {
+            "input_chars": 2096,
+            "input_tokens": 401,
+            "prompt_eval_count": 403,
+            "latency_ms": 62.60912499965343,
+            "status": 200
+          },
+          {
+            "input_chars": 521,
+            "input_tokens": 104,
+            "prompt_eval_count": 106,
+            "latency_ms": 27.461833999950613,
+            "status": 200
+          },
+          {
+            "input_chars": 118,
+            "input_tokens": 20,
+            "prompt_eval_count": 22,
+            "latency_ms": 29.79404200004865,
+            "status": 200
+          },
+          {
+            "input_chars": 57,
+            "input_tokens": 12,
+            "prompt_eval_count": 14,
+            "latency_ms": 20.578499999828637,
+            "status": 200
+          },
+          {
+            "input_chars": 54,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 21.086875000037253,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 11,
+            "prompt_eval_count": 13,
+            "latency_ms": 21.202334000008705,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 22.633500000210915,
+            "status": 200
+          }
+        ],
+        "passage_count": 23,
+        "freshness_probe_rejected": 1
+      },
+      {
+        "scenario": "short_paraphrase_control",
+        "evidence_recall": 1,
+        "stale_count": 1,
+        "irrelevant_count": 3,
+        "retrieved_count": 5,
+        "retrieved_labels": [
+          "current",
+          "decoy_0",
+          "decoy_1",
+          "decoy_3",
+          "superseded"
+        ],
+        "context_bytes": 929,
+        "injected_tokens": 348,
+        "injected_context": "Relevant notes from robot-notes:\n- current (id: 01m4pac1fe9kq5h56jzpqjd2h9, synthetic/current, updated: 2026-10-11T20:27:20.430754Z, version: 1): Only Morgan may sign off on recovering the archived copies following a catastrophic outage.\n- superseded (id: 01m4pac1fgwpycjtd5nxr8dfef, synthetic/current, updated: 2026-10-11T20:27:20.432665Z, version: 1): Previously, Casey signed off on recovering archived copies. This instruction was superseded by Morgan.\n- decoy_0 (id: 01m4pac1fmyck2qms2nc15kbh2, synthetic/current, updated: 2026-10-11T20:27:20.436128Z, version: 1): Routine warehouse inventory is filed every Tuesday.\n- decoy_3 (id: 01m4pac1fygk3mfxkqbvds2sgg, synthetic/current, updated: 2026-10-11T20:27:20.446826Z, version: 1): Meeting rooms close at six o'clock.\n- decoy_1 (id: 01m4pac1fp9rtn8yh1yhg98144, synthetic/current, updated: 2026-10-11T20:27:20.438361Z, version: 1): Fire drills take place in the west courtyard.",
+        "source_ids": {
+          "current": "01m4pac1fe9kq5h56jzpqjd2h9",
+          "superseded": "01m4pac1fgwpycjtd5nxr8dfef",
+          "other_scope": "01m4pac1fjnb55drnkc57cvd0k",
+          "decoy_0": "01m4pac1fmyck2qms2nc15kbh2",
+          "decoy_1": "01m4pac1fp9rtn8yh1yhg98144",
+          "decoy_2": "01m4pac1frd82znas6hepw9h33",
+          "decoy_3": "01m4pac1fygk3mfxkqbvds2sgg"
+        },
+        "latency_ms": [
+          53.840790999856836,
+          65.21495899960428,
+          49.65329200013002
+        ],
+        "median_latency_ms": 53.840790999856836,
+        "indexing_wall_ms": 306.0744999997951,
+        "index_embeddings": [
+          {
+            "input_chars": 100,
+            "input_tokens": 17,
+            "prompt_eval_count": 19,
+            "latency_ms": 21.360624999942956,
+            "status": 200
+          },
+          {
+            "input_chars": 114,
+            "input_tokens": 18,
+            "prompt_eval_count": 20,
+            "latency_ms": 20.530667000002722,
+            "status": 200
+          },
+          {
+            "input_chars": 60,
+            "input_tokens": 12,
+            "prompt_eval_count": 14,
+            "latency_ms": 22.942167000110203,
+            "status": 200
+          },
+          {
+            "input_chars": 54,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 33.12975000017104,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 11,
+            "prompt_eval_count": 13,
+            "latency_ms": 51.34091600029933,
+            "status": 200
+          },
+          {
+            "input_chars": 44,
+            "input_tokens": 13,
+            "prompt_eval_count": 15,
+            "latency_ms": 60.41637499993158,
+            "status": 200
+          }
+        ],
+        "passage_count": 6,
+        "freshness_probe_rejected": 1
+      }
+    ]
+  },
+  "model_sequence_cutoff_probe": {
+    "synthetic_input": "x-space repeated 4096 times",
+    "input_chars": 8192,
+    "input_tokens": 4096,
+    "prompt_eval_count": 2048,
+    "latency_ms": 486.98187500031054,
+    "status": 200
+  },
+  "prototype_settings": {
+    "passage_tokens": 400,
+    "overlap_tokens": 80,
+    "max_passages_per_note": 128,
+    "fusion_k": 60,
+    "ranker_candidates": 50,
+    "max_notes": 5,
+    "max_source_reads": 10,
+    "context_max_bytes": 4096
+  }
+}
