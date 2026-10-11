@@ -372,7 +372,7 @@ Each source descriptor SHALL record stable source identity, immutable revision, 
 
 ### Requirement: Adapter capture is opt-in and idempotent
 
-Automatic capture SHALL default to disabled and require explicit authorized enablement per scope and adapter. Explicit source import SHALL remain separate. Hermes and other adapters SHALL use one source ingestion contract carrying vault, adapter, stable event ID, payload, media type, observation time, and requested scope. The server SHALL derive principal and allowed scope from credentials. Repeat delivery of an event with identical payload SHALL return the same revision. Reusing that event ID with different payload SHALL fail as a conflict. Existing ordinary memory writes SHALL NOT silently enable capture or become curated knowledge.
+Automatic capture SHALL default to disabled and require explicit authorized enablement per scope and adapter. Explicit source import SHALL remain separate. Hermes and other adapters SHALL use one source ingestion contract carrying vault, adapter, stable event ID, payload, media type, observation time, and requested scope. The server SHALL derive principal and allowed scope from credentials. Deduplication SHALL use vault identity, authenticated principal identity, exact case-sensitive adapter identifier, and exact case-sensitive event ID. Identifiers SHALL be non-empty. The canonical request digest SHALL include exact payload bytes, normalized media type, UTC-normalized observation time, and normalized requested scope as defined in the design. Requested scope SHALL NOT be part of the key. Repeat delivery with the same key and digest SHALL return the original revision after current authorization and capture checks. Reusing the key with a changed digest SHALL return idempotency_conflict without new source or extraction work. Deduplication records and source persistence SHALL share a recoverable transaction. Purge SHALL retain a non-content consumed-key tombstone preventing recreation through retry. Existing ordinary memory writes SHALL NOT silently enable capture or become curated knowledge.
 
 #### Scenario: Capture disabled
 
@@ -383,6 +383,32 @@ Automatic capture SHALL default to disabled and require explicit authorized enab
 
 - **WHEN** Hermes or another adapter retries the same authorized event and payload
 - **THEN** ingestion SHALL return the original source revision without duplicating material
+
+#### Scenario: Independent adapters reuse a native event ID
+
+- **WHEN** two adapters submit the same native event ID in the same vault under the same principal
+- **THEN** their distinct adapter identifiers SHALL keep the observations independent
+- **AND** neither request SHALL return the other's source revision
+
+#### Scenario: Independent principals reuse an event ID
+
+- **WHEN** two authenticated principals submit the same adapter identifier and event ID in the same vault
+- **THEN** deduplication SHALL keep their source observations independent
+
+#### Scenario: Scope changes on retry
+
+- **WHEN** an authorized caller retries a consumed source event key with a different requested scope
+- **THEN** the service SHALL return idempotency_conflict and preserve the original source revision without creating another extraction job
+
+#### Scenario: Metadata changes on retry
+
+- **WHEN** a caller retries the same event key with a changed normalized media type or observation time
+- **THEN** the service SHALL return idempotency_conflict even if payload bytes are unchanged
+
+#### Scenario: Source purge followed by delivery retry
+
+- **WHEN** an adapter retries an event key whose source was explicitly purged
+- **THEN** the service SHALL report the consumed key without recreating the source or revealing purged material
 
 ### Requirement: Background extraction has proposal-only authority
 

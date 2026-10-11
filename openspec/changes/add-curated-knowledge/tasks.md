@@ -48,6 +48,12 @@
 - [x] Define isolated Hermes and live-server verification as a runtime release gate.
 - [x] Validate the expanded release contract.
 
+## Isolated review follow-up
+
+- [x] Define source event namespaces, canonical payload comparison, and changed-scope retry conflicts.
+- [x] Record independent adapter and principal scenarios and purged-source retry behavior.
+- [x] Validate the ingestion contract revision.
+
 ## Implementation tracking
 
 Implementation is tracked in the issue sequence in `design.md`, with one PR per issue. The typed knowledge extension still needs focused implementation issues; the checked planning tasks do not indicate runtime completion. No runtime implementation is included in this design change.
