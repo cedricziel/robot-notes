@@ -1,0 +1,7 @@
+{
+  "paraphrase": {"evidence_recall": 0.0, "irrelevant_count": 0, "stale_count": 0, "retrieved_count": 0},
+  "long-note-tail": {"evidence_recall": 1.0, "irrelevant_count": 0, "stale_count": 0, "retrieved_count": 1},
+  "correction": {"evidence_recall": 1.0, "irrelevant_count": 0, "stale_count": 1, "retrieved_count": 2},
+  "irrelevant-notes": {"evidence_recall": 1.0, "irrelevant_count": 0, "stale_count": 0, "retrieved_count": 1},
+  "identity-scope": {"evidence_recall": 1.0, "irrelevant_count": 1, "stale_count": 0, "retrieved_count": 2}
+}

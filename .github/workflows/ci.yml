@@ -280,6 +280,21 @@ jobs:
         working-directory: hermes-plugin
         run: pip install -e '.[dev]'
 
+      - name: Evaluate synthetic memory quality
+        working-directory: hermes-plugin
+        env:
+          ROBOT_NOTES_E2E_BASE_URL: http://127.0.0.1:8098
+          ROBOT_NOTES_E2E_API_KEY: ${{ env.ROBOT_NOTES_API_KEY }}
+        run: python -m evaluations.memory_quality --search-db "$ROBOT_NOTES_DATA_DIR/search.db" --output memory-quality.json
+
+      - name: Upload memory quality report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-quality
+          path: hermes-plugin/memory-quality.json
+          if-no-files-found: warn
+
       - name: Run e2e tests
         working-directory: hermes-plugin
         env:
