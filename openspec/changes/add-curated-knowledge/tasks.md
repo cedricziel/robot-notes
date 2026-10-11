@@ -26,6 +26,15 @@
 - [x] Require transactional relation integrity across concurrent acceptance, deletion, and migration.
 - [x] Validate and review the expanded contract.
 
+## File and extraction planning tasks
+
+- [x] Define versioned Markdown metadata, stable references, source blobs, and evidence locators.
+- [x] Assign candidate writers and accepted server publication authority for each artifact.
+- [x] Specify opt-in adapter capture and proposal-only background extraction.
+- [x] Specify durable jobs, idempotent retries, multi-document proposals, and revocation checks.
+- [x] Validate the file and extraction contract.
+- [x] Update the PR with the file and extraction contract.
+
 ## Implementation tracking
 
 Implementation is tracked in the issue sequence in `design.md`, with one PR per issue. The typed knowledge extension still needs focused implementation issues; the checked planning tasks do not indicate runtime completion. No runtime implementation is included in this design change.

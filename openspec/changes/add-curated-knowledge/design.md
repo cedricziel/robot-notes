@@ -64,6 +64,75 @@ Store local and imported type definitions as canonical Markdown documents with s
 
 Treat externally edited type files as candidate revisions, not accepted definitions. Validate and review candidates through the curated workflow before activation. Malformed or unapproved external edits leave the prior accepted definition active, including across restart and index rebuild. Version history and the mutation journal retain the accepted snapshots needed for recovery. Reading or exporting current files alone does not preserve older pinned versions; portable export includes the referenced definition snapshots and adoption manifest.
 
+## File formats and artifact writers
+
+Use UTF-8 Markdown with YAML frontmatter for source descriptors, knowledge entries, local and imported type definitions, and adoption manifests. Add one server-managed `knowledge` frontmatter object, reserved from free-form database properties, without reusing the existing `type` discriminator. Its `format_version: 1` identifies this contract. Existing note identity and title fields retain their existing encoding. The examples omit server-managed ordinary note metadata for readability. Stable identities, not paths, resolve references.
+
+Default paths are `types/schema.org/<release>/<term>.md`, `types/local/<name>.md`, `types/adoptions/<adoption-id>.md`, `sources/<source-id>.md`, and `knowledge/<note-id>.md`. Paths are conventions within the selected vault and may change without changing roles or identities. Source revision blobs and original attachments live in the retained source store, outside ordinary recall indexes. Review records, proposals, jobs, and mutation journals remain in durable sidecar stores, not accepted document prose.
+
+A local type document uses the following shape. Property constraints use `value_type`, `required`, optional `enum`, and list `min_items` or `max_items`. Relation constraints use `target_types`, `min_items`, and optional `max_items`. Supported `value_type` values are text, number, boolean, date, and list; lists declare `items` with a primitive value_type. Required text is non-empty. Procedure steps use an ordered list with text items and min_items of one. Parent and target type references contain `id` and `version`.
+
+```yaml
+knowledge:
+  format_version: 1
+  role: type_definition
+  definition:
+    id: urn:robot-notes:type:Claim
+    version: 1
+    extends:
+      - id: https://schema.org/Claim
+        version: schema-release-id
+    properties:
+      statement: {value_type: text, required: true}
+    relations:
+      supported_by:
+        target_types: [{id: 'urn:robot-notes:type:Evidence', version: 1}]
+        min_items: 1
+    guidance:
+      sections: [Statement, Evidence]
+      examples: ['State one claim and cite its supporting passage.']
+      agent_instructions: 'Propose claims with revision-specific evidence.'
+```
+
+Imported type documents use the same definition shape and add `origin: {adoption_id, term_uri}`. Imported property terms use `role: vocabulary_term` with `term: {id, kind: property, version, origin, definition}`. Preserve original vocabulary semantics in `definition`; compile only explicitly supported constructs into enforced constraints. Adoption manifests use `role: ontology_adoption` and `adoption: {id, namespace, release, artifact_source, sha256, definitions, dependencies, unsupported_dispositions}`. `definitions` lists stable term identities and pinned versions. Keep the original release artifact in retained storage and identify it in the manifest.
+
+Knowledge entries use the following shape. Primitive properties remain ordinary top-level frontmatter for compatibility with database views. Named relation values are lists of stable note IDs, not title-based database relation strings. Expose these through typed knowledge APIs and compatible derived views without changing existing database relation encodings.
+
+```yaml
+statement: Agent credentials require scoped permissions.
+knowledge:
+  format_version: 1
+  role: knowledge
+  types: [{id: 'urn:robot-notes:type:Claim', version: 1}]
+  relations:
+    supported_by: [evidence-note-id]
+```
+
+Source descriptors use `knowledge: {format_version: 1, role: source, source: {id, revision, media_type, sha256, blob_ref, adapter, captured_at}}`. `blob_ref` resolves within the selected vault's retained store, never to an arbitrary filesystem path. Retain original bytes, including original Markdown frontmatter, in the revision blob. Descriptor prose is a human-readable description, not a replacement for original material. Evidence entries use `role: knowledge`, the Evidence type assignment, and `evidence: {source_id, source_revision, locator}` inside `knowledge`. Locators are either `{kind: whole_document}` or `{kind: text_range, start, end}` with zero-based Unicode scalar offsets and an exclusive end in the retained UTF-8 text revision. Non-text material initially uses whole-document locators. Evidence's required source fields are read from this structured reference, not duplicate editable properties.
+
+| Artifact | Candidate writer | Accepted publisher |
+|---|---|---|
+| Imported definitions and adoption manifest | Server importer invoked by an authorized caller | Server after adoption review |
+| Local type document | Human editor or proposal-authorized agent | Server after validation and applicable review, or authorized direct save |
+| Source descriptor and original revision | Ingestion adapter submits material and an idempotency key | Server ingestion service after capture policy and access checks |
+| Knowledge and Evidence entry | Human editor, agent, or extraction worker | Server after validation and applicable review, or authorized direct save |
+| Proposals and extraction jobs | Proposal service and background scheduler | Server durable sidecar store; never published as accepted notes |
+| Derived indexes | Server indexer | Rebuilt from accepted documents and retained snapshots |
+
+External file edits are candidate inputs, not another accepted publication authority. The server derives trusted actor identity from credentials, hashes from received bytes, and revision IDs from retained writes. Adapter labels are descriptive, not authorization claims.
+
+## Adapter-neutral background extraction
+
+Capture is off by default and explicitly enabled per authorized scope and adapter. Explicit source imports remain available separately. Hermes and future adapters submit observations through one ingestion contract: vault, adapter name, stable event ID, source payload and media type, observation time, and requested scope. The server derives the trusted principal and permitted scope from credentials, rejects excess scope, and returns the same source revision for repeated delivery of the same event and payload. A repeated event ID with different payload is a conflict. Hermes durable delivery retries use this contract; existing ordinary memory writes are not silently converted into captured sources or curated knowledge.
+
+A durable server scheduler enqueues eligible retained source revisions only when extraction is enabled for their scope. Jobs record source revision, trusted originating principal and scope, extractor configuration version, pinned type versions, checkpoint, attempt count, and state: queued, running, retry_wait, blocked, completed, or cancelled. Claim leases and recover expired leases after crashes. Use a stable job key over vault, source revision, extraction configuration, and type versions. Store candidate proposal IDs before advancing checkpoints so retry and crash recovery cannot duplicate published proposals. Intentional re-extraction uses a new configuration or explicit generation and preserves earlier lineage.
+
+The worker explicitly reads authorized sources and accepted type definitions, resolves existing entities conservatively, and constructs Evidence and typed knowledge proposals with passage references. Unknown matches and contradictions remain review diagnostics. Multi-document proposals can introduce Evidence and dependent Claims together. Validate references against the complete candidate set, then publish all accepted documents atomically if reviewed acceptance succeeds. Required targets may therefore be accepted in the same transaction. No intermediate accepted Claim may reference pending Evidence.
+
+The extraction credential has source-read and proposal authority in its permitted scope, never review, direct accepted-edit, policy-management, or purge authority. The worker cannot grant itself automatic acceptance. Any automatic acceptance is a separate server policy decision using the existing checks. Recheck effective authorization, capture and extraction eligibility, source availability, and type freshness before each read and proposal submission. Sources are untrusted data, not instructions granting tool access or changing policy.
+
+Disabling capture stops new automatic ingestion. Disabling extraction cancels queued jobs and prevents running jobs from submitting new proposals. Revocation, exclusion, expiration, or purge blocks jobs requiring unavailable inputs. Transient failures use bounded backoff; permanent failures remain inspectable without endless retry. Health exposes queue state and actionable failures to authorized users without leaking source text. Consolidation and retirement gardening remain later extensions.
+
 ## Ontologies, reusable types, and linked knowledge
 
 Support entities and knowledge objects as ordinary Markdown notes with stable identities. Start with Person and Project for entities, and Claim, Decision, Procedure, and Evidence for knowledge objects. These are reusable semantic types, independent of folder location and database membership. Existing database property schemas remain compatible views and constraints, not the identity of a knowledge type. Preserve the existing reserved frontmatter keys when choosing the type-assignment representation.
@@ -80,7 +149,7 @@ PROV-O provenance and SKOS concept organization are later extensions, not initia
 
 Incomplete drafts and proposals expose validation diagnostics to authors and agents. Acceptance and authorized direct writes into curated knowledge validate the complete resulting entry against the selected accepted type versions after applying sets, unsets, replacements, and relation changes, before publishing any accepted revision. Invalid updates leave the accepted revision unchanged. Ordinary untyped notes remain supported. Type definitions and ontology adoption records use the same review, capability, history, and provenance rules as curated content.
 
-Keep prose wikilinks for navigation. Named relations reference stable note identities, with titles and aliases for display. Relations can connect entities and knowledge objects, including Claim supported_by Evidence, Decision affects Project, Decision supersedes Decision, and Procedure maintained_by Person. The initial local constraints below make these relationships enforceable without choosing external mappings prematurely. An unresolved prose link can remain navigable as a dangling link, but a required typed relation must resolve to an accepted, type-compatible target before acceptance.
+Keep prose wikilinks for navigation. Named relations reference stable note identities, with titles and aliases for display. Relations can connect entities and knowledge objects, including Claim supported_by Evidence, Decision affects Project, Decision supersedes Decision, and Procedure maintained_by Person. The initial local constraints below make these relationships enforceable without choosing external mappings prematurely. An unresolved prose link can remain navigable as a dangling link, but a required typed relation must resolve to an accepted, type-compatible target or a compatible entry accepted in the same atomic transaction.
 
 Agents can propose a page's prose, properties, and relations as one reviewed mutation with evidence. Schema changes invalidate affected pending acceptance eligibility. Normal queries and graph traversal use accepted entries and accepted relations under the caller's effective access policy. Suggested relations and inferred claims remain outside accepted recall until accepted. Derived indexes are rebuildable from accepted notes, relation records, and pinned type definitions.
 

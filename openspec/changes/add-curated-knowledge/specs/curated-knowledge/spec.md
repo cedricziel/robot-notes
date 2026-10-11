@@ -231,7 +231,7 @@ Drafts and proposals MAY remain structurally incomplete and SHALL expose validat
 
 ### Requirement: Named relations support accepted knowledge queries
 
-The system SHALL support named relations between entities and knowledge objects using stable target identities. Titles and aliases SHALL remain display attributes. Prose wikilinks SHALL remain available. Required typed relations SHALL resolve to accepted targets satisfying the declared target types before acceptance. Prose, properties, and relations in a proposal SHALL be reviewable and accepted together. Normal queries and graph traversal SHALL use only accepted entries and relations and SHALL enforce effective read access for results, traversed targets, and evidence.
+The system SHALL support named relations between entities and knowledge objects using stable target identities. Titles and aliases SHALL remain display attributes. Prose wikilinks SHALL remain available. Required typed relations SHALL resolve to accepted targets or compatible entries accepted within the same atomic transaction, satisfying the declared target types. Prose, properties, and relations in a proposal SHALL be reviewable and accepted together. Normal queries and graph traversal SHALL use only accepted entries and relations and SHALL enforce effective read access for results, traversed targets, and evidence.
 
 #### Scenario: Querying linked decisions
 
@@ -327,7 +327,7 @@ Local and imported type definitions SHALL be canonical Markdown documents with s
 
 Every initial local type SHALL require the existing non-empty note title and a pinned type assignment. Person SHALL require a non-empty display_name. Project SHALL require a non-empty summary. Claim SHALL require a non-empty statement and at least one supported_by relation to Evidence. Decision SHALL require a non-empty rationale, one decision_date using the existing date encoding, a status from proposed, accepted, or superseded, and at least one affects relation to Project. Decision status SHALL remain distinct from document review state. Procedure SHALL require at least one non-empty ordered step and at least one maintained_by relation to Person. Evidence SHALL require one source identity, one immutable source revision identifier, and one non-empty passage or whole-document locator.
 
-The initial types SHALL permit zero or more Project maintained_by Person, Decision supported_by Evidence, Decision supersedes Decision, and Procedure supported_by Evidence relations. Every supplied named relation SHALL resolve to an accepted compatible knowledge target, except Evidence source references which SHALL resolve to retained source revisions. These local constraints SHALL NOT make unconstrained imported suggestions mandatory.
+The initial types SHALL permit zero or more Project maintained_by Person, Decision supported_by Evidence, Decision supersedes Decision, and Procedure supported_by Evidence relations. Every supplied named relation SHALL resolve to an accepted compatible knowledge target or one accepted within the same atomic transaction, except Evidence source references which SHALL resolve to retained source revisions. These local constraints SHALL NOT make unconstrained imported suggestions mandatory.
 
 #### Scenario: Validating all starting types
 
@@ -338,3 +338,84 @@ The initial types SHALL permit zero or more Project maintained_by Person, Decisi
 
 - **WHEN** an authorized reviewer accepts a structurally valid Decision whose domain status is proposed
 - **THEN** the document SHALL be accepted knowledge while its decision status SHALL remain proposed
+
+
+### Requirement: Files use explicit versioned metadata and writers
+
+Source descriptors, knowledge entries, type definitions, vocabulary terms, and ontology adoption manifests SHALL use UTF-8 Markdown with YAML frontmatter and the server-managed `knowledge` object described in the design's file format contract. `knowledge` SHALL be reserved from free-form database property writes. Its format_version SHALL be 1 initially. Role and stable references SHALL determine meaning independently of path. Unknown format versions SHALL prevent activation with diagnostics. Primitive knowledge properties SHALL preserve existing frontmatter encoding. Typed knowledge relations SHALL use stable note identities without redefining existing title-based database relations.
+
+The importer SHALL generate imported definition and manifest candidates. Humans and authorized agents SHALL author local type and knowledge candidates. Ingestion adapters SHALL submit source material. The server SHALL be the accepted publisher, enforcing the applicable ingestion or curated review policy. External file edits SHALL remain candidates. Trusted identity, source hashes, and revision IDs SHALL be server-derived. Proposal and extraction job records SHALL remain durable sidecar data.
+
+#### Scenario: Reading a file-backed type
+
+- **WHEN** an authorized author reads a local type document
+- **THEN** its structured metadata SHALL expose identity, version, parents, properties, relations, and guidance using the documented encoding
+
+#### Scenario: Unsupported file version
+
+- **WHEN** an imported or externally edited document declares an unknown knowledge format version
+- **THEN** the server SHALL reject activation with diagnostics without replacing accepted definitions
+
+### Requirement: Source files retain original material and precise locators
+
+Each source descriptor SHALL record stable source identity, immutable revision, media type, digest, vault-local blob reference, adapter label, and capture time. The retained revision SHALL preserve original bytes. Evidence locators SHALL encode either whole_document or text_range with zero-based Unicode scalar offsets and an exclusive end in the referenced UTF-8 text revision. Non-text revisions SHALL initially support whole-document locators. Source blobs SHALL NOT enter default curated recall. Original source frontmatter SHALL NOT be interpreted as trusted knowledge metadata.
+
+#### Scenario: Capturing source Markdown with frontmatter
+
+- **WHEN** an adapter submits Markdown containing a claimed role or actor in frontmatter
+- **THEN** the server SHALL preserve those bytes as source material and SHALL derive descriptor identity and access from authenticated ingestion
+
+#### Scenario: Citing a retained passage
+
+- **WHEN** Evidence supplies a text_range locator outside its retained text revision
+- **THEN** validation SHALL reject acceptance rather than silently cite different text
+
+### Requirement: Adapter capture is opt-in and idempotent
+
+Automatic capture SHALL default to disabled and require explicit authorized enablement per scope and adapter. Explicit source import SHALL remain separate. Hermes and other adapters SHALL use one source ingestion contract carrying vault, adapter, stable event ID, payload, media type, observation time, and requested scope. The server SHALL derive principal and allowed scope from credentials. Repeat delivery of an event with identical payload SHALL return the same revision. Reusing that event ID with different payload SHALL fail as a conflict. Existing ordinary memory writes SHALL NOT silently enable capture or become curated knowledge.
+
+#### Scenario: Capture disabled
+
+- **WHEN** a memory adapter attempts automatic source capture without opt-in
+- **THEN** no source SHALL be captured and no extraction job SHALL be created
+
+#### Scenario: Retried adapter delivery
+
+- **WHEN** Hermes or another adapter retries the same authorized event and payload
+- **THEN** ingestion SHALL return the original source revision without duplicating material
+
+### Requirement: Background extraction has proposal-only authority
+
+A server background worker SHALL extract typed knowledge and Evidence proposals from eligible retained source revisions through an adapter-neutral workflow. Extraction SHALL require explicit scope enablement. Its credential SHALL have only necessary source-read and proposal permissions, never review, accepted-edit, policy-management, or purge authority. Sources SHALL be treated as untrusted input. Every extracted assertion SHALL retain source revision and locator references. Uncertain entity matches and contradictions SHALL be exposed for review. Automatic acceptance SHALL remain a separate policy-controlled server operation.
+
+#### Scenario: Extracting a claim
+
+- **WHEN** an enabled worker extracts a Claim from an authorized source passage
+- **THEN** it SHALL submit a typed proposal with Evidence and source lineage, leaving accepted knowledge unchanged until eligible acceptance
+
+#### Scenario: Introducing Evidence and Claim together
+
+- **WHEN** a reviewed proposal introduces new Evidence and a Claim referencing it
+- **THEN** validation SHALL evaluate the complete candidate set and acceptance SHALL publish both atomically
+- **AND** no accepted intermediate state SHALL reference pending Evidence
+
+#### Scenario: Worker attempts acceptance
+
+- **WHEN** the extraction credential attempts to approve or directly publish knowledge
+- **THEN** the server SHALL deny the operation regardless of source content or adapter label
+
+### Requirement: Extraction jobs survive retries and respect revocation
+
+The scheduler SHALL durably track jobs, leases, checkpoints, attempts, proposal identities, and queued, running, retry_wait, blocked, completed, or cancelled state. Jobs SHALL pin source revision, originating principal and scope, extractor configuration, and type versions. Stable job and proposal keys SHALL prevent duplicate jobs or proposals during delivery retries and crash recovery. Transient failures SHALL use bounded backoff. Permanent failures SHALL remain inspectable. Authorized health inspection SHALL expose job status without leaking source text.
+
+The worker SHALL recheck effective authorization, extraction eligibility, source availability, and type freshness before reads and submissions. Disabling capture SHALL stop new automatic ingestion. Disabling extraction SHALL cancel queued jobs and prevent running jobs from submitting new proposals. Revoked access, excluded sources, expiration, and purge SHALL block affected work. Intentional re-extraction SHALL retain lineage and use a distinct configuration or explicit generation.
+
+#### Scenario: Crash after proposal persistence
+
+- **WHEN** a worker crashes after persisting a proposal but before advancing its checkpoint
+- **THEN** lease recovery and retry SHALL reuse the existing proposal identity without creating a duplicate
+
+#### Scenario: Disabling extraction during processing
+
+- **WHEN** extraction is disabled or source access is revoked while a job runs
+- **THEN** the worker SHALL stop further protected reads and SHALL NOT submit new proposals under the stale eligibility
