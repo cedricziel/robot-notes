@@ -50,8 +50,9 @@ void main() {
               'provenance': {
                 'b': {
                   'block_revision': 1,
-                  'source_unknown': false,
+                  'source_unknown': true,
                   'evidence_refs': [
+                    {'kind': 'unknown', 'reason': 'source_not_recorded'},
                     {
                       'kind': 'note_revision',
                       'note_id': 'source',
@@ -137,6 +138,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Accepted truth'), findsOneWidget);
       expect(find.text('Note source · version 2'), findsOneWidget);
+      expect(find.text('Source not recorded'), findsOneWidget);
       expect(find.text('Propose update'), findsNothing);
     },
   );

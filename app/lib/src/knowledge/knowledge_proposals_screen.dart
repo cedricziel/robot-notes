@@ -83,6 +83,7 @@ class _KnowledgeProposalsScreenState extends State<KnowledgeProposalsScreen> {
       final proposalId = summary['proposal_id'] as String;
       final proposal = await widget.api.getKnowledgeProposal(id, proposalId);
       if (!mounted) return;
+      setState(() => summary['state'] = proposal['state']);
       await showProposalReview(
         context: context,
         proposal: proposal,

@@ -176,6 +176,7 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
         summary['proposal_id'] as String,
       );
       if (!mounted) return;
+      setState(() => summary['state'] = proposal['state']);
       await showProposalReview(
         context: context,
         proposal: proposal,
@@ -239,7 +240,9 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
         provenance['block_revision'] != block['revision']) {
       return const Text('Source not recorded');
     }
-    final refs = _rows(provenance['evidence_refs']);
+    final refs = _rows(provenance['evidence_refs'])
+        .where((source) => source['kind'] != 'unknown')
+        .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
