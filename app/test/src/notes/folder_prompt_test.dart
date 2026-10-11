@@ -23,10 +23,15 @@ Future<Future<bool?>> _openDialog(
   WidgetTester tester, {
   required RobotNotesClient api,
   String? initialPath,
+  bool reducedMotion = false,
 }) async {
   final resultCompleter = Completer<bool?>();
   await tester.pumpWidget(
     MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(disableAnimations: reducedMotion),
+        child: child!,
+      ),
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(
@@ -52,6 +57,23 @@ Future<Future<bool?>> _openDialog(
 
 void main() {
   group('showCreateFolderDialog', () {
+    testWidgets('reduced motion skips folder dialog animation', (tester) async {
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async => http.Response('', 500)),
+      );
+      addTearDown(api.close);
+      await _openDialog(tester, api: api, reducedMotion: true);
+      final route = ModalRoute.of(
+        tester.element(find.byKey(const Key('folder.create.input'))),
+      )!;
+      expect(route.transitionDuration, Duration.zero);
+      expect(route.reverseTransitionDuration, Duration.zero);
+      await tester.tap(find.byKey(const Key('folder.create.cancel')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('folder.create.input')), findsNothing);
+    }, variant: TargetPlatformVariant.all());
+
     testWidgets('pre-fills the input with initialPath', (tester) async {
       final api = RobotNotesClient(
         config: _config,

@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../api/api_client.dart';
 import '../widgets/adaptive.dart';
+import '../widgets/platform_motion.dart';
 import '../widgets/error_strip.dart';
 
 /// Shows a "New folder" prompt and, on confirm, calls
@@ -15,7 +16,7 @@ Future<bool> showCreateFolderDialog(
   required RobotNotesClient api,
   String? initialPath,
 }) async {
-  final created = await showDialog<bool>(
+  final created = await showPlatformDialog<bool>(
     context: context,
     builder: (_) => _CreateFolderDialog(api: api, initialPath: initialPath),
   );
