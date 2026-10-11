@@ -358,6 +358,140 @@ void main() {
     },
   );
 
+  test(
+    'property response with remote body enters conflict while editing',
+    () async {
+      await editing();
+      controller.setEditContent('Local draft');
+      final patching = controller.patchProperty(set: {'status': 'Done'});
+      await _settle();
+      backend.note = _note(version: 2, content: 'Remote draft')
+        ..['properties'] = {'status': 'Done'};
+      backend.patchResponses.single.complete(_response(backend.note));
+      await patching;
+
+      expect(controller.value.mode, NoteMode.conflict);
+      expect(controller.value.note?.version, 1);
+      expect(controller.value.editContent, 'Local draft');
+      expect(controller.value.conflictCurrent?.content, 'Remote draft');
+      expect(controller.value.properties, {'status': 'Done'});
+      backend.autosaves.last.complete();
+      await _settle();
+      expect(backend.saves, isEmpty);
+    },
+  );
+
+  test(
+    'property response with remote title enters conflict while editing',
+    () async {
+      await editing();
+      controller.setEditTitle('Local draft');
+      final patching = controller.patchProperty(set: {'status': 'Done'});
+      await _settle();
+      backend.note = _note(version: 2, title: 'Remote draft')
+        ..['properties'] = {'status': 'Done'};
+      backend.patchResponses.single.complete(_response(backend.note));
+      await patching;
+
+      expect(controller.value.mode, NoteMode.conflict);
+      expect(controller.value.note?.version, 1);
+      expect(controller.value.editTitle, 'Local draft');
+      expect(controller.value.conflictCurrent?.title, 'Remote draft');
+      expect(controller.value.properties, {'status': 'Done'});
+      backend.autosaves.last.complete();
+      await _settle();
+      expect(backend.saves, isEmpty);
+    },
+  );
+
+  test('property response with remote body enters conflict while editing an unchanged draft', () async {
+    await editing();
+    final patching = controller.patchProperty(set: {'status': 'Done'});
+    await _settle();
+    backend.note = _note(version: 2, content: 'Remote draft')
+      ..['properties'] = {'status': 'Done'};
+    backend.patchResponses.single.complete(_response(backend.note));
+    await patching;
+
+    expect(controller.value.mode, NoteMode.conflict);
+    expect(controller.value.note?.version, 1);
+    expect(controller.value.editContent, 'Original');
+    expect(controller.value.conflictCurrent?.content, 'Remote draft');
+    expect(controller.value.properties, {'status': 'Done'});
+    expect(backend.autosaves, isEmpty);
+    await _settle();
+    expect(backend.saves, isEmpty);
+  });
+
+  test(
+    'property response after lock loss preserves remote body conflicts',
+    () async {
+      await editing();
+      controller.setEditContent('Local draft');
+      final patching = controller.patchProperty(set: {'status': 'Done'});
+      await _settle();
+      backend.loseLock();
+      backend.note = _note(version: 2, content: 'Remote draft');
+      backend.patchResponses.single.complete(_response(backend.note));
+      await patching;
+
+      await controller.enterEditMode();
+
+      expect(controller.value.mode, NoteMode.conflict);
+      expect(controller.value.editContent, 'Local draft');
+      expect(controller.value.conflictCurrent?.content, 'Remote draft');
+      expect(backend.saves, isEmpty);
+    },
+  );
+
+  test(
+    'property response after lock loss preserves remote title conflicts',
+    () async {
+      await editing();
+      controller.setEditTitle('Local draft');
+      final patching = controller.patchProperty(set: {'status': 'Done'});
+      await _settle();
+      backend.loseLock();
+      backend.note = _note(version: 2, title: 'Remote draft');
+      backend.patchResponses.single.complete(_response(backend.note));
+      await patching;
+
+      await controller.enterEditMode();
+
+      expect(controller.value.mode, NoteMode.conflict);
+      expect(controller.value.editTitle, 'Local draft');
+      expect(controller.value.conflictCurrent?.title, 'Remote draft');
+      expect(backend.saves, isEmpty);
+    },
+  );
+
+  test(
+    'property-only response after lock loss advances the draft save version',
+    () async {
+      await editing();
+      controller.setEditContent('Local draft');
+      final patching = controller.patchProperty(set: {'status': 'Done'});
+      await _settle();
+      backend.loseLock();
+      backend.note = _note(version: 2);
+      backend.patchResponses.single.complete(_response(backend.note));
+      await patching;
+
+      await controller.enterEditMode();
+      expect(controller.value.mode, NoteMode.editing);
+      backend.autosaves.last.complete();
+      await _settle();
+
+      expect(backend.saves.single.headers['if-match'], '2');
+      expect(jsonDecode(backend.saves.single.body)['content'], 'Local draft');
+      backend.saveResponses.single.complete(
+        _response(_note(version: 3, content: 'Local draft')),
+      );
+      await _settle();
+      expect(controller.value.isDirty, isFalse);
+    },
+  );
+
   test('retry waits for a pending save before reacquiring the lock', () async {
     await editing();
     controller.setEditContent('Submitted');

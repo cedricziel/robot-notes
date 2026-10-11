@@ -853,18 +853,11 @@ class NoteController extends ValueNotifier<NoteState> {
     }
   }
 
-  /// Applies a property patch, serialized with body saves through one
-  /// queue (design.md: "Property panel lives in `NoteController`"). An
-  /// armed autosave is cancelled first, and if a body save is already in
-  /// flight this waits for it before sending, so the patch and a save can
-  /// never race each other's `If-Match`. The edit buffers
-  /// ([NoteState.editTitle], [NoteState.editContent]) are left untouched;
-  /// on success the returned `version` becomes the new `If-Match`
-  /// baseline (it is the only source [NoteState.note] adopts a version
-  /// from here), and the cancelled autosave is re-armed — it no-ops if the
-  /// buffers are no longer dirty when it fires. A `validation_failed`
-  /// (400) or other [ApiException] is left on [NoteState.error]; the panel
-  /// keeps whatever it was showing.
+  /// Applies a property patch without an editor lock or `If-Match`, serialized
+  /// with body saves. Preserves edit buffers and adopts the returned save
+  /// version only when the draft's baseline title and body are unchanged.
+  /// Remote body changes enter [NoteMode.conflict]; property-only changes
+  /// re-arm any cancelled autosave. Failures remain on [NoteState.error].
   Future<void> patchProperty({
     Map<String, Object?>? set,
     List<String>? unset,
@@ -889,8 +882,28 @@ class NoteController extends ValueNotifier<NoteState> {
         unset: unset,
       );
       if (_disposed) return;
-      value = value.copyWith(note: updated, properties: updated.properties);
-      if (value.mode == NoteMode.viewing && _retainedDraftBaseline != null) {
+      final draftBaseline = value.note ?? note;
+      final hasActiveDraft =
+          value.mode == NoteMode.editing ||
+          value.mode == NoteMode.saving ||
+          value.mode == NoteMode.conflict;
+      if (hasActiveDraft &&
+          (draftBaseline.title != updated.title ||
+              draftBaseline.content != updated.content)) {
+        value = value.copyWith(
+          mode: NoteMode.conflict,
+          conflictCurrent: updated,
+          error: VersionConflictException(current: updated),
+          properties: updated.properties,
+        );
+      } else {
+        value = value.copyWith(note: updated, properties: updated.properties);
+      }
+      final retainedBaseline = _retainedDraftBaseline;
+      if (value.mode == NoteMode.viewing &&
+          retainedBaseline != null &&
+          retainedBaseline.title == updated.title &&
+          retainedBaseline.content == updated.content) {
         _retainedDraftBaseline = updated;
       }
     } on ApiException catch (e) {
