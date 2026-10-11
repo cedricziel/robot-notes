@@ -194,7 +194,7 @@ class ProposalService {
     StoredNote note,
     Map<String, dynamic> input,
   ) async {
-    if (input['base_version'] != note.version) {
+    if (_revision(input, 'base_version') != note.version) {
       throw const ProposalRecordConflictException('accepted_base_changed');
     }
     final operations = ProposalOperation.parseAll(input['operations']);

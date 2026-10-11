@@ -701,6 +701,7 @@ class NoteWriteService {
       links: _searchLinkEdges(note.id),
       extra: note.extra,
       createdAt: note.createdAt,
+      isDefinition: isDatabaseDefinitionExtra(note.extra),
     );
     _refreshRegistry(summary, note.extra);
     _safeBroadcast(

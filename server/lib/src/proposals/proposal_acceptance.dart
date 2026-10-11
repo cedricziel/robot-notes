@@ -1,7 +1,7 @@
 part of 'proposal_service.dart';
 
 /// Unforgeable publication authority issued by the authorized review service.
-class ProposalAcceptancePermit {
+final class ProposalAcceptancePermit {
   ProposalAcceptancePermit._({
     required this.storage,
     required this.record,
