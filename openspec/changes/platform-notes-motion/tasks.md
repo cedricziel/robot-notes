@@ -2,7 +2,7 @@
 - [x] Reproduce missing reduced-motion support.
 - [x] Implement platform-specific note and vault dialog motion.
 - [x] Verify navigation, dialogs, reduced motion, analysis, and web build.
-- [ ] Open a separate pull request.
+- [x] Open a separate pull request (#361, based on #360).
 
 ## Validation
 
