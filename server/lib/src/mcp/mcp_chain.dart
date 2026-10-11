@@ -27,7 +27,7 @@ import 'package:shared/shared.dart';
 /// its own copy of this composition, which meant the integration suite
 /// never actually exercised `routes/mcp/_middleware.dart` itself.
 Handler mcpChain(Handler handler, {required AppDeps deps, Tracer? tracer}) {
-  return handler.use(mcpAuth()).use(
+  return handler.use(mcpAuth(agentCredentials: deps.agentCredentials)).use(
         provider<McpHandler>(
           (_) => McpHandler(
             tools: McpToolRegistry.forDeps(deps),

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dart_otel_api/dart_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
+import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/databases/registry.dart';
@@ -59,6 +60,7 @@ class AppDeps {
     required Broadcaster broadcaster,
     required PresenceTracker presence,
     required Clock clock,
+    AgentCredentialStore? agentCredentials,
     LinkIndex? linkIndex,
     NoteWriteService? noteWriteService,
     DatabaseRegistry? registry,
@@ -89,6 +91,11 @@ class AppDeps {
       clientStore: clientStore,
       codeStore: codeStore,
       tokenStore: tokenStore,
+      agentCredentials: agentCredentials ??
+          AgentCredentialStore(
+            dir: Directory('${inviteStore.inviteDir.parent.path}/credentials'),
+            clock: clock,
+          ),
       consentThrottle: consentThrottle,
       lockManager: lockManager,
       broadcaster: broadcaster,
@@ -123,6 +130,7 @@ class AppDeps {
     required this.clientStore,
     required this.codeStore,
     required this.tokenStore,
+    required this.agentCredentials,
     required this.consentThrottle,
     required this.lockManager,
     required this.broadcaster,
@@ -335,6 +343,9 @@ class AppDeps {
   /// Filesystem-backed OAuth access/refresh token store.
   final TokenStore tokenStore;
 
+  /// Server-wide scoped agent identities and revocations.
+  final AgentCredentialStore agentCredentials;
+
   /// Process-local rate limit on failed `/oauth/authorize` consent
   /// submissions.
   final ConsentThrottle consentThrottle;
@@ -387,5 +398,6 @@ class AppDeps {
     await lockManager.close();
     searchIndex.close();
     uploadSessions.dispose();
+    await agentCredentials.dispose();
   }
 }

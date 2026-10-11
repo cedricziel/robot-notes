@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:dart_otel_api/dart_otel_api.dart' hide Logger;
 import 'package:logging/logging.dart';
 import 'package:server/src/actor.dart';
+import 'package:server/src/agent_credentials.dart';
+import 'package:server/src/constant_time.dart';
 import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/ws/broadcaster.dart';
@@ -64,6 +66,7 @@ class WsConnection {
     required String apiKey,
     required TokenStore tokenStore,
     required String restResource,
+    AgentCredentialStore? agentCredentials,
     this.vaultId = 'default',
     Duration authTimeout = kDefaultWsAuthTimeout,
     Logger? logger,
@@ -74,6 +77,7 @@ class WsConnection {
         _presence = presence,
         _apiKey = apiKey,
         _tokenStore = tokenStore,
+        _agentCredentials = agentCredentials,
         _restResource = restResource,
         _authTimeout = authTimeout,
         _log = logger ?? Logger('ws_connection'),
@@ -91,6 +95,11 @@ class WsConnection {
   final PresenceTracker _presence;
   final String _apiKey;
   final TokenStore _tokenStore;
+  final AgentCredentialStore? _agentCredentials;
+
+  /// Trusted identity bound by the authentication handshake.
+  String? get principalId => _principalId;
+  String? _principalId;
   final String _restResource;
   final Duration _authTimeout;
   final Logger _log;
@@ -103,6 +112,7 @@ class WsConnection {
 
   Timer? _authTimer;
   StreamSubscription<WsMessage>? _bcastSub;
+  StreamSubscription<String>? _credentialRevocationSub;
   Actor? _actor;
   bool _closed = false;
 
@@ -186,6 +196,8 @@ class WsConnection {
     for (final ev in events.values) {
       _broadcaster.emitPresence(ev);
     }
+    await _credentialRevocationSub?.cancel();
+    _credentialRevocationSub = null;
     await _bcastSub?.cancel();
     _bcastSub = null;
     await _broadcaster.disconnect(id);
@@ -216,11 +228,35 @@ class WsConnection {
       return;
     }
 
-    if (msg.key == _apiKey) {
+    if (constantTimeEquals(msg.key, _apiKey)) {
+      _principalId = 'operator';
       _completeAuth(Actor.fromHeader(msg.actor));
       return;
     }
 
+    final agent = await _agentCredentials?.lookup(msg.key);
+    if (_closed) return;
+    if (agent != null) {
+      if ((!agent.vaultIds.contains(vaultId) &&
+              !agent.scopes.contains(kScopeVaultsManage)) ||
+          !agent.scopes.contains('notes:read')) {
+        _close(kCloseAuthFailure, ErrorCode.authFailed.wire);
+        return;
+      }
+      _credentialRevocationSub = _agentCredentials!.revocations.listen((id) {
+        if (id == agent.id) {
+          _close(kCloseAuthFailure, ErrorCode.authFailed.wire);
+        }
+      });
+      // Close the lookup/subscription race if revocation happened before listening.
+      if (await _agentCredentials.lookup(msg.key) == null) {
+        _close(kCloseAuthFailure, ErrorCode.authFailed.wire);
+        return;
+      }
+      _principalId = 'agent:${agent.id}';
+      _completeAuth(Actor(agent.actor));
+      return;
+    }
     final record = await _tokenStore.lookupAccess(msg.key);
     if (record == null ||
         record.resource != _restResource ||
@@ -231,6 +267,7 @@ class WsConnection {
       _close(kCloseAuthFailure, ErrorCode.authFailed.wire);
       return;
     }
+    _principalId = 'oauth:${record.grantId}';
     _completeAuth(Actor(record.actor));
   }
 
@@ -330,6 +367,8 @@ class WsConnection {
     for (final ev in events.values) {
       _broadcaster.emitPresence(ev);
     }
+    unawaited(_credentialRevocationSub?.cancel());
+    _credentialRevocationSub = null;
     unawaited(_bcastSub?.cancel());
     _bcastSub = null;
     unawaited(_broadcaster.disconnect(id));

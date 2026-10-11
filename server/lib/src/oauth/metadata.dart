@@ -7,8 +7,46 @@ const List<String> kOAuthNoteScopes = ['notes:read', 'notes:write'];
 /// Explicit permission to manage and access all current and future vaults.
 const String kScopeVaultsManage = 'vaults:manage';
 
+/// Submit proposals without changing accepted knowledge.
+const String kScopeKnowledgePropose = 'knowledge:propose';
+
+/// Decide whether proposals enter accepted knowledge.
+const String kScopeKnowledgeReview = 'knowledge:review';
+
+/// Save accepted curated knowledge directly.
+const String kScopeKnowledgeEdit = 'knowledge:edit';
+
+/// Manage curated knowledge access and approval rules.
+const String kScopeKnowledgePolicy = 'knowledge:policy';
+
+/// Permanently erase retained curated knowledge.
+const String kScopeKnowledgePurge = 'knowledge:purge';
+
+/// Curated knowledge grants require explicit authorization.
+const List<String> kOAuthKnowledgeScopes = [
+  kScopeKnowledgePropose,
+  kScopeKnowledgeReview,
+  kScopeKnowledgeEdit,
+  kScopeKnowledgePolicy,
+  kScopeKnowledgePurge,
+];
+
+/// OIDC authentication does not provision these operator-approved capabilities.
+bool requiresOperatorKnowledgeConsent(Iterable<String> scopes) => scopes.any(
+      const {
+        kScopeKnowledgeReview,
+        kScopeKnowledgeEdit,
+        kScopeKnowledgePolicy,
+        kScopeKnowledgePurge,
+      }.contains,
+    );
+
 /// Scopes supported by the authorization server.
-const List<String> kOAuthScopes = [...kOAuthNoteScopes, kScopeVaultsManage];
+const List<String> kOAuthScopes = [
+  ...kOAuthNoteScopes,
+  ...kOAuthKnowledgeScopes,
+  kScopeVaultsManage,
+];
 
 /// Builds the RFC 9728 protected-resource metadata document for the given
 /// public [base] URL. Identical for `/.well-known/oauth-protected-resource`
@@ -17,7 +55,7 @@ Map<String, Object?> protectedResourceMetadata(String base) => {
       'resource': mcpResourceUrl(base),
       'authorization_servers': [base],
       'bearer_methods_supported': ['header'],
-      'scopes_supported': kOAuthNoteScopes,
+      'scopes_supported': [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes],
       'resource_name': 'robot-notes',
     };
 

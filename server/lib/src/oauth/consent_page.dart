@@ -10,6 +10,11 @@ import 'package:shared/shared.dart';
 const Map<String, String> _kScopeDescriptions = {
   'notes:read': 'Read notes and run searches across the workspace.',
   'notes:write': 'Create, edit, append to, and delete notes.',
+  'knowledge:propose': 'Submit curated knowledge proposals',
+  'knowledge:review': 'Approve or deny curated knowledge proposals',
+  'knowledge:edit': 'Edit accepted curated knowledge directly',
+  'knowledge:policy': 'Manage curated knowledge access and approval rules',
+  'knowledge:purge': 'Permanently purge retained curated knowledge',
   kScopeVaultsManage:
       'Create and rename vaults, and access all current and future vaults.',
 };
@@ -104,9 +109,10 @@ String renderConsentPage(
   final cancelHref = _cancelHref(params);
   final redirectUri = _esc.convert(params.redirectUri);
 
-  final identityStep = oidcConfigured
-      ? _signInLink(params, cancelHref: cancelHref)
-      : _apiKeyForm(params, clientName, cancelHref: cancelHref);
+  final identityStep =
+      oidcConfigured && !requiresOperatorKnowledgeConsent(params.scopes)
+          ? _signInLink(params, cancelHref: cancelHref)
+          : _apiKeyForm(params, clientName, cancelHref: cancelHref);
 
   return '''
 <!doctype html>

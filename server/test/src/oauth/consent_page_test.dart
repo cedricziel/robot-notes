@@ -25,6 +25,16 @@ ConsentPageParams _params({
 
 void main() {
   group('renderConsentPage', () {
+    test('elevated knowledge scopes require operator approval with OIDC', () {
+      final html = renderConsentPage(
+        _params(scopes: const {'notes:read', 'knowledge:review'}),
+        oidcConfigured: true,
+      );
+      expect(html, contains('name="api_key"'));
+      expect(html, isNot(contains('Sign in with your identity provider')));
+      expect(html, contains('Approve or deny curated knowledge proposals'));
+    });
+
     test('escapes a script tag in the client name', () {
       final html = renderConsentPage(
         _params(clientName: '<script>alert(1)</script>'),

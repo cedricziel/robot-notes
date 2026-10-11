@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/well_known_middleware.dart';
 import 'package:test/test.dart';
 
@@ -59,7 +60,10 @@ void main() {
       expect(body['resource'], 'http://notes.example.com/mcp');
       expect(body['authorization_servers'], ['http://notes.example.com']);
       expect(body['bearer_methods_supported'], ['header']);
-      expect(body['scopes_supported'], ['notes:read', 'notes:write']);
+      expect(
+        body['scopes_supported'],
+        [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes],
+      );
       expect(body['resource_name'], 'robot-notes');
     });
 
@@ -114,7 +118,7 @@ void main() {
       );
       expect(
         body['scopes_supported'],
-        ['notes:read', 'notes:write', 'vaults:manage'],
+        [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes, kScopeVaultsManage],
       );
       expect(body.containsKey('robotnotes_oidc_login_supported'), isFalse);
     });

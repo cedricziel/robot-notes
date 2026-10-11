@@ -6,6 +6,7 @@ import 'package:server/src/config.dart';
 import 'package:server/src/oauth/authorize_request.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/error_page.dart';
+import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oidc/discovery.dart';
 import 'package:server/src/oidc/id_token.dart';
 import 'package:server/src/oidc/jwks.dart';
@@ -55,6 +56,12 @@ Future<Response> onRequest(RequestContext context) async {
   final pending = context.read<PendingLoginStore>().take(state);
   if (pending == null) {
     return oauthErrorPage('Unknown or expired login attempt.');
+  }
+
+  if (requiresOperatorKnowledgeConsent(
+    (pending.consentRequest['scope'] ?? '').split(' '),
+  )) {
+    return oauthErrorPage('Knowledge permissions require operator approval.');
   }
 
   final String idToken;

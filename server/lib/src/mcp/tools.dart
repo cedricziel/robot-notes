@@ -164,9 +164,7 @@ class McpToolRegistry {
         handler: (args, principal) async => toolOk({
           'vaults': [
             for (final vault in vaults.list())
-              if (principal.isStaticKey ||
-                  principal.vaultIds.contains(vault['id']))
-                vault,
+              if (principal.canAccessVault(vault['id']!)) vault,
           ],
         }),
       ),
@@ -188,7 +186,7 @@ class McpToolRegistry {
           requiresWrite: tool.requiresWrite,
           handler: (args, principal) async {
             final id = args['vault_id'] as String? ?? 'default';
-            if (!principal.isStaticKey && !principal.vaultIds.contains(id)) {
+            if (!principal.canAccessVault(id)) {
               return toolFail('vault_access_denied');
             }
             if (!vaults.contains(id)) return toolFail('vault_not_found');
