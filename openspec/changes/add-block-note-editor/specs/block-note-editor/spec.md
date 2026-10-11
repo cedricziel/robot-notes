@@ -148,3 +148,9 @@ The editing experience SHALL follow the application's adaptive presentation conv
 - **WHEN** the user selects Markdown source at desktop, mobile portrait, or mobile landscape width
 - **THEN** the source editor SHALL use one editing pane without a simultaneous preview
 - **AND** switching back to Blocks SHALL retain the draft and show its rendered presentation
+
+#### Scenario: Presentation selection stays anchored
+
+- **WHEN** the user switches between Blocks and Markdown source
+- **THEN** the two presentations SHALL appear in one grouped platform-appropriate selector at a consistent position
+- **AND** formatting actions SHALL remain reachable without wrapping around the selector

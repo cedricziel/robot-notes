@@ -100,3 +100,10 @@ Block typography uses the application's Markdown styles. Authoring fields have f
 Markdown source uses one full-width editing pane without a simultaneous preview. Switching to Blocks supplies the rendered presentation, including database embeds. Source formatting and wiki-link completion remain available.
 
 The follow-up passes 160 focused block, screen, and theme tests and all 955 app tests. New regressions cover handle geometry, checkbox alignment and undo, natural table sizing and horizontal scroll, and single-pane source layouts at desktop, phone portrait, and phone landscape widths. Real browser checks use 390×844, 844×390, and 1440×900 layouts. Portrait and landscape checks confirm that source and block content remain scrollable to the end of the note. A real checkbox edit persisted while both table sources remained byte-for-byte unchanged. Browser logs contained no errors or warnings. The verification tab was closed, its viewport reset, and the disposable server and data cleaned up. Native mobile runtime validation remains outside this browser check.
+
+
+### Stable presentation selector
+
+Blocks and Markdown source use one grouped selector aligned to the editor's outer inset. Apple themes use a Cupertino sliding segmented control; Material themes use a segmented button. Formatting actions occupy a separate horizontal scroller in the same toolbar row. Narrow widths and larger text put that action row below the selector without wrapping individual actions around it. Switching presentations leaves the selector anchored.
+
+The selector follow-up passes 140 editor and screen tests, including phone toolbar geometry and 2× text scaling under Apple and Material themes. The rebuilt web app was checked at 390×844 and 844×390. Formatting actions scroll, both presentations remain reachable, and source switching leaves the stored note unchanged at version 1. Browser logs contain no errors or warnings. The temporary browser, viewport override, server, data, and credentials were cleaned up.

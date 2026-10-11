@@ -101,3 +101,12 @@ Follow-up complete.
 - [x] 6.5 Remove simultaneous source previews and verify one source pane across widths.
 - [x] 6.6 Align checkbox graphics with the content edge without losing editing or accessibility behavior.
 - [x] 6.7 Match block typography and authoring fields to the application rendering style.
+
+
+## 7. Presentation selector polish
+
+Follow-up complete.
+
+- [x] 7.1 Replace floating mode buttons with a grouped selector and a non-wrapping toolbar.
+- [x] 7.2 Verify source switching, narrow widths, and platform presentation.
+- [x] 7.3 Check the real browser layout and record the result.
