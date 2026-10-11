@@ -493,3 +493,49 @@ Idempotency keys SHALL be scoped to vault, authenticated principal, and operatio
 
 - **WHEN** an agent amends a proposal using an outdated expected proposal revision
 - **THEN** the service SHALL return version_conflict and preserve the current proposal and review history
+
+
+### Requirement: Hermes compatibility gates the initial release
+
+The initial curated knowledge release SHALL include a working Hermes adapter for the shared agent contract. Release readiness SHALL require passing contract tests and isolated live-server end-to-end verification for the supported server and plugin pair. Completed planning tasks SHALL NOT count as passing runtime verification.
+
+With capture and extraction disabled, the plugin SHALL preserve existing ordinary memory writes, recall, configured identity destinations, scoped authorization, durable retries, and health reporting. Read-only configurations SHALL retain recall without capture or proposal writes. Opt-in capture SHALL add source ingestion without silently replacing existing ordinary memory delivery. Accepted-only curated recall SHALL remain distinct from existing ordinary memory recall.
+
+#### Scenario: Existing memory with new features disabled
+
+- **WHEN** Hermes runs against the supported server with capture and extraction disabled
+- **THEN** existing memory writes, scoped recall, identity destinations, durable retry recovery, and health reporting SHALL continue to work without source capture or extraction jobs
+
+#### Scenario: Read-only Hermes configuration
+
+- **WHEN** Hermes uses a credential permitting recall but no writes
+- **THEN** recall SHALL remain available and automatic capture and proposal submission SHALL NOT occur
+
+### Requirement: Hermes exposes tools with capability-aware compatibility
+
+Hermes SHALL expose type discovery, accepted knowledge queries, source inspection, candidate validation, and proposal submission, inspection, and amendment through the shared contract. The server SHALL publish its knowledge contract version and supported operations. Hermes SHALL discover capabilities before using new operations and report explicit unsupported-capability diagnostics for older or partially supporting servers. Existing memory operations SHALL remain usable when knowledge tools are unsupported. Denied or unsupported proposal operations SHALL NOT fall back to ordinary accepted writes. Advertised capabilities SHALL NOT substitute for credential permissions.
+
+#### Scenario: Server lacks knowledge tools
+
+- **WHEN** Hermes connects to a server without the knowledge contract
+- **THEN** new knowledge operations SHALL report unsupported-capability diagnostics and existing ordinary memory operations SHALL remain usable
+
+#### Scenario: Proposal permission denied
+
+- **WHEN** Hermes attempts a supported proposal operation without proposal authority
+- **THEN** it SHALL report denial without retrying the candidate through a direct note write
+
+### Requirement: Isolated Hermes verification proves the complete flow
+
+Release verification SHALL exercise the real plugin's memory-provider interface and registered tools against a real throwaway server. Ports, vault, datastore, Hermes home, outbox, credentials, and processes SHALL be isolated from user and production state. Deterministic extraction fixtures SHALL make workflow verification repeatable. Verification SHALL cover existing feature-disabled behavior, opt-in observation capture, Evidence and knowledge proposal creation, accepted-only visibility, separately authorized acceptance, durable retry recovery, and capability and permission failures. Evidence SHALL record server, plugin, Hermes runtime, and contract versions and check results. Verification SHALL clean up its resources. Inability to establish isolation SHALL leave the gate unverified.
+
+#### Scenario: Capture through accepted recall
+
+- **WHEN** isolated Hermes captures an authorized observation and the background worker extracts its Evidence and Claim proposal
+- **THEN** the source and pending proposal SHALL be inspectable but absent from accepted knowledge queries and curated recall
+- **AND** after a separately authorized test reviewer accepts the group, Hermes SHALL retrieve the accepted Claim and its evidence references through the shared tools
+
+#### Scenario: Recovering delivery and submission retries
+
+- **WHEN** isolated verification injects a lost response or restart during source delivery and proposal submission
+- **THEN** recovery SHALL retain stable source and proposal identities without duplicates and existing ordinary memory retry behavior SHALL remain functional

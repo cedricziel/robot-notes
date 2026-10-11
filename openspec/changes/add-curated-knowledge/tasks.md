@@ -42,6 +42,12 @@
 - [x] Define structured atomic groups, intra-group references, idempotency, and amendment history.
 - [x] Validate the expanded tool contract.
 
+## Hermes release planning tasks
+
+- [x] Record existing memory compatibility, read-only behavior, and new tool capability discovery.
+- [x] Define isolated Hermes and live-server verification as a runtime release gate.
+- [x] Validate the expanded release contract.
+
 ## Implementation tracking
 
 Implementation is tracked in the issue sequence in `design.md`, with one PR per issue. The typed knowledge extension still needs focused implementation issues; the checked planning tasks do not indicate runtime completion. No runtime implementation is included in this design change.
@@ -49,3 +55,8 @@ Implementation is tracked in the issue sequence in `design.md`, with one PR per 
 ## Definition of done
 
 The agreed decisions appear as testable requirements, pending proposals are excluded from normal recall, authorization and crash-recovery obligations are explicit, ontology adoption and typed knowledge requirements are testable, schema evolution preserves accepted entries, and strict OpenSpec validation passes. The PR links the implementation issues without marking them complete.
+
+
+## Runtime release gate
+
+Before enabling the feature in a release, the supported server and Hermes plugin pair must pass contract tests and isolated live-server verification covering existing memory behavior, the shared knowledge tools, opt-in capture, proposal-only extraction, authorized acceptance, and retry recovery. Record tested revisions and runtime versions. This is a future implementation obligation, not a completed task in this planning change.

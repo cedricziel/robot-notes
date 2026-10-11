@@ -13,6 +13,7 @@ Robot Notes stores shared knowledge, but accepted notes currently have no retain
 - Define versioned file formats and explicit artifact writers and server publication authority.
 - Add adapter-neutral, durable background extraction from opt-in source capture into evidence-backed proposals.
 - Expose shared agent tools for type discovery, accepted queries, source inspection, validation, and idempotent atomic proposals.
+- Gate release on Hermes compatibility for existing memory behavior, new knowledge tools, and isolated live-server verification.
 - Curate type definitions and preview schema migration impacts.
 - Add stable block identity, comments, proposals, and retained accepted revisions.
 - Enforce separate proposal, review, direct-edit, policy-management, and purge permissions.
