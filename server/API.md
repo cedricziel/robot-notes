@@ -1386,3 +1386,11 @@ The API is forward-compatible with future CRDT-based editing:
 - `changed` events will continue to fire at version bumps.
 - New event types and message kinds will be added without renaming
   existing ones; clients SHOULD ignore unknown `type` values.
+
+## Conversation evidence
+
+Evidence is scoped to the selected vault and excluded from ordinary notes and search. REST OAuth capture uses `notes:write`, and inspection uses `notes:read`. Administrative purge requires the operator's static bearer key.
+
+`PUT /evidence/{sha256}` accepts `{"payload":"<exact JSON snapshot>","retention_days":30,"lineage":{}}`. The digest is SHA-256 of the exact UTF-8 payload bytes. The snapshot contains a non-empty `session_id`, `kind` of `turn` or `checkpoint`, and a JSON array of message objects. Retention accepts integer days from 1 through 3650. The request body limit is 16 MiB. A successful response includes `id`, `payload`, `lineage`, `created_at`, and `expires_at`, after the durable commit. Retries preserve original metadata.
+
+`GET /evidence/{sha256}` returns the same response while retained, then 404. `DELETE /evidence/{sha256}` returns 204 and purges payload and lineage. A repeated PUT after expiry or purge returns 410. Digest tombstones remain to prevent retry resurrection. Expired payloads are cleared on startup, during archive operations, and by an hourly sweep.

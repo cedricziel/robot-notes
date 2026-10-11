@@ -11,8 +11,9 @@ Hermes-context write gating, and curated schemas justify maintaining a second
 adapter. Do not expose duplicate native and MCP versions of the same operation
 in one session by default.
 
-The server currently registers 19 MCP tools; the Hermes provider exposes six
-native note tools. Seven database tools and six other tools are missing for
+At the original inventory date, the server registered 19 MCP tools and the
+provider exposed six native note tools. The current provider also has local
+health inspection and exact evidence inspection, for eight native tools. Seven database tools and six other tools are missing for
 literal MCP parity. There are also REST-only workspace capabilities.
 
 ## Existing tools: retain and extend
@@ -134,7 +135,7 @@ it is unsuitable for writable scheduled workflows unless that policy is changed.
 Only one external Hermes memory provider can be active. Using robot-notes purely
 as MCP tools leaves that provider slot available for another backend. Native
 lifecycle integration can coexist with MCP operations using `native_tools: false`
-in `robot_notes.json`; the six native schemas are hidden and direct dispatch is
+in `robot_notes.json`; all eight native schemas are hidden and direct dispatch is
 rejected while the lifecycle hooks remain active.
 
 ## Delivery options and order
@@ -144,7 +145,7 @@ rejected while the lifecycle hooks remain active.
    configure the same behavioral skill for MCP names. Filter MCP tools as needed.
 2. **Native-first experience:** add the seven database tools, the four missing
    note/folder operations, upload-file, and extend existing list/search/create
-   schemas. This is 12 new tools plus extensions, for 18 native tools total.
+   schemas. This is 12 new tools plus extensions, for 20 native tools total.
 3. Add REST-only folder/tag/link/file reads where needed. Add lease tools only
    after demonstrating a workflow that benefits from them.
 
@@ -177,3 +178,5 @@ The proposed additional native wrappers and REST-only tools remain unimplemented
 
 `robotnotes_health` is a native provider inspection tool with no MCP equivalent.
 It reads local automatic-operation outcomes without contacting the server.
+
+`robotnotes_evidence(id)` is a read-only native wrapper for `GET /evidence/{digest}`. It explicitly retrieves one retained snapshot and verifies its SHA-256 digest. It has no MCP counterpart and does not participate in automatic recall. Regenerate the native count with `PYTHONPATH=hermes-plugin python -c "from robot_notes.tools import TOOL_SCHEMAS; print(len(TOOL_SCHEMAS))"`.

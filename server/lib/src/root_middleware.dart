@@ -7,6 +7,7 @@ import 'package:server/src/auth_middleware.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
 import 'package:server/src/databases/registry.dart';
+import 'package:server/src/evidence_store.dart';
 import 'package:server/src/invite_store.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
@@ -72,6 +73,7 @@ Handler applyRootMiddleware(
       .use(provider<NoteWriteService>((_) => deps.noteWriteService))
       .use(provider<DatabaseRegistry>((_) => deps.registry))
       .use(provider<Storage>((_) => deps.storage))
+      .use(provider<EvidenceStore>((_) => deps.evidenceStore))
       .use(provider<FileStore>((_) => deps.fileStore))
       .use(provider<UploadSessionStore>((_) => deps.uploadSessions))
       .use(provider<VaultRegistry>((_) => deps.vaults!))

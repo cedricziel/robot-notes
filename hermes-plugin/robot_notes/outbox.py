@@ -18,12 +18,13 @@ class Outbox:
 
     def __init__(self, path: Path, *, max_operations: int = 1000,
                  max_bytes: int = 2 * 1024 * 1024, retention_seconds: float = 30 * 86400,
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time, secure_delete: bool = False):
         self.path = path
         self.max_operations = max_operations
         self.max_bytes = max_bytes
         self.retention_seconds = retention_seconds
         self.clock = clock
+        self.secure_delete = secure_delete
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with closing(self._connect()) as db:
             db.executescript('''
@@ -31,6 +32,9 @@ class Outbox:
                     id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL,
                     expires REAL NOT NULL, blocked INTEGER NOT NULL DEFAULT 0,
                     reason TEXT
+                );
+                CREATE TABLE IF NOT EXISTS pending_keys (
+                    key TEXT PRIMARY KEY, operation_id INTEGER NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
                 INSERT OR IGNORE INTO counters VALUES ('expired', 0);
@@ -42,22 +46,32 @@ class Outbox:
         os.chmod(self.delivery_path, 0o600)
 
     def _connect(self):
-        return sqlite3.connect(self.path, timeout=1)
+        connection = sqlite3.connect(self.path, timeout=1)
+        if self.secure_delete:
+            connection.execute('PRAGMA secure_delete = ON')
+        return connection
 
     def _expire(self, db):
         count = db.execute('SELECT COUNT(*) FROM operations WHERE expires <= ?', (self.clock(),)).fetchone()[0]
         db.execute('DELETE FROM operations WHERE expires <= ?', (self.clock(),))
+        db.execute('DELETE FROM pending_keys WHERE operation_id NOT IN (SELECT id FROM operations)')
         db.execute("UPDATE counters SET value = value + ? WHERE name = 'expired'", (count,))
 
-    def enqueue(self, operation: dict) -> None:
+    def enqueue(self, operation: dict, *, idempotency_key: str | None = None) -> None:
+        """Queue an operation, preserving the first pending effect for a supplied key."""
         payload = json.dumps(operation, ensure_ascii=False, separators=(',', ':'))
         with closing(self._connect()) as db:
             db.execute('BEGIN IMMEDIATE')
             self._expire(db)
+            if idempotency_key is not None and db.execute('SELECT 1 FROM pending_keys WHERE key = ?', (idempotency_key,)).fetchone():
+                db.commit()
+                return
             count, size = db.execute('SELECT COUNT(*), COALESCE(SUM(LENGTH(CAST(payload AS BLOB))), 0) FROM operations').fetchone()
             if count >= self.max_operations or size + len(payload.encode('utf-8')) > self.max_bytes:
                 raise QueueFull('Automatic memory queue capacity exceeded')
-            db.execute('INSERT INTO operations(payload, expires) VALUES (?, ?)', (payload, self.clock() + self.retention_seconds))
+            inserted = db.execute('INSERT INTO operations(payload, expires) VALUES (?, ?)', (payload, self.clock() + self.retention_seconds))
+            if idempotency_key is not None:
+                db.execute('INSERT INTO pending_keys VALUES (?, ?)', (idempotency_key, inserted.lastrowid))
             db.commit()
 
     def deliver_one(self, deliver: Callable[[dict], None], classify=None, prepare=None) -> bool:
@@ -95,6 +109,7 @@ class Outbox:
                     db.commit()
                     return False
                 db.execute('DELETE FROM operations WHERE id = ?', (row[0],))
+                db.execute('DELETE FROM pending_keys WHERE operation_id = ?', (row[0],))
                 db.commit()
                 return True
 
