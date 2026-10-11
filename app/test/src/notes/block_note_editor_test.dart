@@ -7,8 +7,109 @@ import 'package:material_ui/material_ui.dart';
 import 'package:super_editor/super_editor.dart';
 
 import 'package:app/src/notes/block_note_editor.dart';
+import 'package:app/src/theme/app_theme.dart';
 
 void main() {
+  testWidgets('task checkbox begins at the paragraph content edge', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BlockNoteEditor(
+            markdown: 'Paragraph\n\n- [ ] Task',
+            onChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(find.byType(legacy.Checkbox)).dx,
+      closeTo(tester.getTopLeft(find.byType(ParagraphComponent)).dx, 0.1),
+    );
+    final checkbox = tester.getRect(find.byType(legacy.Checkbox));
+    expect(checkbox.width, 18);
+    final taskText = find.byType(TextComponent).last;
+    final component = tester.state(taskText) as DocumentComponent;
+    final firstLine = component.getRectForPosition(
+      const TextNodePosition(offset: 0),
+    );
+    expect(
+      checkbox.center.dy,
+      closeTo(tester.getTopLeft(taskText).dy + firstLine.center.dy, 2),
+    );
+    await tester.tapAt(
+      tester.getTopLeft(taskText) + Offset(12, firstLine.center.dy),
+    );
+    await tester.pump();
+    final scene = tester.widget<AdaptiveSuperEditor>(
+      find.byType(AdaptiveSuperEditor),
+    );
+    expect(scene.composer.selection!.extent.nodeId, scene.document.last.id);
+    await tester.pump(const Duration(milliseconds: 100));
+  });
+
+  testWidgets(
+    'blocks share a full-width gutter and handles follow first lines',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BlockNoteEditor(
+              markdown: 'Paragraph\n\n# Heading\n\n```dart\nprint(1);\n```\n\n| A |\n| - |\n| B |',
+              onChanged: (_) {},
+              opaqueBuilder: (_, source) => const SizedBox(height: 60),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final handles = find.byIcon(Icons.drag_indicator);
+      expect(handles, findsNWidgets(4));
+      final lefts = [
+        for (var i = 0; i < 4; i++) tester.getCenter(handles.at(i)).dx,
+      ];
+      expect(lefts[1], closeTo(lefts[0], 0.1));
+      expect(lefts[2], closeTo(lefts[0], 0.1));
+      expect(lefts[3], closeTo(lefts[0], 0.1));
+      final paragraphs = find.byType(ParagraphComponent);
+      expect(tester.getSize(paragraphs.first).width, greaterThan(1000));
+      final styles = AppTheme.markdown(
+        tester.element(find.byType(BlockNoteEditor)),
+      );
+      expect(
+        tester
+            .widget<ParagraphComponent>(paragraphs.at(1))
+            .viewModel
+            .textStyleBuilder({})
+            .fontSize,
+        styles.h1!.fontSize,
+      );
+      expect(
+        tester
+            .widget<ParagraphComponent>(paragraphs.first)
+            .viewModel
+            .textStyleBuilder({})
+            .height,
+        styles.p!.height,
+      );
+      for (var i = 0; i < 3; i++) {
+        final component = tester.state(paragraphs.at(i)) as DocumentComponent;
+        final firstLine = component.getRectForPosition(
+          const TextNodePosition(offset: 0),
+        );
+        final lineCenter =
+            tester.getTopLeft(paragraphs.at(i)).dy + firstLine.center.dy;
+        expect(tester.getCenter(handles.at(i)).dy, closeTo(lineCenter, 2));
+      }
+    },
+  );
+
   testWidgets('switching presentations preserves exact source without edits', (
     tester,
   ) async {
@@ -689,6 +790,9 @@ void main() {
       await tester.pump();
       handle.dispose();
       expect(changes.last, '- [x] Buy milk');
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pumpAndSettle();
+      expect(changes.last, '- [ ] Buy milk');
     },
   );
 

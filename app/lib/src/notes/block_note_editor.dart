@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:adaptive_super_editor/adaptive_super_editor.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/material.dart' as legacy;
 import 'package:material_ui/material_ui.dart';
 import 'package:super_editor/super_editor.dart';
 
+import '../layout/breakpoints.dart';
+import '../theme/app_theme.dart';
 import '../widgets/adaptive.dart';
 import '../widgets/platform_motion.dart';
 import 'link_autocomplete.dart';
@@ -589,10 +592,23 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
     _focus.requestFocus();
   }
 
-  Widget _blockFrame(String id, Widget child) {
+  Widget _blockFrame(String id, Widget child, double firstLineCenter) {
     final node = _draft.document.getNodeById(id)!;
     if (node.getMetadataValue('blockType') == codeAttribution) {
       final language = node.getMetadataValue('language') as String?;
+      firstLineCenter += 12;
+      if (language != null && language.isNotEmpty) {
+        final label = TextPainter(
+          text: TextSpan(
+            text: language,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+        )..layout();
+        firstLineCenter += label.height;
+        label.dispose();
+      }
       child = Container(
         padding: const EdgeInsets.all(12),
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -624,7 +640,13 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
       );
     }
     if (widget.readOnly) {
-      return AbsorbPointer(absorbing: node is TaskNode, child: child);
+      return Padding(
+        padding: const EdgeInsets.only(
+          left: PaneSizes.blockGutter,
+          right: PaneSizes.blockActions,
+        ),
+        child: AbsorbPointer(absorbing: node is TaskNode, child: child),
+      );
     }
     final index = _draft.document.getNodeIndexById(id);
     return DragTarget<String>(
@@ -633,56 +655,64 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
       builder: (context, candidates, rejected) => Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Draggable<String>(
-            data: id,
-            feedback: Material(
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Text(
-                  node is TextNode ? node.text.toPlainText() : 'Block',
+          SizedBox(
+            width: PaneSizes.blockGutter,
+            child: Draggable<String>(
+              data: id,
+              feedback: Material(
+                elevation: 4,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(
+                    node is TextNode ? node.text.toPlainText() : 'Block',
+                  ),
                 ),
               ),
-            ),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
-              child: Icon(Icons.drag_indicator, size: 18),
+              child: Padding(
+                padding: EdgeInsets.only(
+                  top: (firstLineCenter - 9).clamp(0, double.infinity),
+                ),
+                child: const Icon(Icons.drag_indicator, size: 18),
+              ),
             ),
           ),
           Expanded(child: child),
-          AdaptiveMoreMenu(
-            tooltip: 'Block actions',
-            entries: [
-              AdaptiveMenuEntry(
-                label: 'Insert block after',
-                onSelected: () => unawaited(_chooseBlock(id, insert: true)),
-              ),
-              if (node is TextNode)
+          SizedBox(
+            width: PaneSizes.blockActions,
+            child: AdaptiveMoreMenu(
+              tooltip: 'Block actions',
+              entries: [
                 AdaptiveMenuEntry(
-                  label: 'Convert block',
-                  onSelected: () => unawaited(_chooseBlock(id)),
+                  label: 'Insert block after',
+                  onSelected: () => unawaited(_chooseBlock(id, insert: true)),
                 ),
-              if (node is OpaqueMarkdownNode)
+                if (node is TextNode)
+                  AdaptiveMenuEntry(
+                    label: 'Convert block',
+                    onSelected: () => unawaited(_chooseBlock(id)),
+                  ),
+                if (node is OpaqueMarkdownNode)
+                  AdaptiveMenuEntry(
+                    label: 'Edit Markdown source',
+                    onSelected: () => _switchMode(true, nodeId: id),
+                  ),
+                if (index > 0)
+                  AdaptiveMenuEntry(
+                    label: 'Move up',
+                    onSelected: () => _move(id, index - 1),
+                  ),
+                if (index < _draft.document.nodeCount - 1)
+                  AdaptiveMenuEntry(
+                    label: 'Move down',
+                    onSelected: () => _move(id, index + 1),
+                  ),
                 AdaptiveMenuEntry(
-                  label: 'Edit Markdown source',
-                  onSelected: () => _switchMode(true, nodeId: id),
+                  label: 'Delete block',
+                  destructive: true,
+                  onSelected: () => _delete(id),
                 ),
-              if (index > 0)
-                AdaptiveMenuEntry(
-                  label: 'Move up',
-                  onSelected: () => _move(id, index - 1),
-                ),
-              if (index < _draft.document.nodeCount - 1)
-                AdaptiveMenuEntry(
-                  label: 'Move down',
-                  onSelected: () => _move(id, index + 1),
-                ),
-              AdaptiveMenuEntry(
-                label: 'Delete block',
-                destructive: true,
-                onSelected: () => _delete(id),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -715,6 +745,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final markdownStyles = AppTheme.markdown(context);
     final builders = [
       _OpaqueBuilder(_draft.document, _opaque, _blockFrame),
       for (final builder in [
@@ -822,18 +853,43 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
                           border: InputBorder.none,
                         ),
                       )
-                : AdaptiveSuperEditor(
-                    editor: _editor,
-                    document: _draft.document,
-                    composer: _composer,
-                    focusNode: _focus,
-                    documentLayoutKey: _layoutKey,
-                    readOnly: widget.readOnly,
-                    componentBuilders: builders,
-                    label: 'Note content',
-                    selectionPolicies: const SuperEditorSelectionPolicies(
-                      clearSelectionWhenEditorLosesFocus: false,
-                      clearSelectionWhenImeConnectionCloses: false,
+                : Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: PaneSizes.editorPadding,
+                    ),
+                    child: AdaptiveSuperEditor(
+                      editor: _editor,
+                      document: _draft.document,
+                      composer: _composer,
+                      focusNode: _focus,
+                      documentLayoutKey: _layoutKey,
+                      readOnly: widget.readOnly,
+                      componentBuilders: builders,
+                      label: 'Note content',
+                      stylesheet: defaultStylesheet.copyWith(
+                        addRulesAfter: [
+                          StyleRule(BlockSelector.all, (_, node) {
+                            final type = node.getMetadataValue('blockType');
+                            final style = switch (type) {
+                              header1Attribution => markdownStyles.h1,
+                              header2Attribution => markdownStyles.h2,
+                              header3Attribution => markdownStyles.h3,
+                              header4Attribution => markdownStyles.h4,
+                              header5Attribution => markdownStyles.h5,
+                              header6Attribution => markdownStyles.h6,
+                              blockquoteAttribution =>
+                                markdownStyles.blockquote,
+                              codeAttribution => markdownStyles.code,
+                              _ => markdownStyles.p,
+                            };
+                            return {Styles.textStyle: style};
+                          }),
+                        ],
+                      ),
+                      selectionPolicies: const SuperEditorSelectionPolicies(
+                        clearSelectionWhenEditorLosesFocus: false,
+                        clearSelectionWhenImeConnectionCloses: false,
+                      ),
                     ),
                   ),
           ),
@@ -882,7 +938,7 @@ class _FramedBuilder implements ComponentBuilder {
   _FramedBuilder(this.inner, this.frame, this.readOnly);
   final ComponentBuilder inner;
   final bool readOnly;
-  final Widget Function(String, Widget) frame;
+  final Widget Function(String, Widget, double) frame;
   @override
   SingleColumnLayoutComponentViewModel? createViewModel(
     Document document,
@@ -898,14 +954,26 @@ class _FramedBuilder implements ComponentBuilder {
     SingleColumnDocumentComponentContext context,
     SingleColumnLayoutComponentViewModel model,
   ) {
-    if (model is ParagraphComponentViewModel &&
-        model.blockType == codeAttribution) {
-      final style = model.textStyleBuilder;
-      model.textStyleBuilder = (attributions) =>
-          style(attributions).copyWith(fontFamily: 'monospace');
+    _normalizeBlockLayout(model);
+    var firstLineCenter = 12.0;
+    if (model is TextComponentViewModel) {
+      final line = TextPainter(
+        text: TextSpan(text: 'M', style: model.textStyleBuilder({})),
+        textDirection: Directionality.of(context.context),
+        textScaler: MediaQuery.textScalerOf(context.context),
+      )..layout();
+      firstLineCenter = line.height / 2;
+      line.dispose();
+      if (model is BlockquoteComponentViewModel) firstLineCenter += 16;
     }
-    final child = inner.createComponent(context, model);
-    return child == null ? null : frame(model.nodeId, child);
+    final child = model is TaskComponentViewModel
+        ? _AlignedTaskComponent(
+            key: context.componentKey,
+            viewModel: model,
+            firstLineHeight: firstLineCenter * 2,
+          )
+        : inner.createComponent(context, model);
+    return child == null ? null : frame(model.nodeId, child, firstLineCenter);
   }
 }
 
@@ -913,7 +981,7 @@ class _OpaqueBuilder implements ComponentBuilder {
   _OpaqueBuilder(this.document, this.render, this.frame);
   final Document document;
   final Widget Function(String) render;
-  final Widget Function(String, Widget) frame;
+  final Widget Function(String, Widget, double) frame;
   @override
   SingleColumnLayoutComponentViewModel? createViewModel(
     Document document,
@@ -925,12 +993,15 @@ class _OpaqueBuilder implements ComponentBuilder {
   Widget? createComponent(
     SingleColumnDocumentComponentContext context,
     SingleColumnLayoutComponentViewModel model,
-  ) => model is _OpaqueViewModel
-      ? frame(
-          model.nodeId,
-          BoxComponent(key: context.componentKey, child: render(model.source)),
-        )
-      : null;
+  ) {
+    if (model is! _OpaqueViewModel) return null;
+    _normalizeBlockLayout(model);
+    return frame(
+      model.nodeId,
+      BoxComponent(key: context.componentKey, child: render(model.source)),
+      12,
+    );
+  }
 }
 
 class _OpaqueViewModel extends SingleColumnLayoutComponentViewModel {
@@ -940,4 +1011,113 @@ class _OpaqueViewModel extends SingleColumnLayoutComponentViewModel {
   @override
   SingleColumnLayoutComponentViewModel copy() =>
       _OpaqueViewModel(nodeId, source)..padding = padding;
+}
+
+void _normalizeBlockLayout(SingleColumnLayoutComponentViewModel model) {
+  final padding = model.padding.resolve(TextDirection.ltr);
+  model.maxWidth = double.infinity;
+  model.padding = EdgeInsets.only(
+    top: padding.top.clamp(0, 16),
+    bottom: padding.bottom,
+  );
+}
+
+class _AlignedTaskComponent extends StatefulWidget {
+  const _AlignedTaskComponent({
+    required this.viewModel,
+    required this.firstLineHeight,
+    super.key,
+  });
+  final TaskComponentViewModel viewModel;
+  final double firstLineHeight;
+
+  @override
+  State<_AlignedTaskComponent> createState() => _AlignedTaskComponentState();
+}
+
+class _AlignedTaskComponentState extends State<_AlignedTaskComponent>
+    with ProxyDocumentComponent<_AlignedTaskComponent>, ProxyTextComposable {
+  final _textKey = GlobalKey();
+
+  @override
+  GlobalKey get childDocumentComponentKey => _textKey;
+
+  @override
+  TextComposable get childTextComposable =>
+      _textKey.currentState as TextComposable;
+
+  TextStyle _textStyle(Set<Attribution> attributions) {
+    final style = widget.viewModel.textStyleBuilder(attributions);
+    return widget.viewModel.isComplete
+        ? style.copyWith(
+            decoration: TextDecoration.combine([
+              if (style.decoration != null) style.decoration!,
+              TextDecoration.lineThrough,
+            ]),
+          )
+        : style;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final model = widget.viewModel;
+    return Directionality(
+      textDirection: model.textDirection,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: model.setComplete == null
+                ? null
+                : () => model.setComplete!(!model.isComplete),
+            child: SizedBox(
+              width: 26,
+              height: widget.firstLineHeight.clamp(44, double.infinity),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: (widget.firstLineHeight / 2 - 9).clamp(
+                      0,
+                      double.infinity,
+                    ),
+                  ),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: legacy.Checkbox(
+                      value: model.isComplete,
+                      onChanged: model.setComplete == null
+                          ? null
+                          : (value) => model.setComplete!(value!),
+                      materialTapTargetSize:
+                          legacy.MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: legacy.VisualDensity.compact,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: TextComponent(
+              key: _textKey,
+              text: model.text,
+              textDirection: model.textDirection,
+              textAlign: model.textAlignment,
+              maxLines: model.maxLines,
+              overflow: model.overflow,
+              textStyleBuilder: _textStyle,
+              inlineWidgetBuilders: model.inlineWidgetBuilders,
+              textSelection: model.selection,
+              selectionColor: model.selectionColor,
+              highlightWhenEmpty: model.highlightWhenEmpty,
+              underlines: model.createUnderlines(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
