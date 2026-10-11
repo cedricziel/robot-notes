@@ -54,10 +54,10 @@ def test_failed_automatic_write_is_visible_and_recovery_is_independent(tmp_path,
     route.mock(return_value=httpx.Response(200, json={"items": []}))
     respx.post("https://notes.example.com/notes").mock(return_value=httpx.Response(201, json={"id": "01NEW"}))
     provider.on_session_end([{"role": "user", "content": "secret transcript"}])
-    assert provider.memory_health()["transcript"] == {"state": "succeeded"}
+    assert provider.memory_health()["transcript"] == {"state": "succeeded", "source_unknown": True}
     assert provider.memory_health()["mirror"]["state"] == "failed"
     provider.on_memory_write("add", "memory", "secret memory")
-    assert provider.memory_health()["mirror"] == {"state": "succeeded"}
+    assert provider.memory_health()["mirror"] == {"state": "succeeded", "source_unknown": True}
 
 
 @respx.mock

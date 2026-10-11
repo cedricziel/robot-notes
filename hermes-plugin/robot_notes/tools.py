@@ -85,11 +85,13 @@ TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
         "exists, call robotnotes_append instead of creating a duplicate. A title that "
         "already exists under 'path' is rejected with a path_conflict error; on that "
         "error, search for the existing note and append to it rather than retrying "
-        "under a different title.",
+        "under a different title. Curated destinations receive a pending proposal; accepted=false means the fact is not accepted yet.",
         {
             "title": _p("Title for the new note. Must be unique within 'path'."),
             "content": _p("Body content for the new note."),
             "path": _p("Folder to file the note under, e.g. 'Hermes'. Defaults to the vault root."),
+            "curated_intent": _p("Set true for institutional knowledge that requires a proposal even outside a designated curated folder.", "boolean"),
+            "evidence_refs": _p("Optional exact source coordinates: archive digest, accepted note/block revision, conversation identifiers, URL, or explicit unknown. Sources do not grant approval.", "array", items={"type": "object"}),
         },
         ("title", "content"),
     ),
@@ -98,17 +100,21 @@ TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
         "Append content to an existing note as a new line, without touching what's "
         "already there. Prefer this over robotnotes_remember once a relevant note "
         "exists — search before creating, and append rather than duplicating a note on "
-        "the same topic.",
+        "the same topic. Curated notes receive a pending proposal instead of an accepted append.",
         {
             "id": _p("Id of the note to append to, as returned by search, list, or remember."),
             "content": _p("Text to append as a new line at the end of the note."),
+            "curated_intent": _p("Set true when this target is institutional knowledge; unsupported proposal APIs fail closed.", "boolean"),
+            "evidence_refs": _p("Optional exact source reference objects; unverified lineage never grants approval.", "array", items={"type": "object"}),
         },
         ("id", "content"),
     ),
     _schema(
         "robotnotes_forget",
-        "Permanently delete a note from the shared robot-notes workspace when the configured server credentials permit it. No undo; use only when the task calls for deletion.",
-        {"id": _p("Id of the note to delete.")},
+        "Request deletion of a note when the task calls for it. Curated notes receive a pending whole-note deletion proposal; accepted=false means the note is still active.",
+        {"id": _p("Id of the note to delete."),
+         "curated_intent": _p("Set true when this target is institutional knowledge.", "boolean"),
+         "evidence_refs": _p("Optional exact source reference objects for the deletion proposal.", "array", items={"type": "object"})},
         ("id",),
     ),
 )

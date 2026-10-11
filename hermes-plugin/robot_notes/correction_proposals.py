@@ -25,6 +25,8 @@ def validate_references(raw) -> list[dict]:
         if not isinstance(value, dict):
             raise ValueError("Evidence reference must be an object")
         kind = value.get("kind")
+        if not isinstance(kind, str):
+            raise ValueError("Invalid evidence reference kind")
         strings = {
             "note_revision": ("note_id",),
             "block_revision": ("note_id", "block_id"),
@@ -84,6 +86,12 @@ def source_references(metadata: Optional[dict] = None) -> list[dict]:
 
 
 def _accepted_blocks(note, mapping):
+    if (
+        not isinstance(note, dict)
+        or not isinstance(mapping, dict)
+        or not isinstance(note.get("content"), str)
+    ):
+        raise ValueError("block_map_stale")
     body = note["content"]
     raw = body.encode("utf-16-le")
     if (
@@ -91,8 +99,15 @@ def _accepted_blocks(note, mapping):
         or mapping.get("version") != note["version"]
         or mapping.get("offset_encoding") != "utf-16"
         or mapping.get("content_hash") != hashlib.sha256(body.encode()).hexdigest()
+        or type(mapping.get("version")) is not int
         or type(note["version"]) is not int
         or note["version"] < 1
+    ):
+        raise ValueError("block_map_stale")
+    if any(
+        not isinstance(mapping.get(key, []), list)
+        or any(not isinstance(value, str) for value in mapping.get(key, []))
+        for key in ("changed_ids", "retired_ids", "ambiguous_ids")
     ):
         raise ValueError("block_map_stale")
     result = []

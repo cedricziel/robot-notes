@@ -125,3 +125,7 @@ def test_empty_replacement_does_not_remove_the_previous_entry():
     )
     assert plan.content is None
     assert plan.reason == "empty_replacement"
+
+
+def test_add_preserves_legacy_deduplication_of_outer_entry_whitespace():
+    assert plan_memory_edit('likes coffee ', 'add', 'likes coffee').state == 'unchanged'

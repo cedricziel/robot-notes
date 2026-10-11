@@ -139,7 +139,7 @@ class RobotNotesClient:
         clock: Optional[Callable[[], float]] = None,
     ):
         headers = {"Authorization": f"Bearer {api_key}", "X-Actor": actor,
-                   "X-Vault-Id": vault_id.strip() or "default"}
+                   "X-Vault-Id": vault_id.strip() or "default", "X-Robot-Notes-Agent": "true"}
         self._http = httpx.Client(base_url=base_url.rstrip("/"), headers=headers, timeout=write_timeout)
         self._recall_timeout = recall_timeout
         self._breaker = CircuitBreaker() if clock is None else CircuitBreaker(clock=clock)
@@ -284,6 +284,82 @@ class RobotNotesClient:
         if not isinstance(body, dict) or body.get("id") != digest or body.get("payload") != payload or not body.get("expires_at"):
             raise ClientError("Invalid durable evidence acknowledgement", kind=ErrorKind.OTHER)
         return body
+
+    def _response_object(self, response) -> Dict[str, Any]:
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ClientError("Malformed response", code="invalid_response") from exc
+        if not isinstance(body, dict):
+            raise ClientError("Malformed response", code="invalid_response")
+        return body
+
+    def get_note_permissions(self, *, note_id: Optional[str] = None,
+                             path: str = "", title: str = "") -> Dict[str, Any]:
+        if note_id is not None:
+            response = self._request("GET", f"/notes/{note_id}/permissions")
+        else:
+            response = self._request("GET", "/notes/permissions", params={"path": path, "title": title})
+        body = self._response_object(response)
+        actions = body.get("allowed_actions")
+        if ("id" not in body or body.get("id") != note_id or not isinstance(body.get("path"), str)
+                or type(body.get("curated")) is not bool
+                or not isinstance(body.get("approval"), str) or body["approval"] not in {"human", "evidence_no_conflict"}
+                or type(body.get("policy_revision")) is not int or body["policy_revision"] < 0
+                or not isinstance(body.get("policy_fingerprint"), str) or not body["policy_fingerprint"]
+                or not isinstance(body.get("principal_kind"), str) or body["principal_kind"] not in {"operator", "agent", "oauth"}
+                or not isinstance(actions, list) or any(not isinstance(action, str) or action not in {"read", "propose", "review", "edit", "policy", "purge"} for action in actions)
+                or type(body.get("requires_human_approval")) is not bool):
+            raise ClientError("Malformed permissions response", code="invalid_response")
+        return body
+
+    def get_note_blocks(self, note_id: str) -> Dict[str, Any]:
+        from .correction_proposals import _accepted_blocks
+        for attempt in range(2):
+            note = self.get_note(note_id)
+            mapping = self._response_object(self._request("GET", f"/notes/{note_id}/blocks"))
+            try:
+                if note.get("id") != note_id:
+                    raise ValueError("wrong target")
+                _accepted_blocks(note, mapping)
+            except (AttributeError, KeyError, TypeError, ValueError, UnicodeError):
+                if attempt == 0:
+                    continue
+                raise ClientError("Accepted note and block map do not match", code="invalid_response")
+            return {**mapping, "content": note["content"]}
+        raise AssertionError("unreachable")
+
+    def _proposal_acknowledgement(self, response, note_id=None) -> Dict[str, Any]:
+        body = self._response_object(response)
+        state = body.get("state")
+        accepted = state == "accepted"
+        if (not all(isinstance(body.get(key), str) and body[key] for key in ("proposal_id", "note_id"))
+                or (note_id is not None and body["note_id"] != note_id)
+                or not isinstance(state, str) or state not in {"pending", "changes_requested", "needs_re_review", "conflicted", "accepted", "denied"}
+                or any(type(body.get(key)) is not int or body[key] < 1 for key in ("proposal_revision", "record_revision"))
+                or type(body.get("accepted")) is not bool or body["accepted"] != accepted
+                or (accepted and (type(body.get("accepted_version")) is not int or body["accepted_version"] < 1))
+                or (not accepted and body.get("accepted_version") is not None)):
+            raise ClientError("Invalid proposal acknowledgement", code="invalid_response")
+        return body
+
+    def propose_note_update(self, note_id: str, *, base_version: int, operations: list,
+                            evidence_refs: list, idempotency_key: str) -> Dict[str, Any]:
+        response = self._request("POST", f"/notes/{note_id}/proposals", json={
+            "base_version": base_version, "operations": operations,
+            "evidence_refs": evidence_refs, "idempotency_key": idempotency_key,
+        })
+        return self._proposal_acknowledgement(response, note_id)
+
+    def propose_note_create(self, *, path: str, title: str, content: str, evidence_refs: list,
+                            idempotency_key: str, curated_intent: bool = True,
+                            properties: Optional[dict] = None) -> Dict[str, Any]:
+        response = self._request("POST", "/notes/proposals", json={
+            "path": path, "title": title, "content": content,
+            "properties": properties or {}, "evidence_refs": evidence_refs,
+            "idempotency_key": idempotency_key, "curated_intent": curated_intent,
+        })
+        return self._proposal_acknowledgement(response)
 
     def get_note(self, note_id: str, *, recall: bool = False) -> Dict[str, Any]:
         options = {"timeout": self._recall_timeout} if recall else {}

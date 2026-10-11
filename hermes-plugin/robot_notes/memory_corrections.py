@@ -42,7 +42,7 @@ def plan_memory_edit(
     if action == "replace" and not content.strip():
         return MemoryEditPlan(None, "needs_review", "empty_replacement")
     if action == "add":
-        if not content.strip() or _exact_spans(current, content):
+        if not content.strip() or re.search(r"(?m)^[^\S\n]*" + re.escape(content.strip()) + r"[^\S\n]*(?=\n|$)", current):
             return MemoryEditPlan(None, "unchanged")
         separator = "" if not current or current.endswith("\n") else "\n"
         return MemoryEditPlan(current + separator + content, "changed")

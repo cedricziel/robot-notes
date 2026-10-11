@@ -224,8 +224,8 @@ to any service other than the `base_url` configured above.
   `Hermes/User` (see Write behavior below);
   whatever text lands in those files is sent to the server.
 - **Explicit tool writes** — `robotnotes_remember` sends the model-authored
-  `title`/`content` as a new note; `robotnotes_forget` sends a note id to
-  delete. The server authorizes deletion using the configured credentials;
+  `title`/`content` as a new note or institutional draft; `robotnotes_forget`
+  removes an ordinary note or submits a curated deletion proposal. The server authorizes deletion using the configured credentials;
   the tool does not restrict deletion to notes created by this agent.
   `X-Actor` provides attribution, not ownership authorization. Deletion has
   no undo, so use it only when the task calls for deletion. `robotnotes_note`/`robotnotes_list` are read-only and only fetch
@@ -248,9 +248,9 @@ model; the table below is a quick reference.
 | `robotnotes_health`   | none | Inspect local automatic-operation outcomes without a server request |
 | `robotnotes_evidence` | `id` | Explicitly inspect a retained JSON snapshot by its SHA-256 digest, including capture and retention metadata |
 | `robotnotes_note`     | `id`                                 | Fetch a note by id                                                                    |
-| `robotnotes_remember` | `title`, `content`, `path?`          | Store a durable fact as a *new* note; a duplicate title under `path` returns `path_conflict` — search then `robotnotes_append` instead |
-| `robotnotes_append`   | `id`, `content`                      | Append content to an existing note on a new line, instead of duplicating it — via the server's `POST /notes/{id}/append` (falls back to a client-side read-modify-write only against a server old enough to 404/405 that route) |
-| `robotnotes_forget`   | `id`                                 | Delete a note by id                                                                   |
+| `robotnotes_remember` | `title`, `content`, `path?`, `curated_intent?`, `evidence_refs?`          | Store a durable fact as a *new* note; a duplicate title under `path` returns `path_conflict` — search then `robotnotes_append` instead |
+| `robotnotes_append`   | `id`, `content`, `curated_intent?`, `evidence_refs?`                      | Append content to an existing note on a new line, instead of duplicating it — via the server's `POST /notes/{id}/append` (falls back to a client-side read-modify-write only against a server old enough to 404/405 that route) |
+| `robotnotes_forget`   | `id`, `curated_intent?`, `evidence_refs?`                                 | Remove an ordinary note or propose curated deletion                                                                   |
 
 ## Skill
 
@@ -308,6 +308,56 @@ memory. Reads (`robotnotes_search`, `robotnotes_list`, `robotnotes_note`,
 `robotnotes_evidence`, `robotnotes_health`, and recall/prefetch) stay available in every context. A gated write tool
 call returns a `read_only` tool error instead of silently no-oping. A
 missing `agent_context` (older hosts) defaults to writes enabled.
+
+## Corrections and institutional proposals
+
+The pinned Hermes bridge supplies `metadata.previous_content` from the successful
+committed tool result. This exact entry takes precedence over `old_text`. Immediate
+and queued mirrors replace or remove the full multiline entry, preserve unrelated
+text, and correct identical superseded copies. An ambiguous or missing replacement
+requires review and never appends a second active claim. A changed note destination
+also blocks correction. Personal add operations retain duplicate handling.
+
+Existing and prospective permission lookups determine curated routing. Runtime agents
+submit all curated remember, append, forget, mirror, and transcript writes as proposals,
+including with legacy operator credentials. Set `curated_intent: true` on native writes
+for institutional knowledge in a folder that is not designated curated yet. Unsupported
+institutional permissions/proposal APIs fail closed; ordinary personal servers can
+retain legacy accepted-write behavior.
+
+A native proposal result contains its real `proposal_id`, `note_id`, `state`, and
+`accepted` flag. `accepted: false` means the draft or correction is not accepted;
+curated forget leaves the note active until review. `robotnotes_health` distinguishes
+`pending_review`, `needs_review`, `denied`, and completed writes. Ordinary accepted
+outcomes and successful automatic-write health report `source_unknown: true`.
+
+Optional `evidence_refs` carry exact archive digests, accepted note/block revisions,
+conversation identifiers, URLs, or explicit unknown references. Only supplied callback
+session/turn/tool/task IDs are retained; the provider does not invent a turn, URL,
+archive digest, or source from a later session. Conversation IDs and URLs remain
+unverified lineage. New text, corrections, and deletion require human review; attaching
+sources does not approve their claims. Source-only automatic approval is a server
+policy for verified attachments to unchanged accepted text.
+
+Curated proposals retain source coordinates and prior block revisions in the server's
+versioned accepted metadata after acceptance. The active projection follows the current
+accepted version; retained historical proposals are audit history. Ordinary personal
+writes have unmanaged provenance and explicitly report unknown source, even when a
+callback supplied lineage. The plugin does not put that lineage in arbitrary note
+properties or maintain another fact store.
+
+Prepared queued effects freeze the body, accepted base, block operations, references,
+and idempotency key before RPC. Lost acknowledgements resend the same proposal.
+Validated legacy prepared upgrades are persisted before replay; ambiguous legacy
+corrections block. A frozen ordinary effect blocks if its destination becomes curated.
+The SDK sends `X-Robot-Notes-Agent: true` as a restrictive runtime marker, preserving
+credential identity and allowing the server to deny a designation race under its
+mutation lock. The marker grants no privilege.
+
+Block plans verify exact body and map hashes and versions, decode UTF-16 spans, and
+use real accepted IDs and revisions. Edits to unmapped separators or ambiguous anchors
+require precise block review. Read-only agent contexts and disabled native tools keep
+their existing gates.
 
 ## Development
 

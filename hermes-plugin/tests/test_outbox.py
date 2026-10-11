@@ -114,3 +114,21 @@ def test_pending_deduplication_does_not_extend_local_expiry(tmp_path):
     assert queue.status()['expired'] == 1
     queue.enqueue({'content': 'new'}, idempotency_key='stable')
     assert queue.status()['pending'] == 1
+
+
+def test_legacy_prepared_upgrade_is_durable_before_rpc_and_survives_lost_ack(tmp_path):
+    queue = Outbox(tmp_path / 'queue.sqlite')
+    queue.enqueue({'prepared': {'legacy': True}})
+    calls = []
+
+    def upgrade(operation):
+        return {'prepared': {'schema': 2, 'idempotency_key': 'frozen'}}
+
+    def lost_ack(operation):
+        calls.append(operation)
+        raise OSError('lost acknowledgement')
+
+    assert queue.deliver_one(lost_ack, upgrade=upgrade) is False
+    resumed = Outbox(tmp_path / 'queue.sqlite')
+    assert resumed.deliver_one(lambda operation: calls.append(operation)) is True
+    assert calls == [{'prepared': {'schema': 2, 'idempotency_key': 'frozen'}}] * 2

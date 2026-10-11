@@ -575,7 +575,7 @@ def test_handle_tool_call_forget_deletes_note(provider):
 
     result = json.loads(provider.handle_tool_call("robotnotes_forget", {"id": "01NEW"}))
 
-    assert result == {}
+    assert result == {"source_unknown": True}
 
 
 @respx.mock
@@ -685,7 +685,7 @@ def test_on_session_end_updates_existing_note_for_resumed_session(provider):
             },
         )
     )
-    get_route = respx.get("https://notes.example.com/notes/01SESSION")
+    get_route = respx.get("https://notes.example.com/notes/01SESSION").respond(200, json={"id": "01SESSION", "title": "session-1", "path": "conversations/hermes-bot", "version": 1, "content": "previous"})
     create_route = respx.post("https://notes.example.com/notes")
     update_route = respx.put("https://notes.example.com/notes/01SESSION").mock(
         return_value=httpx.Response(200, json={"id": "01SESSION", "version": 2})
@@ -695,8 +695,7 @@ def test_on_session_end_updates_existing_note_for_resumed_session(provider):
 
     assert update_route.called
     assert not create_route.called
-    # the note's version already came from the list lookup above — no extra read needed
-    assert not get_route.called
+    assert get_route.called
 
 
 @respx.mock
@@ -791,7 +790,7 @@ def _mock_existing_memory_note(content: str):
         )
     )
     respx.get("https://notes.example.com/notes/01MEM").mock(
-        return_value=httpx.Response(200, json={"id": "01MEM", "version": 3, "content": content})
+        return_value=httpx.Response(200, json={"id": "01MEM", "title": "Memory", "path": "Hermes", "version": 3, "content": content})
     )
     return respx.put("https://notes.example.com/notes/01MEM").mock(
         return_value=httpx.Response(200, json={"id": "01MEM", "version": 4})
@@ -816,7 +815,7 @@ def test_on_memory_write_add_dedupes_existing_entry(provider):
         )
     )
     respx.get("https://notes.example.com/notes/01MEM").mock(
-        return_value=httpx.Response(200, json={"id": "01MEM", "version": 3, "content": "likes coffee "})
+        return_value=httpx.Response(200, json={"id": "01MEM", "title": "Memory", "path": "Hermes", "version": 3, "content": "likes coffee "})
     )
     update_route = respx.put("https://notes.example.com/notes/01MEM")
 
@@ -900,15 +899,11 @@ def test_on_memory_write_replace_edits_entry_in_place(provider):
 
 
 @respx.mock
-def test_on_memory_write_replace_without_identifiable_old_falls_back_to_append(provider):
-    """No old_text in metadata: the old entry can't be identified, so the new fact is
-    appended and unrelated entries are left alone (never a blind whole-note rewrite)."""
+def test_on_memory_write_replace_without_identifiable_old_requires_review(provider):
     update_route = _mock_existing_memory_note("likes coffee\nworks remotely")
-
     provider.on_memory_write("replace", "memory", "new fact")
-
-    body = json.loads(update_route.calls.last.request.content)
-    assert body["content"] == "likes coffee\nworks remotely\nnew fact"
+    assert not update_route.called
+    assert provider.memory_health()["mirror"]["state"] == "needs_review"
 
 
 def test_get_config_schema_declares_fields():
@@ -1392,3 +1387,18 @@ def test_recall_during_client_rebinding_cannot_use_old_vault(provider, tmp_path,
     assert not route.called
     assert provider.recall_status() is None
     provider.shutdown()
+
+
+def test_setup_preserves_scoped_recall_and_archive_configuration(tmp_path):
+    (tmp_path / 'robot_notes.json').write_text(json.dumps({
+        'base_url': 'https://old.example', 'recall_path': 'projects/launch',
+        'recall_max_bytes': 4096, 'recall_expand_chars': 1000,
+        'evidence_archive': True, 'evidence_retention_days': 19,
+    }))
+    RobotNotesProvider().save_config({'base_url': 'https://new.example'}, str(tmp_path))
+    restored = RobotNotesConfig.load(str(tmp_path))
+    assert restored.recall_path == 'projects/launch'
+    assert restored.recall_max_bytes == 4096
+    assert restored.recall_expand_chars == 1000
+    assert restored.evidence_archive is True
+    assert restored.evidence_retention_days == 19
