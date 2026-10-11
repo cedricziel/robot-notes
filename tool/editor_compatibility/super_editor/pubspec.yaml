@@ -1,0 +1,21 @@
+name: robot_notes_super_editor_compatibility
+publish_to: none
+environment:
+  sdk: ^3.13.0
+  flutter: '>=3.47.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  super_editor: 0.3.0-dev.52
+  material_ui: 1.6.0
+  cupertino_ui: 1.1.2
+  flutter_markdown_plus: 1.0.12
+  go_router: 18.0.2
+dev_dependencies:
+  robot_notes_editor_compatibility:
+    path: ../common
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
