@@ -419,3 +419,77 @@ The worker SHALL recheck effective authorization, extraction eligibility, source
 
 - **WHEN** extraction is disabled or source access is revoked while a job runs
 - **THEN** the worker SHALL stop further protected reads and SHALL NOT submit new proposals under the stale eligibility
+
+
+### Requirement: Agent tools share one knowledge contract
+
+REST, MCP, Hermes, other adapters, and the extraction worker SHALL expose or invoke the same type discovery, accepted knowledge query, source inspection, candidate validation, and proposal service semantics defined in the design's shared agent contract. Adapters SHALL NOT bypass authorization, bounds, validation, or idempotency rules. Each call SHALL identify its vault and use authenticated principal identity. Tool descriptions SHALL expose input shapes, outputs, filters, limits, evidence encoding, and permission requirements.
+
+#### Scenario: Discovering accepted types
+
+- **WHEN** an authorized agent lists types and reads a pinned type definition
+- **THEN** it SHALL receive accepted identities, versions, guidance, and effective inherited constraints without pending definition content
+
+#### Scenario: Equivalent clients
+
+- **WHEN** Hermes and the extraction worker submit equivalent authorized candidate groups through their adapters
+- **THEN** the service SHALL apply the same validation and proposal semantics without granting either client acceptance authority
+
+### Requirement: Accepted queries are bounded and revision-aware
+
+Knowledge queries SHALL support type, property, and named relation filters, sorting, and opaque pagination cursors as defined in the design. Default page size SHALL be 50 and maximum 200. Optional outgoing traversal SHALL be limited to depth 2 and 200 nodes and SHALL report truncation. Results SHALL include stable entry IDs, accepted revisions, and pinned type versions. Only accessible accepted entries and relations SHALL contribute to results, counts, or paths. Cursors SHALL bind arguments, vault, and an accepted index revision. Unsupported continuation SHALL return cursor_stale. Access SHALL be rechecked on every page and node.
+
+#### Scenario: Querying with a hidden intermediate node
+
+- **WHEN** an accepted relation path crosses a node the caller cannot read
+- **THEN** traversal SHALL NOT reveal the node, its onward path, or a count derived from it
+
+#### Scenario: Index changes during pagination
+
+- **WHEN** an agent continues a query whose cursor revision can no longer be served consistently
+- **THEN** the service SHALL return cursor_stale rather than silently mix incompatible pages
+
+### Requirement: Explicit source inspection and validation respect access
+
+Source inspection SHALL require source-read authority and an explicit source identity and immutable revision. It SHALL return a bounded excerpt or scoped non-text attachment reference without enabling source inclusion in default recall. Candidate validation SHALL require proposal authority and access to referenced knowledge, types, and sources. It SHALL evaluate the complete candidate group without writing documents, proposals, or source material. Diagnostics SHALL identify operations, fields, and violated constraints. Validation SHALL NOT authorize later acceptance. Inaccessible references SHALL be indistinguishable from absent references in public responses.
+
+#### Scenario: Validating without publishing
+
+- **WHEN** an authorized agent validates a group containing new Evidence and a Claim referring to it
+- **THEN** the service SHALL resolve intra-group references and return diagnostics without persisting the group
+
+#### Scenario: Access revoked after validation
+
+- **WHEN** access to supporting material is revoked after successful validation
+- **THEN** subsequent proposal submission or acceptance SHALL recheck access and SHALL NOT rely on the earlier validation result
+
+### Requirement: Agent proposals are idempotent atomic candidate groups
+
+Agents SHALL submit structured create and update operations alongside Markdown, property sets and unsets, named relation changes, pinned types, expected accepted bases, and revision-specific evidence. New entries SHALL use unique local references for intra-group targets. The server SHALL serialize document files. Malformed operations, unauthorized writes, or inaccessible references SHALL fail before persistence. Structurally incomplete proposals MAY persist with diagnostics but SHALL NOT be accepted until valid. Updates SHALL check applicable entry or block base revisions. Reviewed multi-entry acceptance SHALL publish the complete valid group atomically or none, including across crash recovery.
+
+Idempotency keys SHALL be scoped to vault, authenticated principal, and operation. Identical key and canonical payload SHALL return the original persisted result; changed payload SHALL return idempotency_conflict. Proposal persistence and idempotency records SHALL share a recoverable transaction. Purge SHALL retain a non-content consumed-key record to prevent accidental recreation through retry. Proposal inspection SHALL expose authorized state, diagnostics, and review activity. Amendments SHALL require the expected proposal revision, retain earlier versions, and invalidate approvals for changed content.
+
+#### Scenario: Retrying after a lost proposal response
+
+- **WHEN** an adapter retries an identical proposal after the original durable write's response is lost
+- **THEN** it SHALL receive the original proposal ID and revision without duplicate proposals or accepted writes
+
+#### Scenario: Reusing a key with changed content
+
+- **WHEN** an agent reuses a consumed idempotency key with a different candidate payload
+- **THEN** the service SHALL return idempotency_conflict and preserve the original proposal
+
+#### Scenario: Retrying a purged proposal
+
+- **WHEN** an adapter retries a key whose original proposal was explicitly purged
+- **THEN** the service SHALL report that the key is consumed without restoring purged content or creating another proposal
+
+#### Scenario: Partial publication fails
+
+- **WHEN** acceptance of an Evidence and Claim group is interrupted during publication
+- **THEN** recovery SHALL complete or reject the group before serving queries and SHALL NOT expose only part of the accepted group
+
+#### Scenario: Concurrent proposal amendment
+
+- **WHEN** an agent amends a proposal using an outdated expected proposal revision
+- **THEN** the service SHALL return version_conflict and preserve the current proposal and review history

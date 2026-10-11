@@ -35,6 +35,13 @@
 - [x] Validate the file and extraction contract.
 - [x] Update the PR with the file and extraction contract.
 
+## Agent tool planning tasks
+
+- [x] Define shared type discovery, queries, source inspection, validation, and proposal operations.
+- [x] Define permission checks, query bounds, revision-aware results, and pagination semantics.
+- [x] Define structured atomic groups, intra-group references, idempotency, and amendment history.
+- [x] Validate the expanded tool contract.
+
 ## Implementation tracking
 
 Implementation is tracked in the issue sequence in `design.md`, with one PR per issue. The typed knowledge extension still needs focused implementation issues; the checked planning tasks do not indicate runtime completion. No runtime implementation is included in this design change.
