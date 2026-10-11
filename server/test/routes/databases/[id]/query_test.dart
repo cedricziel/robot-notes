@@ -4,6 +4,8 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/databases/registry.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
@@ -13,6 +15,7 @@ import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/databases/[id]/query.dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -26,6 +29,10 @@ RequestContext _ctx({
   Object? body,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/databases/x/query'));
@@ -55,7 +62,7 @@ void main() {
   late DatabaseRegistry registry;
   late NoteWriteService writes;
 
-  setUp(() async {
+  knowledge_fixture.authorizedSetUp(() async {
     tmp = _tempDir();
     storage = Storage(
       contentDir: Directory('${tmp.path}/content'),
@@ -68,6 +75,7 @@ void main() {
     );
     registry = DatabaseRegistry();
     writes = NoteWriteService(
+      authorization: knowledge_fixture.fixtureAuthorization,
       storage: storage,
       metaIndex: meta,
       searchIndex: search,
@@ -110,7 +118,7 @@ void main() {
         ],
       );
 
-  test('queries a saved view', () async {
+  knowledge_fixture.authorizedTest('queries a saved view', () async {
     final db = await makeDb();
     await writes.createRow(
       databaseId: db.id,
@@ -143,7 +151,8 @@ void main() {
     expect((items.single as Map)['title'], 'A');
   });
 
-  test('a request filter overrides the view filter', () async {
+  knowledge_fixture.authorizedTest('a request filter overrides the view filter',
+      () async {
     final db = await makeDb();
     await writes.createRow(
       databaseId: db.id,
@@ -178,7 +187,8 @@ void main() {
     expect((items.single as Map)['title'], 'B');
   });
 
-  test('grouped query returns group counts', () async {
+  knowledge_fixture.authorizedTest('grouped query returns group counts',
+      () async {
     final db = await makeDb();
     await writes.createRow(
       databaseId: db.id,
@@ -214,7 +224,8 @@ void main() {
     ]);
   });
 
-  test('pagination returns limited pages with a next_cursor', () async {
+  knowledge_fixture.authorizedTest(
+      'pagination returns limited pages with a next_cursor', () async {
     final db = await makeDb();
     for (var i = 0; i < 5; i++) {
       await writes.createRow(databaseId: db.id, title: 'Row $i', actor: 'a');
@@ -235,7 +246,8 @@ void main() {
     expect(body['next_cursor'], isNotNull);
   });
 
-  test('a tag source database matches tagged notes regardless of folder',
+  knowledge_fixture.authorizedTest(
+      'a tag source database matches tagged notes regardless of folder',
       () async {
     final db = await writes.createDatabase(
       title: 'Tagged',
@@ -262,7 +274,8 @@ void main() {
     expect(body['items'] as List, hasLength(1));
   });
 
-  test('unknown view returns 400 validation_failed', () async {
+  knowledge_fixture.authorizedTest('unknown view returns 400 validation_failed',
+      () async {
     final db = await makeDb();
     final res = await route.onRequest(
       _ctx(
@@ -279,7 +292,7 @@ void main() {
     expect(body['error'], 'validation_failed');
   });
 
-  test('limit above 200 is rejected', () async {
+  knowledge_fixture.authorizedTest('limit above 200 is rejected', () async {
     final db = await makeDb();
     final res = await route.onRequest(
       _ctx(
@@ -294,7 +307,7 @@ void main() {
     expect(res.statusCode, HttpStatus.badRequest);
   });
 
-  test('items never include content', () async {
+  knowledge_fixture.authorizedTest('items never include content', () async {
     final db = await makeDb();
     await writes.createRow(
       databaseId: db.id,
@@ -319,7 +332,8 @@ void main() {
     expect(item.containsKey('content'), isFalse);
   });
 
-  test('unknown database id returns 404 not_found', () async {
+  knowledge_fixture.authorizedTest('unknown database id returns 404 not_found',
+      () async {
     final res = await route.onRequest(
       _ctx(
         method: HttpMethod.post,

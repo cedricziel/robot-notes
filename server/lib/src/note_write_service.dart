@@ -7,10 +7,14 @@ import 'package:server/src/databases/definition.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/databases/validation.dart';
 import 'package:server/src/embeddings/embedding_provider.dart';
+import 'package:server/src/frontmatter.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/links.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
+import 'package:server/src/note_path.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/tags.dart';
@@ -127,16 +131,26 @@ class NoteWriteService {
     required this.metaIndex,
     required this.searchIndex,
     required this.broadcaster,
+    NoteAuthorizationService? authorization,
+    KnowledgePrincipal Function()? principalResolver,
     LinkIndex? linkIndex,
     LockManager? lockManager,
     Logger? logger,
     Tracer? tracer,
     this.embeddingProvider,
     this.registry,
-  })  : linkIndex = linkIndex ?? LinkIndex(),
+  })  : authorization =
+            authorization ?? (throw ArgumentError.notNull('authorization')),
+        _principalResolver =
+            principalResolver ?? (() => currentKnowledgePrincipal),
+        linkIndex = linkIndex ?? LinkIndex(),
         lockManager = lockManager ?? LockManager(),
         _log = logger ?? Logger('note_write'),
         _tracer = tracer ?? const NoopTracer('note_write');
+
+  /// Authoritative policy used by all accepted mutation paths.
+  final NoteAuthorizationService authorization;
+  final KnowledgePrincipal Function() _principalResolver;
 
   /// Canonical filesystem-backed note store.
   final Storage storage;
@@ -195,24 +209,26 @@ class NoteWriteService {
     String path = '',
     Map<String, Object?>? properties,
   }) {
-    return _tracer.startActiveSpan('note.write.create', (span) async {
-      if (properties != null && properties.isNotEmpty) {
-        _validateCallerProperties(
+    return _guardFolderMutation(path, () async {
+      return _tracer.startActiveSpan('note.write.create', (span) async {
+        if (properties != null && properties.isNotEmpty) {
+          _validateCallerProperties(
+            path: path,
+            tags: computeTags(extra: const {}, content: content),
+            isDefinition: false,
+            properties: properties,
+          );
+        }
+        final note = await _persistCreate(
+          title: title,
+          content: content,
+          actor: actor,
           path: path,
-          tags: computeTags(extra: const {}, content: content),
-          isDefinition: false,
-          properties: properties,
+          extra: properties,
+          span: span,
         );
-      }
-      final note = await _persistCreate(
-        title: title,
-        content: content,
-        actor: actor,
-        path: path,
-        extra: properties,
-        span: span,
-      );
-      return note;
+        return note;
+      });
     });
   }
 
@@ -227,51 +243,53 @@ class NoteWriteService {
     required String path,
     required Map<String, Object?>? extra,
     Span? span,
-  }) async {
-    final note = await storage.create(
-      actor: actor,
-      title: title,
-      content: content,
-      path: path,
-      properties: extra,
-    );
-    span?.setAttribute('note.id', note.id);
-    final summary = note.toSummary();
-    scheduleEmbedding(note);
-    // metaIndex is upserted before the search index reads from it below,
-    // so link resolution (including a self-referential link) sees this
-    // note.
-    metaIndex.upsert(summary);
-    final coveringDefs = _coveringOf(note, summary);
-    linkIndex.upsert(
-      note.id,
-      note.content,
-      extraLinks: _relationLinks(coveringDefs, note.extra),
-    );
-    searchIndex.upsert(
-      id: note.id,
-      title: note.title,
-      path: note.path,
-      content: note.content,
-      updatedAt: note.updatedAt,
-      tags: summary.tags,
-      links: _searchLinkEdges(note.id),
-      extra: note.extra,
-      createdAt: note.createdAt,
-      isDefinition: isDatabaseDefinitionExtra(note.extra),
-    );
-    _refreshRegistry(summary, note.extra);
-    await storage.acknowledgeIndexedRevision(note.id, note.version);
-    _safeBroadcast(
-      ChangedEvent(
-        noteId: note.id,
-        version: note.version,
-        by: actor,
-        action: ChangeAction.created,
-      ),
-    );
-    _log.info('note ${note.id} created by $actor');
-    return note;
+  }) {
+    return _guardFolderMutation(path, () async {
+      final note = await storage.create(
+        actor: actor,
+        title: title,
+        content: content,
+        path: path,
+        properties: extra,
+      );
+      span?.setAttribute('note.id', note.id);
+      final summary = note.toSummary();
+      scheduleEmbedding(note);
+      // metaIndex is upserted before the search index reads from it below,
+      // so link resolution (including a self-referential link) sees this
+      // note.
+      metaIndex.upsert(summary);
+      final coveringDefs = _coveringOf(note, summary);
+      linkIndex.upsert(
+        note.id,
+        note.content,
+        extraLinks: _relationLinks(coveringDefs, note.extra),
+      );
+      searchIndex.upsert(
+        id: note.id,
+        title: note.title,
+        path: note.path,
+        content: note.content,
+        updatedAt: note.updatedAt,
+        tags: summary.tags,
+        links: _searchLinkEdges(note.id),
+        extra: note.extra,
+        createdAt: note.createdAt,
+        isDefinition: isDatabaseDefinitionExtra(note.extra),
+      );
+      _refreshRegistry(summary, note.extra);
+      await storage.acknowledgeIndexedRevision(note.id, note.version);
+      _safeBroadcast(
+        ChangedEvent(
+          noteId: note.id,
+          version: note.version,
+          by: actor,
+          action: ChangeAction.created,
+        ),
+      );
+      _log.info('note ${note.id} created by $actor');
+      return note;
+    });
   }
 
   /// Updates an existing note (subject to [ifMatch] optimistic concurrency)
@@ -342,80 +360,89 @@ class NoteWriteService {
     required Map<String, Object?>? properties,
     required bool validate,
   }) {
-    return _tracer.startActiveSpan(
-      'note.write.update',
-      attributes: {'note.id': id},
-      (span) async {
-        final before = await storage.read(id);
-        if (validate && properties != null && properties.isNotEmpty) {
-          _validateCallerProperties(
-            path: path ?? before.path,
-            tags: computeTags(extra: before.extra, content: content),
-            isDefinition: isDatabaseDefinitionExtra(before.extra),
-            properties: properties,
-            selfId: id,
-          );
-        }
-        final updated = await storage.update(
-          actor: actor,
-          id: id,
-          title: title,
-          content: content,
-          ifMatch: ifMatch,
-          path: path,
-          properties: properties,
+    return _guardNoteMutation(
+      id,
+      destinationPath: path,
+      body: () async {
+        return _tracer.startActiveSpan(
+          'note.write.update',
+          attributes: {'note.id': id},
+          (span) async {
+            final before = await storage.read(id);
+            if (validate && properties != null && properties.isNotEmpty) {
+              _validateCallerProperties(
+                path: path ?? before.path,
+                tags: computeTags(extra: before.extra, content: content),
+                isDefinition: isDatabaseDefinitionExtra(before.extra),
+                properties: properties,
+                selfId: id,
+              );
+            }
+            final updated = await storage.update(
+              actor: actor,
+              id: id,
+              title: title,
+              content: content,
+              ifMatch: ifMatch,
+              path: path,
+              properties: properties,
+            );
+            final summary = updated.toSummary();
+            scheduleEmbedding(updated);
+            metaIndex.upsert(summary);
+            final coveringDefs = _coveringOf(updated, summary);
+            linkIndex.upsert(
+              updated.id,
+              updated.content,
+              extraLinks: _relationLinks(coveringDefs, updated.extra),
+            );
+            searchIndex.upsert(
+              id: updated.id,
+              title: updated.title,
+              path: updated.path,
+              content: updated.content,
+              updatedAt: updated.updatedAt,
+              tags: summary.tags,
+              links: _searchLinkEdges(updated.id),
+              extra: updated.extra,
+              createdAt: updated.createdAt,
+              isDefinition: isDatabaseDefinitionExtra(updated.extra),
+            );
+            _refreshRegistry(summary, updated.extra);
+            await storage.acknowledgeIndexedRevision(
+              updated.id,
+              updated.version,
+            );
+            // A path change broadcasts as `moved` rather than `updated` (per
+            // notes-api), even if title/content changed in the same request —
+            // "moved" is what tells subscribed clients their folder tree view
+            // needs a re-fetch, which a plain `updated` wouldn't trigger.
+            final action = updated.path != before.path
+                ? ChangeAction.moved
+                : ChangeAction.updated;
+            _safeBroadcast(
+              ChangedEvent(
+                noteId: updated.id,
+                version: updated.version,
+                by: actor,
+                action: action,
+              ),
+            );
+            _log.info(
+              'note ${updated.id} ${action.name} by $actor '
+              '(version ${updated.version})',
+            );
+            if (before.title != updated.title) {
+              await _propagateRename(
+                oldTitle: before.title,
+                newTitle: updated.title,
+                renamedId: updated.id,
+                actor: actor,
+              );
+            }
+            return updated;
+          },
         );
-        final summary = updated.toSummary();
-        scheduleEmbedding(updated);
-        metaIndex.upsert(summary);
-        final coveringDefs = _coveringOf(updated, summary);
-        linkIndex.upsert(
-          updated.id,
-          updated.content,
-          extraLinks: _relationLinks(coveringDefs, updated.extra),
-        );
-        searchIndex.upsert(
-          id: updated.id,
-          title: updated.title,
-          path: updated.path,
-          content: updated.content,
-          updatedAt: updated.updatedAt,
-          tags: summary.tags,
-          links: _searchLinkEdges(updated.id),
-          extra: updated.extra,
-          createdAt: updated.createdAt,
-          isDefinition: isDatabaseDefinitionExtra(updated.extra),
-        );
-        _refreshRegistry(summary, updated.extra);
-        await storage.acknowledgeIndexedRevision(updated.id, updated.version);
-        // A path change broadcasts as `moved` rather than `updated` (per
-        // notes-api), even if title/content changed in the same request —
-        // "moved" is what tells subscribed clients their folder tree view
-        // needs a re-fetch, which a plain `updated` wouldn't trigger.
-        final action = updated.path != before.path
-            ? ChangeAction.moved
-            : ChangeAction.updated;
-        _safeBroadcast(
-          ChangedEvent(
-            noteId: updated.id,
-            version: updated.version,
-            by: actor,
-            action: action,
-          ),
-        );
-        _log.info(
-          'note ${updated.id} ${action.name} by $actor '
-          '(version ${updated.version})',
-        );
-        if (before.title != updated.title) {
-          await _propagateRename(
-            oldTitle: before.title,
-            newTitle: updated.title,
-            renamedId: updated.id,
-            actor: actor,
-          );
-        }
-        return updated;
       },
     );
   }
@@ -439,37 +466,42 @@ class NoteWriteService {
     required String text,
     required String actor,
   }) {
-    return _tracer.startActiveSpan(
-      'note.write.append',
-      attributes: {'note.id': id},
-      (span) async {
-        _checkLock(id, actor);
-        var current = await storage.read(id);
+    return _guardNoteMutation(
+      id,
+      body: () async {
+        return _tracer.startActiveSpan(
+          'note.write.append',
+          attributes: {'note.id': id},
+          (span) async {
+            _checkLock(id, actor);
+            var current = await storage.read(id);
 
-        for (var attempt = 0; attempt <= kAppendMaxRetries; attempt++) {
-          _checkLock(id, actor);
-          final needsNewline =
-              current.content.isNotEmpty && !current.content.endsWith('\n');
-          final nextContent = current.content.isEmpty
-              ? text
-              : '${current.content}${needsNewline ? '\n' : ''}$text';
-          try {
-            return await update(
-              id: id,
-              title: current.title,
-              content: nextContent,
-              ifMatch: current.version,
-              actor: actor,
+            for (var attempt = 0; attempt <= kAppendMaxRetries; attempt++) {
+              _checkLock(id, actor);
+              final needsNewline =
+                  current.content.isNotEmpty && !current.content.endsWith('\n');
+              final nextContent = current.content.isEmpty
+                  ? text
+                  : '${current.content}${needsNewline ? '\n' : ''}$text';
+              try {
+                return await update(
+                  id: id,
+                  title: current.title,
+                  content: nextContent,
+                  ifMatch: current.version,
+                  actor: actor,
+                );
+              } on VersionConflictException catch (e) {
+                // The exception carries the fresh state, so retrying needs no
+                // extra read.
+                current = e.current;
+              }
+            }
+            throw VersionConflictException(
+              current: current,
+              suppliedIfMatch: current.version,
             );
-          } on VersionConflictException catch (e) {
-            // The exception carries the fresh state, so retrying needs no
-            // extra read.
-            current = e.current;
-          }
-        }
-        throw VersionConflictException(
-          current: current,
-          suppliedIfMatch: current.version,
+          },
         );
       },
     );
@@ -515,6 +547,13 @@ class NoteWriteService {
         continue;
       }
       try {
+        final summary = metaIndex.get(sourceId);
+        if (summary == null) continue;
+        authorization.require(
+          _principalResolver(),
+          KnowledgeAction.edit,
+          KnowledgeTarget.note(sourceId, summary.path),
+        );
         final source = await storage.read(sourceId);
         final rewritten = rewriteLinks(
           source.content,
@@ -540,6 +579,8 @@ class NoteWriteService {
           path: source.path,
           properties: extraChanged ? _propertyKeysOnly(rewrittenExtra) : null,
         );
+      } on KnowledgeAccessDeniedException {
+        _log.fine('Skipping unauthorized rename-propagation target $sourceId');
       } on NoteNotFoundException {
         // Raced with a concurrent delete of the referencing note; nothing
         // to rewrite.
@@ -552,81 +593,148 @@ class NoteWriteService {
     }
   }
 
+  /// Prepares accepted maps before a curation designation is published.
+  Future<void> preparePolicyHistory(
+    KnowledgePrincipal principal,
+    KnowledgeTarget target,
+    KnowledgePolicyPatch? patch,
+  ) async {
+    authorization.require(principal, KnowledgeAction.policy, target);
+    for (final summary in metaIndex.all.toList()) {
+      final resource = KnowledgeTarget.note(summary.id, summary.path);
+      if (!authorization.store
+          .effectiveAfter(resource, target, patch)
+          .curated) {
+        continue;
+      }
+      final sourceFolder = collisionKey(summary.path);
+      final targetFolder = collisionKey(target.path);
+      final affected = target.collection == null &&
+          (target.noteId != null
+              ? target.noteId == summary.id
+              : targetFolder.isEmpty ||
+                  sourceFolder == targetFolder ||
+                  sourceFolder.startsWith('$targetFolder/'));
+      if (!affected) continue;
+      authorization.require(principal, KnowledgeAction.policy, resource);
+      final note =
+          await storage.enableRevisionHistory(summary.id, actor: principal.id);
+      metaIndex.upsert(note.toSummary());
+      searchIndex.upsert(
+        id: note.id,
+        title: note.title,
+        path: note.path,
+        content: note.content,
+        updatedAt: note.updatedAt,
+        tags: note.toSummary().tags,
+        links: _searchLinkEdges(note.id),
+        extra: note.extra,
+        createdAt: note.createdAt,
+        isDefinition: isDatabaseDefinitionExtra(note.extra),
+      );
+      _refreshRegistry(note.toSummary(), note.extra);
+      await storage.acknowledgeIndexedRevision(note.id, note.version);
+      if (note.version != summary.version) {
+        _safeBroadcast(
+          ChangedEvent(
+            noteId: note.id,
+            version: note.version,
+            by: principal.id,
+            action: ChangeAction.updated,
+          ),
+        );
+      }
+    }
+  }
+
   /// Restores an accepted revision and refreshes current search and links.
   Future<StoredNote> restoreRevision({
     required String id,
     required int version,
     required int ifMatch,
     required String actor,
-  }) async {
-    final source = await storage.readRevision(id, version);
-    if (isDatabaseDefinitionExtra(source.extra)) {
-      throw const PropertyValidationException([
-        PropertyViolation(key: 'type', reason: 'database restore unsupported'),
-      ]);
-    }
-    _validateCallerProperties(
-      path: source.path,
-      tags: source.toSummary().tags,
-      isDefinition: false,
-      properties: _propertyKeysOnly(source.extra),
-      selfId: id,
-    );
-    final before = metaIndex.get(id);
-    final oldTitle = before?.title;
-    final note = await storage.restoreRevision(
+  }) {
+    return _guardNoteMutation(
       id,
-      version,
-      ifMatch: ifMatch,
-      actor: actor,
+      body: () async {
+        final source = await storage.readRevision(id, version);
+        _requireMoveRights(
+          _principalResolver(),
+          await knowledgeTarget(id),
+          KnowledgeTarget.note(id, source.path),
+        );
+        if (isDatabaseDefinitionExtra(source.extra)) {
+          throw const PropertyValidationException([
+            PropertyViolation(
+              key: 'type',
+              reason: 'database restore unsupported',
+            ),
+          ]);
+        }
+        _validateCallerProperties(
+          path: source.path,
+          tags: source.toSummary().tags,
+          isDefinition: false,
+          properties: _propertyKeysOnly(source.extra),
+          selfId: id,
+        );
+        final before = metaIndex.get(id);
+        final oldTitle = before?.title;
+        final note = await storage.restoreRevision(
+          id,
+          version,
+          ifMatch: ifMatch,
+          actor: actor,
+        );
+        final summary = note.toSummary();
+        scheduleEmbedding(note);
+        // metaIndex is upserted before the search index reads from it below,
+        // so link resolution (including a self-referential link) sees this
+        // note.
+        metaIndex.upsert(summary);
+        final coveringDefs = _coveringOf(note, summary);
+        linkIndex.upsert(
+          note.id,
+          note.content,
+          extraLinks: _relationLinks(coveringDefs, note.extra),
+        );
+        searchIndex.upsert(
+          id: note.id,
+          title: note.title,
+          path: note.path,
+          content: note.content,
+          updatedAt: note.updatedAt,
+          tags: summary.tags,
+          links: _searchLinkEdges(note.id),
+          extra: note.extra,
+          createdAt: note.createdAt,
+          isDefinition: isDatabaseDefinitionExtra(note.extra),
+        );
+        _refreshRegistry(summary, note.extra);
+        await storage.acknowledgeIndexedRevision(note.id, note.version);
+        _safeBroadcast(
+          ChangedEvent(
+            noteId: note.id,
+            version: note.version,
+            by: actor,
+            action: before == null
+                ? ChangeAction.created
+                : before.path != note.path
+                    ? ChangeAction.moved
+                    : ChangeAction.updated,
+          ),
+        );
+        if (oldTitle != null && oldTitle != note.title) {
+          await _propagateRename(
+            oldTitle: oldTitle,
+            newTitle: note.title,
+            renamedId: id,
+            actor: actor,
+          );
+        }
+        return note;
+      },
     );
-    final summary = note.toSummary();
-    scheduleEmbedding(note);
-    // metaIndex is upserted before the search index reads from it below,
-    // so link resolution (including a self-referential link) sees this
-    // note.
-    metaIndex.upsert(summary);
-    final coveringDefs = _coveringOf(note, summary);
-    linkIndex.upsert(
-      note.id,
-      note.content,
-      extraLinks: _relationLinks(coveringDefs, note.extra),
-    );
-    searchIndex.upsert(
-      id: note.id,
-      title: note.title,
-      path: note.path,
-      content: note.content,
-      updatedAt: note.updatedAt,
-      tags: summary.tags,
-      links: _searchLinkEdges(note.id),
-      extra: note.extra,
-      createdAt: note.createdAt,
-      isDefinition: isDatabaseDefinitionExtra(note.extra),
-    );
-    _refreshRegistry(summary, note.extra);
-    await storage.acknowledgeIndexedRevision(note.id, note.version);
-    _safeBroadcast(
-      ChangedEvent(
-        noteId: note.id,
-        version: note.version,
-        by: actor,
-        action: before == null
-            ? ChangeAction.created
-            : before.path != note.path
-                ? ChangeAction.moved
-                : ChangeAction.updated,
-      ),
-    );
-    if (oldTitle != null && oldTitle != note.title) {
-      await _propagateRename(
-        oldTitle: oldTitle,
-        newTitle: note.title,
-        renamedId: id,
-        actor: actor,
-      );
-    }
-    return note;
   }
 
   /// Deletes a note and removes it from every derived view. Returns the
@@ -636,27 +744,32 @@ class NoteWriteService {
     required String id,
     required String actor,
   }) {
-    return _tracer.startActiveSpan(
-      'note.write.delete',
-      attributes: {'note.id': id},
-      (span) async {
-        final existing = await storage.read(id);
-        await storage.delete(id, actor: actor);
-        searchIndex.delete(id);
-        metaIndex.remove(id);
-        linkIndex.remove(id);
-        registry?.remove(id);
-        await storage.acknowledgeIndexedRevision(id, existing.version + 1);
-        _safeBroadcast(
-          ChangedEvent(
-            noteId: id,
-            version: existing.version,
-            by: actor,
-            action: ChangeAction.deleted,
-          ),
+    return _guardNoteMutation(
+      id,
+      body: () async {
+        return _tracer.startActiveSpan(
+          'note.write.delete',
+          attributes: {'note.id': id},
+          (span) async {
+            final existing = await storage.read(id);
+            await storage.delete(id, actor: actor);
+            searchIndex.delete(id);
+            metaIndex.remove(id);
+            linkIndex.remove(id);
+            registry?.remove(id);
+            await storage.acknowledgeIndexedRevision(id, existing.version + 1);
+            _safeBroadcast(
+              ChangedEvent(
+                noteId: id,
+                version: existing.version,
+                by: actor,
+                action: ChangeAction.deleted,
+              ),
+            );
+            _log.info('note $id deleted by $actor');
+            return existing;
+          },
         );
-        _log.info('note $id deleted by $actor');
-        return existing;
       },
     );
   }
@@ -742,87 +855,97 @@ class NoteWriteService {
     required Set<String> unset,
     required String actor,
   }) {
-    return _tracer.startActiveSpan(
-      'note.write.patch_properties',
-      attributes: {'note.id': id},
-      (span) async {
-        if (set.isEmpty && unset.isEmpty) {
-          throw const PropertyValidationException([
-            PropertyViolation(key: '', reason: 'no changes supplied'),
-          ]);
-        }
-        final overlap = set.keys.toSet().intersection(unset);
-        if (overlap.isNotEmpty) {
-          throw PropertyValidationException([
-            for (final key in overlap)
-              PropertyViolation(
-                key: key,
-                reason: 'key is in both set and unset',
+    return _guardNoteMutation(
+      id,
+      body: () async {
+        return _tracer.startActiveSpan(
+          'note.write.patch_properties',
+          attributes: {'note.id': id},
+          (span) async {
+            if (set.isEmpty && unset.isEmpty) {
+              throw const PropertyValidationException([
+                PropertyViolation(key: '', reason: 'no changes supplied'),
+              ]);
+            }
+            final overlap = set.keys.toSet().intersection(unset);
+            if (overlap.isNotEmpty) {
+              throw PropertyValidationException([
+                for (final key in overlap)
+                  PropertyViolation(
+                    key: key,
+                    reason: 'key is in both set and unset',
+                  ),
+              ]);
+            }
+            final badKeys = {...set.keys, ...unset}.where(
+              (k) =>
+                  kReservedPropertyKeys.contains(k) || kBuiltinKeys.contains(k),
+            );
+            if (badKeys.isNotEmpty) {
+              throw PropertyValidationException([
+                for (final key in badKeys)
+                  PropertyViolation(key: key, reason: 'reserved key'),
+              ]);
+            }
+
+            final current = await storage.read(id);
+            if (set.isNotEmpty) {
+              _validateCallerProperties(
+                path: current.path,
+                tags:
+                    computeTags(extra: current.extra, content: current.content),
+                isDefinition: isDatabaseDefinitionExtra(current.extra),
+                properties: set,
+                selfId: id,
+              );
+            }
+
+            final updated = await storage.patchExtra(
+              id: id,
+              set: set,
+              unset: unset,
+              actor: actor,
+            );
+            final summary = updated.toSummary();
+            metaIndex.upsert(summary);
+            final coveringDefs = _coveringOf(updated, summary);
+            linkIndex.upsert(
+              updated.id,
+              updated.content,
+              extraLinks: _relationLinks(coveringDefs, updated.extra),
+            );
+            searchIndex.upsert(
+              id: updated.id,
+              title: updated.title,
+              path: updated.path,
+              content: updated.content,
+              updatedAt: updated.updatedAt,
+              tags: summary.tags,
+              links: _searchLinkEdges(updated.id),
+              extra: updated.extra,
+              createdAt: updated.createdAt,
+              isDefinition: isDatabaseDefinitionExtra(updated.extra),
+            );
+            _refreshRegistry(summary, updated.extra);
+            await storage.acknowledgeIndexedRevision(
+              updated.id,
+              updated.version,
+            );
+            _safeBroadcast(
+              ChangedEvent(
+                noteId: updated.id,
+                version: updated.version,
+                by: actor,
+                action: ChangeAction.updated,
               ),
-          ]);
-        }
-        final badKeys = {...set.keys, ...unset}.where(
-          (k) => kReservedPropertyKeys.contains(k) || kBuiltinKeys.contains(k),
+            );
+            _log.info(
+              'note ${updated.id} properties patched by $actor '
+              '(version ${updated.version})',
+            );
+            return updated;
+          },
         );
-        if (badKeys.isNotEmpty) {
-          throw PropertyValidationException([
-            for (final key in badKeys)
-              PropertyViolation(key: key, reason: 'reserved key'),
-          ]);
-        }
-
-        final current = await storage.read(id);
-        if (set.isNotEmpty) {
-          _validateCallerProperties(
-            path: current.path,
-            tags: computeTags(extra: current.extra, content: current.content),
-            isDefinition: isDatabaseDefinitionExtra(current.extra),
-            properties: set,
-            selfId: id,
-          );
-        }
-
-        final updated = await storage.patchExtra(
-          id: id,
-          set: set,
-          unset: unset,
-          actor: actor,
-        );
-        final summary = updated.toSummary();
-        metaIndex.upsert(summary);
-        final coveringDefs = _coveringOf(updated, summary);
-        linkIndex.upsert(
-          updated.id,
-          updated.content,
-          extraLinks: _relationLinks(coveringDefs, updated.extra),
-        );
-        searchIndex.upsert(
-          id: updated.id,
-          title: updated.title,
-          path: updated.path,
-          content: updated.content,
-          updatedAt: updated.updatedAt,
-          tags: summary.tags,
-          links: _searchLinkEdges(updated.id),
-          extra: updated.extra,
-          createdAt: updated.createdAt,
-          isDefinition: isDatabaseDefinitionExtra(updated.extra),
-        );
-        _refreshRegistry(summary, updated.extra);
-        await storage.acknowledgeIndexedRevision(updated.id, updated.version);
-        _safeBroadcast(
-          ChangedEvent(
-            noteId: updated.id,
-            version: updated.version,
-            by: actor,
-            action: ChangeAction.updated,
-          ),
-        );
-        _log.info(
-          'note ${updated.id} properties patched by $actor '
-          '(version ${updated.version})',
-        );
-        return updated;
       },
     );
   }
@@ -845,42 +968,54 @@ class NoteWriteService {
     String content = '',
     String? path,
   }) {
-    return _tracer.startActiveSpan('note.write.create_row', (span) async {
-      final def = registry?.get(databaseId);
-      if (def == null) throw DatabaseNotFoundException(databaseId);
+    return _guardIdentityMutation(() async {
+      return _tracer.startActiveSpan('note.write.create_row', (span) async {
+        final def = registry?.get(databaseId);
+        if (def == null) throw DatabaseNotFoundException(databaseId);
 
-      final source = def.source;
-      String resolvedPath;
-      final extra = <String, Object?>{...properties};
-      if (source.folder != null) {
-        final folder = source.folder!;
-        resolvedPath = path ?? folder;
-        final withinFolder = resolvedPath == folder ||
-            (source.includeSubfolders && resolvedPath.startsWith('$folder/'));
-        if (!withinFolder) {
-          throw PathOutsideSourceException(path: resolvedPath, folder: folder);
+        authorization.require(
+          _principalResolver(),
+          KnowledgeAction.read,
+          KnowledgeTarget.note(def.id, def.path),
+        );
+        final source = def.source;
+        String resolvedPath;
+        final extra = <String, Object?>{...properties};
+        if (source.folder != null) {
+          final folder = source.folder!;
+          resolvedPath = path ?? folder;
+          final withinFolder = resolvedPath == folder ||
+              (source.includeSubfolders && resolvedPath.startsWith('$folder/'));
+          if (!withinFolder) {
+            throw PathOutsideSourceException(
+              path: resolvedPath,
+              folder: folder,
+            );
+          }
+        } else {
+          resolvedPath = path ?? '';
+          extra['tags'] = [source.tag!];
         }
-      } else {
-        resolvedPath = path ?? '';
-        extra['tags'] = [source.tag!];
-      }
 
-      final violations = validateProperties(
-        [def],
-        properties,
-        resolveTitle: _resolveTitle,
-        isRowOf: _isRowOf,
-      );
-      if (violations.isNotEmpty) throw PropertyValidationException(violations);
+        final violations = validateProperties(
+          [def],
+          properties,
+          resolveTitle: _resolveTitle,
+          isRowOf: _isRowOf,
+        );
+        if (violations.isNotEmpty) {
+          throw PropertyValidationException(violations);
+        }
 
-      return _persistCreate(
-        title: title,
-        content: content,
-        actor: actor,
-        path: resolvedPath,
-        extra: extra,
-        span: span,
-      );
+        return _persistCreate(
+          title: title,
+          content: content,
+          actor: actor,
+          path: resolvedPath,
+          extra: extra,
+          span: span,
+        );
+      });
     });
   }
 
@@ -897,22 +1032,30 @@ class NoteWriteService {
     Map<String, PropertyDefinition> properties = const {},
     List<ViewDefinition> views = const [],
   }) {
-    return _tracer.startActiveSpan('note.write.create_database', (span) async {
-      final extra = _definitionExtra(
-        source: source,
-        properties: properties,
-        views: views,
-      );
-      _validateDefinitionExtra(id: '', title: title, path: path, extra: extra);
-      final note = await _persistCreate(
-        title: title,
-        content: content,
-        actor: actor,
-        path: path,
-        extra: extra,
-        span: span,
-      );
-      return note;
+    return _guardIdentityMutation(() async {
+      return _tracer.startActiveSpan('note.write.create_database',
+          (span) async {
+        final extra = _definitionExtra(
+          source: source,
+          properties: properties,
+          views: views,
+        );
+        _validateDefinitionExtra(
+          id: '',
+          title: title,
+          path: path,
+          extra: extra,
+        );
+        final note = await _persistCreate(
+          title: title,
+          content: content,
+          actor: actor,
+          path: path,
+          extra: extra,
+          span: span,
+        );
+        return note;
+      });
     });
   }
 
@@ -936,43 +1079,50 @@ class NoteWriteService {
     Map<String, PropertyDefinition>? properties,
     List<ViewDefinition>? views,
   }) {
-    return _tracer.startActiveSpan(
-      'note.write.update_database',
-      attributes: {'note.id': id},
-      (span) async {
-        final current = await storage.read(id);
-        if (!isDatabaseDefinitionExtra(current.extra)) {
-          throw NoteNotFoundException(id);
-        }
-        final bodyOnly = source == null && properties == null && views == null;
-        Map<String, Object?>? extra;
-        if (!bodyOnly) {
-          final currentSource = DatabaseSource.fromJson(
-            (current.extra['source'] as Map?)?.cast<String, dynamic>() ??
-                {'folder': current.path},
-          );
-          extra = _definitionExtra(
-            source: source ?? currentSource,
-            properties: properties ?? _parseDefinition(current).properties,
-            views: views ?? _parseDefinition(current).views,
-          );
-          _validateDefinitionExtra(
-            id: id,
-            title: title ?? current.title,
-            path: path ?? current.path,
-            extra: extra,
-          );
-        }
-        final updated = await updateRaw(
-          id: id,
-          title: title ?? current.title,
-          content: content ?? current.content,
-          ifMatch: ifMatch,
-          actor: actor,
-          path: path,
-          properties: extra,
+    return _guardNoteMutation(
+      id,
+      destinationPath: path,
+      body: () async {
+        return _tracer.startActiveSpan(
+          'note.write.update_database',
+          attributes: {'note.id': id},
+          (span) async {
+            final current = await storage.read(id);
+            if (!isDatabaseDefinitionExtra(current.extra)) {
+              throw NoteNotFoundException(id);
+            }
+            final bodyOnly =
+                source == null && properties == null && views == null;
+            Map<String, Object?>? extra;
+            if (!bodyOnly) {
+              final currentSource = DatabaseSource.fromJson(
+                (current.extra['source'] as Map?)?.cast<String, dynamic>() ??
+                    {'folder': current.path},
+              );
+              extra = _definitionExtra(
+                source: source ?? currentSource,
+                properties: properties ?? _parseDefinition(current).properties,
+                views: views ?? _parseDefinition(current).views,
+              );
+              _validateDefinitionExtra(
+                id: id,
+                title: title ?? current.title,
+                path: path ?? current.path,
+                extra: extra,
+              );
+            }
+            final updated = await updateRaw(
+              id: id,
+              title: title ?? current.title,
+              content: content ?? current.content,
+              ifMatch: ifMatch,
+              actor: actor,
+              path: path,
+              properties: extra,
+            );
+            return updated;
+          },
         );
-        return updated;
       },
     );
   }
@@ -1062,6 +1212,13 @@ class NoteWriteService {
           isDefinition: isDefinition,
         ) ??
         const <DatabaseDefinition>[];
+    for (final definition in covering) {
+      authorization.require(
+        _principalResolver(),
+        KnowledgeAction.read,
+        KnowledgeTarget.note(definition.id, definition.path),
+      );
+    }
     final violations = validateProperties(
       covering,
       properties,
@@ -1082,7 +1239,17 @@ class NoteWriteService {
 
   NoteSummary? _resolveTitle(String title) {
     final id = metaIndex.resolveTitle(title);
-    return id == null ? null : metaIndex.get(id);
+    if (id == null) return null;
+    final summary = metaIndex.get(id);
+    if (summary == null ||
+        !authorization.allows(
+          _principalResolver(),
+          KnowledgeAction.read,
+          KnowledgeTarget.note(id, summary.path),
+        )) {
+      return null;
+    }
+    return summary;
   }
 
   bool _isRowOf(NoteSummary note, String databaseId) =>
@@ -1192,5 +1359,99 @@ class NoteWriteService {
 
   void _refreshRegistry(NoteSummary summary, Map<String, Object?> extra) {
     registry?.upsert(summary, extra);
+  }
+
+  /// Resolves current or deleted-note policy from actual accepted storage.
+  Future<KnowledgeTarget> knowledgeTarget(String id) async {
+    try {
+      final note = await storage.read(id);
+      return KnowledgeTarget.note(note.id, note.path);
+    } on NoteNotFoundException {
+      final revisions = await storage.revisions(id);
+      if (revisions.isEmpty || revisions.last['deleted'] != true) {
+        throw NoteNotFoundException(id);
+      }
+      final metadata =
+          parseFrontmatter(revisions.last['markdown'] as String).metadata;
+      return KnowledgeTarget.note(id, metadata['path'] as String? ?? '');
+    }
+  }
+
+  /// Purge is a distinct human capability, independent of vault management.
+  Future<void> purgeHistory(String id) => _guardNoteMutation(
+        id,
+        action: KnowledgeAction.purge,
+        body: () => storage.purgeHistory(id),
+      );
+
+  Future<T> _guardIdentityMutation<T>(Future<T> Function() body) async {
+    final principal = _principalResolver();
+    if (principal.kind == KnowledgePrincipalKind.unidentified ||
+        !principal.canAccessVault(authorization.vaultId)) {
+      throw const KnowledgeAccessDeniedException(KnowledgeAction.edit);
+    }
+    return authorization.store.withMutationLock(() async {
+      await storage.prepareHistory();
+      return body();
+    });
+  }
+
+  Future<T> _guardFolderMutation<T>(String path, Future<T> Function() body) =>
+      _guardIdentityMutation(() async {
+        authorization.require(
+          _principalResolver(),
+          KnowledgeAction.edit,
+          KnowledgeTarget.folder(path),
+        );
+        return body();
+      });
+
+  Future<T> _guardNoteMutation<T>(
+    String id, {
+    required Future<T> Function() body,
+    String? destinationPath,
+    KnowledgeAction action = KnowledgeAction.edit,
+  }) =>
+      _guardIdentityMutation(() async {
+        final principal = _principalResolver();
+        final target = await knowledgeTarget(id);
+        authorization
+          ..require(principal, KnowledgeAction.read, target)
+          ..require(principal, action, target);
+        if (destinationPath != null) {
+          _requireMoveRights(
+            principal,
+            target,
+            KnowledgeTarget.note(id, destinationPath),
+          );
+        }
+        return body();
+      });
+
+  void _requireMoveRights(
+    KnowledgePrincipal principal,
+    KnowledgeTarget current,
+    KnowledgeTarget destination,
+  ) {
+    authorization
+      ..require(principal, KnowledgeAction.read, destination)
+      ..require(principal, KnowledgeAction.edit, destination);
+    final before = authorization.store.effective(current);
+    final after = authorization.store.effective(destination);
+    final beforeRules = KnowledgePolicyPatch(
+      curated: before.curated,
+      approval: before.approval,
+      access: before.access,
+    ).toJson();
+    final afterRules = KnowledgePolicyPatch(
+      curated: after.curated,
+      approval: after.approval,
+      access: after.access,
+    ).toJson();
+    if (beforeRules.toString() != afterRules.toString()) {
+      authorization
+        ..require(principal, KnowledgeAction.policy, current)
+        ..require(principal, KnowledgeAction.policy, destination);
+    }
   }
 }

@@ -52,7 +52,7 @@ Middleware bearerAuth({
       final agent = await agentCredentials?.lookup(supplied);
       if (agent != null) {
         if (_operatorPath(request.uri.path)) return _operatorRequired();
-        if (!agent.scopes.contains(_requiredScope(request))) {
+        if (!_requiredScopes(request).any(agent.scopes.contains)) {
           return _insufficientScope();
         }
         return handler(
@@ -73,8 +73,7 @@ Middleware bearerAuth({
         return _unauthorized();
       }
       if (_operatorPath(request.uri.path)) return _operatorRequired();
-      final requiredScope = _requiredScope(request);
-      if (!record.scopes.contains(requiredScope)) {
+      if (!_requiredScopes(request).any(record.scopes.contains)) {
         return _insufficientScope();
       }
       return handler(
@@ -116,13 +115,27 @@ final RegExp _databaseQueryPath = RegExp(r'^/databases/[^/]+/query$');
 /// design's "Auth scope" decision — kept here rather than as a generic
 /// mechanism since this is (so far) the only route whose scope doesn't
 /// follow from its method.
-String _requiredScope(Request request) {
-  if (_isSafeMethod(request.method)) return 'notes:read';
-  if (request.method == HttpMethod.post &&
-      _databaseQueryPath.hasMatch(request.uri.path)) {
-    return 'notes:read';
+Set<String> _requiredScopes(Request request) {
+  final path = request.uri.path;
+  if (path.startsWith('/knowledge/')) return {'knowledge:policy'};
+  if (request.method == HttpMethod.delete &&
+      RegExp(r'^/notes/[^/]+/history$').hasMatch(path)) {
+    return {'knowledge:purge'};
   }
-  return 'notes:write';
+  if (_isSafeMethod(request.method)) return {'notes:read'};
+  if (request.method == HttpMethod.post && _databaseQueryPath.hasMatch(path)) {
+    return {'notes:read'};
+  }
+  if (RegExp(r'^/notes(?:/[^/]+)?/proposals(?:/[^/]+)?$').hasMatch(path)) {
+    return {'knowledge:propose'};
+  }
+  if (RegExp(r'^/notes/[^/]+/proposals/[^/]+/decisions$').hasMatch(path)) {
+    return {'knowledge:review'};
+  }
+  if (RegExp(r'^/notes/[^/]+/(?:proposals/[^/]+/)?comments$').hasMatch(path)) {
+    return {'knowledge:propose', 'knowledge:review'};
+  }
+  return {'notes:write'};
 }
 
 /// Paths exempt from the static bearer key, by method:

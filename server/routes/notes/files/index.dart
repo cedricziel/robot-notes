@@ -2,8 +2,11 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mime/mime.dart';
+import 'package:server/src/canonical_note_upload.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/vault_files.dart';
 
@@ -40,16 +43,31 @@ Future<Response> onRequest(RequestContext context) async {
   }
 }
 
-Response _list(RequestContext context) {
+Future<Response> _list(RequestContext context) async {
   final storage = context.read<Storage>();
   final path = context.request.uri.queryParameters['path'] ?? '';
+  if (!context.read<KnowledgeReadService>().canReadFolder(path)) {
+    return Response.json(
+      statusCode: 403,
+      body: {'error': 'knowledge_access_denied'},
+    );
+  }
   final files = storage.filesIn(path)
     ..sort((a, b) => a.relativePath.compareTo(b.relativePath));
 
+  final visibleFiles = <StoredFile>[];
+  for (final file in files) {
+    try {
+      await context.read<KnowledgeReadService>().requireFile(file.relativePath);
+      visibleFiles.add(file);
+    } on KnowledgeAccessDeniedException {
+      continue;
+    }
+  }
   return Response.json(
     body: {
       'items': [
-        for (final file in files)
+        for (final file in visibleFiles)
           {
             'path': path,
             'filename': _filenameOf(file.relativePath),
@@ -153,6 +171,11 @@ Future<Response> _upload(RequestContext context) async {
     return Response.json(
       statusCode: HttpStatus.conflict,
       body: const {'error': 'path_conflict'},
+    );
+  } on CanonicalNoteUploadException {
+    return Response.json(
+      statusCode: 422,
+      body: {'error': 'canonical_note_upload_forbidden'},
     );
   } on FileTooLargeException {
     return Response.json(

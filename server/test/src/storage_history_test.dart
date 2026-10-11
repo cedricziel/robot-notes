@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:server/src/search_index.dart';
@@ -254,5 +255,63 @@ void main() {
     expect((await recovered.search('nextword')).single.id, note.id);
     expect(await recovered.search('first'), isEmpty);
     expect(storage.historyNeedsReindex, false);
+  });
+  test('mandatory live purge keeps exact current snapshot and block identities',
+      () async {
+    final note = await storage.create(title: 'Pinned', content: 'one');
+    await storage.enableRevisionHistory(note.id);
+    await storage.update(
+      id: note.id,
+      title: 'Pinned',
+      content: 'two',
+      ifMatch: 1,
+    );
+    final map = await storage.readBlockMap(note.id);
+    final history = Directory(
+      '${storage.contentDir.path}.history/${base64Url.encode(utf8.encode(note.id))}',
+    );
+    final current = await File('${history.path}/2.json').readAsString();
+    await Directory('${history.path}/proposals').create();
+    await File('${history.path}/proposals/candidate.json')
+        .writeAsString('unaccepted');
+    await storage.purgeHistory(note.id);
+    expect(await File('${history.path}/2.json').readAsString(), current);
+    expect((await storage.readBlockMap(note.id)).toJson(), map.toJson());
+    expect(
+      (await storage.revisions(note.id)).map((record) => record['version']),
+      [2],
+    );
+    expect(Directory('${history.path}/proposals').existsSync(), false);
+    await storage.delete(note.id);
+    await storage.purgeHistory(note.id);
+    expect(await storage.revisions(note.id), isEmpty);
+  });
+
+  test('restart replays a keep-version purge without regenerating block IDs',
+      () async {
+    final note = await storage.create(title: 'Pinned', content: 'one');
+    await storage.enableRevisionHistory(note.id);
+    await storage.update(
+      id: note.id,
+      title: 'Pinned',
+      content: 'two',
+      ifMatch: 1,
+    );
+    final history = Directory(
+      '${storage.contentDir.path}.history/${base64Url.encode(utf8.encode(note.id))}',
+    );
+    final map = (await storage.readBlockMap(note.id)).toJson();
+    final current = await File('${history.path}/2.json').readAsString();
+    await File('${history.path}.purge')
+        .writeAsString(jsonEncode({'keep_version': 2}), flush: true);
+    storage = Storage(contentDir: storage.contentDir);
+    await storage.prepareHistory();
+    expect(await File('${history.path}/2.json').readAsString(), current);
+    expect((await storage.readBlockMap(note.id)).toJson(), map);
+    expect(
+      (await storage.revisions(note.id)).map((record) => record['version']),
+      [2],
+    );
+    expect(File('${history.path}.purge').existsSync(), false);
   });
 }

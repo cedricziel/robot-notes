@@ -448,4 +448,51 @@ void main() {
     }
     expect(agent().isAgentOrigin, true);
   });
+  test('folder case aliases cannot bypass curated designation', () async {
+    await authorization.putFolderPolicy(
+      operator,
+      'Institution',
+      KnowledgePolicyPatch(curated: true),
+    );
+    final alias = KnowledgeTarget.note('NOTE', 'INSTITUTION/Child');
+    expect(store.effective(alias).curated, true);
+    expect(authorization.allows(agent(), KnowledgeAction.edit, alias), false);
+    expect(alias.path, 'INSTITUTION/Child');
+  });
+
+  test('unaccepted archive capture honors collection ACL without human edit',
+      () async {
+    await authorization.putFolderPolicy(
+      operator,
+      '',
+      KnowledgePolicyPatch(curated: true),
+    );
+    final target = KnowledgeTarget.evidenceArchive();
+    expect(authorization.allows(agent(), KnowledgeAction.edit, target), true);
+    await authorization.putEvidenceArchivePolicy(
+      operator,
+      KnowledgePolicyPatch(access: {KnowledgeAction.edit: {}}),
+    );
+    expect(authorization.allows(agent(), KnowledgeAction.edit, target), false);
+  });
+  test('automatic class introspection never promises automatic text changes',
+      () async {
+    await authorization.putFolderPolicy(
+      operator,
+      '',
+      KnowledgePolicyPatch(curated: true, approval: 'evidence_no_conflict'),
+    );
+    final note =
+        authorization.permissions(agent(), KnowledgeTarget.note('NOTE', ''));
+    expect(note['requires_human_approval'], true);
+    expect(note['agent_text_requires_human_approval'], true);
+    expect(note['auto_acceptance_classes'], ['verified_source_attachment']);
+    final prospective =
+        authorization.permissions(agent(), KnowledgeTarget.folder(''));
+    expect(prospective['auto_acceptance_classes'], isEmpty);
+    final archive =
+        authorization.permissions(agent(), KnowledgeTarget.evidenceArchive());
+    expect(archive['auto_acceptance_classes'], isEmpty);
+    expect(archive['requires_human_approval'], false);
+  });
 }

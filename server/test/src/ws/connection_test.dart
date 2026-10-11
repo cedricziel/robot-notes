@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:dart_otel_api/dart_otel_api.dart';
 import 'package:dart_otel_sdk/dart_otel_sdk.dart' show SdkTracer;
 import 'package:fake_async/fake_async.dart';
+import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/connection.dart';
@@ -20,6 +21,7 @@ import 'package:server/src/ws/presence.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
+import '../../knowledge_test_context.dart' as knowledge_fixture;
 import '../otel/_span_test_helpers.dart';
 
 const _restResource = 'http://localhost';
@@ -56,7 +58,7 @@ void main() {
   late TokenStore tokenStore;
   const apiKey = 'rn_test';
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     broadcaster = Broadcaster();
     presence = PresenceTracker();
     tmp = Directory.systemTemp.createTempSync('robot-notes-ws-conn-test-');
@@ -76,6 +78,8 @@ void main() {
   }) {
     return WsConnection(
       id: id,
+      authorization: knowledge_fixture.fixtureAuthorization,
+      resolveKnowledgeTarget: (id) async => KnowledgeTarget.note(id, ''),
       sink: sink,
       broadcaster: broadcaster,
       presence: presence,
@@ -87,7 +91,8 @@ void main() {
   }
 
   group('auth handshake', () {
-    test('connection without auth within timeout closes 4001 auth_timeout', () {
+    knowledge_fixture.authorizedTest(
+        'connection without auth within timeout closes 4001 auth_timeout', () {
       fakeAsync((async) {
         final sink = _FakeSink();
         final conn = makeConn('c1', sink: sink)..start();
@@ -99,7 +104,8 @@ void main() {
       });
     });
 
-    test('auth with wrong key closes 4001 auth_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'auth with wrong key closes 4001 auth_failed', () async {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)..start();
       await conn.handleMessage(jsonEncode({'type': 'auth', 'key': 'nope'}));
@@ -108,7 +114,8 @@ void main() {
       expect(sink.closes.single.reason, 'auth_failed');
     });
 
-    test('successful auth sends auth_ok and binds actor', () {
+    knowledge_fixture
+        .authorizedTest('successful auth sends auth_ok and binds actor', () {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)
         ..start()
@@ -126,7 +133,8 @@ void main() {
       expect(_decode(sink.sent.single)['type'], 'auth_ok');
     });
 
-    test('auth without "actor" defaults to "unknown"', () {
+    knowledge_fixture
+        .authorizedTest('auth without "actor" defaults to "unknown"', () {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)
         ..start()
@@ -134,7 +142,8 @@ void main() {
       expect(conn.actor!.name, 'unknown');
     });
 
-    test('successful auth cancels the auth timer', () {
+    knowledge_fixture.authorizedTest('successful auth cancels the auth timer',
+        () {
       fakeAsync((async) {
         final sink = _FakeSink();
         final conn = makeConn('c1', sink: sink)
@@ -162,7 +171,7 @@ void main() {
         return issued.accessToken;
       }
 
-      test(
+      knowledge_fixture.authorizedTest(
           'a REST-audience token with notes:read authenticates and binds '
           'the recorded actor', () async {
         final token = await issueToken();
@@ -176,7 +185,8 @@ void main() {
         expect(_decode(sink.sent.single)['type'], 'auth_ok');
       });
 
-      test('an MCP-audience token is rejected', () async {
+      knowledge_fixture.authorizedTest('an MCP-audience token is rejected',
+          () async {
         final token = await issueToken(resource: '$_restResource/mcp');
         final sink = _FakeSink();
         final conn = makeConn('c1', sink: sink)..start();
@@ -187,7 +197,8 @@ void main() {
         expect(sink.closes.single.reason, 'auth_failed');
       });
 
-      test('a token lacking notes:read is rejected', () async {
+      knowledge_fixture.authorizedTest('a token lacking notes:read is rejected',
+          () async {
         final token = await issueToken(scopes: {'notes:write'});
         final sink = _FakeSink();
         final conn = makeConn('c1', sink: sink)..start();
@@ -198,7 +209,7 @@ void main() {
         expect(sink.closes.single.reason, 'auth_failed');
       });
 
-      test(
+      knowledge_fixture.authorizedTest(
           'a connection closed while the token lookup is pending does not '
           'complete auth afterwards', () async {
         final token = await issueToken();
@@ -221,7 +232,8 @@ void main() {
   });
 
   group('pre-auth message handling', () {
-    test('subscribe before auth is silently ignored', () async {
+    knowledge_fixture
+        .authorizedTest('subscribe before auth is silently ignored', () async {
       final sink = _FakeSink();
       makeConn('c1', sink: sink)
         ..start()
@@ -232,7 +244,8 @@ void main() {
       expect(broadcaster.isRegistered('c1'), isFalse);
     });
 
-    test('ping before auth is silently ignored', () {
+    knowledge_fixture.authorizedTest('ping before auth is silently ignored',
+        () {
       final sink = _FakeSink();
       makeConn('c1', sink: sink)
         ..start()
@@ -240,7 +253,8 @@ void main() {
       expect(sink.sent, isEmpty);
     });
 
-    test('unknown message before auth is silently ignored', () {
+    knowledge_fixture
+        .authorizedTest('unknown message before auth is silently ignored', () {
       final sink = _FakeSink();
       makeConn('c1', sink: sink)
         ..start()
@@ -270,7 +284,8 @@ void main() {
       return conn;
     }
 
-    test('per-note subscribe forwards events for that note only', () async {
+    knowledge_fixture.authorizedTest(
+        'per-note subscribe forwards events for that note only', () async {
       final sink = _FakeSink();
       final conn = await authed('c1', sink);
       sink.sent.clear();
@@ -292,7 +307,8 @@ void main() {
       expect(ids, ['n1']);
     });
 
-    test('wildcard subscribe forwards events for any note', () async {
+    knowledge_fixture.authorizedTest(
+        'wildcard subscribe forwards events for any note', () async {
       final sink = _FakeSink();
       final conn = await authed('c1', sink);
       sink.sent.clear();
@@ -308,7 +324,8 @@ void main() {
       expect(sink.sent.length, 2);
     });
 
-    test('unsubscribe stops further delivery for that note', () async {
+    knowledge_fixture.authorizedTest(
+        'unsubscribe stops further delivery for that note', () async {
       final sink = _FakeSink();
       final conn = await authed('c1', sink);
       sink.sent.clear();
@@ -348,7 +365,8 @@ void main() {
       return conn;
     }
 
-    test('subscribing fans out a presence event to existing viewers', () async {
+    knowledge_fixture.authorizedTest(
+        'subscribing fans out a presence event to existing viewers', () async {
       final sinkA = _FakeSink();
       await authedAndSubscribed('cA', sinkA, 'alice', 'n1');
       sinkA.sent.clear();
@@ -362,7 +380,8 @@ void main() {
       expect(eventsA.last['viewers'], ['alice', 'bob']);
     });
 
-    test('disconnecting removes the actor from presence', () async {
+    knowledge_fixture.authorizedTest(
+        'disconnecting removes the actor from presence', () async {
       final sinkA = _FakeSink();
       final connA = await authedAndSubscribed('cA', sinkA, 'alice', 'n1');
       final sinkB = _FakeSink();
@@ -379,7 +398,8 @@ void main() {
       expect(last['viewers'], ['bob']);
     });
 
-    test('same actor on two connections appears once in presence', () async {
+    knowledge_fixture.authorizedTest(
+        'same actor on two connections appears once in presence', () async {
       final sinkA = _FakeSink();
       await authedAndSubscribed('cA', sinkA, 'alice', 'n1');
       final sinkB = _FakeSink();
@@ -400,7 +420,8 @@ void main() {
   });
 
   group('lock + changed events', () {
-    test('lock event propagates to subscribed connection', () async {
+    knowledge_fixture.authorizedTest(
+        'lock event propagates to subscribed connection', () async {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)
         ..start()
@@ -416,7 +437,8 @@ void main() {
       expect(_decode(sink.sent.single)['type'], 'lock');
     });
 
-    test('changed event does NOT include content', () async {
+    knowledge_fixture.authorizedTest('changed event does NOT include content',
+        () async {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)
         ..start()
@@ -443,7 +465,7 @@ void main() {
   });
 
   group('ping / pong', () {
-    test('ping is echoed with the same id', () {
+    knowledge_fixture.authorizedTest('ping is echoed with the same id', () {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)
         ..start()
@@ -459,7 +481,8 @@ void main() {
   });
 
   group('error handling', () {
-    test('binary frame closes 1003 unsupported_data', () {
+    knowledge_fixture
+        .authorizedTest('binary frame closes 1003 unsupported_data', () {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)
         ..start()
@@ -468,8 +491,8 @@ void main() {
       expect(sink.closes.single.code, 1003);
     });
 
-    test('unknown message type after auth surfaces as error envelope',
-        () async {
+    knowledge_fixture.authorizedTest(
+        'unknown message type after auth surfaces as error envelope', () async {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)
         ..start()
@@ -484,7 +507,8 @@ void main() {
       expect(body['error'], 'unknown_type');
     });
 
-    test('malformed JSON after auth surfaces as error envelope', () async {
+    knowledge_fixture.authorizedTest(
+        'malformed JSON after auth surfaces as error envelope', () async {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)
         ..start()
@@ -499,7 +523,7 @@ void main() {
   });
 
   group('tracing', () {
-    test(
+    knowledge_fixture.authorizedTest(
         'a message is traced as a root span linked to the connection span, '
         'not nested under an ambient span', () async {
       final processor = RecordingProcessor();
@@ -545,7 +569,8 @@ void main() {
       expect(messageSpan.attributes['ws.connection.id'], 'c1');
     });
 
-    test('a message span carries no links when connectionSpanContext is null',
+    knowledge_fixture.authorizedTest(
+        'a message span carries no links when connectionSpanContext is null',
         () async {
       final processor = RecordingProcessor();
       final tracer =
@@ -570,7 +595,8 @@ void main() {
   });
 
   group('disconnect cleanup', () {
-    test('handleDone clears presence and broadcaster registration', () async {
+    knowledge_fixture.authorizedTest(
+        'handleDone clears presence and broadcaster registration', () async {
       final sink = _FakeSink();
       final conn = makeConn('c1', sink: sink)
         ..start()
@@ -591,5 +617,81 @@ void main() {
       expect(broadcaster.isRegistered('c1'), isFalse);
       expect(presence.viewersOf('n1'), isEmpty);
     });
+  });
+  knowledge_fixture.authorizedTest(
+      'scoped subscriptions and wildcard events respect current note ACLs',
+      () async {
+    final authorization =
+        NoteAuthorizationService(store: KnowledgePolicyStore.memory());
+    addTearDown(authorization.store.dispose);
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      'private',
+      KnowledgePolicyPatch(access: {KnowledgeAction.read: {}}),
+    );
+    final tokens = await tokenStore.issue(
+      clientId: 'viewer',
+      resource: _restResource,
+      scopes: {'notes:read'},
+      actor: 'viewer',
+      grantId: 'viewer',
+    );
+    final sink = _FakeSink();
+    final conn = WsConnection(
+      id: 'scoped',
+      sink: sink,
+      broadcaster: broadcaster,
+      presence: presence,
+      apiKey: apiKey,
+      tokenStore: tokenStore,
+      restResource: _restResource,
+      authorization: authorization,
+      resolveKnowledgeTarget: (id) async =>
+          KnowledgeTarget.note(id, id == 'secret' ? 'private' : 'public'),
+    )..start();
+    await conn.handleMessage(
+      jsonEncode(
+        {'type': 'auth', 'key': tokens.accessToken, 'actor': 'operator'},
+      ),
+    );
+    await conn
+        .handleMessage(jsonEncode({'type': 'subscribe', 'note_id': 'secret'}));
+    expect(presence.viewersOf('secret'), isEmpty);
+    expect(
+      sink.sent.any((raw) => raw.contains('knowledge_access_denied')),
+      true,
+    );
+    await conn.handleMessage(jsonEncode({'type': 'subscribe', 'note_id': '*'}));
+    broadcaster
+      ..emitChanged(
+        const ChangedEvent(
+          noteId: 'secret',
+          version: 1,
+          by: 'human',
+          action: ChangeAction.updated,
+        ),
+      )
+      ..emitChanged(
+        const ChangedEvent(
+          noteId: 'visible',
+          version: 1,
+          by: 'human',
+          action: ChangeAction.updated,
+        ),
+      );
+    await Future<void>.delayed(Duration.zero);
+    expect(sink.sent.any((raw) => raw.contains('"note_id":"secret"')), false);
+    expect(sink.sent.any((raw) => raw.contains('"note_id":"visible"')), true);
+    await conn
+        .handleMessage(jsonEncode({'type': 'subscribe', 'note_id': 'visible'}));
+    expect(presence.viewersOf('visible'), contains('viewer'));
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      'public',
+      KnowledgePolicyPatch(access: {KnowledgeAction.read: {}}),
+    );
+    expect(conn.isClosed, true);
+    expect(presence.viewersOf('visible'), isEmpty);
+    await conn.handleDone();
   });
 }

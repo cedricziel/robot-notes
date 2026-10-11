@@ -4,6 +4,8 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
@@ -14,6 +16,7 @@ import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/notes/[id]/index.dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -31,6 +34,10 @@ RequestContext _ctx({
   Object? body,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/notes/x'));
@@ -71,6 +78,7 @@ Future<NoteWriteService> _writeService(
   );
   addTearDown(search.close);
   return NoteWriteService(
+    authorization: knowledge_fixture.fixtureAuthorization,
     storage: storage,
     metaIndex: metaIndex,
     searchIndex: search,
@@ -99,7 +107,7 @@ void main() {
   late MetaIndex index;
   late LockManager lockManager;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
     storage = _storage(tmp);
     index = MetaIndex();
@@ -114,7 +122,8 @@ void main() {
   });
 
   group('GET /notes/{id}', () {
-    test('returns 200 with the full record', () async {
+    knowledge_fixture.authorizedTest('returns 200 with the full record',
+        () async {
       final note = await storage.create(title: 't', content: 'c');
       index.upsert(note.toSummary());
 
@@ -137,7 +146,8 @@ void main() {
       expect(body['lock'], isNull);
     });
 
-    test('returns 404 not_found for unknown id', () async {
+    knowledge_fixture.authorizedTest('returns 404 not_found for unknown id',
+        () async {
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.get,
@@ -152,7 +162,8 @@ void main() {
       expect(body['error'], 'not_found');
     });
 
-    test('includes lock state when the note is locked', () async {
+    knowledge_fixture.authorizedTest(
+        'includes lock state when the note is locked', () async {
       final note = await storage.create(title: 't', content: 'c');
       await lockManager.acquire(noteId: note.id, actor: 'alice');
 
@@ -171,7 +182,8 @@ void main() {
       expect(lock['expires_at'], isA<String>());
     });
 
-    test('includes the computed tags field', () async {
+    knowledge_fixture.authorizedTest('includes the computed tags field',
+        () async {
       final note = await storage.create(
         title: 't',
         content: 'body with #urgent tag',
@@ -193,7 +205,8 @@ void main() {
       expect(body['tags'], ['urgent']);
     });
 
-    test('exposes frontmatter extras as properties', () async {
+    knowledge_fixture.authorizedTest('exposes frontmatter extras as properties',
+        () async {
       final note = await storage.create(
         title: 't',
         content: 'c',
@@ -218,7 +231,8 @@ void main() {
   });
 
   group('PUT /notes/{id}', () {
-    test('without If-Match returns 428 precondition_required', () async {
+    knowledge_fixture.authorizedTest(
+        'without If-Match returns 428 precondition_required', () async {
       final note = await storage.create(title: 't', content: 'c');
       final res = await route.onRequest(
         _ctx(
@@ -235,7 +249,8 @@ void main() {
       expect(body['error'], 'precondition_required');
     });
 
-    test('with non-numeric If-Match returns 400 bad_request', () async {
+    knowledge_fixture.authorizedTest(
+        'with non-numeric If-Match returns 400 bad_request', () async {
       final note = await storage.create(title: 't', content: 'c');
       final res = await route.onRequest(
         _ctx(
@@ -253,7 +268,8 @@ void main() {
       expect(body['error'], 'bad_request');
     });
 
-    test('with title omitted keeps the current title', () async {
+    knowledge_fixture
+        .authorizedTest('with title omitted keeps the current title', () async {
       final note = await storage.create(title: 'original title', content: 'c');
       index.upsert(note.toSummary());
       final writes = await _writeService(tmp, storage, index);
@@ -278,7 +294,8 @@ void main() {
       expect(body['version'], 2);
     });
 
-    test('supplied properties replace extras', () async {
+    knowledge_fixture.authorizedTest('supplied properties replace extras',
+        () async {
       final note = await storage.create(
         title: 't',
         content: 'c',
@@ -310,7 +327,8 @@ void main() {
       expect(onDisk.extra.containsKey('mood'), isFalse);
     });
 
-    test('omitted properties preserves extras', () async {
+    knowledge_fixture.authorizedTest('omitted properties preserves extras',
+        () async {
       final note = await storage.create(
         title: 't',
         content: 'c',
@@ -337,7 +355,8 @@ void main() {
       expect(body['properties'], {'status': 'Active'});
     });
 
-    test('with an empty title returns 400 bad_request', () async {
+    knowledge_fixture.authorizedTest(
+        'with an empty title returns 400 bad_request', () async {
       final note = await storage.create(title: 't', content: 'c');
       final res = await route.onRequest(
         _ctx(
@@ -355,7 +374,8 @@ void main() {
       expect(body['error'], 'bad_request');
     });
 
-    test('with title omitted on an unknown id returns 404 not_found', () async {
+    knowledge_fixture.authorizedTest(
+        'with title omitted on an unknown id returns 404 not_found', () async {
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.put,
@@ -372,7 +392,8 @@ void main() {
       expect(body['error'], 'not_found');
     });
 
-    test('with stale If-Match returns 409 with current state', () async {
+    knowledge_fixture.authorizedTest(
+        'with stale If-Match returns 409 with current state', () async {
       final note = await storage.create(title: 't', content: 'c');
       await storage.update(
         id: note.id,
@@ -401,7 +422,8 @@ void main() {
       expect(current['title'], 'updated');
     });
 
-    test('while locked by another actor returns 423 locked', () async {
+    knowledge_fixture.authorizedTest(
+        'while locked by another actor returns 423 locked', () async {
       final note = await storage.create(title: 't', content: 'c');
       await lockManager.acquire(noteId: note.id, actor: 'alice');
 
@@ -424,7 +446,8 @@ void main() {
       expect(lock['holder'], 'alice');
     });
 
-    test('by lock holder with matching If-Match returns 200 and bumps version',
+    knowledge_fixture.authorizedTest(
+        'by lock holder with matching If-Match returns 200 and bumps version',
         () async {
       final note = await storage.create(title: 't', content: 'c');
       index.upsert(note.toSummary());
@@ -453,7 +476,8 @@ void main() {
       expect(index.get(note.id)?.title, 'alice-edit');
     });
 
-    test('response includes the recomputed tags field', () async {
+    knowledge_fixture.authorizedTest(
+        'response includes the recomputed tags field', () async {
       final note = await storage.create(title: 't', content: 'c');
       index.upsert(note.toSummary());
       await lockManager.acquire(noteId: note.id, actor: 'alice');
@@ -477,7 +501,8 @@ void main() {
       expect(body['tags'], ['planning']);
     });
 
-    test('on unknown id returns 404 not_found', () async {
+    knowledge_fixture.authorizedTest('on unknown id returns 404 not_found',
+        () async {
       final writes = await _writeService(tmp, storage, index);
       final res = await route.onRequest(
         _ctx(
@@ -496,7 +521,8 @@ void main() {
       expect(body['error'], 'not_found');
     });
 
-    test('accepts path and moves the note', () async {
+    knowledge_fixture.authorizedTest('accepts path and moves the note',
+        () async {
       final note = await storage.create(title: 'Inbox', content: 'c');
       index.upsert(note.toSummary());
       final writes = await _writeService(tmp, storage, index);
@@ -519,7 +545,8 @@ void main() {
       expect(index.get(note.id)?.path, 'Projects/Alpha');
     });
 
-    test('omitting path leaves the folder unchanged', () async {
+    knowledge_fixture
+        .authorizedTest('omitting path leaves the folder unchanged', () async {
       final note = await storage.create(
         title: 'Note',
         content: 'c',
@@ -544,7 +571,8 @@ void main() {
       expect(body['path'], 'Folder');
     });
 
-    test('a colliding move returns 409 path_conflict and leaves both files',
+    knowledge_fixture.authorizedTest(
+        'a colliding move returns 409 path_conflict and leaves both files',
         () async {
       final a = await storage.create(title: 'A', content: 'a-content');
       final b = await storage.create(title: 'B', content: 'b-content');
@@ -570,7 +598,8 @@ void main() {
       expect(body['error'], 'path_conflict');
     });
 
-    test('a path-traversal move attempt is rejected, note unchanged', () async {
+    knowledge_fixture.authorizedTest(
+        'a path-traversal move attempt is rejected, note unchanged', () async {
       final note = await storage.create(title: 'Note', content: 'c');
       index.upsert(note.toSummary());
       final writes = await _writeService(tmp, storage, index);
@@ -597,7 +626,8 @@ void main() {
   });
 
   group('DELETE /notes/{id}', () {
-    test('returns 204 and removes the file', () async {
+    knowledge_fixture.authorizedTest('returns 204 and removes the file',
+        () async {
       final note = await storage.create(title: 't', content: 'c');
       index.upsert(note.toSummary());
       final writes = await _writeService(tmp, storage, index);
@@ -619,7 +649,8 @@ void main() {
       expect(file.existsSync(), isFalse);
     });
 
-    test('while locked by another actor returns 423 locked', () async {
+    knowledge_fixture.authorizedTest(
+        'while locked by another actor returns 423 locked', () async {
       final note = await storage.create(title: 't', content: 'c');
       await lockManager.acquire(noteId: note.id, actor: 'alice');
 
@@ -636,7 +667,8 @@ void main() {
       expect(res.statusCode, HttpStatus.locked);
     });
 
-    test('on unknown id returns 404 not_found', () async {
+    knowledge_fixture.authorizedTest('on unknown id returns 404 not_found',
+        () async {
       final writes = await _writeService(tmp, storage, index);
       final res = await route.onRequest(
         _ctx(
@@ -655,7 +687,8 @@ void main() {
   });
 
   group('error envelopes are stable', () {
-    test('every error response carries an "error" string code', () async {
+    knowledge_fixture.authorizedTest(
+        'every error response carries an "error" string code', () async {
       // 404
       final r404 = await route.onRequest(
         _ctx(
@@ -672,7 +705,7 @@ void main() {
   });
 
   group('disallowed methods', () {
-    test('POST returns 405', () async {
+    knowledge_fixture.authorizedTest('POST returns 405', () async {
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.post,
@@ -687,7 +720,8 @@ void main() {
   });
 
   group('changed event', () {
-    test('successful PUT emits a changed:updated event', () async {
+    knowledge_fixture.authorizedTest(
+        'successful PUT emits a changed:updated event', () async {
       final note = await storage.create(title: 'orig', content: 'c');
       index.upsert(note.toSummary());
 
@@ -728,7 +762,8 @@ void main() {
       expect(ev.by, 'alice');
     });
 
-    test('a PUT that changes path emits a changed:moved event', () async {
+    knowledge_fixture.authorizedTest(
+        'a PUT that changes path emits a changed:moved event', () async {
       final note = await storage.create(title: 'orig', content: 'c');
       index.upsert(note.toSummary());
 
@@ -769,7 +804,8 @@ void main() {
       expect(ev.by, 'alice');
     });
 
-    test('successful DELETE emits a changed:deleted event', () async {
+    knowledge_fixture.authorizedTest(
+        'successful DELETE emits a changed:deleted event', () async {
       final note = await storage.create(title: 'gone', content: 'c');
       index.upsert(note.toSummary());
 

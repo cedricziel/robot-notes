@@ -3,10 +3,13 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/storage.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/notes/files/[...path].dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -14,6 +17,10 @@ class _MockRequest extends Mock implements Request {}
 
 RequestContext _ctx({required HttpMethod method, required Storage storage}) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => ctx.request).thenReturn(req);
@@ -28,7 +35,7 @@ void main() {
   late Directory tmp;
   late Storage storage;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
     storage = Storage(contentDir: Directory('${tmp.path}/content'));
   });
@@ -37,7 +44,8 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  test('retrieves a previously uploaded file with the right content-type',
+  knowledge_fixture.authorizedTest(
+      'retrieves a previously uploaded file with the right content-type',
       () async {
     final dir = Directory('${tmp.path}/content/Ideas')
       ..createSync(recursive: true);
@@ -54,7 +62,8 @@ void main() {
     expect(bytes, [1, 2, 3]);
   });
 
-  test('a nested path resolves correctly', () async {
+  knowledge_fixture.authorizedTest('a nested path resolves correctly',
+      () async {
     final dir = Directory('${tmp.path}/content/Projects/Alpha')
       ..createSync(recursive: true);
     File('${dir.path}/notes.pdf').writeAsStringSync('hello');
@@ -68,7 +77,7 @@ void main() {
     expect(utf8.decode(await res.bytes().expand((c) => c).toList()), 'hello');
   });
 
-  test('a path with no file returns 404', () async {
+  knowledge_fixture.authorizedTest('a path with no file returns 404', () async {
     final res = await route.onRequest(
       _ctx(method: HttpMethod.get, storage: storage),
       'does-not-exist.png',
@@ -77,7 +86,8 @@ void main() {
     expect(res.statusCode, HttpStatus.notFound);
   });
 
-  test('an unrecognized extension falls back to application/octet-stream',
+  knowledge_fixture.authorizedTest(
+      'an unrecognized extension falls back to application/octet-stream',
       () async {
     Directory('${tmp.path}/content').createSync(recursive: true);
     File('${tmp.path}/content/mystery.nonexistentextension')
@@ -91,7 +101,8 @@ void main() {
     expect(res.headers['content-type'], 'application/octet-stream');
   });
 
-  test('a traversal attempt is rejected with 400', () async {
+  knowledge_fixture.authorizedTest('a traversal attempt is rejected with 400',
+      () async {
     final res = await route.onRequest(
       _ctx(method: HttpMethod.get, storage: storage),
       'Projects/../etc',
@@ -100,7 +111,7 @@ void main() {
     expect(res.statusCode, HttpStatus.badRequest);
   });
 
-  test('disallowed method returns 405', () async {
+  knowledge_fixture.authorizedTest('disallowed method returns 405', () async {
     final res = await route.onRequest(
       _ctx(method: HttpMethod.post, storage: storage),
       'diagram.png',
@@ -108,7 +119,8 @@ void main() {
 
     expect(res.statusCode, HttpStatus.methodNotAllowed);
   });
-  test('does not stream canonical content from a faulted history commit',
+  knowledge_fixture.authorizedTest(
+      'does not stream canonical content from a faulted history commit',
       () async {
     final note = await storage.create(
       title: 'A',

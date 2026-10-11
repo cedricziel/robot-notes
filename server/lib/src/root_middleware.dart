@@ -9,6 +9,9 @@ import 'package:server/src/config.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/evidence_store.dart';
 import 'package:server/src/invite_store.dart';
+import 'package:server/src/knowledge_middleware.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
@@ -46,6 +49,7 @@ Handler applyRootMiddleware(
   // Last .use runs first; providers must precede discovery and auth.
   return handler
       .use(vaultSelection(deps.vaults!))
+      .use(knowledgeIdentity())
       .use(actorIdentity())
       .use(
         bearerAuth(
@@ -70,6 +74,9 @@ Handler applyRootMiddleware(
       .use(provider<HttpPostForm>((_) => httpPostForm))
       .use(provider<MetaIndex>((_) => deps.metaIndex))
       .use(provider<LinkIndex>((_) => deps.linkIndex))
+      .use(provider<KnowledgeReadService>((_) => deps.knowledgeReads))
+      .use(provider<NoteAuthorizationService>((_) => deps.authorization))
+      .use(provider<KnowledgePolicyStore>((_) => deps.authorization.store))
       .use(provider<NoteWriteService>((_) => deps.noteWriteService))
       .use(provider<DatabaseRegistry>((_) => deps.registry))
       .use(provider<Storage>((_) => deps.storage))

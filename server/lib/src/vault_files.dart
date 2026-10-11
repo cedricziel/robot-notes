@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:meta/meta.dart';
 import 'package:mime/mime.dart';
+import 'package:server/src/canonical_note_upload.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/note_path.dart';
 
 export 'package:server/src/note_path.dart' show InvalidPathException;
@@ -94,7 +97,10 @@ class FileTooLargeException implements Exception {
 class FileStore {
   /// Creates a store rooted at [contentDir] — the same directory
   /// `Storage` writes note files into.
-  FileStore({required this.contentDir});
+  FileStore({required this.contentDir, this.authorization});
+
+  /// Production publication requires a recorded request principal.
+  NoteAuthorizationService? authorization;
 
   /// Filesystem directory shared with `Storage`'s note files.
   final Directory contentDir;
@@ -122,6 +128,7 @@ class FileStore {
     required Stream<List<int>> bytes,
     required int maxBytes,
     String? contentType,
+    Future<void> Function()? beforePublish,
   }) async {
     final segments = sanitizedPathSegments(path);
     final sanitizedFilename = sanitizeFilenameSegment(normalizeToNfc(filename));
@@ -133,57 +140,77 @@ class FileStore {
         relDir.isEmpty ? sanitizedFilename : '$relDir/$sanitizedFilename';
     final key = collisionKey(relFile);
 
-    return _withPathLock(key, () async {
-      final dir =
-          relDir.isEmpty ? contentDir : Directory('${contentDir.path}/$relDir');
-      if (dir.existsSync()) {
-        final targetKey = collisionKey(sanitizedFilename);
-        for (final entity in dir.listSync()) {
-          if (collisionKey(_basename(entity.path)) == targetKey) {
-            throw FileCollisionException(
-              path: relDir,
-              filename: sanitizedFilename,
-            );
+    Future<FileWriteResult> publish() => _withPathLock(key, () async {
+          final dir = relDir.isEmpty
+              ? contentDir
+              : Directory('${contentDir.path}/$relDir');
+          if (dir.existsSync()) {
+            final targetKey = collisionKey(sanitizedFilename);
+            for (final entity in dir.listSync()) {
+              if (collisionKey(_basename(entity.path)) == targetKey) {
+                throw FileCollisionException(
+                  path: relDir,
+                  filename: sanitizedFilename,
+                );
+              }
+            }
+          } else {
+            await dir.create(recursive: true);
           }
-        }
-      } else {
-        await dir.create(recursive: true);
-      }
 
-      final finalFile = File('${dir.path}/$sanitizedFilename');
-      final tmp = File('${finalFile.path}.tmp');
-      final sink = tmp.openWrite();
-      var total = 0;
-      var tooLarge = false;
-      try {
-        await for (final chunk in bytes) {
-          total += chunk.length;
-          if (total > maxBytes) {
-            tooLarge = true;
-            break;
+          final finalFile = File('${dir.path}/$sanitizedFilename');
+          final tmp = File('${finalFile.path}.tmp');
+          final sink = tmp.openWrite();
+          var total = 0;
+          var tooLarge = false;
+          try {
+            await for (final chunk in bytes) {
+              total += chunk.length;
+              if (total > maxBytes) {
+                tooLarge = true;
+                break;
+              }
+              sink.add(chunk);
+            }
+            await sink.flush();
+          } finally {
+            await sink.close();
           }
-          sink.add(chunk);
-        }
-        await sink.flush();
-      } finally {
-        await sink.close();
-      }
-      if (tooLarge) {
-        if (tmp.existsSync()) await tmp.delete();
-        throw FileTooLargeException(maxBytes: maxBytes);
-      }
-      await tmp.rename(finalFile.path);
+          if (tooLarge) {
+            if (tmp.existsSync()) await tmp.delete();
+            throw FileTooLargeException(maxBytes: maxBytes);
+          }
+          try {
+            await beforePublish?.call();
+          } on Object {
+            if (tmp.existsSync()) await tmp.delete();
+            rethrow;
+          }
+          if (await isCanonicalNotePayload(tmp)) {
+            await tmp.delete();
+            throw const CanonicalNoteUploadException();
+          }
+          await tmp.rename(finalFile.path);
 
-      final resolvedContentType = contentType ??
-          lookupMimeType(sanitizedFilename) ??
-          'application/octet-stream';
-      return FileWriteResult(
-        path: relDir,
-        filename: sanitizedFilename,
-        size: total,
-        contentType: resolvedContentType,
-      );
-    });
+          final resolvedContentType = contentType ??
+              lookupMimeType(sanitizedFilename) ??
+              'application/octet-stream';
+          return FileWriteResult(
+            path: relDir,
+            filename: sanitizedFilename,
+            size: total,
+            contentType: resolvedContentType,
+          );
+        });
+    final guard = authorization;
+    return guard == null
+        ? publish()
+        : guard.runMutation(
+            currentKnowledgePrincipal,
+            KnowledgeAction.edit,
+            KnowledgeTarget.folder(relDir),
+            publish,
+          );
   }
 
   String _basename(String relOrAbsolutePath) {

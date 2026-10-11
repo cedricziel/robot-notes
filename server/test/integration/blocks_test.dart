@@ -4,13 +4,14 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
+import '../knowledge_test_context.dart' as knowledge_fixture;
 import '_oauth_test_helpers.dart';
 import '_test_app.dart';
 
 void main() {
   late TestApp app;
   late String id;
-  setUp(() async {
+  knowledge_fixture.authorizedSetUp(() async {
     app = await TestApp.start();
     final note = await app.deps.noteWriteService.create(
       title: 'Blocks',
@@ -29,7 +30,8 @@ void main() {
   });
   tearDown(() => app.close());
 
-  test('returns accepted current and historical identities', () async {
+  knowledge_fixture.authorizedTest(
+      'returns accepted current and historical identities', () async {
     final current = await http.get(
       Uri.parse('${app.baseUrl}/notes/$id/blocks'),
       headers: app.headers(),
@@ -52,7 +54,8 @@ void main() {
     expect(blocks[1]['revision'], 2);
   });
 
-  test('requires authentication and an authorized vault', () async {
+  knowledge_fixture.authorizedTest(
+      'requires authentication and an authorized vault', () async {
     final anonymous = await http.get(
       Uri.parse('${app.baseUrl}/notes/$id/blocks'),
     );
@@ -77,7 +80,8 @@ void main() {
     expect(readable.statusCode, 200);
   });
 
-  test('write scope alone cannot inspect block history', () async {
+  knowledge_fixture.authorizedTest(
+      'write scope alone cannot inspect block history', () async {
     final grant = await completeOAuthFlow(
       baseUrl: app.baseUrl,
       apiKey: app.config.apiKey,
@@ -93,7 +97,8 @@ void main() {
     expect(response.statusCode, 403);
   });
 
-  test('reports unavailable metadata for an ordinary legacy note', () async {
+  knowledge_fixture.authorizedTest(
+      'reports unavailable metadata for an ordinary legacy note', () async {
     final legacy = await app.deps.noteWriteService.create(
       title: 'Legacy',
       content: 'ordinary',
@@ -109,7 +114,8 @@ void main() {
     expect(jsonDecode(response.body), {'error': 'block_map_unavailable'});
   });
 
-  test('reports stale metadata after an external canonical rewrite', () async {
+  knowledge_fixture.authorizedTest(
+      'reports stale metadata after an external canonical rewrite', () async {
     final file = File('${app.deps.storage.contentDir.path}/Blocks.md');
     file.writeAsStringSync(
       file.readAsStringSync().replaceFirst('\nupdated\n', '\nexternal\n'),
@@ -124,7 +130,8 @@ void main() {
     expect(jsonDecode(response.body), {'error': 'block_map_stale'});
   });
 
-  test('rejects an invalid accepted revision query', () async {
+  knowledge_fixture.authorizedTest('rejects an invalid accepted revision query',
+      () async {
     final response = await http.get(
       Uri.parse('${app.baseUrl}/notes/$id/blocks?version=0'),
       headers: app.headers(),
@@ -133,7 +140,8 @@ void main() {
     expect(response.statusCode, 400);
   });
 
-  test('reports a missing retained accepted revision', () async {
+  knowledge_fixture
+      .authorizedTest('reports a missing retained accepted revision', () async {
     final response = await http.get(
       Uri.parse('${app.baseUrl}/notes/$id/blocks?version=99'),
       headers: app.headers(),

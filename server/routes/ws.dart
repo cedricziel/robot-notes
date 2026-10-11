@@ -5,6 +5,8 @@ import 'package:dart_frog_web_socket/dart_frog_web_socket.dart';
 import 'package:dart_otel_api/dart_otel_api.dart';
 import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/note_write_service.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/otel/otel_tracer_holder.dart' as otel_tracer_holder;
 import 'package:server/src/public_url.dart';
@@ -46,6 +48,8 @@ FutureOr<Response> onRequest(RequestContext context) {
       vaultId: context.request.headers['x-vault-id'] ??
           context.request.uri.queryParameters['vault_id'] ??
           'default',
+      authorization: context.read<NoteAuthorizationService>(),
+      resolveKnowledgeTarget: context.read<NoteWriteService>().knowledgeTarget,
       sink: sink,
       broadcaster: broadcaster,
       presence: presence,

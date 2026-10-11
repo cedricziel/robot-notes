@@ -1,6 +1,9 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
 
@@ -34,23 +37,31 @@ Future<Response> onRequest(RequestContext context) async {
   }
 }
 
-Response _tree(RequestContext context) {
+Future<Response> _tree(RequestContext context) async {
   final index = context.read<MetaIndex>();
   final storage = context.read<Storage>();
   final noteCounts = <String, int>{};
   for (final summary in index.all) {
+    if (!context.read<KnowledgeReadService>().canReadSummary(summary)) continue;
     noteCounts.update(summary.path, (n) => n + 1, ifAbsent: () => 1);
   }
   final fileCounts = <String, int>{};
-  for (final file in storage.files) {
+  for (final file in storage.files.toList()) {
     final folder = file.relativePath.contains('/')
         ? file.relativePath.substring(0, file.relativePath.lastIndexOf('/'))
         : '';
+    if (!context.read<KnowledgeReadService>().canReadFolder(folder)) continue;
+    try {
+      await context.read<KnowledgeReadService>().requireFile(file.relativePath);
+    } on KnowledgeAccessDeniedException {
+      continue;
+    }
     fileCounts.update(folder, (n) => n + 1, ifAbsent: () => 1);
   }
   final paths = <String>{
     ...noteCounts.keys,
-    ...index.emptyFolders,
+    ...index.emptyFolders
+        .where(context.read<KnowledgeReadService>().canReadFolder),
     ...fileCounts.keys,
   }.toList()
     ..sort();
@@ -105,7 +116,13 @@ Future<Response> _createFolder(RequestContext context) async {
   final storage = context.read<Storage>();
   final index = context.read<MetaIndex>();
   try {
-    final result = await storage.createFolder(path);
+    final reads = context.read<KnowledgeReadService>();
+    final result = await reads.authorization.runMutation(
+      currentKnowledgePrincipal,
+      KnowledgeAction.edit,
+      KnowledgeTarget.folder(path),
+      () => storage.createFolder(path),
+    );
     final noteCount = index.all.where((s) => s.path == result.path).length;
     // Only a folder with no notes is marker-backed on disk (per
     // Storage.createFolder); registering a note-backed folder here too

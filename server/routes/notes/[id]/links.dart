@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/meta_index.dart';
 
@@ -30,7 +31,11 @@ Future<Response> onRequest(RequestContext context, String id) async {
   final items = [
     for (final edge in linkIndex.outgoing(id))
       () {
-        final resolvedId = metaIndex.resolveTitle(edge.targetTitle);
+        final candidateId = metaIndex.resolveTitle(edge.targetTitle);
+        final resolvedId = candidateId != null &&
+                context.read<KnowledgeReadService>().canReadId(candidateId)
+            ? candidateId
+            : null;
         return {
           'title': edge.targetTitle,
           'resolved': resolvedId != null,

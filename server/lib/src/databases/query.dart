@@ -149,11 +149,13 @@ class DatabaseQuery {
     int limit = 50,
     String? after,
     List<String> excludeIds = const [],
+    Set<String>? allowedIds,
   }) {
     final where = _whereClause(
       source: source,
       filter: filter,
       excludeIds: excludeIds,
+      allowedIds: allowedIds,
     );
 
     var offset = 0;
@@ -220,8 +222,13 @@ class DatabaseQuery {
   int rowCount({
     required DatabaseSource source,
     List<String> excludeIds = const [],
+    Set<String>? allowedIds,
   }) {
-    final where = _whereClause(source: source, excludeIds: excludeIds);
+    final where = _whereClause(
+      source: source,
+      excludeIds: excludeIds,
+      allowedIds: allowedIds,
+    );
     final rows = _db.select(
       'SELECT COUNT(*) AS n FROM note_meta m WHERE ${where.sql};',
       where.params,
@@ -257,9 +264,14 @@ class DatabaseQuery {
     required DatabaseSource source,
     Filter? filter,
     List<String> excludeIds = const [],
+    Set<String>? allowedIds,
   }) {
     final parts = <String>['m.is_definition = 0'];
     final params = <Object?>[];
+    if (allowedIds != null) {
+      parts.add('m.note_id IN (SELECT value FROM json_each(?))');
+      params.add(jsonEncode(allowedIds.toList()));
+    }
 
     final src = _sourceClause(source);
     parts.add(src.sql);

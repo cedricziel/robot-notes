@@ -6,6 +6,7 @@ import 'package:server/src/actor.dart';
 import 'package:server/src/databases/definition.dart';
 import 'package:server/src/databases/query.dart';
 import 'package:server/src/databases/registry.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
@@ -40,14 +41,18 @@ Response _list(RequestContext context) {
     body: {
       'items': [
         for (final def in registry.all)
-          {
-            'id': def.id,
-            'title': def.title,
-            'path': def.path,
-            'source': def.source.toJson(),
-            'row_count':
-                query.rowCount(source: def.source, excludeIds: [def.id]),
-          },
+          if (context.read<KnowledgeReadService>().canReadId(def.id))
+            {
+              'id': def.id,
+              'title': def.title,
+              'path': def.path,
+              'source': def.source.toJson(),
+              'row_count': query.rowCount(
+                source: def.source,
+                excludeIds: [def.id],
+                allowedIds: context.read<KnowledgeReadService>().allowedIds,
+              ),
+            },
       ],
     },
   );

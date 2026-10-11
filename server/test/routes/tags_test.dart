@@ -3,11 +3,14 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:test/test.dart';
 
 import '../../routes/tags.dart' as route;
+import '../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -18,6 +21,10 @@ RequestContext _ctx({
   required MetaIndex metaIndex,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => ctx.request).thenReturn(req);
@@ -31,7 +38,7 @@ Directory _tempDir() =>
 void main() {
   late Directory tmp;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
   });
 
@@ -39,7 +46,8 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  test('lists tags sorted by descending count', () async {
+  knowledge_fixture.authorizedTest('lists tags sorted by descending count',
+      () async {
     final storage = Storage(
       contentDir: Directory('${tmp.path}/content'),
       clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
@@ -62,7 +70,8 @@ void main() {
     ]);
   });
 
-  test('an empty vault returns an empty items list', () async {
+  knowledge_fixture.authorizedTest('an empty vault returns an empty items list',
+      () async {
     final index = MetaIndex();
     final res =
         await route.onRequest(_ctx(method: HttpMethod.get, metaIndex: index));
@@ -71,7 +80,7 @@ void main() {
     expect(body['items'], isEmpty);
   });
 
-  test('non-GET method returns 405', () async {
+  knowledge_fixture.authorizedTest('non-GET method returns 405', () async {
     final index = MetaIndex();
     final res = await route.onRequest(
       _ctx(method: HttpMethod.post, metaIndex: index),

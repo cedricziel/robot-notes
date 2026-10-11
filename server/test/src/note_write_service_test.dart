@@ -13,6 +13,7 @@ import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
+import '../knowledge_test_context.dart' as knowledge_fixture;
 import 'embeddings/fake_embedding_provider.dart';
 import 'search_test_helpers.dart';
 
@@ -113,7 +114,7 @@ Future<({Storage storage, MetaIndex meta, SearchIndex search})> _stack(
 void main() {
   late Directory tmp;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
   });
 
@@ -121,10 +122,12 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  test('completed history create acknowledges its search update', () async {
+  knowledge_fixture.authorizedTest(
+      'completed history create acknowledges its search update', () async {
     final s = await _stack(tmp);
     addTearDown(s.search.close);
     final service = NoteWriteService(
+      authorization: knowledge_fixture.fixtureAuthorization,
       storage: s.storage,
       metaIndex: s.meta,
       searchIndex: s.search,
@@ -142,10 +145,12 @@ void main() {
     expect(s.storage.historyNeedsReindex, isFalse);
   });
 
-  test('completed history save preserves vectors across restart', () async {
+  knowledge_fixture.authorizedTest(
+      'completed history save preserves vectors across restart', () async {
     final provider = FakeEmbeddingProvider();
     final s = await _stack(tmp, embeddingProvider: provider);
     final service = NoteWriteService(
+      authorization: knowledge_fixture.fixtureAuthorization,
       storage: s.storage,
       metaIndex: s.meta,
       searchIndex: s.search,
@@ -172,9 +177,11 @@ void main() {
     expect(reopened.vectorSearch([0, 0, 0, 0]).single.id, note.id);
   });
 
-  test('search update failure keeps history dirty until restart', () async {
+  knowledge_fixture.authorizedTest(
+      'search update failure keeps history dirty until restart', () async {
     final s = await _stack(tmp);
     final service = NoteWriteService(
+      authorization: knowledge_fixture.fixtureAuthorization,
       storage: s.storage,
       metaIndex: s.meta,
       searchIndex: s.search,
@@ -205,11 +212,13 @@ void main() {
   });
 
   group('NoteWriteService.restoreRevision', () {
-    test('broadcasts created when restoring a deleted note', () async {
+    knowledge_fixture.authorizedTest(
+        'broadcasts created when restoring a deleted note', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final broadcaster = _CapturingBroadcaster();
       final service = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -234,11 +243,13 @@ void main() {
       expect(broadcaster.changed.single.action, ChangeAction.created);
     });
 
-    test('broadcasts moved when restoring another folder', () async {
+    knowledge_fixture.authorizedTest(
+        'broadcasts moved when restoring another folder', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final broadcaster = _CapturingBroadcaster();
       final service = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -273,11 +284,13 @@ void main() {
   });
 
   group('NoteWriteService.create', () {
-    test('updates storage, search, meta, and emits created event', () async {
+    knowledge_fixture.authorizedTest(
+        'updates storage, search, meta, and emits created event', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final bc = _CapturingBroadcaster();
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -314,11 +327,13 @@ void main() {
   });
 
   group('NoteWriteService.update', () {
-    test('updates all three indices and emits updated event', () async {
+    knowledge_fixture.authorizedTest(
+        'updates all three indices and emits updated event', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final bc = _CapturingBroadcaster();
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -361,11 +376,13 @@ void main() {
   });
 
   group('NoteWriteService.update path changes', () {
-    test('a path change broadcasts action: moved, not updated', () async {
+    knowledge_fixture.authorizedTest(
+        'a path change broadcasts action: moved, not updated', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final bc = _CapturingBroadcaster();
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -394,11 +411,13 @@ void main() {
       expect(s.meta.page().items.single.path, 'Projects/Alpha');
     });
 
-    test('a title-only change (no path) still broadcasts updated', () async {
+    knowledge_fixture.authorizedTest(
+        'a title-only change (no path) still broadcasts updated', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final bc = _CapturingBroadcaster();
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -417,10 +436,12 @@ void main() {
       expect(bc.changed.last.action, ChangeAction.updated);
     });
 
-    test('creating under a path stores it on the note', () async {
+    knowledge_fixture.authorizedTest(
+        'creating under a path stores it on the note', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -440,11 +461,13 @@ void main() {
   });
 
   group('NoteWriteService.delete', () {
-    test('removes from all three indices and emits deleted event', () async {
+    knowledge_fixture.authorizedTest(
+        'removes from all three indices and emits deleted event', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final bc = _CapturingBroadcaster();
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -479,7 +502,8 @@ void main() {
   });
 
   group('failure semantics', () {
-    test('search index update is in-sync with the file write', () async {
+    knowledge_fixture.authorizedTest(
+        'search index update is in-sync with the file write', () async {
       // Sanity: after a successful create, both stores agree on the title.
       // (Search update sits between the file write and the broadcast, so
       // the moment we observe the response, search MUST already see the
@@ -487,6 +511,7 @@ void main() {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -505,7 +530,8 @@ void main() {
       expect((await s.search.search('crater')).single.id, note.id);
     });
 
-    test('broadcast failure does not roll back the file write', () async {
+    knowledge_fixture.authorizedTest(
+        'broadcast failure does not roll back the file write', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final logger = Logger.detached('write-svc-test')..level = Level.ALL;
@@ -514,6 +540,7 @@ void main() {
       addTearDown(sub.cancel);
 
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -554,6 +581,7 @@ void main() {
       StoredNote? seed;
       if (withSeedNote) {
         final bare = NoteWriteService(
+          authorization: knowledge_fixture.fixtureAuthorization,
           storage: s.storage,
           metaIndex: s.meta,
           searchIndex: s.search,
@@ -568,6 +596,7 @@ void main() {
         processor: processor,
       );
       final traced = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -577,7 +606,7 @@ void main() {
       return (processor: processor, traced: traced, seed: seed);
     }
 
-    test(
+    knowledge_fixture.authorizedTest(
       'create starts a note.write.create span naming the new note',
       () async {
         final s = await _stack(tmp);
@@ -597,7 +626,8 @@ void main() {
       },
     );
 
-    test('create logs an info record naming the new note', () async {
+    knowledge_fixture.authorizedTest(
+        'create logs an info record naming the new note', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final logger = Logger.detached('write-svc-test')..level = Level.ALL;
@@ -605,6 +635,7 @@ void main() {
       final sub = logger.onRecord.listen(records.add);
       addTearDown(sub.cancel);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -624,7 +655,8 @@ void main() {
       expect(info, contains(contains('orbit-bot')));
     });
 
-    test('update starts a note.write.update span naming the note', () async {
+    knowledge_fixture.authorizedTest(
+        'update starts a note.write.update span naming the note', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final f = await tracedFixture(s, withSeedNote: true);
@@ -642,7 +674,8 @@ void main() {
       expect(span.attributes['note.id'], f.seed!.id);
     });
 
-    test('a failed update records the exception on the span', () async {
+    knowledge_fixture.authorizedTest(
+        'a failed update records the exception on the span', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final f = await tracedFixture(s, withSeedNote: true);
@@ -663,7 +696,8 @@ void main() {
       expect(span.events.single.name, 'exception');
     });
 
-    test('delete starts a note.write.delete span naming the note', () async {
+    knowledge_fixture.authorizedTest(
+        'delete starts a note.write.delete span naming the note', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final f = await tracedFixture(s, withSeedNote: true);
@@ -678,12 +712,14 @@ void main() {
   });
 
   group('NoteWriteService embedding integration', () {
-    test('create returns before the embedding is computed (after-write)',
+    knowledge_fixture.authorizedTest(
+        'create returns before the embedding is computed (after-write)',
         () async {
       final provider = _HangingProvider();
       final s = await _stack(tmp, embeddingProvider: provider);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -706,13 +742,14 @@ void main() {
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'create computes and stores an embedding when a provider is '
         'configured', () async {
       final provider = FakeEmbeddingProvider();
       final s = await _stack(tmp, embeddingProvider: provider);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -735,11 +772,13 @@ void main() {
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
 
-    test('create embeds a note with an empty body from its title', () async {
+    knowledge_fixture.authorizedTest(
+        'create embeds a note with an empty body from its title', () async {
       final provider = FakeEmbeddingProvider();
       final s = await _stack(tmp, embeddingProvider: provider);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -758,11 +797,13 @@ void main() {
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
 
-    test('update recomputes the embedding', () async {
+    knowledge_fixture.authorizedTest('update recomputes the embedding',
+        () async {
       final provider = FakeEmbeddingProvider();
       final s = await _stack(tmp, embeddingProvider: provider);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -785,11 +826,13 @@ void main() {
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
 
-    test('write still succeeds when the embedding provider fails', () async {
+    knowledge_fixture.authorizedTest(
+        'write still succeeds when the embedding provider fails', () async {
       final provider = FakeEmbeddingProvider()..shouldThrow = true;
       final s = await _stack(tmp, embeddingProvider: provider);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -807,13 +850,14 @@ void main() {
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isFalse);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'update drops a stale vector when the embedding provider fails, '
         'and backfill later regenerates it', () async {
       final provider = FakeEmbeddingProvider();
       final s = await _stack(tmp, embeddingProvider: provider);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -847,10 +891,12 @@ void main() {
       expect(vectorRowExists('${tmp.path}/search.db', note.id), isTrue);
     });
 
-    test('does not call embed at all when no provider is configured', () async {
+    knowledge_fixture.authorizedTest(
+        'does not call embed at all when no provider is configured', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,

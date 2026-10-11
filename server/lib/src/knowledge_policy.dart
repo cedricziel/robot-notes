@@ -258,7 +258,7 @@ class EffectiveKnowledgePolicy {
   /// Stable effective-rule fingerprint, including the resolved folder path.
   String fingerprint(KnowledgeTarget target) => hashSecret(
         jsonEncode({
-          'path': target.path,
+          'path': collisionKey(target.path),
           'collection': target.collection,
           'note_id': target.noteId,
           ...KnowledgePolicyPatch(
@@ -328,7 +328,7 @@ class KnowledgePolicyStore {
       throw const FormatException('Unknown policy collection');
     }
     for (final path in folders.keys) {
-      if (sanitizedPathSegments(path).join('/') != path) {
+      if (collisionKey(sanitizedPathSegments(path).join('/')) != path) {
         throw const FormatException('Non-canonical policy folder');
       }
     }
@@ -372,7 +372,7 @@ class KnowledgePolicyStore {
     final parts = target.path.isEmpty ? <String>[] : target.path.split('/');
     final overlays = [
       for (var length = 0; length <= parts.length; length++)
-        _folders[parts.take(length).join('/')],
+        _folders[collisionKey(parts.take(length).join('/'))],
       if (target.noteId != null) _notes[target.noteId!.toLowerCase()],
       if (target.collection != null) _collections[target.collection],
     ];
@@ -406,7 +406,7 @@ class KnowledgePolicyStore {
             : preview._folders;
     final key = changedTarget.collection ??
         changedTarget.noteId?.toLowerCase() ??
-        changedTarget.path;
+        collisionKey(changedTarget.path);
     if (patch == null) {
       overlays.remove(key);
     } else {
@@ -423,7 +423,7 @@ class KnowledgePolicyStore {
           ? _collections[target.collection]
           : target.noteId != null
               ? _notes[target.noteId!.toLowerCase()]
-              : _folders[target.path];
+              : _folders[collisionKey(target.path)];
 
   Future<void> _put(
     KnowledgeTarget target,
@@ -441,9 +441,9 @@ class KnowledgePolicyStore {
       }
     } else if (target.noteId == null) {
       if (patch == null) {
-        folders.remove(target.path);
+        folders.remove(collisionKey(target.path));
       } else {
-        folders[target.path] = patch;
+        folders[collisionKey(target.path)] = patch;
       }
     } else {
       if (patch == null) {
@@ -603,7 +603,7 @@ class NoteAuthorizationService {
       if (!principal.isAgentOrigin) return true;
       return switch (action) {
         KnowledgeAction.read || KnowledgeAction.propose => true,
-        KnowledgeAction.edit => !policy.curated,
+        KnowledgeAction.edit => !policy.curated || target.collection != null,
         KnowledgeAction.review ||
         KnowledgeAction.policy ||
         KnowledgeAction.purge =>
@@ -623,6 +623,7 @@ class NoteAuthorizationService {
         principal.canActAsHuman && principal.hasScope(kScopeKnowledgeReview),
       KnowledgeAction.edit => principal.hasScope('notes:write') &&
           (!policy.curated ||
+              target.collection != null ||
               (principal.canActAsHuman &&
                   principal.hasScope(kScopeKnowledgeEdit))),
       KnowledgeAction.policy =>
@@ -771,6 +772,7 @@ class NoteAuthorizationService {
     KnowledgeTarget target,
   ) {
     final policy = store.effective(target);
+    final curatedNote = policy.curated && target.collection == null;
     return {
       'id': target.noteId,
       'path': target.path,
@@ -784,7 +786,14 @@ class NoteAuthorizationService {
         for (final action in KnowledgeAction.values)
           if (allows(principal, action, target)) action.name,
       ],
-      'requires_human_approval': policy.approval == 'human',
+      'requires_human_approval': curatedNote,
+      'agent_text_requires_human_approval': curatedNote,
+      'auto_acceptance_classes': <String>[
+        if (curatedNote &&
+            target.noteId != null &&
+            policy.approval == 'evidence_no_conflict')
+          'verified_source_attachment',
+      ],
     };
   }
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/databases/note_properties.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/storage.dart';
@@ -82,6 +83,7 @@ Response _list(RequestContext context) {
       pathPrefix: pathPrefix,
       tag: tag,
       title: title,
+      allowedIds: context.read<KnowledgeReadService>().allowedIds,
     );
   } on InvalidCursorException {
     return Response.json(

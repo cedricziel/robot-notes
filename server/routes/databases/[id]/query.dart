@@ -5,6 +5,7 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/databases/query.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/databases/validation.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart' hide InvalidCursorException;
 import 'package:server/src/search_index.dart';
 import 'package:shared/shared.dart';
@@ -140,6 +141,7 @@ Future<Response> onRequest(RequestContext context, String id) async {
       limit: limit,
       after: after,
       excludeIds: [def.id],
+      allowedIds: context.read<KnowledgeReadService>().allowedIds,
     );
   } on InvalidCursorException {
     return Response.json(

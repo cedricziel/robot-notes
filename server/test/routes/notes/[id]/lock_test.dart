@@ -4,10 +4,12 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/notes/[id]/lock.dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -19,6 +21,8 @@ RequestContext _ctx({
   Actor actor = const Actor('alice'),
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/notes/x/lock'));
@@ -31,7 +35,7 @@ RequestContext _ctx({
 void main() {
   late LockManager lockManager;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     lockManager = LockManager(
       clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
     );
@@ -42,7 +46,8 @@ void main() {
   });
 
   group('POST /notes/{id}/lock', () {
-    test('on unlocked note returns 200 with holder and expiry', () async {
+    knowledge_fixture.authorizedTest(
+        'on unlocked note returns 200 with holder and expiry', () async {
       final res = await route.onRequest(
         _ctx(method: HttpMethod.post, lockManager: lockManager),
         'note-1',
@@ -53,7 +58,8 @@ void main() {
       expect(body['expires_at'], isA<String>());
     });
 
-    test('blocked by another actor returns 423 with current lock', () async {
+    knowledge_fixture.authorizedTest(
+        'blocked by another actor returns 423 with current lock', () async {
       await lockManager.acquire(noteId: 'note-1', actor: 'alice');
       final res = await route.onRequest(
         _ctx(
@@ -71,7 +77,8 @@ void main() {
       expect(lock['expires_at'], isA<String>());
     });
 
-    test('by same actor extends TTL (idempotent 200)', () async {
+    knowledge_fixture
+        .authorizedTest('by same actor extends TTL (idempotent 200)', () async {
       final clock = FixedClock([
         DateTime.utc(2026, 4, 25, 10),
         DateTime.utc(2026, 4, 25, 10, 0, 30),
@@ -97,7 +104,8 @@ void main() {
   });
 
   group('PUT /notes/{id}/lock', () {
-    test('heartbeat by holder returns 200 with extended expiry', () async {
+    knowledge_fixture.authorizedTest(
+        'heartbeat by holder returns 200 with extended expiry', () async {
       final clock = FixedClock([
         DateTime.utc(2026, 4, 25, 10),
         DateTime.utc(2026, 4, 25, 10, 0, 30),
@@ -120,7 +128,8 @@ void main() {
       );
     });
 
-    test('heartbeat by non-holder returns 423', () async {
+    knowledge_fixture.authorizedTest('heartbeat by non-holder returns 423',
+        () async {
       await lockManager.acquire(noteId: 'note-1', actor: 'alice');
       final res = await route.onRequest(
         _ctx(
@@ -136,7 +145,8 @@ void main() {
       expect((body['lock'] as Map<String, dynamic>)['holder'], 'alice');
     });
 
-    test('heartbeat on expired lock returns 404 lock_not_found', () async {
+    knowledge_fixture.authorizedTest(
+        'heartbeat on expired lock returns 404 lock_not_found', () async {
       final clock = FixedClock([
         DateTime.utc(2026, 4, 25, 10),
         DateTime.utc(2026, 4, 25, 10, 5), // 5min later → past 60s TTL
@@ -154,7 +164,8 @@ void main() {
       expect(body['error'], 'lock_not_found');
     });
 
-    test('heartbeat on never-locked note returns 404 lock_not_found', () async {
+    knowledge_fixture.authorizedTest(
+        'heartbeat on never-locked note returns 404 lock_not_found', () async {
       final res = await route.onRequest(
         _ctx(method: HttpMethod.put, lockManager: lockManager),
         'note-virgin',
@@ -166,7 +177,7 @@ void main() {
   });
 
   group('DELETE /notes/{id}/lock', () {
-    test('release by holder returns 204', () async {
+    knowledge_fixture.authorizedTest('release by holder returns 204', () async {
       await lockManager.acquire(noteId: 'note-1', actor: 'alice');
       final res = await route.onRequest(
         _ctx(method: HttpMethod.delete, lockManager: lockManager),
@@ -176,7 +187,8 @@ void main() {
       expect(lockManager.lockOf('note-1'), isNull);
     });
 
-    test('release by non-holder returns 423', () async {
+    knowledge_fixture.authorizedTest('release by non-holder returns 423',
+        () async {
       await lockManager.acquire(noteId: 'note-1', actor: 'alice');
       final res = await route.onRequest(
         _ctx(
@@ -193,7 +205,8 @@ void main() {
       expect(lockManager.lockOf('note-1')?.holder, 'alice');
     });
 
-    test('release of missing lock returns 204 (idempotent)', () async {
+    knowledge_fixture.authorizedTest(
+        'release of missing lock returns 204 (idempotent)', () async {
       final res = await route.onRequest(
         _ctx(method: HttpMethod.delete, lockManager: lockManager),
         'note-virgin',
@@ -201,7 +214,8 @@ void main() {
       expect(res.statusCode, HttpStatus.noContent);
     });
 
-    test('release of expired lock returns 204 (idempotent)', () async {
+    knowledge_fixture.authorizedTest(
+        'release of expired lock returns 204 (idempotent)', () async {
       final clock = FixedClock([
         DateTime.utc(2026, 4, 25, 10),
         DateTime.utc(2026, 4, 25, 10, 5),
@@ -219,7 +233,8 @@ void main() {
   });
 
   group('disallowed methods', () {
-    test('GET returns 405 method_not_allowed', () async {
+    knowledge_fixture.authorizedTest('GET returns 405 method_not_allowed',
+        () async {
       final res = await route.onRequest(
         _ctx(method: HttpMethod.get, lockManager: lockManager),
         'note-1',

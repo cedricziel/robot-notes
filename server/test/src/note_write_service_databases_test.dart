@@ -11,6 +11,8 @@ import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
+import '../knowledge_test_context.dart' as knowledge_fixture;
+
 class _CapturingBroadcaster implements Broadcaster {
   final List<ChangedEvent> changed = [];
 
@@ -79,7 +81,7 @@ Future<_Stack> _stack(Directory tmp) async {
 void main() {
   late Directory tmp;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
   });
 
@@ -112,7 +114,7 @@ void main() {
   }
 
   group('NoteWriteService.create with properties', () {
-    test(
+    knowledge_fixture.authorizedTest(
       'validates properties against a covering database and rejects a bad '
       'option',
       () async {
@@ -120,6 +122,7 @@ void main() {
         addTearDown(s.search.close);
         final def = await makeDatabase(
           NoteWriteService(
+            authorization: knowledge_fixture.fixtureAuthorization,
             storage: s.storage,
             metaIndex: s.meta,
             searchIndex: s.search,
@@ -128,6 +131,7 @@ void main() {
         );
         s.registry.upsert(def.toSummary(), def.extra);
         final svc = NoteWriteService(
+          authorization: knowledge_fixture.fixtureAuthorization,
           storage: s.storage,
           metaIndex: s.meta,
           searchIndex: s.search,
@@ -148,11 +152,13 @@ void main() {
       },
     );
 
-    test('accepts a valid property value and stores it', () async {
+    knowledge_fixture.authorizedTest(
+        'accepts a valid property value and stores it', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final def = await makeDatabase(
         NoteWriteService(
+          authorization: knowledge_fixture.fixtureAuthorization,
           storage: s.storage,
           metaIndex: s.meta,
           searchIndex: s.search,
@@ -161,6 +167,7 @@ void main() {
       );
       s.registry.upsert(def.toSummary(), def.extra);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -180,10 +187,12 @@ void main() {
   });
 
   group('NoteWriteService.update with properties', () {
-    test('validates and rejects, leaving nothing written', () async {
+    knowledge_fixture.authorizedTest(
+        'validates and rejects, leaving nothing written', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final bare = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -192,6 +201,7 @@ void main() {
       final def = await makeDatabase(bare);
       s.registry.upsert(def.toSummary(), def.extra);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -223,13 +233,14 @@ void main() {
       expect(reread.extra, {'status': 'todo'});
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'rename propagation (an internal rewrite) tolerates a pre-existing '
       'invalid stored value without validating or failing',
       () async {
         final s = await _stack(tmp);
         addTearDown(s.search.close);
         final svc = NoteWriteService(
+          authorization: knowledge_fixture.fixtureAuthorization,
           storage: s.storage,
           metaIndex: s.meta,
           searchIndex: s.search,
@@ -283,6 +294,7 @@ void main() {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -301,7 +313,8 @@ void main() {
       return (svc: svc, s: s, row: row);
     }
 
-    test('set and unset merge, body preserved, returns stored note', () async {
+    knowledge_fixture.authorizedTest(
+        'set and unset merge, body preserved, returns stored note', () async {
       final ctx = await setup();
       final patched = await ctx.svc.patchProperties(
         id: ctx.row.id,
@@ -314,7 +327,8 @@ void main() {
       expect(patched.version, ctx.row.version + 1);
     });
 
-    test('rejects empty set/unset, leaving the file untouched', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects empty set/unset, leaving the file untouched', () async {
       final ctx = await setup();
       await expectLater(
         ctx.svc.patchProperties(id: ctx.row.id, set: {}, unset: {}, actor: 'a'),
@@ -324,7 +338,8 @@ void main() {
       expect(reread.version, ctx.row.version);
     });
 
-    test('rejects a key present in both set and unset', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects a key present in both set and unset', () async {
       final ctx = await setup();
       await expectLater(
         ctx.svc.patchProperties(
@@ -337,7 +352,8 @@ void main() {
       );
     });
 
-    test('rejects a reserved/built-in key', () async {
+    knowledge_fixture.authorizedTest('rejects a reserved/built-in key',
+        () async {
       final ctx = await setup();
       await expectLater(
         ctx.svc.patchProperties(
@@ -350,7 +366,8 @@ void main() {
       );
     });
 
-    test('rejects a schema violation, leaving the file untouched', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects a schema violation, leaving the file untouched', () async {
       final ctx = await setup();
       await expectLater(
         ctx.svc.patchProperties(
@@ -365,7 +382,8 @@ void main() {
       expect(reread.extra, {'status': 'todo'});
     });
 
-    test('ignores an editor lock held by another actor', () async {
+    knowledge_fixture.authorizedTest(
+        'ignores an editor lock held by another actor', () async {
       final ctx = await setup();
       await ctx.svc.lockManager.acquire(
         noteId: ctx.row.id,
@@ -380,11 +398,13 @@ void main() {
       expect(patched.extra, {'status': 'done'});
     });
 
-    test('broadcasts changed/updated with the new version', () async {
+    knowledge_fixture.authorizedTest(
+        'broadcasts changed/updated with the new version', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final bc = _CapturingBroadcaster();
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -415,7 +435,7 @@ void main() {
       expect(bc.changed.single.by, 'b');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'concurrency with update(ifMatch) serializes: one version_conflict, '
       'patched key present',
       () async {
@@ -446,10 +466,12 @@ void main() {
   });
 
   group('NoteWriteService.delete', () {
-    test('removes the note from the registry', () async {
+    knowledge_fixture.authorizedTest('removes the note from the registry',
+        () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -467,10 +489,12 @@ void main() {
   });
 
   group('NoteWriteService.createRow', () {
-    test('defaults the path to the folder source', () async {
+    knowledge_fixture.authorizedTest('defaults the path to the folder source',
+        () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -490,10 +514,12 @@ void main() {
       expect(row.path, 'Projects');
     });
 
-    test('rejects a path outside a folder source', () async {
+    knowledge_fixture.authorizedTest('rejects a path outside a folder source',
+        () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -515,10 +541,12 @@ void main() {
       );
     });
 
-    test('adds the source tag for a tag source', () async {
+    knowledge_fixture.authorizedTest('adds the source tag for a tag source',
+        () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -547,10 +575,12 @@ void main() {
       expect(reread.extra['tags'], ['reading']);
     });
 
-    test('unknown database id throws DatabaseNotFoundException', () async {
+    knowledge_fixture.authorizedTest(
+        'unknown database id throws DatabaseNotFoundException', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -566,10 +596,12 @@ void main() {
   });
 
   group('NoteWriteService.createDatabase / updateDatabase', () {
-    test('builds and validates the definition extra', () async {
+    knowledge_fixture
+        .authorizedTest('builds and validates the definition extra', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -594,10 +626,11 @@ void main() {
       expect(s.registry.get(note.id), isNotNull);
     });
 
-    test('rejects an invalid definition', () async {
+    knowledge_fixture.authorizedTest('rejects an invalid definition', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -618,10 +651,12 @@ void main() {
       );
     });
 
-    test('version_conflict on a stale ifMatch', () async {
+    knowledge_fixture.authorizedTest('version_conflict on a stale ifMatch',
+        () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -646,13 +681,14 @@ void main() {
       );
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'a body-only update on a definition '
       'preserves type/source/properties/views',
       () async {
         final s = await _stack(tmp);
         addTearDown(s.search.close);
         final svc = NoteWriteService(
+          authorization: knowledge_fixture.fixtureAuthorization,
           storage: s.storage,
           metaIndex: s.meta,
           searchIndex: s.search,
@@ -697,6 +733,7 @@ void main() {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -714,7 +751,7 @@ void main() {
       return (svc: svc, s: s, def: def);
     }
 
-    test(
+    knowledge_fixture.authorizedTest(
       'a wikilink in a declared relation property feeds the link index '
       '(backlink appears)',
       () async {
@@ -737,7 +774,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'an undeclared frontmatter wikilink does not become a backlink',
       () async {
         final ctx = await setupRelationDb();
@@ -761,7 +798,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'rename propagation rewrites relation values in frontmatter, bumping '
       'the row version',
       () async {

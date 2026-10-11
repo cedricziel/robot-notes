@@ -450,6 +450,33 @@ class TokenStore {
     return purged;
   }
 
+  /// Lists live grant identities without exposing tokens or token hashes.
+  Future<List<OAuthToken>> liveGrants() async {
+    if (!dir.existsSync()) return [];
+    final candidates = <String, OAuthToken>{};
+    final revoked = <String>{};
+    await for (final entity in dir.list()) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      OAuthToken record;
+      try {
+        record = await _readFile(entity);
+      } on Object {
+        continue;
+      }
+      if (record.isRevoked) {
+        revoked.add(record.grantId);
+        continue;
+      }
+      if (!record.isExpired(_clock.nowUtc())) {
+        candidates[record.grantId] = record;
+      }
+    }
+    return [
+      for (final entry in candidates.entries)
+        if (!revoked.contains(entry.key)) entry.value,
+    ];
+  }
+
   Future<OAuthToken?> _readByRaw(String raw) async {
     final file = _fileFor(hashSecret(raw));
     if (!file.existsSync()) return null;

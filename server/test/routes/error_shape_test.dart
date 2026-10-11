@@ -6,6 +6,8 @@ import 'package:server/src/actor.dart';
 import 'package:server/src/auth_middleware.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
@@ -18,6 +20,7 @@ import 'package:test/test.dart';
 
 import '../../routes/notes/[id]/index.dart' as note_id_route;
 import '../../routes/notes/index.dart' as notes_index_route;
+import '../knowledge_test_context.dart' as knowledge_fixture;
 
 /// Pins the **flat** `{"error": "<code>", ...siblings}` error body shape
 /// that `server/API.md`'s "Error envelope" section documents, for the
@@ -58,6 +61,7 @@ Future<NoteWriteService> _writeService(
   );
   addTearDown(search.close);
   return NoteWriteService(
+    authorization: knowledge_fixture.fixtureAuthorization,
     storage: storage,
     metaIndex: metaIndex,
     searchIndex: search,
@@ -77,6 +81,10 @@ RequestContext _notesCtx({
   Object? body,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/notes'));
@@ -115,7 +123,7 @@ void main() {
     late MetaIndex index;
     late LockManager lockManager;
 
-    setUp(() {
+    knowledge_fixture.authorizedSetUp(() {
       tmp = _tempDir();
       storage = _storage(tmp);
       index = MetaIndex();
@@ -129,7 +137,7 @@ void main() {
       if (tmp.existsSync()) tmp.deleteSync(recursive: true);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'path_conflict: POST /notes on a title collision is exactly '
         '{"error": "path_conflict"} — no nested code/message/details object',
         () async {
@@ -160,7 +168,7 @@ void main() {
       expect(body['error'], isA<String>());
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'version_conflict: PUT /notes/{id} with a stale If-Match carries a '
         'flat "error" string plus a sibling "current" note object', () async {
       final note = await storage.create(title: 't', content: 'c');
@@ -211,7 +219,7 @@ void main() {
       expect(current['title'], 'updated');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'locked: PUT /notes/{id} held by another actor carries a flat '
         '"error" string plus a sibling "lock" object', () async {
       final note = await storage.create(title: 't', content: 'c');
@@ -247,7 +255,7 @@ void main() {
       expect(lock['holder'], 'alice');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'not_found: GET /notes/{id} for an unknown id is exactly '
         '{"error": "not_found"} — no nested code/message/details object',
         () async {
@@ -281,6 +289,10 @@ void main() {
 
     RequestContext ctx({Map<String, String> headers = const {}}) {
       final ctx = _MockRequestContext();
+      when(() => ctx.read<KnowledgeReadService>())
+          .thenReturn(knowledge_fixture.fixtureReads);
+      when(() => ctx.read<NoteAuthorizationService>())
+          .thenReturn(knowledge_fixture.fixtureAuthorization);
       final req = _MockRequest();
       when(() => req.method).thenReturn(HttpMethod.get);
       when(() => req.uri).thenReturn(Uri.parse('http://localhost/notes'));
@@ -306,7 +318,7 @@ void main() {
       return ctx;
     }
 
-    test(
+    knowledge_fixture.authorizedTest(
         'unauthorized: a missing bearer credential on GET /notes is exactly '
         '{"error": "unauthorized"} — no nested code/message/details object',
         () async {

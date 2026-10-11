@@ -5,6 +5,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/databases/registry.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
@@ -14,6 +16,7 @@ import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/databases/index.dart' as route;
+import '../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -28,6 +31,10 @@ RequestContext _ctx({
   Object? body,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/databases'));
@@ -60,7 +67,7 @@ void main() {
   late DatabaseRegistry registry;
   late NoteWriteService writes;
 
-  setUp(() async {
+  knowledge_fixture.authorizedSetUp(() async {
     tmp = _tempDir();
     storage = Storage(
       contentDir: Directory('${tmp.path}/content'),
@@ -73,6 +80,7 @@ void main() {
     );
     registry = DatabaseRegistry();
     writes = NoteWriteService(
+      authorization: knowledge_fixture.fixtureAuthorization,
       storage: storage,
       metaIndex: meta,
       searchIndex: search,
@@ -87,7 +95,8 @@ void main() {
   });
 
   group('GET /databases', () {
-    test('lists a registered database with row_count', () async {
+    knowledge_fixture
+        .authorizedTest('lists a registered database with row_count', () async {
       await writes.createDatabase(
         title: 'Projects',
         actor: 'a',
@@ -114,7 +123,8 @@ void main() {
       expect(item['row_count'], 1);
     });
 
-    test('empty registry returns empty items', () async {
+    knowledge_fixture.authorizedTest('empty registry returns empty items',
+        () async {
       final res = await route.onRequest(
         _ctx(method: HttpMethod.get, registry: registry, searchIndex: search),
       );
@@ -125,7 +135,8 @@ void main() {
   });
 
   group('POST /databases', () {
-    test('creates a database note and returns 201', () async {
+    knowledge_fixture.authorizedTest('creates a database note and returns 201',
+        () async {
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.post,
@@ -161,7 +172,8 @@ void main() {
       expect(items, hasLength(1));
     });
 
-    test('reserved property key returns 400 validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'reserved property key returns 400 validation_failed', () async {
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.post,
@@ -184,7 +196,8 @@ void main() {
       expect(body['error'], 'validation_failed');
     });
 
-    test('board view without group_by returns 400 validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'board view without group_by returns 400 validation_failed', () async {
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.post,
@@ -205,7 +218,8 @@ void main() {
       expect(body['error'], 'validation_failed');
     });
 
-    test('colliding path returns 409 path_conflict', () async {
+    knowledge_fixture.authorizedTest('colliding path returns 409 path_conflict',
+        () async {
       await storage.create(title: 'Projects', content: '');
 
       final res = await route.onRequest(

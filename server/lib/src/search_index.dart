@@ -719,7 +719,9 @@ class SearchIndex {
     int limit = 50,
     String? path,
     String? tag,
+    Set<String>? allowedIds,
   }) async {
+    if (allowedIds != null && allowedIds.isEmpty) return [];
     final span = _tracer.startSpan('search.query');
     try {
       final List<SearchHit> hits;
@@ -730,6 +732,7 @@ class SearchIndex {
           limit: limit,
           path: path,
           tag: tag,
+          allowedIds: allowedIds,
           span: span,
         );
       } else {
@@ -748,13 +751,18 @@ class SearchIndex {
           limit: candidateLimit,
           path: path,
           tag: tag,
+          allowedIds: allowedIds,
           span: span,
         );
         final queryEmbedding = await embeddingFuture;
         if (queryEmbedding == null) {
           hits = bm25Hits.take(limit).toList();
         } else {
-          final vectorHits = vectorSearch(queryEmbedding, k: candidateLimit);
+          final vectorHits = vectorSearch(
+            queryEmbedding,
+            k: candidateLimit,
+            allowedIds: allowedIds,
+          );
           hits = _fuse(
             bm25Hits: bm25Hits,
             vectorHits: vectorHits,
@@ -803,15 +811,27 @@ class SearchIndex {
     required Span span,
     String? path,
     String? tag,
+    Set<String>? allowedIds,
   }) {
     try {
-      return _runFtsQuery(query, limit: limit, path: path, tag: tag);
+      return _runFtsQuery(
+        query,
+        limit: limit,
+        path: path,
+        tag: tag,
+        allowedIds: allowedIds,
+      );
     } on SqliteException catch (original) {
       final sanitized = _sanitizeFtsQuery(query);
       if (sanitized == query) rethrow;
       try {
-        final hits =
-            _runFtsQuery(sanitized, limit: limit, path: path, tag: tag);
+        final hits = _runFtsQuery(
+          sanitized,
+          limit: limit,
+          path: path,
+          tag: tag,
+          allowedIds: allowedIds,
+        );
         span.setAttribute('search.query_sanitized', true);
         return hits;
       } on SqliteException {
@@ -830,9 +850,14 @@ class SearchIndex {
     required int limit,
     String? path,
     String? tag,
+    Set<String>? allowedIds,
   }) {
     final conditions = ['notes_fts MATCH ?'];
     final params = <Object?>[ftsQuery];
+    if (allowedIds != null) {
+      conditions.add('id IN (SELECT value FROM json_each(?))');
+      params.add(jsonEncode(allowedIds.toList()));
+    }
     if (path != null) {
       // Avoided LIKE here: a folder name containing `%` or `_` would
       // otherwise be misinterpreted as a wildcard.
@@ -982,15 +1007,32 @@ class SearchIndex {
   List<VectorHit> vectorSearch(
     List<double> queryEmbedding, {
     int k = _fusionCandidateLimit,
+    Set<String>? allowedIds,
   }) {
-    if (_embeddingProvider == null) return const [];
+    if (_embeddingProvider == null ||
+        (allowedIds != null && allowedIds.isEmpty)) {
+      return const [];
+    }
+    final scanLimit = allowedIds == null
+        ? k
+        : _db.select('SELECT COUNT(*) AS n FROM note_vectors').first['n']
+            as int;
+    final accessFilter = allowedIds == null
+        ? ''
+        : 'WHERE e.id IN (SELECT value FROM json_each(?))';
     final rows = _db.select(
       'SELECT e.id, v.distance FROM note_vectors AS e '
       "JOIN vector_full_scan('note_vectors', 'embedding', "
       'vector_as_f32(?), ?) AS v '
       'ON e.rowid = v.rowid '
-      'ORDER BY v.distance;',
-      [_encodeVector(queryEmbedding), k],
+      '$accessFilter '
+      'ORDER BY v.distance LIMIT ?;',
+      [
+        _encodeVector(queryEmbedding),
+        scanLimit,
+        if (allowedIds != null) jsonEncode(allowedIds.toList()),
+        k,
+      ],
     );
     return [
       for (final row in rows)

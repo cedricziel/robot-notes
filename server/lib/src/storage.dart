@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
+import 'package:server/src/canonical_note_upload.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/excerpt.dart';
 import 'package:server/src/frontmatter.dart';
@@ -631,7 +632,8 @@ class Storage {
         continue;
       }
       if (entity.path.endsWith('.tmp')) continue;
-      if (!entity.path.endsWith('.md')) {
+      if (!entity.path.endsWith('.md') ||
+          !await isCanonicalNotePayload(entity)) {
         final rel = _relativePathOf(entity);
         final stat = entity.statSync();
         _files[rel] = StoredFile(
@@ -791,8 +793,63 @@ class Storage {
         '${_historyDir.path}/${base64Url.encode(utf8.encode(id))}',
       );
 
-  Future<bool> _retainsHistory(StoredNote note) async =>
-      note.extra['history'] == true || _noteHistory(note.id).existsSync();
+  /// Server policy can require history independently of editable frontmatter.
+  bool Function(StoredNote note)? requiresHistoryForNote;
+
+  File _requiredHistoryMarker(String id) =>
+      File('${_historyDir.path}/required/${base64Url.encode(utf8.encode(id))}');
+
+  /// Pins retention outside purgeable snapshots without creating a revision.
+  Future<void> ensureRequiredHistory(String id) =>
+      _atomicText(_requiredHistoryMarker(id), '');
+
+  Future<bool> _retainsHistory(StoredNote note) async {
+    if (requiresHistoryForNote?.call(note) ?? false) {
+      await ensureRequiredHistory(note.id);
+    }
+    return note.extra['history'] == true ||
+        _noteHistory(note.id).existsSync() ||
+        _requiredHistoryMarker(note.id).existsSync();
+  }
+
+  /// Captures an accepted baseline without rewriting an immutable snapshot.
+  /// Legacy snapshots lacking block metadata get a new no-op accepted revision.
+  Future<StoredNote> enableRevisionHistory(String id, {String? actor}) =>
+      _withLock(id, () async {
+        await _ensureIndexed();
+        final current = await read(id);
+        await ensureRequiredHistory(id);
+        final snapshot =
+            File('${_noteHistory(id).path}/${current.version}.json');
+        if (!snapshot.existsSync()) {
+          await _commitHistory(
+            current,
+            _relPathById[id],
+            actor: actor,
+            captureCurrent: true,
+          );
+          return current;
+        }
+        final accepted =
+            jsonDecode(await snapshot.readAsString()) as Map<String, dynamic>;
+        final rawMap = accepted['block_map'];
+        if (rawMap is Map<String, dynamic> &&
+            MarkdownBlockMap.fromJson(rawMap).matches(current.content)) {
+          return current;
+        }
+        final next = StoredNote(
+          id: current.id,
+          title: current.title,
+          path: current.path,
+          version: current.version + 1,
+          createdAt: current.createdAt,
+          updatedAt: _clock.nowUtc(),
+          content: current.content,
+          extra: current.extra,
+        );
+        await _commitHistory(next, _relPathById[id], actor: actor);
+        return next;
+      });
 
   String _serializeNote(StoredNote note) => serializeFrontmatter(
         Frontmatter(metadata: _buildMetadataMap(note), body: note.content),
@@ -809,6 +866,7 @@ class Storage {
     StoredNote note,
     String? path, {
     bool deleted = false,
+    bool captureCurrent = false,
     String? actor,
   }) async {
     final history = _noteHistory(note.id);
@@ -848,7 +906,8 @@ class Storage {
       'block_map': blockMap.toJson(),
       'path': path,
       'previous_path': oldPath,
-      if (oldPath != null &&
+      if (!captureCurrent &&
+          oldPath != null &&
           !File('${history.path}/${note.version - (deleted ? 0 : 1)}.json')
               .existsSync())
         'baseline': await _fileForRelative(oldPath).readAsString(),
@@ -909,7 +968,12 @@ class Storage {
     if (!snapshot.existsSync()) {
       await _atomicText(
         snapshot,
-        jsonEncode(Map.of(event)..remove('baseline')),
+        jsonEncode(
+          Map.of(event)
+            ..remove('baseline')
+            ..remove('proposal_updates')
+            ..remove('accepted_policy_delta'),
+        ),
       );
     }
   }
@@ -921,7 +985,7 @@ class Storage {
       if (!marker.path.endsWith('.purge')) continue;
       final target =
           Directory(marker.path.substring(0, marker.path.length - 6));
-      if (target.existsSync()) await target.delete(recursive: true);
+      await _applyHistoryPurge(target, await marker.readAsString());
       await marker.delete();
     }
     for (final directory in entries.whereType<Directory>()) {
@@ -1041,16 +1105,22 @@ class Storage {
         });
       });
 
-  /// Permanently removes retained content; live history-enabled notes keep
-  /// recording future writes. No automatic retention expiry applies.
+  /// Erases retained history and review records permanently. A live note with
+  /// server-required history keeps its exact current operational snapshot/map.
   Future<void> purgeHistory(String id) => _withLock(id, () async {
         await _ensureIndexed();
         final directory = _noteHistory(id);
         if (directory.existsSync()) {
           final marker = File('${directory.path}.purge');
-          await _atomicText(marker, '');
+          final current = _relPathById.containsKey(id) ? await read(id) : null;
+          final keepVersion =
+              current != null && _requiredHistoryMarker(id).existsSync()
+                  ? current.version
+                  : null;
+          final intent = jsonEncode({'keep_version': keepVersion});
+          await _atomicText(marker, intent);
           try {
-            await directory.delete(recursive: true);
+            await _applyHistoryPurge(directory, intent);
             await marker.delete();
           } on Object {
             _historyFaulted = true;
@@ -1058,6 +1128,44 @@ class Storage {
           }
         }
       });
+
+  Future<void> _applyHistoryPurge(Directory directory, String intent) async {
+    if (!directory.existsSync()) return;
+    final dynamic raw = intent.isEmpty ? null : jsonDecode(intent);
+    final keepVersion =
+        raw == null ? null : (raw as Map<String, dynamic>)['keep_version'];
+    if (keepVersion == null) {
+      await directory.delete(recursive: true);
+      return;
+    }
+    if (keepVersion is! int ||
+        keepVersion < 1 ||
+        !File('${directory.path}/$keepVersion.json').existsSync()) {
+      throw StateError('Invalid required-history purge intent');
+    }
+    final current = File('${directory.path}/$keepVersion.json');
+    final snapshot =
+        jsonDecode(await current.readAsString()) as Map<String, dynamic>;
+    final hasJournalPayload = const {
+      'proposal_updates',
+      'accepted_policy_delta',
+      'baseline',
+    }.any(snapshot.containsKey);
+    if (hasJournalPayload) {
+      snapshot
+        ..remove('proposal_updates')
+        ..remove('accepted_policy_delta')
+        ..remove('baseline');
+      await _atomicText(current, jsonEncode(snapshot));
+    }
+    await for (final entity in directory.list()) {
+      if (entity is File &&
+          entity.path == '${directory.path}/$keepVersion.json') {
+        continue;
+      }
+      await entity.delete(recursive: true);
+    }
+  }
 
   void _claim({
     required NoteId id,
