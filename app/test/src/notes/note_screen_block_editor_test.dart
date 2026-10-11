@@ -33,7 +33,9 @@ void main() {
       content: '# Heading\r\n\r\n| A |\r\n|---|\r\n| 1 |\r\n',
     );
     await fixture.mount(tester);
-    await tester.tap(find.text('Markdown source'));
+    await tester.tap(find.byKey(const Key('note.menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('note.source')));
     await tester.pumpAndSettle();
     final field = tester.widget<TextField>(
       find.byKey(const Key('note.editor.content')),
@@ -43,13 +45,48 @@ void main() {
     expect(fixture.controller.value.isDirty, isFalse);
   });
 
+  testWidgets('source lives in More and returning preserves the dirty draft', (
+    tester,
+  ) async {
+    final fixture = _Fixture();
+    await fixture.mount(tester);
+    expect(find.text('Markdown source'), findsNothing);
+    expect(find.text('Back to Blocks'), findsNothing);
+    await tester.tap(find.byKey(const Key('note.menu')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('note.source')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('note.source')));
+    await tester.pumpAndSettle();
+    expect(find.text('Back to Blocks'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('note.editor.content')),
+      'Unsaved source',
+    );
+    await tester.tap(find.byKey(const Key('note.menu')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('note.source')), findsNothing);
+    await tester.tap(find.byKey(const Key('note.details')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Back to Blocks'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AdaptiveSuperEditor), findsOneWidget);
+    expect(find.text('Back to Blocks'), findsNothing);
+    expect(fixture.controller.value.editContent, 'Unsaved source');
+    expect(fixture.controller.value.isDirty, isTrue);
+    expect(fixture.puts, isEmpty);
+  });
+
   testWidgets('source typing during save survives the acknowledgement', (
     tester,
   ) async {
     final pending = Completer<http.Response>();
     final fixture = _Fixture(onSave: (_) => pending.future);
     await fixture.mount(tester);
-    await tester.tap(find.text('Markdown source'));
+    await tester.tap(find.byKey(const Key('note.menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('note.source')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('note.editor.content')),
@@ -92,7 +129,9 @@ void main() {
             _response({'error': 'locked', 'lock': _lock('bob')}, status: 423),
       );
       await fixture.mount(tester, onClose: () => closed = true);
-      await tester.tap(find.text('Markdown source'));
+      await tester.tap(find.byKey(const Key('note.menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('note.source')));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const Key('note.editor.content')),

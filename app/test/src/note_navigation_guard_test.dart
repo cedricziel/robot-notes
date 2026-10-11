@@ -123,7 +123,9 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Markdown source'));
+        await tester.tap(find.byKey(const Key('note.menu')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('note.source')));
         await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(const Key('note.editor.content')),

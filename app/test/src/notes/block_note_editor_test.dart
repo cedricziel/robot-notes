@@ -10,81 +10,39 @@ import 'package:app/src/notes/block_note_editor.dart';
 import 'package:app/src/theme/app_theme.dart';
 
 void main() {
-  for (final platform in [TargetPlatform.android, TargetPlatform.macOS]) {
-    testWidgets('mode selector shares a stable phone toolbar on $platform', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(platform: platform),
-          home: Scaffold(
-            body: BlockNoteEditor(markdown: 'Draft', onChanged: (_) {}),
-          ),
+  testWidgets('blocks show no mode selector and source offers Back to Blocks', (
+    tester,
+  ) async {
+    final changes = <String>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BlockNoteEditor(markdown: 'Draft', onChanged: changes.add),
         ),
-      );
-      await tester.pumpAndSettle();
-      final mode = find.byKey(const ValueKey('block-mode-selector'));
-      expect(mode, findsOneWidget);
-      expect(tester.getRect(mode).left, 16);
-      expect(
-        tester.getRect(mode).center.dy,
-        closeTo(tester.getRect(find.byTooltip('Redo')).center.dy, 1),
-      );
-      await tester.tap(find.text('Markdown source'));
-      await tester.pumpAndSettle();
-      expect(
+      ),
+    );
+    expect(find.byKey(const ValueKey('block-mode-selector')), findsNothing);
+    expect(find.text('Markdown source'), findsNothing);
+    expect(find.text('Back to Blocks'), findsNothing);
+    final editor = tester
+        .widget<AdaptiveSuperEditor>(find.byType(AdaptiveSuperEditor))
+        .editor;
+    await _showSource(tester);
+    expect(find.text('Back to Blocks'), findsOneWidget);
+    await tester.tap(find.text('Back to Blocks'));
+    await tester.pumpAndSettle();
+    expect(find.text('Back to Blocks'), findsNothing);
+    expect(
+      identical(
         tester
-            .widget<TextField>(find.byKey(const ValueKey('block-source')))
-            .controller!
-            .text,
-        'Draft',
-      );
-      await tester.tap(find.text('Blocks'));
-      await tester.pumpAndSettle();
-      expect(tester.getRect(mode).left, 16);
-      expect(tester.takeException(), isNull);
-    });
-  }
-
-  for (final platform in [TargetPlatform.android, TargetPlatform.macOS]) {
-    testWidgets('mode selector remains usable with scaled text on $platform', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(320, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(platform: platform),
-          home: MediaQuery(
-            data: const MediaQueryData(
-              size: Size(320, 844),
-              textScaler: TextScaler.linear(2),
-            ),
-            child: Scaffold(
-              body: BlockNoteEditor(markdown: 'Draft', onChanged: (_) {}),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester.getRect(find.byKey(const ValueKey('block-mode-selector'))).right,
-        lessThanOrEqualTo(304),
-      );
-      await tester.tap(find.text('Markdown source'));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('block-source')), findsOneWidget);
-      await tester.tap(find.text('Blocks'));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    });
-  }
+            .widget<AdaptiveSuperEditor>(find.byType(AdaptiveSuperEditor))
+            .editor,
+        editor,
+      ),
+      isTrue,
+    );
+    expect(changes, isEmpty);
+  });
 
   testWidgets('task checkbox begins at the paragraph content edge', (
     tester,
@@ -198,7 +156,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Markdown source'));
+    await _showSource(tester);
     await tester.pumpAndSettle();
     expect(
       tester
@@ -207,7 +165,7 @@ void main() {
           .text,
       source,
     );
-    await tester.tap(find.text('Blocks'));
+    await tester.tap(find.text('Back to Blocks'));
     await tester.pumpAndSettle();
     expect(changes, isEmpty);
     expect(find.byType(AdaptiveSuperEditor), findsOneWidget);
@@ -287,13 +245,13 @@ void main() {
     final editor = tester
         .widget<AdaptiveSuperEditor>(find.byType(AdaptiveSuperEditor))
         .editor;
-    await tester.tap(find.text('Markdown source'));
+    await _showSource(tester);
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('block-source')),
       '# After',
     );
-    await tester.tap(find.text('Blocks'));
+    await tester.tap(find.text('Back to Blocks'));
     await tester.pumpAndSettle();
     expect(
       identical(
@@ -325,7 +283,7 @@ void main() {
     );
     expect(find.byTooltip('Block actions'), findsNothing);
     expect(find.byTooltip('Bold'), findsNothing);
-    await tester.tap(find.text('Markdown source'));
+    await _showSource(tester);
     await tester.pumpAndSettle();
     expect(
       tester
@@ -969,6 +927,7 @@ void main() {
     (tester) async {
       final controller = TextEditingController(text: 'Body');
       var markdown = 'Body';
+      var sourceMode = false;
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -976,6 +935,9 @@ void main() {
               builder: (context, setState) {
                 return BlockNoteEditor(
                   markdown: markdown,
+                  sourceMode: sourceMode,
+                  onSourceModeChanged: (value) =>
+                      setState(() => sourceMode = value),
                   onChanged: (value) => markdown = value,
                   sourceController: controller,
                   header: const Text('Block title'),
@@ -991,11 +953,11 @@ void main() {
         ),
       );
       expect(find.text('Block title'), findsOneWidget);
-      await tester.tap(find.text('Markdown source'));
+      await _showSource(tester);
       await tester.pumpAndSettle();
       expect(find.text('Block title'), findsNothing);
       await tester.enterText(find.byType(TextField), '# New body');
-      await tester.tap(find.text('Blocks'));
+      await tester.tap(find.text('Back to Blocks'));
       await tester.pumpAndSettle();
       final scene = tester.widget<AdaptiveSuperEditor>(
         find.byType(AdaptiveSuperEditor),
@@ -1085,7 +1047,7 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.text('Markdown source'));
+      await _showSource(tester);
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('block-source')),
@@ -1095,7 +1057,7 @@ void main() {
           .widget<TextField>(find.byKey(const ValueKey('block-source')))
           .controller!;
       controller.selection = const TextSelection.collapsed(offset: 10);
-      await tester.tap(find.text('Blocks'));
+      await tester.tap(find.text('Back to Blocks'));
       await tester.pumpAndSettle();
       final scene = tester.widget<AdaptiveSuperEditor>(
         find.byType(AdaptiveSuperEditor),
@@ -1272,4 +1234,34 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Convert block'), findsNothing);
   });
+}
+
+Future<void> _showSource(WidgetTester tester) async {
+  final finder = find.byType(BlockNoteEditor);
+  final widget = tester.widget<BlockNoteEditor>(finder);
+  if (widget.onSourceModeChanged != null) {
+    widget.onSourceModeChanged!(true);
+    await tester.pumpAndSettle();
+    return;
+  }
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: BlockNoteEditor(
+          key: widget.key,
+          markdown: widget.markdown,
+          onChanged: widget.onChanged,
+          sourceMode: true,
+          onSourceModeChanged: widget.onSourceModeChanged,
+          readOnly: widget.readOnly,
+          sourceController: widget.sourceController,
+          header: widget.header,
+          sourceBuilder: widget.sourceBuilder,
+          opaqueBuilder: widget.opaqueBuilder,
+          searchLinkTitles: widget.searchLinkTitles,
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
 }

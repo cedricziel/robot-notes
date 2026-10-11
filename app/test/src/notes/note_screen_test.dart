@@ -136,7 +136,9 @@ Future<NoteController> _pumpEditor(
 
 Future<void> _showSource(WidgetTester tester) async {
   if (find.byKey(_contentField).evaluate().isNotEmpty) return;
-  await tester.tap(find.text('Markdown source'));
+  await tester.tap(find.byKey(const Key('note.menu')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('note.source')));
   await tester.pumpAndSettle();
 }
 

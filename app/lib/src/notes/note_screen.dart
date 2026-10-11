@@ -122,6 +122,7 @@ class _NoteScreenState extends State<NoteScreen> {
   late final _DiffTextController _content = _DiffTextController(_serverContent);
   late final LinkAutocompleteController _linkAutocomplete;
 
+  bool _sourceMode = false;
   bool _transitionPending = false;
   bool _allowPop = false;
   bool _resumeEditingOnReturn = false;
@@ -699,6 +700,15 @@ class _NoteScreenState extends State<NoteScreen> {
                     label: 'Note details',
                     onSelected: _showDetails,
                   ),
+                  if (!_sourceMode &&
+                      (state.mode == NoteMode.editing ||
+                          state.mode == NoteMode.saving ||
+                          (state.mode == NoteMode.viewing && state.isDirty)))
+                    AdaptiveMenuEntry(
+                      key: const Key('note.source'),
+                      label: 'Markdown source',
+                      onSelected: () => setState(() => _sourceMode = true),
+                    ),
                   if (_canManageNote(state))
                     AdaptiveMenuEntry(
                       key: const Key('note.move'),
@@ -961,6 +971,12 @@ class _NoteScreenState extends State<NoteScreen> {
               ? BlockNoteEditor(
                   key: ObjectKey(widget.controller),
                   markdown: state.editContent ?? note.content,
+                  sourceMode: _sourceMode,
+                  onSourceModeChanged: (source) {
+                    if (_sourceMode != source) {
+                      setState(() => _sourceMode = source);
+                    }
+                  },
                   sourceController: _content,
                   onChanged: widget.controller.setEditContent,
                   readOnly: !editing || _transitionPending,

@@ -1,8 +1,6 @@
 import 'dart:async';
 
 import 'package:adaptive_super_editor/adaptive_super_editor.dart';
-import 'package:cupertino_ui/cupertino_ui.dart'
-    show CupertinoSlidingSegmentedControl;
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart' as legacy;
 import 'package:material_ui/material_ui.dart';
@@ -22,6 +20,8 @@ class BlockNoteEditor extends StatefulWidget {
     required this.markdown,
     required this.onChanged,
     this.readOnly = false,
+    this.sourceMode = false,
+    this.onSourceModeChanged,
     this.sourceController,
     this.header,
     this.sourceBuilder,
@@ -33,6 +33,12 @@ class BlockNoteEditor extends StatefulWidget {
   final String markdown;
   final ValueChanged<String> onChanged;
   final bool readOnly;
+
+  /// Initial presentation and subsequent presentation changes requested by the host.
+  final bool sourceMode;
+
+  /// Reports presentation changes made through the editor's own actions.
+  final ValueChanged<bool>? onSourceModeChanged;
   final TextEditingController? sourceController;
   final Widget? header;
   final Widget Function(BuildContext, TextEditingController, bool readOnly)?
@@ -63,6 +69,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
   @override
   void initState() {
     super.initState();
+    _sourceMode = widget.sourceMode;
     _draft = MarkdownEditingDocument.fromMarkdown(widget.markdown);
     _composer = MutableDocumentComposer();
     _editor = createMarkdownDocumentEditor(
@@ -115,6 +122,9 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
         _replacing = false;
       }
       _setSource(widget.markdown);
+    }
+    if (oldWidget.sourceMode != widget.sourceMode) {
+      _switchMode(widget.sourceMode, notify: false);
     }
     if (widget.readOnly && !oldWidget.readOnly) {
       _links?.close();
@@ -190,7 +200,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
     if (mounted) setState(() {});
   }
 
-  void _switchMode(bool source, {String? nodeId}) {
+  void _switchMode(bool source, {String? nodeId, bool notify = true}) {
     if (source == _sourceMode) return;
     _links?.close();
     if (source) {
@@ -234,6 +244,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
       }
     }
     setState(() => _sourceMode = source);
+    if (notify) widget.onSourceModeChanged?.call(source);
   }
 
   DocumentPosition _positionForSourceOffset(int offset) {
@@ -745,87 +756,30 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
         ),
       );
 
-  Widget _modeSelector(double width) {
-    final labels = <bool, Widget>{
-      false: const Text('Blocks'),
-      true: const Text('Markdown source'),
-    };
-    return SizedBox(
-      key: const ValueKey('block-mode-selector'),
-      width: width,
-      child: useCupertino(context)
-          ? CupertinoSlidingSegmentedControl<bool>(
-              proportionalWidth: true,
-              groupValue: _sourceMode,
-              children: {
-                for (final entry in labels.entries)
-                  entry.key: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 10,
-                    ),
-                    child: entry.value,
-                  ),
-              },
-              onValueChanged: (value) {
-                if (value != null) _switchMode(value);
-              },
-            )
-          : SegmentedButton<bool>(
-              showSelectedIcon: false,
-              segments: [
-                for (final entry in labels.entries)
-                  ButtonSegment(value: entry.key, label: entry.value),
-              ],
-              selected: {_sourceMode},
-              onSelectionChanged: (values) => _switchMode(values.single),
-              style: SegmentedButton.styleFrom(
-                textStyle: Theme.of(context).textTheme.labelMedium,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                minimumSize: const Size(0, 40),
-                visualDensity: VisualDensity.compact,
+  Widget _toolbar(List<Widget> actions) {
+    if (!_sourceMode && actions.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: PaneSizes.editorPadding,
+        vertical: 4,
+      ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: _sourceMode
+            ? TextButton.icon(
+                key: const ValueKey('block-back-to-blocks'),
+                onPressed: () => _switchMode(false),
+                icon: Icon(adaptiveBackIcon(context)),
+                label: const Text('Back to Blocks'),
+              )
+            : SingleChildScrollView(
+                key: const ValueKey('block-format-actions'),
+                scrollDirection: Axis.horizontal,
+                child: Row(children: actions),
               ),
-            ),
+      ),
     );
   }
-
-  Widget _toolbar(List<Widget> actions) => Padding(
-    padding: const EdgeInsets.symmetric(
-      horizontal: PaneSizes.editorPadding,
-      vertical: 4,
-    ),
-    child: LayoutBuilder(
-      builder: (context, constraints) {
-        final stacked =
-            constraints.maxWidth < 320 ||
-            MediaQuery.textScalerOf(context).scale(14) > 20;
-        final controls = SingleChildScrollView(
-          key: const ValueKey('block-format-actions'),
-          scrollDirection: Axis.horizontal,
-          child: Row(children: actions),
-        );
-        if (stacked) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _modeSelector(constraints.maxWidth),
-              if (actions.isNotEmpty) controls,
-            ],
-          );
-        }
-        return Row(
-          children: [
-            _modeSelector(240),
-            const SizedBox(width: 8),
-            if (actions.isNotEmpty)
-              Expanded(child: controls)
-            else
-              const Spacer(),
-          ],
-        );
-      },
-    ),
-  );
 
   @override
   Widget build(BuildContext context) {
