@@ -361,4 +361,64 @@ void main() {
     expect(response['requires_human_approval'], isTrue);
     expect(response.containsKey('access'), isFalse);
   });
+  test('vault management cannot authorize curated edit review policy or purge',
+      () async {
+    final principal = KnowledgePrincipal.oauth(
+      grantId: 'oidc',
+      scopes: {'notes:read', 'notes:write', 'vaults:manage'},
+    );
+    final target = KnowledgeTarget.note('ACTUAL-ID', 'curated');
+    await authorization.putNotePolicy(
+      operator,
+      target,
+      KnowledgePolicyPatch(curated: true),
+    );
+    expect(authorization.allows(principal, KnowledgeAction.read, target), true);
+    for (final action in [
+      KnowledgeAction.edit,
+      KnowledgeAction.review,
+      KnowledgeAction.policy,
+      KnowledgeAction.purge,
+    ]) {
+      expect(authorization.allows(principal, action, target), false);
+    }
+    expect(target.noteId, 'ACTUAL-ID');
+  });
+
+  test('designation replay preserves ACLs and applies once', () async {
+    final target = KnowledgeTarget.note('NOTE-ID', 'ordinary');
+    await authorization.putNotePolicy(
+      operator,
+      target,
+      KnowledgePolicyPatch(
+        access: {
+          KnowledgeAction.read: {'oauth:owner'},
+        },
+      ),
+    );
+    final delta = <String, dynamic>{
+      'id': 'NOTE-ID',
+      'path': 'ordinary',
+      'approval': 'human',
+      'operation_id': 'proposal:1',
+    };
+    await store.replayAcceptedNoteDesignation(delta);
+    final revision = store.revision;
+    await store.replayAcceptedNoteDesignation(delta);
+    expect(store.revision, revision);
+    expect(store.effective(target).curated, true);
+    expect(
+      store.effective(target).access[KnowledgeAction.read],
+      {'oauth:owner'},
+    );
+    await expectLater(
+      store.replayAcceptedNoteDesignation({...delta, 'path': 'different'}),
+      throwsStateError,
+    );
+    final reopened = KnowledgePolicyStore(file: store.file);
+    await reopened.load();
+    addTearDown(reopened.dispose);
+    await reopened.replayAcceptedNoteDesignation(delta);
+    expect(reopened.revision, revision);
+  });
 }

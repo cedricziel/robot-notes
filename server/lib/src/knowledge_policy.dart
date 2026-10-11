@@ -113,7 +113,7 @@ class KnowledgePrincipal {
 class KnowledgeTarget {
   /// Resolves a note's policy using its recorded ID and folder path.
   KnowledgeTarget.note(String id, String path)
-      : noteId = id.toLowerCase(),
+      : noteId = id,
         path = sanitizedPathSegments(path).join('/'),
         collection = null;
 
@@ -266,6 +266,7 @@ class KnowledgePolicyStore {
   Map<String, KnowledgePolicyPatch> _folders = {};
   Map<String, KnowledgePolicyPatch> _notes = {};
   Map<String, KnowledgePolicyPatch> _collections = {};
+  Map<String, String> _acceptedDesignations = {};
   bool _loaded = false;
   bool _persistent = true;
   int _revision = 0;
@@ -311,6 +312,13 @@ class KnowledgePolicyStore {
     if (!notes.keys.every((id) => id.isNotEmpty && id == id.toLowerCase())) {
       throw const FormatException('Non-canonical policy note ID');
     }
+    final dynamic operations =
+        raw['accepted_designations'] ?? <String, String>{};
+    if (operations is! Map<String, dynamic> ||
+        !operations.values.every((value) => value is String)) {
+      throw const FormatException('Invalid accepted policy journal ledger');
+    }
+    _acceptedDesignations = Map<String, String>.from(operations);
     _folders = folders;
     _notes = notes;
     _collections = collections;
@@ -342,7 +350,7 @@ class KnowledgePolicyStore {
     final overlays = [
       for (var length = 0; length <= parts.length; length++)
         _folders[parts.take(length).join('/')],
-      if (target.noteId != null) _notes[target.noteId],
+      if (target.noteId != null) _notes[target.noteId!.toLowerCase()],
       if (target.collection != null) _collections[target.collection],
     ];
     for (final overlay in overlays) {
@@ -373,8 +381,9 @@ class KnowledgePolicyStore {
         : changedTarget.noteId != null
             ? preview._notes
             : preview._folders;
-    final key =
-        changedTarget.collection ?? changedTarget.noteId ?? changedTarget.path;
+    final key = changedTarget.collection ??
+        changedTarget.noteId?.toLowerCase() ??
+        changedTarget.path;
     if (patch == null) {
       overlays.remove(key);
     } else {
@@ -390,10 +399,14 @@ class KnowledgePolicyStore {
       target.collection != null
           ? _collections[target.collection]
           : target.noteId != null
-              ? _notes[target.noteId]
+              ? _notes[target.noteId!.toLowerCase()]
               : _folders[target.path];
 
-  Future<void> _put(KnowledgeTarget target, KnowledgePolicyPatch? patch) async {
+  Future<void> _put(
+    KnowledgeTarget target,
+    KnowledgePolicyPatch? patch, {
+    MapEntry<String, String>? acceptedOperation,
+  }) async {
     final folders = {..._folders};
     final notes = {..._notes};
     final collections = {..._collections};
@@ -411,16 +424,22 @@ class KnowledgePolicyStore {
       }
     } else {
       if (patch == null) {
-        notes.remove(target.noteId);
+        notes.remove(target.noteId!.toLowerCase());
       } else {
-        notes[target.noteId!] = patch;
+        notes[target.noteId!.toLowerCase()] = patch;
       }
     }
+    final acceptedDesignations = {
+      ..._acceptedDesignations,
+      if (acceptedOperation != null)
+        acceptedOperation.key: acceptedOperation.value,
+    };
     final nextRevision = revision + 1;
     if (_persistent) {
       await atomicWriteJsonFile(file, {
         'version': 1,
         'revision': nextRevision,
+        'accepted_designations': acceptedDesignations,
         'folders': {
           for (final entry in folders.entries) entry.key: entry.value.toJson(),
         },
@@ -436,6 +455,7 @@ class KnowledgePolicyStore {
     _folders = folders;
     _notes = notes;
     _collections = collections;
+    _acceptedDesignations = acceptedDesignations;
     _revision = nextRevision;
     _changes.add(nextRevision);
   }
@@ -451,6 +471,55 @@ class KnowledgePolicyStore {
     }
     return result;
   }
+
+  /// Replays only a designation delta from the trusted accepted-write journal.
+  /// Transport handlers must authorize review and policy before creating it.
+  /// Existing note ACLs survive replay; an operation ID applies exactly once.
+  Future<void> replayAcceptedNoteDesignation(Map<String, dynamic> delta) =>
+      withMutationLock(() async {
+        if (!delta.keys.every(
+              const {'id', 'path', 'approval', 'operation_id'}.contains,
+            ) ||
+            delta['id'] is! String ||
+            delta['path'] is! String ||
+            delta['operation_id'] is! String ||
+            (delta['operation_id'] as String).isEmpty) {
+          throw const FormatException('Invalid accepted designation delta');
+        }
+        final target = KnowledgeTarget.note(
+          delta['id'] as String,
+          delta['path'] as String,
+        );
+        if (target.noteId!.isEmpty ||
+            target.noteId != delta['id'] ||
+            target.path != delta['path']) {
+          throw const FormatException('Invalid designation target');
+        }
+        final approval = delta['approval'] as String? ?? 'human';
+        final digest = hashSecret(
+          jsonEncode(
+            {'id': target.noteId, 'path': target.path, 'approval': approval},
+          ),
+        );
+        final operation = delta['operation_id'] as String;
+        final previous = _acceptedDesignations[operation];
+        if (previous != null) {
+          if (previous != digest) {
+            throw StateError('Conflicting accepted policy operation');
+          }
+          return;
+        }
+        final existing = _notes[target.noteId!.toLowerCase()];
+        await _put(
+          target,
+          KnowledgePolicyPatch(
+            curated: true,
+            approval: approval,
+            access: existing?.access ?? {},
+          ),
+          acceptedOperation: MapEntry(operation, digest),
+        );
+      });
 
   /// Releases live policy observers when the vault closes.
   Future<void> dispose() => _changes.close();
@@ -489,8 +558,11 @@ class NoteAuthorizationService {
   final Future<void> Function()? beforeMutation;
 
   /// Captures accepted history before a newly curated policy is visible.
-  Future<void> Function(KnowledgeTarget target, KnowledgePolicyPatch? patch)?
-      beforePolicyPublish;
+  Future<void> Function(
+    KnowledgePrincipal principal,
+    KnowledgeTarget target,
+    KnowledgePolicyPatch? patch,
+  )? beforePolicyPublish;
 
   /// Authoritative policy for the selected vault.
   final KnowledgePolicyStore store;
@@ -592,7 +664,7 @@ class NoteAuthorizationService {
         if (ifMatch != null && ifMatch != store.revision) {
           throw KnowledgePolicyConflict(store.revision);
         }
-        await beforePolicyPublish?.call(target, patch);
+        await beforePolicyPublish?.call(principal, target, patch);
         await store._put(target, patch);
       });
 
