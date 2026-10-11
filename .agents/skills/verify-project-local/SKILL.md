@@ -17,6 +17,8 @@ Open that URL in a fresh agent-owned browser tab. Use the real setup flow with t
 
 Seed a small note/folder through the local API if helpful (`POST /notes` with bearer key, JSON title/path/content, X-Actor). Then perform a real app write: open or create a note, edit and save it, reload/reopen, and confirm the persisted content through the server API. Exercise affected navigation, search, settings, or other controls. Confirm live connectivity rather than merely rendering the landing screen.
 
+Run Flutter widget tests from `app/` (for example, `cd app && flutter test test/src/notes/note_screen_test.dart`). Running them from the workspace root can omit the app package’s shader assets and produce misleading missing-asset failures.
+
 ## Responsive and platform checks
 
 For layout changes, resize the same browser session through phone portrait/landscape, tablet portrait/landscape, and desktop widths. Check overflow, navigation, reading/editing, and state retention. Representative logical sizes: 390×844, 844×390, 768×1024, 1024×768, 1440×900. Reset temporary viewport overrides afterward.

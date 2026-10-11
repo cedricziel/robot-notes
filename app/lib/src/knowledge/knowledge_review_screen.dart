@@ -313,6 +313,13 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
     }
   }
 
+  String _historyBody(Map<String, dynamic> revision) {
+    final markdown = revision['markdown'] as String? ?? '';
+    if (!markdown.startsWith('---\n')) return markdown;
+    final end = markdown.indexOf('\n---\n', 4);
+    return end < 0 ? markdown : markdown.substring(end + 5);
+  }
+
   String _source(Map<String, dynamic> block) {
     final start = block['start'];
     final end = block['end'];
@@ -508,9 +515,7 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
                             content: SizedBox(
                               width: 640,
                               child: SingleChildScrollView(
-                                child: SelectableText(
-                                  '${revision['markdown'] ?? ''}',
-                                ),
+                                child: SelectableText(_historyBody(revision)),
                               ),
                             ),
                             actions: [
