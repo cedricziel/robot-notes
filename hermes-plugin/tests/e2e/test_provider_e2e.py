@@ -109,7 +109,7 @@ def test_forget_deletes_credential_authorized_notes_regardless_of_creator(
 
         result = json.loads(provider.handle_tool_call("robotnotes_forget", {"id": note["id"]}))
 
-        assert result["deleted"] is True
+        assert result == {}
         with pytest.raises(ClientError) as exc:
             e2e_client.get_note(note["id"])
         assert exc.value.not_found

@@ -566,12 +566,12 @@ def test_handle_tool_call_append_other_error_is_not_treated_as_missing_route(pro
 @respx.mock
 def test_handle_tool_call_forget_deletes_note(provider):
     respx.delete("https://notes.example.com/notes/01NEW").mock(
-        return_value=httpx.Response(200, json={"id": "01NEW", "deleted": True})
+        return_value=httpx.Response(204)
     )
 
     result = json.loads(provider.handle_tool_call("robotnotes_forget", {"id": "01NEW"}))
 
-    assert result["deleted"] is True
+    assert result == {}
 
 
 @respx.mock
