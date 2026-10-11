@@ -59,8 +59,11 @@ Future<Response> proposalRequest(
   try {
     final service = context.read<ProposalService>();
     final actor = context.read<Actor>().name;
-    return await withKnowledgePrincipal(
-        context.read<RestPrincipal>().knowledgePrincipal, () async {
+    final identity = context.read<RestPrincipal>().knowledgePrincipal;
+    final principal = context.request.headers['x-robot-notes-agent'] == 'true'
+        ? identity.withAgentOrigin()
+        : identity;
+    return await withKnowledgePrincipal(principal, () async {
       Map<String, dynamic>? input;
       if (method != HttpMethod.get) {
         final raw = await context.request.json();
@@ -133,6 +136,8 @@ Future<Response> proposalRequest(
     );
   } on NoteNotFoundException {
     return Response.json(statusCode: 404, body: {'error': 'not_found'});
+  } on InvalidPathException {
+    return Response.json(statusCode: 400, body: {'error': 'bad_request'});
   } on PathConflictException {
     return Response.json(statusCode: 409, body: {'error': 'path_conflict'});
   } on VersionConflictException {

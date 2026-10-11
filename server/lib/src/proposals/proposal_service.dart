@@ -19,6 +19,9 @@ part 'proposal_acceptance.dart';
 String _hash(Object? value) =>
     sha256.convert(utf8.encode(jsonEncode(value))).toString();
 
+String _sourceHash(String value) =>
+    sha256.convert(utf8.encode(value)).toString();
+
 /// Missing or expired referenced evidence cannot be used for acceptance.
 class ProposalEvidenceException implements Exception {
   /// Records a machine-readable resolver failure without exposing payload.
@@ -72,6 +75,7 @@ class ProposalService {
       principalId: principal.id,
       label: actor ?? principal.id,
       kind: principal.kind.name,
+      agentOrigin: principal.isAgentOrigin,
     );
   }
 
@@ -463,6 +467,7 @@ class ProposalService {
                 'proposal_revision': version.revision,
                 'author_label': version.author.label,
                 'author_kind': version.author.kind,
+                'author_agent_origin': version.author.agentOrigin,
                 'created_at': version.createdAt.toUtc().toIso8601String(),
                 'candidate': _publicCandidate(version.candidate),
               },
@@ -865,6 +870,7 @@ class ProposalService {
                 'thread_id': parent?['thread_id'] ?? commentId,
                 'author_label': author.label,
                 'author_kind': author.kind,
+                'author_agent_origin': author.agentOrigin,
                 'author_principal_id': author.principalId,
                 'body': _string(input, 'body'),
                 'block_id': blockId,
@@ -1120,11 +1126,14 @@ class ProposalService {
         if (operation.type == 'delete' || operation.type == 'delete_note') {
           continue;
         }
-        final targets = operation.type == 'insert_after'
-            ? compiled.introducedIdentities.entries
-                .where((e) => e.key.startsWith('$index:'))
-                .map((e) => e.value)
-            : [operation.blockId!];
+        final targets = <String>{
+          if (operation.type != 'insert_after' &&
+              map.blocks.any((block) => block.id == operation.blockId))
+            operation.blockId!,
+          ...compiled.introducedIdentities.entries
+              .where((entry) => entry.key.startsWith('$index:'))
+              .map((entry) => entry.value),
+        };
         for (final blockId in targets) {
           final block = map.blocks.where((b) => b.id == blockId).firstOrNull;
           if (block == null) continue;
@@ -1187,19 +1196,22 @@ class ProposalService {
     List<EvidenceReference> refs,
     List<EvidenceReference> supersedes, {
     Map<String, dynamic>? previous,
-  }) =>
-      {
-        'block_revision': revision,
-        'source_unknown': refs.isEmpty && previous == null,
-        'evidence_refs': [
-          ...?previous?['evidence_refs'] as List?,
-          for (final ref in refs) ref.toJson(),
-        ],
-        'supersedes': [
-          ...?previous?['supersedes'] as List?,
-          for (final ref in supersedes) ref.toJson(),
-        ],
-      };
+  }) {
+    final evidence = _uniqueReferences([
+      ...?previous?['evidence_refs'] as List?,
+      for (final ref in refs) ref.toJson(),
+    ]);
+    return {
+      'block_revision': revision,
+      'source_unknown':
+          evidence.isEmpty || evidence.every((ref) => ref['kind'] == 'unknown'),
+      'evidence_refs': evidence,
+      'supersedes': _uniqueReferences([
+        ...?previous?['supersedes'] as List?,
+        for (final ref in supersedes) ref.toJson(),
+      ]),
+    };
+  }
 
   Future<List<Map<String, dynamic>>> _resolve(
     List<EvidenceReference> refs,
@@ -1222,7 +1234,7 @@ class ProposalService {
         resolved.add({
           ...ref.toJson(),
           'resolved': true,
-          'payload_hash': _hash(evidence['payload']),
+          'payload_hash': _sourceHash(evidence['payload'] as String),
         });
         continue;
       }
@@ -1365,3 +1377,7 @@ Map<String, dynamic> _publicCandidate(Map<String, dynamic> candidate) => {
             }.contains(entry.key))
           entry.key: entry.value,
     };
+
+List<Map<String, dynamic>> _uniqueReferences(List<dynamic> refs) => {
+      for (final ref in refs) jsonEncode(ref): ref as Map<String, dynamic>,
+    }.values.toList();

@@ -1,9 +1,15 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:dart_frog/dart_frog.dart';
+import 'package:http/http.dart' as http;
+import 'package:server/src/actor.dart';
+import 'package:server/src/auth_middleware.dart';
 import 'package:server/src/knowledge_identity.dart';
 import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/mcp/principal.dart';
 import 'package:server/src/mcp/tools.dart';
+import 'package:server/src/proposals/proposal_http.dart';
 import 'package:server/src/proposals/proposal_mcp.dart';
 import 'package:server/src/proposals/proposal_record.dart';
 import 'package:server/src/proposals/proposal_service.dart';
@@ -905,5 +911,163 @@ void main() {
     );
     await storage.prepareHistory();
     expect(policies.revision, before + 1);
+  });
+  test('restricted operator origin is audited and cannot approve manually',
+      () async {
+    const agentOperator = KnowledgePrincipal.operator(agentOrigin: true);
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final record = await withKnowledgePrincipal(
+      agentOperator,
+      () => service.submit(note.id, {
+        'base_version': 1,
+        'idempotency_key': 'marked-operator',
+        'operations': [
+          {
+            'type': 'replace',
+            'block_id': block.id,
+            'expected_revision': 1,
+            'text': 'new\n',
+          },
+        ],
+      }),
+    );
+    expect(record.author.principalId, 'operator');
+    expect(record.author.kind, 'operator');
+    expect(record.summary()['author_agent_origin'], isTrue);
+    await expectLater(
+      withKnowledgePrincipal(
+        agentOperator,
+        () => service.decide(
+          note.id,
+          record.id,
+          {'decision': 'approve', 'record_revision': 1},
+        ),
+      ),
+      throwsA(isA<KnowledgeAccessDeniedException>()),
+    );
+    expect((await storage.read(note.id)).version, 1);
+  });
+  test('automatic marked-operator attachment is auditable as agent origin',
+      () async {
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      '',
+      KnowledgePolicyPatch(curated: true, approval: 'evidence_no_conflict'),
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final record = await withKnowledgePrincipal(
+      const KnowledgePrincipal.operator(agentOrigin: true),
+      () => service.submit(note.id, {
+        'base_version': 1,
+        'idempotency_key': 'agent-auto',
+        'operations': [
+          {
+            'type': 'attach_evidence',
+            'block_id': block.id,
+            'expected_revision': 1,
+            'evidence_refs': [
+              {'kind': 'note_revision', 'note_id': note.id, 'version': 1},
+            ],
+          }
+        ],
+      }),
+    );
+    expect(record.state, 'accepted');
+    expect(record.author.kind, 'operator');
+    expect(record.author.agentOrigin, isTrue);
+    final decision =
+        record.events.singleWhere((event) => event['type'] == 'auto_approve');
+    expect(decision['author_agent_origin'], isTrue);
+    expect(decision['author_kind'], 'operator');
+  });
+  test('REST decision retains restrictive origin through its identity binding',
+      () async {
+    final record = await submit();
+    final handler = ((RequestContext context) => proposalRequest(
+              context,
+              ProposalRoute.decisions,
+              id: note.id,
+              proposalId: record.id,
+            ))
+        .use(provider<ProposalService>((_) => service))
+        .use(provider<Actor>((_) => const Actor('Human label')))
+        .use(bearerAuth(configuredKey: 'test-key'));
+    final server = await serve(handler, InternetAddress.loopbackIPv4, 0);
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'http://127.0.0.1:${server.port}/notes/${note.id}/proposals/${record.id}/decisions',
+        ),
+        headers: {
+          'Authorization': 'Bearer test-key',
+          'X-Robot-Notes-Agent': 'true',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'decision': 'approve', 'record_revision': 1}),
+      );
+      expect(response.statusCode, 403, reason: response.body);
+      expect((await storage.read(note.id)).version, 1);
+      expect(
+        (await storage.readProposalRecord(note.id, record.id)).state,
+        'pending',
+      );
+    } finally {
+      await server.close(force: true);
+    }
+  });
+  test('compound replacement source links follow new accepted identities',
+      () async {
+    final compound = await storage.create(
+      title: 'Compound',
+      content: '- original\n\nlast',
+      properties: {'history': true},
+    );
+    final oldBlock = (await storage.readBlockMap(compound.id)).blocks.first;
+    final record = await withKnowledgePrincipal(
+      proposer,
+      () => service.submit(compound.id, {
+        'base_version': 1,
+        'idempotency_key': 'compound',
+        'operations': [
+          {
+            'type': 'replace',
+            'block_id': oldBlock.id,
+            'expected_revision': 1,
+            'text': '- changed\n',
+            'evidence_refs': [
+              {'kind': 'note_revision', 'note_id': note.id, 'version': 1},
+            ],
+            'supersedes': [
+              {
+                'kind': 'block_revision',
+                'note_id': compound.id,
+                'version': 1,
+                'block_id': oldBlock.id,
+                'block_revision': 1,
+              }
+            ],
+          }
+        ],
+      }),
+    );
+    await withKnowledgePrincipal(
+      reviewer,
+      () => service.decide(
+        compound.id,
+        record.id,
+        {'decision': 'approve', 'record_revision': 1},
+      ),
+    );
+    final block = (await storage.readBlockMap(compound.id)).blocks.first;
+    expect(block.id, isNot(oldBlock.id));
+    final provenance = await storage.readAcceptedProvenance(compound.id);
+    expect(provenance.containsKey(oldBlock.id), isFalse);
+    final links = provenance[block.id] as Map;
+    expect(links['evidence_refs'], hasLength(1));
+    expect(
+      ((links['supersedes'] as List).single as Map)['block_id'],
+      oldBlock.id,
+    );
+    expect(links['source_unknown'], isFalse);
   });
 }

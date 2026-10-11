@@ -57,7 +57,7 @@ List<McpTool> proposalMcpTools(ProposalService service) {
         },
         annotations: {
           'readOnlyHint': readOnly,
-          'destructiveHint': false,
+          'destructiveHint': name == 'review_note_proposal',
           'openWorldHint': false,
         },
         requiresWrite: false,
@@ -79,6 +79,8 @@ List<McpTool> proposalMcpTools(ProposalService service) {
             return toolFail(
               error.stale ? 'block_map_stale' : 'block_map_unavailable',
             );
+          } on InvalidPathException {
+            return toolFail('bad_request');
           } on PathConflictException {
             return toolFail('path_conflict');
           } on PropertyValidationException {

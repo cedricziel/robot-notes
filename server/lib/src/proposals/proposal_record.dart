@@ -7,6 +7,7 @@ class ProposalAuthor {
     required this.principalId,
     required this.label,
     required this.kind,
+    this.agentOrigin = false,
   });
 
   /// Restores server-recorded identity without granting capabilities.
@@ -14,6 +15,7 @@ class ProposalAuthor {
         principalId: json['principal_id'] as String,
         label: json['label'] as String,
         kind: json['kind'] as String,
+        agentOrigin: json['agent_origin'] as bool? ?? false,
       );
 
   /// Stable server credential identity.
@@ -25,9 +27,16 @@ class ProposalAuthor {
   /// Recorded operator, agent, or OAuth credential kind.
   final String kind;
 
+  /// Restrictive agent origin recorded by the authenticated transport.
+  final bool agentOrigin;
+
   /// Serializes audit identity for durable storage.
-  Map<String, dynamic> toJson() =>
-      {'principal_id': principalId, 'label': label, 'kind': kind};
+  Map<String, dynamic> toJson() => {
+        'principal_id': principalId,
+        'label': label,
+        'kind': kind,
+        'agent_origin': agentOrigin,
+      };
 }
 
 /// A retained candidate version is immutable even when the proposal is amended.
@@ -399,6 +408,7 @@ class ProposalRecord {
         'record_revision': recordRevision,
         'author_label': author.label,
         'author_kind': author.kind,
+        'author_agent_origin': author.agentOrigin,
         'created_at': createdAt.toUtc().toIso8601String(),
         'updated_at': updatedAt.toUtc().toIso8601String(),
         if (acceptedVersion != null) 'accepted_version': acceptedVersion,
@@ -433,6 +443,7 @@ Map<String, dynamic> _event(
       'author_principal_id': author.principalId,
       'author_label': author.label,
       'author_kind': author.kind,
+      'author_agent_origin': author.agentOrigin,
       'proposal_revision': proposalRevision,
       'created_at': at.toUtc().toIso8601String(),
     };
