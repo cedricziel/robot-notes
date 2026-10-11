@@ -45,6 +45,7 @@ import 'widgets/adaptive.dart';
 import 'widgets/connection_banner.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/error_strip.dart';
+import 'widgets/platform_motion.dart';
 import 'widgets/resizable_panel.dart';
 
 /// Builds the placeholder title for a freshly-created note, prefixed
@@ -353,13 +354,23 @@ GoRouter buildAppRouter({
         routes: [
           GoRoute(
             path: '/',
-            builder: (context, state) => _HomePage(pickFile: pickFile),
+            pageBuilder: (context, state) => notesPage(
+              context,
+              key: state.pageKey,
+              splitView: _isLarge(context),
+              child: _HomePage(pickFile: pickFile),
+            ),
           ),
           GoRoute(
             path: '/notes/:id',
-            builder: (context, state) => _NotePage(
-              noteId: state.pathParameters['id']!,
-              startEditing: state.uri.queryParameters['edit'] == '1',
+            pageBuilder: (context, state) => notesPage(
+              context,
+              key: state.pageKey,
+              splitView: _isLarge(context),
+              child: _NotePage(
+                noteId: state.pathParameters['id']!,
+                startEditing: state.uri.queryParameters['edit'] == '1',
+              ),
             ),
           ),
           GoRoute(
