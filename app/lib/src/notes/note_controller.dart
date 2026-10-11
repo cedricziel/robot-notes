@@ -23,7 +23,7 @@ enum NoteMode {
   /// We hold the lock; UI presents an editable buffer.
   editing,
 
-  /// `PUT /notes/{id}` is in flight.
+  /// `PUT /notes/{id}` is in flight; the draft remains editable.
   saving,
 
   /// Last save returned 409. The user must accept the server's version,
@@ -69,8 +69,7 @@ class NoteState {
   final Lock? lock;
   final List<String> viewers;
 
-  /// Local edit buffers. Non-null only while [mode] is [NoteMode.editing] or
-  /// [NoteMode.conflict].
+  /// Local edit buffers, retained for recovery when the editor lock is lost.
   final String? editTitle;
   final String? editContent;
 
@@ -109,7 +108,7 @@ class NoteState {
   bool get isDirty {
     final note = this.note;
     if (note == null) return false;
-    if (mode != NoteMode.editing && mode != NoteMode.conflict) return false;
+    if (editTitle == null || editContent == null) return false;
     return editTitle != note.title || editContent != note.content;
   }
 
@@ -173,15 +172,13 @@ class NoteController extends ValueNotifier<NoteState> {
     this._onUnsubscribe,
     DateTime Function()? clock,
     Duration Function(Lock lock, DateTime now)? heartbeatInterval,
-    Future<void> Function(Duration)? scheduler,
-    Future<void> Function(Duration)? autosaveScheduler,
+    this._scheduler,
+    this._autosaveScheduler,
     TitleSearchService? titleSearchService,
     this._allDatabaseDefinitions,
   }) : _api = api,
        _now = clock ?? DateTime.now,
        _heartbeatInterval = heartbeatInterval ?? _defaultHeartbeatInterval,
-       _scheduler = scheduler ?? Future<void>.delayed,
-       _autosaveScheduler = autosaveScheduler ?? Future<void>.delayed,
        _titleSearch = titleSearchService ?? TitleSearchService(api: api),
        super(NoteState.initial) {
     if (events != null) {
@@ -212,8 +209,10 @@ class NoteController extends ValueNotifier<NoteState> {
   final void Function(String)? _onUnsubscribe;
   final DateTime Function() _now;
   final Duration Function(Lock, DateTime) _heartbeatInterval;
-  final Future<void> Function(Duration) _scheduler;
-  final Future<void> Function(Duration) _autosaveScheduler;
+  final Future<void> Function(Duration)? _scheduler;
+  final Future<void> Function(Duration)? _autosaveScheduler;
+  _CancelableDelay? _heartbeatDelay;
+  _CancelableDelay? _autosaveDelay;
 
   /// Supplies every registered database's full definition, for the
   /// client-side `coveringDatabases` check. `null` when the caller has no
@@ -231,10 +230,11 @@ class NoteController extends ValueNotifier<NoteState> {
   /// can't happen for this controller, or after dispose) is dropped.
   int _coveringDefsGen = 0;
 
-  /// Completed while a `save()` call's HTTP request is in flight; `null`
-  /// otherwise. [patchProperty] awaits this so a property patch never races
-  /// a body save — see "serialized with autosave" in design.md.
-  Completer<void>? _saveInFlight;
+  /// Serializes body saves and property patches against the version baseline.
+  Completer<void>? _writeInFlight;
+
+  // Read-only refreshes must not replace the baseline of a recoverable draft.
+  Note? _retainedDraftBaseline;
 
   /// Bumped for every note fetch after the initial [open] ([reload] and
   /// the realtime-triggered refetch), so a response that lands after a
@@ -381,6 +381,10 @@ class NoteController extends ValueNotifier<NoteState> {
   Future<void> enterEditMode() async {
     if (_disposed) return;
     if (value.mode != NoteMode.viewing) return;
+    final pendingWrite = _writeInFlight?.future;
+    if (pendingWrite != null) await pendingWrite;
+    if (_disposed || value.mode != NoteMode.viewing) return;
+    final retainedBaseline = _retainedDraftBaseline;
     value = value.copyWith(mode: NoteMode.acquiringLock, error: null);
     final Lock acquired;
     try {
@@ -394,7 +398,11 @@ class NoteController extends ValueNotifier<NoteState> {
       value = value.copyWith(mode: NoteMode.viewing, error: e);
       return;
     }
-    if (_disposed) return;
+    if (_disposed) {
+      await _releaseLockBestEffort();
+      return;
+    }
+    final lockGen = _lockGen;
     // The lock serialises writers, so the copy loaded when the screen opened
     // may be stale by now; editing from it would turn every save into a 409.
     final Note note;
@@ -406,34 +414,54 @@ class NoteController extends ValueNotifier<NoteState> {
       value = value.copyWith(mode: NoteMode.viewing, lock: null, error: e);
       return;
     }
-    if (_disposed) return;
+    if (_disposed) {
+      await _releaseLockBestEffort();
+      return;
+    }
+    if (lockGen != _lockGen && value.lock?.holder != _actor) {
+      final lock = value.lock;
+      _forceReadOnly(
+        lock,
+        lock == null
+            ? 'Lock expired. Re-acquire to continue editing.'
+            : 'Editing taken over by ${lock.holder}. You are now read-only.',
+      );
+      return;
+    }
+    final conflict =
+        retainedBaseline != null && retainedBaseline.version != note.version;
     value = value.copyWith(
-      mode: NoteMode.editing,
-      note: note,
+      mode: conflict ? NoteMode.conflict : NoteMode.editing,
+      note: conflict ? retainedBaseline : note,
       lock: acquired,
-      editTitle: note.title,
-      editContent: note.content,
+      editTitle: retainedBaseline == null ? note.title : value.editTitle,
+      editContent: retainedBaseline == null ? note.content : value.editContent,
+      conflictCurrent: conflict ? note : null,
+      error: conflict ? VersionConflictException(current: note) : null,
       lockedByOtherBanner: null,
       properties: note.properties,
     );
+    _retainedDraftBaseline = null;
     _scheduleHeartbeat(acquired);
+    if (value.isDirty) _scheduleAutosave();
   }
 
   void setEditTitle(String title) {
-    if (value.mode != NoteMode.editing && value.mode != NoteMode.conflict) {
-      return;
-    }
+    if (_disposed || !_canMutateDraft) return;
     value = value.copyWith(editTitle: title);
     _scheduleAutosave();
   }
 
   void setEditContent(String content) {
-    if (value.mode != NoteMode.editing && value.mode != NoteMode.conflict) {
-      return;
-    }
+    if (_disposed || !_canMutateDraft) return;
     value = value.copyWith(editContent: content);
     _scheduleAutosave();
   }
+
+  bool get _canMutateDraft =>
+      value.mode == NoteMode.editing ||
+      value.mode == NoteMode.saving ||
+      value.mode == NoteMode.conflict;
 
   /// Cancels any autosave scheduled by a prior edit, without affecting the
   /// heartbeat. Callers that are about to save explicitly (button tap,
@@ -441,21 +469,33 @@ class NoteController extends ValueNotifier<NoteState> {
   /// coincidentally-due autosave doesn't also fire and race a second save.
   void cancelPendingAutosave() {
     _autosaveGen += 1;
+    _autosaveDelay?.cancel();
+    _autosaveDelay = null;
   }
 
   /// Schedules a debounced autosave [autosaveDebounce] after the most
-  /// recent edit. Only ever schedules while [NoteMode.editing] — edits
-  /// made from the conflict view are resolved explicitly ("Use server
+  /// recent edit. Edits made during [NoteMode.saving] are re-armed after
+  /// acknowledgement. Edits from the conflict view are resolved explicitly ("Use server
   /// version" / "Save mine"), never autosaved.
   void _scheduleAutosave() {
-    if (value.mode != NoteMode.editing) return;
-    _autosaveGen += 1;
+    if (value.mode != NoteMode.editing && value.mode != NoteMode.saving) {
+      return;
+    }
+    cancelPendingAutosave();
     final gen = _autosaveGen;
     unawaited(_runAutosave(gen));
   }
 
   Future<void> _runAutosave(int gen) async {
-    await _autosaveScheduler(autosaveDebounce);
+    final scheduler = _autosaveScheduler;
+    if (scheduler != null) {
+      await scheduler(autosaveDebounce);
+    } else {
+      final delay = _CancelableDelay(autosaveDebounce);
+      _autosaveDelay = delay;
+      await delay.future;
+      if (identical(_autosaveDelay, delay)) _autosaveDelay = null;
+    }
     if (_disposed) return;
     if (_autosaveGen != gen) return;
     if (value.mode != NoteMode.editing) return;
@@ -467,6 +507,11 @@ class NoteController extends ValueNotifier<NoteState> {
   /// Routes 409 → [NoteMode.conflict], 423 → forced read-only with banner.
   Future<void> save() async {
     if (_disposed) return;
+    while (_writeInFlight != null) {
+      await _writeInFlight!.future;
+      if (_disposed || !value.isDirty) return;
+      if (value.mode != NoteMode.editing) return;
+    }
     if (value.mode != NoteMode.editing && value.mode != NoteMode.conflict) {
       return;
     }
@@ -474,9 +519,11 @@ class NoteController extends ValueNotifier<NoteState> {
     if (note == null) return;
     final title = value.editTitle ?? note.title;
     final content = value.editContent ?? note.content;
+    cancelPendingAutosave();
     value = value.copyWith(mode: NoteMode.saving, error: null);
     final inFlight = Completer<void>();
-    _saveInFlight = inFlight;
+    _writeInFlight = inFlight;
+    var acknowledged = false;
     try {
       final updated = await _api.updateNote(
         id: _noteId,
@@ -485,42 +532,44 @@ class NoteController extends ValueNotifier<NoteState> {
         ifMatch: note.version,
       );
       if (_disposed) return;
-      // Stay in editing mode so the user can keep typing without having to
-      // re-acquire the lock. Sync the local note + buffers to the saved
-      // server state.
       value = value.copyWith(
-        mode: NoteMode.editing,
+        mode: value.mode == NoteMode.saving ? NoteMode.editing : value.mode,
         note: updated,
-        editTitle: updated.title,
-        editContent: updated.content,
+        editTitle: value.editTitle == title ? updated.title : value.editTitle,
+        editContent: value.editContent == content
+            ? updated.content
+            : value.editContent,
         conflictCurrent: null,
         properties: updated.properties,
       );
+      acknowledged = true;
+      if (value.mode == NoteMode.viewing) {
+        _retainedDraftBaseline = value.isDirty ? updated : null;
+      }
     } on VersionConflictException catch (e) {
       if (_disposed) return;
       value = value.copyWith(
-        mode: NoteMode.conflict,
+        mode: value.mode == NoteMode.saving ? NoteMode.conflict : value.mode,
         conflictCurrent: e.current,
         error: e,
       );
     } on LockedException catch (e) {
       if (_disposed) return;
-      _stopHeartbeat();
-      value = value.copyWith(
-        mode: NoteMode.viewing,
-        lock: e.lock,
-        editTitle: null,
-        editContent: null,
-        lockedByOtherBanner:
-            'Editing taken over by ${e.lock.holder}. You are now read-only.',
-        error: e,
+      _forceReadOnly(
+        e.lock,
+        'Editing taken over by ${e.lock.holder}. You are now read-only.',
       );
+      value = value.copyWith(error: e);
     } on ApiException catch (e) {
       if (_disposed) return;
-      value = value.copyWith(mode: NoteMode.editing, error: e);
+      value = value.copyWith(
+        mode: value.mode == NoteMode.saving ? NoteMode.editing : value.mode,
+        error: e,
+      );
     } finally {
-      if (identical(_saveInFlight, inFlight)) _saveInFlight = null;
+      if (identical(_writeInFlight, inFlight)) _writeInFlight = null;
       inFlight.complete();
+      if (!_disposed && acknowledged && value.isDirty) _scheduleAutosave();
     }
   }
 
@@ -562,6 +611,8 @@ class NoteController extends ValueNotifier<NoteState> {
     if (value.mode != NoteMode.editing && value.mode != NoteMode.conflict) {
       return;
     }
+    cancelPendingAutosave();
+    _retainedDraftBaseline = null;
     _stopHeartbeat();
     await _releaseLockBestEffort();
     if (_disposed) return;
@@ -583,38 +634,41 @@ class NoteController extends ValueNotifier<NoteState> {
   }
 
   void _scheduleHeartbeat(Lock lock) {
-    _heartbeatGen += 1;
+    _stopHeartbeat();
     final gen = _heartbeatGen;
     final delay = _heartbeatInterval(lock, _now());
-    // Fire-and-forget: the loop chains future heartbeats off each successful
-    // PUT. A new acquire (or stop) bumps `_heartbeatGen` so any in-flight
-    // delay becomes a no-op when it resolves.
     unawaited(_runHeartbeat(gen, delay));
   }
 
   Future<void> _runHeartbeat(int gen, Duration delay) async {
-    await _scheduler(delay);
-    if (_disposed) return;
-    if (_heartbeatGen != gen) return;
-    if (value.mode != NoteMode.editing && value.mode != NoteMode.saving) {
-      return;
+    final scheduler = _scheduler;
+    if (scheduler != null) {
+      await scheduler(delay);
+    } else {
+      final pending = _CancelableDelay(delay);
+      _heartbeatDelay = pending;
+      await pending.future;
+      if (identical(_heartbeatDelay, pending)) _heartbeatDelay = null;
     }
+    if (_disposed || _heartbeatGen != gen) return;
+    if (_heartbeatGen != gen) return;
+    if (!_canMutateDraft) return;
     try {
       final lock = await _api.heartbeatLock(_noteId);
-      if (_disposed) return;
-      if (_heartbeatGen != gen) return;
+      if (_disposed || _heartbeatGen != gen) return;
       value = value.copyWith(lock: lock);
       _scheduleHeartbeat(lock);
     } on LockedException catch (e) {
-      if (_disposed) return;
+      if (_disposed || _heartbeatGen != gen) return;
       _forceReadOnly(
         e.lock,
         'Editing taken over by ${e.lock.holder}. You are now read-only.',
       );
     } on NotFoundException {
-      if (_disposed) return;
+      if (_disposed || _heartbeatGen != gen) return;
       _forceReadOnly(null, 'Lock expired. Re-acquire to continue editing.');
     } on ApiException {
+      if (_disposed || _heartbeatGen != gen) return;
       // Transient — let the next heartbeat retry by rescheduling.
       _scheduleHeartbeat(value.lock ?? Lock(holder: _actor, expiresAt: _now()));
     }
@@ -622,15 +676,20 @@ class NoteController extends ValueNotifier<NoteState> {
 
   void _stopHeartbeat() {
     _heartbeatGen += 1;
+    _heartbeatDelay?.cancel();
+    _heartbeatDelay = null;
   }
 
   void _forceReadOnly(Lock? lock, String banner) {
+    final retainDraft = _retainedDraftBaseline != null || value.isDirty;
+    if (retainDraft) _retainedDraftBaseline ??= value.note;
+    cancelPendingAutosave();
     _stopHeartbeat();
     value = value.copyWith(
       mode: NoteMode.viewing,
       lock: lock,
-      editTitle: null,
-      editContent: null,
+      editTitle: retainDraft ? value.editTitle : null,
+      editContent: retainDraft ? value.editContent : null,
       conflictCurrent: null,
       lockedByOtherBanner: banner,
     );
@@ -649,12 +708,12 @@ class NoteController extends ValueNotifier<NoteState> {
           ? null
           : Lock(holder: msg.holder!, expiresAt: msg.expiresAt!);
       // Mid-edit, if the holder switched away from us, drop into read-only.
-      if (value.mode == NoteMode.editing &&
-          newLock != null &&
-          newLock.holder != _actor) {
+      if (_canMutateDraft && (newLock == null || newLock.holder != _actor)) {
         _forceReadOnly(
           newLock,
-          'Editing taken over by ${newLock.holder}. You are now read-only.',
+          newLock == null
+              ? 'Lock expired. Re-acquire to continue editing.'
+              : 'Editing taken over by ${newLock.holder}. You are now read-only.',
         );
         return;
       }
@@ -714,6 +773,7 @@ class NoteController extends ValueNotifier<NoteState> {
   @override
   void dispose() {
     _disposed = true;
+    cancelPendingAutosave();
     _stopHeartbeat();
     _sub?.cancel();
     _onUnsubscribe?.call(_noteId);
@@ -805,13 +865,18 @@ class NoteController extends ValueNotifier<NoteState> {
     List<String>? unset,
   }) async {
     if (_disposed) return;
-    final wasEditing = value.mode == NoteMode.editing;
+    final wasEditing =
+        value.mode == NoteMode.editing || value.mode == NoteMode.saving;
     if (wasEditing) cancelPendingAutosave();
-    final inFlight = _saveInFlight?.future;
-    if (inFlight != null) await inFlight;
+    while (_writeInFlight != null) {
+      await _writeInFlight!.future;
+      if (_disposed) return;
+    }
     if (_disposed) return;
     final note = value.note;
     if (note == null) return;
+    final inFlight = Completer<void>();
+    _writeInFlight = inFlight;
     try {
       final updated = await _api.patchProperties(
         note.id,
@@ -820,13 +885,37 @@ class NoteController extends ValueNotifier<NoteState> {
       );
       if (_disposed) return;
       value = value.copyWith(note: updated, properties: updated.properties);
+      if (value.mode == NoteMode.viewing && _retainedDraftBaseline != null) {
+        _retainedDraftBaseline = updated;
+      }
     } on ApiException catch (e) {
       if (_disposed) return;
       value = value.copyWith(error: e);
     } finally {
+      if (identical(_writeInFlight, inFlight)) _writeInFlight = null;
+      inFlight.complete();
       if (!_disposed && wasEditing && value.mode == NoteMode.editing) {
         _scheduleAutosave();
       }
     }
+  }
+}
+
+class _CancelableDelay {
+  _CancelableDelay(Duration duration) {
+    _timer = Timer(duration, _complete);
+  }
+
+  final _completion = Completer<void>();
+  late final Timer _timer;
+  Future<void> get future => _completion.future;
+
+  void _complete() {
+    if (!_completion.isCompleted) _completion.complete();
+  }
+
+  void cancel() {
+    _timer.cancel();
+    _complete();
   }
 }
