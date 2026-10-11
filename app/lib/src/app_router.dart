@@ -13,6 +13,7 @@ import 'api/api_client.dart';
 import 'vaults/vault_switcher.dart';
 import 'api/api_exceptions.dart';
 import 'auth/oidc_session_refresher.dart';
+import 'auth/session_http_client.dart';
 import 'auth/oidc_sign_in_controller.dart';
 import 'config/app_config.dart';
 import 'config/config_store.dart';
@@ -97,7 +98,10 @@ Future<UploadedFileResult?> uploadPickedFile(
 /// [GoRouter]'s `refreshListenable` re-evaluates redirects whenever the
 /// answer changes — first-run completing, or a manual disconnect.
 class ConfigHolder extends ChangeNotifier {
-  ConfigHolder(ConfigStore store) : _store = SerializedConfigStore(store) {
+  ConfigHolder(ConfigStore store, {OidcSessionRefresher? refresher})
+    : _store = SerializedConfigStore(store),
+      _refresher =
+          refresher ?? OidcSessionRefresher(clientFactory: tracingHttpClient) {
     unawaited(_load());
   }
 
@@ -105,6 +109,7 @@ class ConfigHolder extends ChangeNotifier {
   /// [ConfigStore] read.
   ConfigHolder.seeded(this.config)
     : _store = SerializedConfigStore(InMemoryConfigStore()),
+      _refresher = OidcSessionRefresher(clientFactory: tracingHttpClient),
       loaded = true;
 
   final ConfigStore _store;
@@ -134,9 +139,47 @@ class ConfigHolder extends ChangeNotifier {
     });
   }
 
-  final OidcSessionRefresher _refresher = OidcSessionRefresher(
-    clientFactory: tracingHttpClient,
-  );
+  final OidcSessionRefresher _refresher;
+  bool sessionExpired = false;
+  bool _disposed = false;
+
+  Object get sessionKey => (_sessionRevision, config?.vaultId);
+
+  void expireSession() {
+    if (_disposed || config == null || sessionExpired) return;
+    sessionExpired = true;
+    notifyListeners();
+  }
+
+  /// Coalesces rejected tokens and persists rotation before callers retry.
+  Future<AppConfig?> renewSession(String rejectedToken) {
+    final revision = _sessionRevision;
+    return _mutate(() async {
+      if (_disposed || revision != _sessionRevision || sessionExpired) {
+        return null;
+      }
+      final current = config;
+      if (current == null) return null;
+      if (current.apiKey != rejectedToken) return current;
+      if (!current.isOidcSession) {
+        expireSession();
+        return null;
+      }
+      try {
+        final refreshed = await _refresher.refresh(current);
+        if (_disposed || revision != _sessionRevision) return null;
+        await _store.write(refreshed);
+        if (_disposed || revision != _sessionRevision) return null;
+        config = refreshed;
+        return refreshed;
+      } on OidcRefreshException catch (error) {
+        if (_disposed || revision != _sessionRevision) return null;
+        if (error.retryable) rethrow;
+        expireSession();
+        return null;
+      }
+    });
+  }
 
   /// The store backing this holder, so callers that already have a
   /// [ConfigHolder] don't need it threaded through separately.
@@ -198,6 +241,7 @@ class ConfigHolder extends ChangeNotifier {
   void set(AppConfig value) {
     _sessionRevision++;
     config = value;
+    sessionExpired = false;
     loaded = true;
     notifyListeners();
   }
@@ -207,12 +251,15 @@ class ConfigHolder extends ChangeNotifier {
     return _mutate(() async {
       await _store.clear();
       config = null;
+      sessionExpired = false;
       notifyListeners();
     });
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _sessionRevision++;
     oidcSignIn.dispose();
     super.dispose();
   }
@@ -1689,9 +1736,8 @@ class AppSession extends InheritedWidget {
 }
 
 /// Owns the singleton [RobotNotesClient], [RobotNotesWsClient],
-/// [NotesListController], and [ConnectionStatusController] for as long as
-/// [config] stays the same identity — recreated (via the caller's
-/// [ValueKey]) whenever the user reconfigures or reconnects.
+/// [NotesListController], and [ConnectionStatusController] for one user and
+/// vault. Token rotation preserves controllers and open editor state.
 ///
 /// Also hoists [ConnectionBanner] above [child] so it shows on every routed
 /// screen rather than only the notes list.
@@ -1700,11 +1746,13 @@ class SessionHost extends StatefulWidget {
     required this.config,
     required this.onReset,
     this.onVaultSelected = _ignoreVaultSelection,
+    this.configHolder,
     required this.child,
     super.key,
   });
 
   final AppConfig config;
+  final ConfigHolder? configHolder;
   final ValueChanged<String> onVaultSelected;
   final VoidCallback onReset;
   final Widget child;
@@ -1713,7 +1761,8 @@ class SessionHost extends StatefulWidget {
   State<SessionHost> createState() => _SessionHostState();
 }
 
-class _SessionHostState extends State<SessionHost> {
+class _SessionHostState extends State<SessionHost> with WidgetsBindingObserver {
+  Timer? _refreshTimer;
   late final RobotNotesClient _api;
   late final RobotNotesWsClient _ws;
   late final NotesListController _list;
@@ -1724,11 +1773,36 @@ class _SessionHostState extends State<SessionHost> {
   @override
   void initState() {
     super.initState();
+    final holder = widget.configHolder;
     _api = RobotNotesClient(
       config: widget.config,
-      httpClient: tracingHttpClient(),
+      httpClient: holder == null
+          ? tracingHttpClient()
+          : SessionHttpClient(
+              inner: tracingHttpClient(),
+              config: () => holder.config ?? widget.config,
+              renew: holder.renewSession,
+              onExpired: holder.expireSession,
+            ),
     );
-    _ws = RobotNotesWsClient(config: widget.config);
+    _ws = RobotNotesWsClient(
+      config: widget.config,
+      currentConfig: holder == null
+          ? null
+          : () => holder.config ?? widget.config,
+      onAuthRejected: holder == null || !widget.config.isOidcSession
+          ? null
+          : (token) async {
+              await holder.renewSession(token);
+            },
+    );
+    if (holder != null && widget.config.isOidcSession) {
+      WidgetsBinding.instance.addObserver(this);
+      _refreshTimer = Timer.periodic(
+        const Duration(minutes: 5),
+        (_) => _renew(),
+      );
+    }
     _list = NotesListController(api: _api, events: _ws.events);
     _tree = FolderTreeController(api: _api, events: _ws.events);
     _databases = DatabasesController(api: _api, events: _ws.events);
@@ -1742,8 +1816,26 @@ class _SessionHostState extends State<SessionHost> {
     unawaited(_databases.refresh());
   }
 
+  Future<void> _renew() async {
+    final holder = widget.configHolder;
+    final config = holder?.config;
+    if (holder == null || config == null || holder.sessionExpired) return;
+    try {
+      await holder.renewSession(config.apiKey);
+    } on Object {
+      // Network outages retain credentials; next request or timer retries.
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_renew());
+  }
+
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _status.dispose();
     _tree.dispose();
     _databases.dispose();
@@ -1827,8 +1919,9 @@ class AppRouterShell extends StatelessWidget {
         final config = configHolder.config;
         if (config == null) return content;
         final session = SessionHost(
-          key: ValueKey<AppConfig>(config),
+          key: ValueKey<Object>(configHolder.sessionKey),
           config: config,
+          configHolder: configHolder,
           onReset: configHolder.reset,
           onVaultSelected: (id) async {
             try {
@@ -1846,11 +1939,27 @@ class AppRouterShell extends StatelessWidget {
           },
           child: content,
         );
+        final gated = Stack(
+          fit: StackFit.expand,
+          children: [
+            ExcludeFocus(
+              excluding: configHolder.sessionExpired,
+              child: Offstage(
+                offstage: configHolder.sessionExpired,
+                child: session,
+              ),
+            ),
+            if (configHolder.sessionExpired)
+              Positioned.fill(
+                child: _SessionExpiredPrompt(onSignIn: configHolder.reset),
+              ),
+          ],
+        );
         final lock = appLock;
-        if (lock == null) return session;
+        if (lock == null) return gated;
         return AppLockScope(
           controller: lock,
-          child: AppLockGate(controller: lock, child: session),
+          child: AppLockGate(controller: lock, child: gated),
         );
       },
     );
@@ -1869,3 +1978,25 @@ class _Splash extends StatelessWidget {
 }
 
 void _ignoreVaultSelection(String _) {}
+
+class _SessionExpiredPrompt extends StatelessWidget {
+  const _SessionExpiredPrompt({required this.onSignIn});
+
+  final VoidCallback onSignIn;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Your session has expired.'),
+          const SizedBox(height: 8),
+          const Text('Sign in again to reconnect to your notes.'),
+          const SizedBox(height: 16),
+          FilledButton(onPressed: onSignIn, child: const Text('Sign in')),
+        ],
+      ),
+    ),
+  );
+}

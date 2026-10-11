@@ -95,6 +95,8 @@ class RobotNotesWsClient {
   RobotNotesWsClient({
     required AppConfig config,
     WsConnect? connect,
+    this.currentConfig,
+    this.onAuthRejected,
     DelayFn? delay,
     DateTime Function()? clock,
     this.backoffInitial = const Duration(milliseconds: 200),
@@ -106,6 +108,10 @@ class RobotNotesWsClient {
        _now = clock ?? DateTime.now;
 
   final AppConfig _config;
+  final AppConfig Function()? currentConfig;
+
+  /// Renews credentials after a connection closes before auth confirmation.
+  final Future<void> Function(String rejectedToken)? onAuthRejected;
   final WsConnect _connect;
   final DelayFn _delay;
   final DateTime Function() _now;
@@ -202,9 +208,10 @@ class RobotNotesWsClient {
         // (openspec/specs/realtime-sync/spec.md). `_current` isn't set until
         // after auth is sent, so a `subscribe`/`unsubscribe` call racing this
         // block can never jump the queue ahead of it.
+        final credentials = currentConfig?.call() ?? _config;
         conn.send(
           jsonEncode(
-            AuthMsg(key: _config.apiKey, actor: _config.actor).toJson(),
+            AuthMsg(key: credentials.apiKey, actor: credentials.actor).toJson(),
           ),
         );
         _current = conn;
@@ -212,6 +219,7 @@ class RobotNotesWsClient {
           conn.send(jsonEncode(SubscribeMsg(noteId: id).toJson()));
         }
 
+        var authenticated = false;
         // Pump events until the remote closes or `dispose` is called.
         try {
           await for (final frame in conn.incoming) {
@@ -219,6 +227,7 @@ class RobotNotesWsClient {
               final json = jsonDecode(frame) as Map<String, dynamic>;
               final msg = decodeWsMessage(json);
               if (msg is AuthOkMsg) {
+                authenticated = true;
                 // Server accepted the session — back off resets so the
                 // next disconnect starts at the initial delay again.
                 backoff = backoffInitial;
@@ -236,6 +245,14 @@ class RobotNotesWsClient {
         }
 
         _current = null;
+        if (_disposed) break;
+        if (!authenticated) {
+          try {
+            await onAuthRejected?.call(credentials.apiKey);
+          } on Object {
+            // Temporary refresh failures follow normal reconnect backoff.
+          }
+        }
         if (_disposed) break;
         _emit(const WsDisconnected());
         offlineSince = _now();

@@ -44,6 +44,23 @@ void main() {
       expect(refreshed.oauthClientId, session.oauthClientId);
     });
 
+    test('malformed response requires a fresh sign-in', () async {
+      final refresher = OidcSessionRefresher(
+        clientFactory: () =>
+            MockClient((_) async => http.Response('not json', 200)),
+      );
+      await expectLater(
+        refresher.refresh(session),
+        throwsA(
+          isA<OidcRefreshException>().having(
+            (error) => error.retryable,
+            'retryable',
+            isFalse,
+          ),
+        ),
+      );
+    });
+
     test('throws when the refresh token is rejected', () async {
       final mock = MockClient(
         (request) async =>
