@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +17,7 @@ class AdaptiveSuperEditor extends StatefulWidget {
     required this.composer,
     required this.focusNode,
     this.readOnly = false,
+    this.onPaste,
     this.inputSource,
     this.componentBuilders,
     this.stylesheet,
@@ -29,6 +32,9 @@ class AdaptiveSuperEditor extends StatefulWidget {
   final MutableDocumentComposer composer;
   final FocusNode focusNode;
   final bool readOnly;
+
+  /// Handles clipboard reads and insertion for editor paste gestures.
+  final Future<void> Function()? onPaste;
   final TextInputSource? inputSource;
   final List<ComponentBuilder>? componentBuilders;
   final Stylesheet? stylesheet;
@@ -42,6 +48,60 @@ class AdaptiveSuperEditor extends StatefulWidget {
 
 class _AdaptiveSuperEditorState extends State<AdaptiveSuperEditor> {
   final _inputRole = Editor.createNodeId();
+  final _fallbackLayoutKey = GlobalKey();
+  late final SuperEditorIosControlsController _iosControls =
+      SuperEditorIosControlsController(
+        toolbarBuilder: (context, key, focalPoint) =>
+            defaultIosEditorToolbarBuilder(
+              context,
+              key,
+              focalPoint,
+              _toolbarOperations,
+              _iosControls,
+            ),
+      );
+  late final SuperEditorAndroidControlsController _androidControls =
+      SuperEditorAndroidControlsController(
+        toolbarBuilder: (context, key, focalPoint) =>
+            defaultAndroidEditorToolbarBuilder(
+              context,
+              key,
+              _toolbarOperations,
+              _androidControls,
+              widget.composer.selectionNotifier,
+              focalPoint,
+            ),
+      );
+
+  GlobalKey get _layoutKey => widget.documentLayoutKey ?? _fallbackLayoutKey;
+
+  CommonEditorOperations get _toolbarOperations => _PasteEditorOperations(
+    document: widget.document,
+    editor: widget.editor,
+    composer: widget.composer,
+    documentLayoutResolver: () => _layoutKey.currentState as DocumentLayout,
+    onPaste: _paste,
+  );
+
+  void _paste() {
+    if (!mounted || widget.readOnly) return;
+    final callback = widget.onPaste;
+    if (callback != null) unawaited(callback());
+  }
+
+  ExecutionInstruction _pasteShortcut({
+    required SuperEditorContext editContext,
+    required KeyEvent keyEvent,
+  }) {
+    if ((keyEvent is! KeyDownEvent && keyEvent is! KeyRepeatEvent) ||
+        !keyEvent.isPrimaryShortcutKeyPressed ||
+        keyEvent.logicalKey != LogicalKeyboardKey.keyV) {
+      return ExecutionInstruction.continueExecution;
+    }
+    _paste();
+    return ExecutionInstruction.haltExecution;
+  }
+
   final _imeValues = _CompleteImeValues();
 
   @override
@@ -76,6 +136,8 @@ class _AdaptiveSuperEditorState extends State<AdaptiveSuperEditor> {
   @override
   void dispose() {
     _unlisten(widget);
+    _iosControls.dispose();
+    _androidControls.dispose();
     super.dispose();
   }
 
@@ -259,7 +321,7 @@ class _AdaptiveSuperEditorState extends State<AdaptiveSuperEditor> {
         ? SuperReader(
             editor: widget.editor,
             focusNode: widget.focusNode,
-            documentLayoutKey: widget.documentLayoutKey,
+            documentLayoutKey: _layoutKey,
             componentBuilders: widget.componentBuilders,
             stylesheet: styles,
             gestureMode: gestureMode,
@@ -269,12 +331,23 @@ class _AdaptiveSuperEditorState extends State<AdaptiveSuperEditor> {
         : SuperEditor(
             editor: widget.editor,
             inputRole: _inputRole,
+            keyboardActions: widget.onPaste == null
+                ? null
+                : [
+                    _pasteShortcut,
+                    ...(widget.inputSource == TextInputSource.keyboard
+                        ? defaultKeyboardActions
+                        : defaultImeKeyboardActions),
+                  ],
+            selectorHandlers: widget.onPaste == null
+                ? null
+                : {...defaultEditorSelectorHandlers, 'paste:': (_) => _paste()},
             imeOverrides: _imeValues,
             imeConfiguration: kIsWeb
                 ? _WebImeConfiguration(keyboardBrightness: theme.brightness)
                 : null,
             focusNode: widget.focusNode,
-            documentLayoutKey: widget.documentLayoutKey,
+            documentLayoutKey: _layoutKey,
             componentBuilders: widget.componentBuilders,
             stylesheet: styles,
             inputSource: widget.inputSource,
@@ -316,7 +389,21 @@ class _AdaptiveSuperEditorState extends State<AdaptiveSuperEditor> {
             _moveCursor(forward: false, extendSelection: extend, byWord: true),
         onSetText: widget.readOnly ? null : _replaceText,
       ),
-      child: SuperEditorThemeBridge(child: editor),
+      child: SuperEditorThemeBridge(
+        child: widget.onPaste == null || widget.readOnly
+            ? editor
+            : switch (gestureMode) {
+                DocumentGestureMode.iOS => SuperEditorIosControlsScope(
+                  controller: _iosControls,
+                  child: editor,
+                ),
+                DocumentGestureMode.android => SuperEditorAndroidControlsScope(
+                  controller: _androidControls,
+                  child: editor,
+                ),
+                DocumentGestureMode.mouse => editor,
+              },
+      ),
     );
   }
 }
@@ -459,4 +546,19 @@ class _WebImeConfiguration extends SuperEditorImeConfiguration {
       super
           .toTextInputConfiguration(viewId: viewId)
           .copyWith(enableDeltaModel: false);
+}
+
+class _PasteEditorOperations extends CommonEditorOperations {
+  _PasteEditorOperations({
+    required super.document,
+    required super.editor,
+    required super.composer,
+    required super.documentLayoutResolver,
+    required this.onPaste,
+  });
+
+  final VoidCallback onPaste;
+
+  @override
+  void paste() => onPaste();
 }

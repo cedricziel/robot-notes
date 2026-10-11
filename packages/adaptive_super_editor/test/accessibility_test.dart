@@ -1,6 +1,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart' as legacy;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -9,6 +10,159 @@ import 'package:super_editor/super_editor.dart';
 import '../lib/src/adaptive_editor.dart';
 
 void main() {
+  var clipboardReads = 0;
+  setUp(() {
+    clipboardReads = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.getData') {
+            clipboardReads++;
+            return {'text': 'Pasted '};
+          }
+          return null;
+        });
+  });
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null);
+  });
+
+  testWidgets('hardware paste keeps the default behavior without a callback', (
+    tester,
+  ) async {
+    final scene = await mount(tester);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(clipboardReads, 1);
+    expect(
+      (scene.document.first as ParagraphNode).text.toPlainText(),
+      'Pasted First',
+    );
+  });
+
+  testWidgets('hardware paste delegates without deleting the selection', (
+    tester,
+  ) async {
+    var pastes = 0;
+    final scene = await mount(
+      tester,
+      onPaste: () async {
+        pastes++;
+      },
+    );
+    scene.editor.execute([
+      const ChangeSelectionRequest(
+        DocumentSelection(
+          base: DocumentPosition(
+            nodeId: 'first',
+            nodePosition: TextNodePosition(offset: 0),
+          ),
+          extent: DocumentPosition(
+            nodeId: 'first',
+            nodePosition: TextNodePosition(offset: 5),
+          ),
+        ),
+        SelectionChangeType.expandSelection,
+        SelectionReason.userInteraction,
+      ),
+    ]);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(pastes, 1);
+    expect(clipboardReads, 0);
+    expect((scene.document.first as ParagraphNode).text.toPlainText(), 'First');
+    expect(scene.composer.selection!.isCollapsed, isFalse);
+  });
+
+  testWidgets('macOS paste selector delegates to the caller', (tester) async {
+    var pastes = 0;
+    final scene = await mount(
+      tester,
+      inputSource: TextInputSource.ime,
+      onPaste: () async {
+        pastes++;
+      },
+    );
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'flutter/textinput',
+      const JSONMethodCodec().encodeMethodCall(
+        const MethodCall('TextInputClient.performSelectors', [
+          -1,
+          ['paste:'],
+        ]),
+      ),
+      (_) {},
+    );
+    await tester.pump();
+    expect(pastes, 1);
+    expect(clipboardReads, 0);
+    expect((scene.document.first as ParagraphNode).text.toPlainText(), 'First');
+  });
+
+  testWidgets('iOS toolbar paste delegates without changing text', (
+    tester,
+  ) async {
+    var pastes = 0;
+    final scene = await mount(
+      tester,
+      platform: TargetPlatform.iOS,
+      onPaste: () async {
+        pastes++;
+      },
+    );
+    final scope = tester
+        .widgetList<SuperEditorIosControlsScope>(
+          find.byType(SuperEditorIosControlsScope),
+        )
+        .first;
+    scope.controller.showToolbar();
+    await tester.pumpAndSettle();
+    tester
+        .widget<IOSTextEditingFloatingToolbar>(
+          find.byType(IOSTextEditingFloatingToolbar),
+        )
+        .onPastePressed!();
+    await tester.pump();
+    expect(pastes, 1);
+    expect(clipboardReads, 0);
+    expect((scene.document.first as ParagraphNode).text.toPlainText(), 'First');
+  });
+
+  testWidgets('Android toolbar paste delegates without changing text', (
+    tester,
+  ) async {
+    var pastes = 0;
+    final scene = await mount(
+      tester,
+      platform: TargetPlatform.android,
+      onPaste: () async {
+        pastes++;
+      },
+    );
+    final scope = tester
+        .widgetList<SuperEditorAndroidControlsScope>(
+          find.byType(SuperEditorAndroidControlsScope),
+        )
+        .first;
+    scope.controller.showToolbar();
+    await tester.pumpAndSettle();
+    tester
+        .widget<AndroidTextEditingFloatingToolbar>(
+          find.byType(AndroidTextEditingFloatingToolbar),
+        )
+        .onPastePressed!();
+    await tester.pump();
+    expect(pastes, 1);
+    expect(clipboardReads, 0);
+    expect((scene.document.first as ParagraphNode).text.toPlainText(), 'First');
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('complete IME values edit text with accessibility enabled', (
     tester,
   ) async {
@@ -323,6 +477,8 @@ mount(
   bool initialSelection = true,
   bool focusEditor = true,
   bool extraTask = false,
+  Future<void> Function()? onPaste,
+  TargetPlatform? platform,
 }) async {
   final text = AttributedText('First')
     ..addAttribution(boldAttribution, const SpanRange(0, 4));
@@ -360,7 +516,11 @@ mount(
   addTearDown(focus.dispose);
   await tester.pumpWidget(
     MaterialApp(
+      localizationsDelegates: const [
+        legacy.DefaultMaterialLocalizations.delegate,
+      ],
       theme: ThemeData.dark().copyWith(
+        platform: platform,
         textTheme: ThemeData.dark().textTheme.copyWith(
           bodyLarge: const TextStyle(fontSize: 23),
         ),
@@ -373,6 +533,7 @@ mount(
           focusNode: focus,
           readOnly: readOnly,
           inputSource: inputSource,
+          onPaste: onPaste,
         ),
       ),
     ),
