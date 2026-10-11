@@ -6,6 +6,8 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/evidence_store.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/rest_principal.dart';
 import 'package:test/test.dart';
 
@@ -16,18 +18,22 @@ class _Context extends Mock implements RequestContext {}
 void main() {
   late Directory directory;
   late EvidenceStore store;
+  late NoteAuthorizationService authorization;
   const payload = '{"session_id":"session","kind":"turn","messages":'
       '[{"role":"tool","content":"complete result"}]}';
   final id = sha256.convert(utf8.encode(payload)).toString();
 
   setUp(() {
+    authorization =
+        NoteAuthorizationService(store: KnowledgePolicyStore.memory());
     directory = Directory.systemTemp.createTempSync('robot-evidence-route-');
     store = EvidenceStore(
       file: File('${directory.path}/evidence.db'),
       clock: FixedClock.fixed(DateTime.utc(2026, 10, 11)),
     );
   });
-  tearDown(() {
+  tearDown(() async {
+    await authorization.store.dispose();
     store.close();
     directory.deleteSync(recursive: true);
   });
@@ -36,7 +42,7 @@ void main() {
     HttpMethod method, {
     Object? body,
     RestPrincipal principal = const RestPrincipal.staticKey(),
-  }) {
+  }) async {
     final context = _Context();
     final request = Request(
       method.name.toUpperCase(),
@@ -46,7 +52,19 @@ void main() {
     when(() => context.request).thenReturn(request);
     when(() => context.read<EvidenceStore>()).thenReturn(store);
     when(() => context.read<RestPrincipal>()).thenReturn(principal);
-    return route.onRequest(context, id);
+    when(() => context.read<NoteAuthorizationService>())
+        .thenReturn(authorization);
+    try {
+      return await withKnowledgePrincipal(
+        principal.knowledgePrincipal,
+        () => route.onRequest(context, id),
+      );
+    } on KnowledgeAccessDeniedException {
+      return Response.json(
+        statusCode: 403,
+        body: {'error': 'knowledge_access_denied'},
+      );
+    }
   }
 
   test('PUT acknowledges stored content and GET returns original metadata',

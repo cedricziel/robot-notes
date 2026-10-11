@@ -119,7 +119,8 @@ Set<String> _requiredScopes(Request request) {
   final path = request.uri.path;
   if (path.startsWith('/knowledge/')) return {'knowledge:policy'};
   if (request.method == HttpMethod.delete &&
-      RegExp(r'^/notes/[^/]+/history$').hasMatch(path)) {
+      (RegExp(r'^/notes/[^/]+/history$').hasMatch(path) ||
+          RegExp(r'^/evidence/[^/]+$').hasMatch(path))) {
     return {'knowledge:purge'};
   }
   if (_isSafeMethod(request.method)) return {'notes:read'};

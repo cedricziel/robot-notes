@@ -4,24 +4,34 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/bounded_body.dart';
 import 'package:server/src/evidence_store.dart';
-import 'package:server/src/rest_principal.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
 
-/// Reads or commits an immutable snapshot. Purge requires the operator key.
+/// Applies collection policy to immutable capture, reads, and explicit purge.
 Future<Response> onRequest(RequestContext context, String id) async {
   final store = context.read<EvidenceStore>();
+  final authorization = context.read<NoteAuthorizationService>();
+  final principal = currentKnowledgePrincipal;
+  final target = KnowledgeTarget.evidenceArchive();
   switch (context.request.method) {
     case HttpMethod.get:
+      authorization.require(principal, KnowledgeAction.read, target);
       final evidence = store.read(id);
       return evidence == null
           ? Response.json(statusCode: 404, body: {'error': 'not_found'})
           : Response.json(body: evidence);
     case HttpMethod.delete:
-      if (context.read<RestPrincipal>().kind != RestAuthKind.staticKey) {
-        return Response.json(statusCode: 403, body: {'error': 'purge_denied'});
-      }
-      store.delete(id);
-      return Response(statusCode: HttpStatus.noContent);
+      return authorization.runMutation(
+        principal,
+        KnowledgeAction.purge,
+        target,
+        () async {
+          store.delete(id);
+          return Response(statusCode: HttpStatus.noContent);
+        },
+      );
     case HttpMethod.put:
+      authorization.require(principal, KnowledgeAction.edit, target);
       final bytes =
           await readBoundedBody(context.request, maxBytes: 16 * 1024 * 1024);
       if (bytes == null) {
@@ -41,11 +51,16 @@ Future<Response> onRequest(RequestContext context, String id) async {
             'payload, retention_days, and lineage are invalid',
           );
         }
-        final evidence = store.put(
-          id,
-          body['payload'] as String,
-          retentionDays: body['retention_days'] as int,
-          lineage: (body['lineage'] as Map<String, dynamic>?) ?? const {},
+        final evidence = await authorization.runMutation(
+          principal,
+          KnowledgeAction.edit,
+          target,
+          () async => store.put(
+            id,
+            body['payload'] as String,
+            retentionDays: body['retention_days'] as int,
+            lineage: (body['lineage'] as Map<String, dynamic>?) ?? const {},
+          ),
         );
         return evidence['payload'] == null
             ? Response.json(statusCode: 410, body: {'error': 'evidence_gone'})
