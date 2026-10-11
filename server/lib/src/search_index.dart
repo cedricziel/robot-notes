@@ -1054,11 +1054,14 @@ class SearchIndex {
     String id,
     String title,
     String content,
-    List<double> embedding,
-  ) {
+    List<double> embedding, {
+    int? rowId,
+  }) {
+    final rowIdFilter = rowId == null ? '' : 'rowid = ? AND ';
     final current = _db.select(
-      'SELECT 1 FROM notes_fts WHERE id = ? AND title = ? AND content = ?;',
-      [id, title, content],
+      'SELECT 1 FROM notes_fts WHERE '
+      '${rowIdFilter}id = ? AND title = ? AND content = ?;',
+      [if (rowId != null) rowId, id, title, content],
     );
     if (current.isEmpty) return;
     _upsertVectorStmt.execute([id, _encodeVector(embedding)]);
@@ -1116,6 +1119,7 @@ class SearchIndex {
             result.note.title,
             result.note.content,
             result.embedding!,
+            rowId: result.note.rowId,
           );
         }
         _db.execute('COMMIT');
@@ -1130,17 +1134,16 @@ class SearchIndex {
     }
   }
 
-  /// `(id, title, content)` for every note present in `notes_fts` but
-  /// absent from `note_vectors`, in one query — [backfillEmbeddings] needs
-  /// all three to compute each note's embedding (see [embeddingInputFor]).
-  List<({String id, String title, String content})> _idsMissingEmbeddings() {
+  List<({int rowId, String id, String title, String content})>
+      _idsMissingEmbeddings() {
     final rows = _db.select(
-      'SELECT id, title, content FROM notes_fts '
+      'SELECT rowid, id, title, content FROM notes_fts '
       'WHERE id NOT IN (SELECT id FROM note_vectors);',
     );
     return [
       for (final row in rows)
         (
+          rowId: row['rowid'] as int,
           id: row['id'] as String,
           title: row['title'] as String,
           content: row['content'] as String,

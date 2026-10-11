@@ -1532,6 +1532,24 @@ void main() {
       });
     }
 
+    test('backfill rejects a deleted note when its rowid is reused', () async {
+      final provider = _ControlledEmbeddingProvider();
+      final index = await seededForEmbed(provider);
+      final pending = index.backfillEmbeddings();
+      index
+        ..delete('n1')
+        ..upsert(
+          id: 'replacement',
+          title: 'A',
+          content: 'alpha beta',
+          updatedAt: _testStamp,
+        );
+      provider.requests.single.complete([1, 0, 0, 0]);
+      await pending;
+
+      expect(index.vectorSearch([1, 0, 0, 0]), isEmpty);
+    });
+
     test('retries transient failures with backoff and stores the vector',
         () async {
       final provider = _FlakyProvider(2);
