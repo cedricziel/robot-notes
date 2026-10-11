@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/tags.dart';
 
@@ -22,7 +23,9 @@ Future<Response> onRequest(RequestContext context) async {
 
   final index = context.read<MetaIndex>();
   final counts = aggregateTagCounts([
-    for (final summary in index.all) summary.tags,
+    for (final summary in index.all)
+      if (context.read<KnowledgeReadService>().canReadSummary(summary))
+        summary.tags,
   ]);
 
   return Response.json(

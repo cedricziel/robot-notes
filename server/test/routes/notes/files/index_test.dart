@@ -4,11 +4,14 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/storage.dart';
 import 'package:server/src/vault_files.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/notes/files/index.dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -25,6 +28,10 @@ RequestContext _ctx({
   Map<String, String> headers = const {},
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri)
@@ -56,7 +63,7 @@ void main() {
   late Storage storage;
   late FileStore fileStore;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
     storage = Storage(contentDir: Directory('${tmp.path}/content'));
     fileStore = FileStore(contentDir: Directory('${tmp.path}/content'));
@@ -67,7 +74,8 @@ void main() {
   });
 
   group('POST /notes/files', () {
-    test('uploads a file to the vault root', () async {
+    knowledge_fixture.authorizedTest('uploads a file to the vault root',
+        () async {
       final formData = FormData(
         fields: {'path': ''},
         files: {
@@ -102,7 +110,8 @@ void main() {
       );
     });
 
-    test('registers the upload so it is immediately listable', () async {
+    knowledge_fixture.authorizedTest(
+        'registers the upload so it is immediately listable', () async {
       final formData = FormData(
         fields: {'path': 'Ideas'},
         files: {
@@ -129,7 +138,8 @@ void main() {
       );
     });
 
-    test('rejects uploads after interrupted history deletion', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects uploads after interrupted history deletion', () async {
       final note = await storage.create(
         title: 'A',
         content: 'retained',
@@ -170,7 +180,8 @@ void main() {
       expect(restored.content, 'retained');
     });
 
-    test('a filename collision returns 409', () async {
+    knowledge_fixture.authorizedTest('a filename collision returns 409',
+        () async {
       await fileStore.write(
         path: 'Ideas',
         filename: 'diagram.png',
@@ -200,7 +211,8 @@ void main() {
       expect(res.statusCode, HttpStatus.conflict);
     });
 
-    test('an oversized upload returns 413', () async {
+    knowledge_fixture.authorizedTest('an oversized upload returns 413',
+        () async {
       final formData = FormData(
         fields: {'path': ''},
         files: {
@@ -231,7 +243,8 @@ void main() {
       expect(res.statusCode, HttpStatus.requestEntityTooLarge);
     });
 
-    test('an invalid path segment returns 400', () async {
+    knowledge_fixture.authorizedTest('an invalid path segment returns 400',
+        () async {
       final formData = FormData(
         fields: {'path': '../etc'},
         files: {
@@ -255,7 +268,8 @@ void main() {
       expect(res.statusCode, HttpStatus.badRequest);
     });
 
-    test('a missing path field returns 400', () async {
+    knowledge_fixture.authorizedTest('a missing path field returns 400',
+        () async {
       final formData = FormData(
         fields: {},
         files: {
@@ -279,7 +293,8 @@ void main() {
       expect(res.statusCode, HttpStatus.badRequest);
     });
 
-    test('a missing file field returns 400', () async {
+    knowledge_fixture.authorizedTest('a missing file field returns 400',
+        () async {
       const formData = FormData(fields: {'path': ''}, files: {});
 
       final res = await route.onRequest(
@@ -294,7 +309,8 @@ void main() {
       expect(res.statusCode, HttpStatus.badRequest);
     });
 
-    test('a non-multipart body returns 400', () async {
+    knowledge_fixture.authorizedTest('a non-multipart body returns 400',
+        () async {
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.post,
@@ -309,7 +325,8 @@ void main() {
   });
 
   group('GET /notes/files', () {
-    test("lists a folder's direct files, excluding subfolders", () async {
+    knowledge_fixture.authorizedTest(
+        "lists a folder's direct files, excluding subfolders", () async {
       await fileStore.write(
         path: 'Ideas',
         filename: 'diagram.png',
@@ -348,7 +365,8 @@ void main() {
       expect(items.every((i) => i['path'] == 'Ideas'), isTrue);
     });
 
-    test('an omitted path lists the vault root', () async {
+    knowledge_fixture.authorizedTest('an omitted path lists the vault root',
+        () async {
       await fileStore.write(
         path: '',
         filename: 'root.txt',
@@ -367,7 +385,7 @@ void main() {
     });
   });
 
-  test('disallowed method returns 405', () async {
+  knowledge_fixture.authorizedTest('disallowed method returns 405', () async {
     final res = await route.onRequest(
       _ctx(method: HttpMethod.delete, storage: storage, fileStore: fileStore),
     );

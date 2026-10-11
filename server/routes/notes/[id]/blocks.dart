@@ -1,6 +1,9 @@
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/frontmatter.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/storage.dart';
 
 /// Inspects current or retained accepted block identity metadata.
@@ -20,6 +23,28 @@ Future<Response> onRequest(RequestContext context, String id) async {
     );
   }
   try {
+    if (version != null) {
+      final reads = context.read<KnowledgeReadService>();
+      final current = await reads.writes.knowledgeTarget(id);
+      final records = await context.read<Storage>().revisions(id);
+      final matching = records.where((record) => record['version'] == version);
+      if (matching.isEmpty) throw NoteNotFoundException(id);
+      final record = matching.single;
+      final path =
+          record['path'] as String? ?? record['previous_path'] as String?;
+      final metadataPath = parseFrontmatter(record['markdown'] as String)
+          .metadata['path'] as String?;
+      final retainedFolder = metadataPath ??
+          (path == null || !path.contains('/')
+              ? ''
+              : path.substring(0, path.lastIndexOf('/')));
+      reads.authorization.requireHistoricalRead(
+        currentKnowledgePrincipal,
+        id,
+        retainedFolder,
+        current.path,
+      );
+    }
     final map =
         await context.read<Storage>().readBlockMap(id, version: version);
     return Response.json(body: {'id': id, ...map.toJson()});

@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/constant_time.dart';
+import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/ws/broadcaster.dart';
@@ -68,6 +69,8 @@ class WsConnection {
     required String restResource,
     AgentCredentialStore? agentCredentials,
     this.vaultId = 'default',
+    this.authorization,
+    this.resolveKnowledgeTarget,
     Duration authTimeout = kDefaultWsAuthTimeout,
     Logger? logger,
     Tracer tracer = const NoopTracer('ws_connection'),
@@ -89,6 +92,15 @@ class WsConnection {
 
   /// Vault selected at the WebSocket upgrade.
   final String vaultId;
+
+  /// Current selected-vault policy for subscriptions and every forwarded event.
+  final NoteAuthorizationService? authorization;
+
+  /// Resolves current notes or their latest deletion tombstones from storage.
+  final Future<KnowledgeTarget> Function(String id)? resolveKnowledgeTarget;
+  KnowledgePrincipal _knowledgePrincipal =
+      const KnowledgePrincipal.unidentified();
+  StreamSubscription<int>? _policySub;
 
   final WsSink _sink;
   final Broadcaster _broadcaster;
@@ -172,7 +184,7 @@ class WsConnection {
           if (!isAuthed) {
             await _handleConnectingMessage(json, raw: data);
           } else {
-            _handleAuthedMessage(json, raw: data);
+            await _handleAuthedMessage(json, raw: data);
           }
         },
         kind: SpanKind.consumer,
@@ -196,6 +208,8 @@ class WsConnection {
     for (final ev in events.values) {
       _broadcaster.emitPresence(ev);
     }
+    await _policySub?.cancel();
+    _policySub = null;
     await _credentialRevocationSub?.cancel();
     _credentialRevocationSub = null;
     await _bcastSub?.cancel();
@@ -230,6 +244,7 @@ class WsConnection {
 
     if (constantTimeEquals(msg.key, _apiKey)) {
       _principalId = 'operator';
+      _knowledgePrincipal = const KnowledgePrincipal.operator();
       _completeAuth(Actor.fromHeader(msg.actor));
       return;
     }
@@ -254,6 +269,11 @@ class WsConnection {
         return;
       }
       _principalId = 'agent:${agent.id}';
+      _knowledgePrincipal = KnowledgePrincipal.agent(
+        credentialId: agent.id,
+        scopes: agent.scopes,
+        vaultIds: agent.vaultIds,
+      );
       _completeAuth(Actor(agent.actor));
       return;
     }
@@ -268,6 +288,11 @@ class WsConnection {
       return;
     }
     _principalId = 'oauth:${record.grantId}';
+    _knowledgePrincipal = KnowledgePrincipal.oauth(
+      grantId: record.grantId,
+      scopes: record.scopes,
+      vaultIds: record.vaultIds,
+    );
     _completeAuth(Actor(record.actor));
   }
 
@@ -283,17 +308,22 @@ class WsConnection {
     _actor = actor;
     _send(const AuthOkMsg());
     _attachBroadcaster();
+    if (_knowledgePrincipal.kind != KnowledgePrincipalKind.operator) {
+      _policySub = authorization?.store.changes.listen(
+        (_) => _close(kClosePolicyViolation, 'knowledge_policy_changed'),
+      );
+    }
     _log.fine('auth_ok for $id as ${actor.name}');
   }
 
-  void _handleAuthedMessage(
+  Future<void> _handleAuthedMessage(
     Map<String, dynamic> json, {
     required String raw,
-  }) {
+  }) async {
     final type = json['type'];
     switch (type) {
       case 'subscribe':
-        _handleSubscribe(SubscribeMsg.fromJson(json));
+        await _handleSubscribe(SubscribeMsg.fromJson(json));
       case 'unsubscribe':
         _handleUnsubscribe(UnsubscribeMsg.fromJson(json));
       case 'ping':
@@ -307,12 +337,22 @@ class WsConnection {
     }
   }
 
-  void _handleSubscribe(SubscribeMsg msg) {
+  Future<void> _handleSubscribe(SubscribeMsg msg) async {
     final actor = _actor!;
     if (msg.noteId == '*') {
       _broadcaster.subscribeWildcard(id);
       return;
     }
+    if (_knowledgePrincipal.kind != KnowledgePrincipalKind.operator &&
+        !await _canRead(msg.noteId)) {
+      if (!_closed) {
+        _sink.send(
+          jsonEncode({'type': 'error', 'code': 'knowledge_access_denied'}),
+        );
+      }
+      return;
+    }
+    if (_closed) return;
     _broadcaster.subscribe(id, msg.noteId);
     final ev = _presence.add(id, actor.name, msg.noteId);
     if (ev != null) _broadcaster.emitPresence(ev);
@@ -330,8 +370,11 @@ class WsConnection {
 
   void _attachBroadcaster() {
     final stream = _broadcaster.register(id);
-    _bcastSub = stream.listen(
-      _forward,
+    _bcastSub = stream.asyncMap((message) async {
+      await _forward(message);
+      return message;
+    }).listen(
+      (_) {},
       onDone: () {
         // Broadcaster closed our stream — this means we were dropped or
         // the server is shutting down. Close the socket if we haven't
@@ -341,8 +384,32 @@ class WsConnection {
     );
   }
 
-  void _forward(WsMessage msg) {
+  Future<bool> _canRead(String id) async {
+    if (_knowledgePrincipal.kind == KnowledgePrincipalKind.operator) {
+      return true;
+    }
+    final resolver = resolveKnowledgeTarget;
+    final guard = authorization;
+    if (resolver == null || guard == null) return false;
+    try {
+      return guard.allows(
+        _knowledgePrincipal,
+        KnowledgeAction.read,
+        await resolver(id),
+      );
+    } on Object {
+      return false;
+    }
+  }
+
+  Future<void> _forward(WsMessage msg) async {
     if (_closed) return;
+    if (_knowledgePrincipal.kind == KnowledgePrincipalKind.operator) {
+      _sink.send(jsonEncode(msg.toJson()));
+      return;
+    }
+    final noteId = msg.toJson()['note_id'];
+    if (noteId is! String || !await _canRead(noteId) || _closed) return;
     _sink.send(jsonEncode(msg.toJson()));
   }
 
@@ -367,6 +434,8 @@ class WsConnection {
     for (final ev in events.values) {
       _broadcaster.emitPresence(ev);
     }
+    unawaited(_policySub?.cancel());
+    _policySub = null;
     unawaited(_credentialRevocationSub?.cancel());
     _credentialRevocationSub = null;
     unawaited(_bcastSub?.cancel());

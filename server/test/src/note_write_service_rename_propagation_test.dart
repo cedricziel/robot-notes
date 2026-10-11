@@ -13,6 +13,8 @@ import 'package:server/src/ws/broadcaster.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
+import '../knowledge_test_context.dart' as knowledge_fixture;
+
 class _CapturingBroadcaster implements Broadcaster {
   final List<ChangedEvent> changed = [];
 
@@ -85,7 +87,7 @@ Future<
 void main() {
   late Directory tmp;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
   });
 
@@ -94,12 +96,14 @@ void main() {
   });
 
   group('rename propagation', () {
-    test('rewrites [[OldTitle]] in every referencing note on rename', () async {
+    knowledge_fixture.authorizedTest(
+        'rewrites [[OldTitle]] in every referencing note on rename', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       addTearDown(s.locks.close);
       final bc = _CapturingBroadcaster();
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -128,11 +132,13 @@ void main() {
       expect(rewritten.version, 2);
     });
 
-    test('preserves the alias when rewriting an aliased link', () async {
+    knowledge_fixture.authorizedTest(
+        'preserves the alias when rewriting an aliased link', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       addTearDown(s.locks.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -160,11 +166,13 @@ void main() {
       expect(rewritten.content, 'see [[New Name|the plan]]');
     });
 
-    test('does not touch an incidental plain-text mention', () async {
+    knowledge_fixture.authorizedTest(
+        'does not touch an incidental plain-text mention', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       addTearDown(s.locks.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -193,12 +201,13 @@ void main() {
       expect(untouched.version, 1);
     });
 
-    test('a content-only update (no title change) does not propagate',
-        () async {
+    knowledge_fixture.authorizedTest(
+        'a content-only update (no title change) does not propagate', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       addTearDown(s.locks.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -227,13 +236,14 @@ void main() {
       expect(untouched.content, 'refers to [[Fixed Name]]');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'skips a referencing note locked by a different actor, with a '
         'warning naming the note id and holder', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       addTearDown(s.locks.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -256,6 +266,7 @@ void main() {
       final sub = logger.onRecord.listen(records.add);
       addTearDown(sub.cancel);
       final loggedSvc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -282,12 +293,14 @@ void main() {
       expect(message, contains('bob'));
     });
 
-    test('a referencing note locked by the renaming actor IS rewritten',
+    knowledge_fixture.authorizedTest(
+        'a referencing note locked by the renaming actor IS rewritten',
         () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       addTearDown(s.locks.close);
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -316,7 +329,7 @@ void main() {
       expect(rewritten.content, 'refers to [[New Name]]');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'each propagated rewrite broadcasts its own changed/updated event '
         'attributed to the renaming actor', () async {
       final s = await _stack(tmp);
@@ -324,6 +337,7 @@ void main() {
       addTearDown(s.locks.close);
       final bc = _CapturingBroadcaster();
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,
@@ -365,12 +379,14 @@ void main() {
       }
     });
 
-    test('renaming to a title nobody links to does nothing extra', () async {
+    knowledge_fixture.authorizedTest(
+        'renaming to a title nobody links to does nothing extra', () async {
       final s = await _stack(tmp);
       addTearDown(s.search.close);
       addTearDown(s.locks.close);
       final bc = _CapturingBroadcaster();
       final svc = NoteWriteService(
+        authorization: knowledge_fixture.fixtureAuthorization,
         storage: s.storage,
         metaIndex: s.meta,
         searchIndex: s.search,

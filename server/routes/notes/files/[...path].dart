@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mime/mime.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/note_path.dart';
 import 'package:server/src/storage.dart';
 
@@ -38,6 +39,7 @@ Future<Response> onRequest(RequestContext context, String path) async {
   final storage = context.read<Storage>();
   await storage.prepareHistory();
   final relFile = segments.join('/');
+  await context.read<KnowledgeReadService>().requireFile(relFile);
   final file = File('${storage.contentDir.path}/$relFile');
   if (!file.existsSync()) {
     return Response.json(

@@ -14,6 +14,8 @@ const _alwaysApiPrefixes = <String>{
   '/vaults',
   Routes.invites,
   '/credentials',
+  '/knowledge',
+  '/memory',
   Routes.mcp,
   Routes.tags,
   '/oauth',

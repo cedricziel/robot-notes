@@ -1,6 +1,9 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/evidence_store.dart';
+import 'package:server/src/knowledge_http.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
@@ -22,6 +25,10 @@ Middleware vaultSelection(VaultRegistry vaults) =>
               path.startsWith('/notes/') ||
               path == '/evidence' ||
               path.startsWith('/evidence/') ||
+              path == '/knowledge' ||
+              path.startsWith('/knowledge/') ||
+              path == '/memory' ||
+              path.startsWith('/memory/') ||
               path == '/search' ||
               path == '/tags' ||
               path == '/ws' ||
@@ -48,8 +55,13 @@ Middleware vaultSelection(VaultRegistry vaults) =>
             );
           }
           final deps = await vaults.open(id);
+          deps.bindCredentialAuthority(vaults.root);
+          await guardKnowledgeRequest(context, deps);
           return handler(
             context
+                .provide<KnowledgeReadService>(() => deps.knowledgeReads)
+                .provide<NoteAuthorizationService>(() => deps.authorization)
+                .provide<KnowledgePolicyStore>(() => deps.authorization.store)
                 .provide<Storage>(() => deps.storage)
                 .provide<EvidenceStore>(() => deps.evidenceStore)
                 .provide<MetaIndex>(() => deps.metaIndex)

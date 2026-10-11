@@ -3,12 +3,53 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/lock_manager.dart';
+import 'package:server/src/storage.dart';
 
 /// `POST /notes/{id}/lock`   — acquire (or refresh) the soft editor lock.
 /// `PUT  /notes/{id}/lock`   — heartbeat an existing lock to extend its TTL.
 /// `DELETE /notes/{id}/lock` — release the lock (idempotent for the holder).
 Future<Response> onRequest(RequestContext context, String id) async {
+  final method = context.request.method;
+  if (method != HttpMethod.post &&
+      method != HttpMethod.put &&
+      method != HttpMethod.delete) {
+    return Response.json(
+      statusCode: 405,
+      body: {'error': 'method_not_allowed'},
+    );
+  }
+  final reads = context.read<KnowledgeReadService>();
+  final authorization = reads.authorization;
+  try {
+    return await authorization.store.withMutationLock(() async {
+      final target = await reads.resolveTarget(id);
+      authorization.require(
+        currentKnowledgePrincipal,
+        KnowledgeAction.read,
+        target,
+      );
+      return authorization.runMutation(
+        currentKnowledgePrincipal,
+        KnowledgeAction.edit,
+        target,
+        () => _handle(context, id),
+      );
+    });
+  } on KnowledgeAccessDeniedException {
+    return Response.json(
+      statusCode: 403,
+      body: {'error': 'knowledge_access_denied'},
+    );
+  } on NoteNotFoundException {
+    return Response.json(statusCode: 404, body: {'error': 'not_found'});
+  }
+}
+
+Future<Response> _handle(RequestContext context, String id) async {
   switch (context.request.method) {
     case HttpMethod.post:
       return _acquire(context, id);

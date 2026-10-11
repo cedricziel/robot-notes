@@ -3,11 +3,14 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/notes/tree.dart' as route;
+import '../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -21,6 +24,10 @@ RequestContext _ctx({
   bool malformedJson = false,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   if (malformedJson) {
@@ -40,7 +47,7 @@ Directory _tempDir() =>
 void main() {
   late Directory tmp;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
   });
 
@@ -48,7 +55,8 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  test('lists folders that directly contain notes, with counts', () async {
+  knowledge_fixture.authorizedTest(
+      'lists folders that directly contain notes, with counts', () async {
     final storage = Storage(
       contentDir: Directory('${tmp.path}/content'),
       clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
@@ -72,7 +80,8 @@ void main() {
     ]);
   });
 
-  test('an intermediate folder with no direct notes is not listed', () async {
+  knowledge_fixture.authorizedTest(
+      'an intermediate folder with no direct notes is not listed', () async {
     final storage = Storage(
       contentDir: Directory('${tmp.path}/content'),
       clock: FixedClock.fixed(DateTime.utc(2026, 4, 25, 10)),
@@ -92,7 +101,8 @@ void main() {
     expect(paths, ['Projects/Alpha']);
   });
 
-  test('empty vault returns an empty folder list', () async {
+  knowledge_fixture.authorizedTest('empty vault returns an empty folder list',
+      () async {
     final storage = Storage(contentDir: Directory('${tmp.path}/content'));
     final res = await route.onRequest(
       _ctx(method: HttpMethod.get, metaIndex: MetaIndex(), storage: storage),
@@ -101,7 +111,8 @@ void main() {
     expect(body['folders'], isEmpty);
   });
 
-  test('lists an explicitly created empty folder with a zero count', () async {
+  knowledge_fixture.authorizedTest(
+      'lists an explicitly created empty folder with a zero count', () async {
     final storage = Storage(contentDir: Directory('${tmp.path}/content'));
     await storage.createFolder('Ideas');
     final index = MetaIndex();
@@ -116,7 +127,8 @@ void main() {
     ]);
   });
 
-  test('a folder holding only a file appears with a file_count', () async {
+  knowledge_fixture.authorizedTest(
+      'a folder holding only a file appears with a file_count', () async {
     final storage = Storage(contentDir: Directory('${tmp.path}/content'));
     Directory('${tmp.path}/content/Attachments').createSync(recursive: true);
     File(
@@ -134,7 +146,7 @@ void main() {
     ]);
   });
 
-  test(
+  knowledge_fixture.authorizedTest(
     'a folder with a note, a marker, and a file reports both counts',
     () async {
       final storage = Storage(
@@ -159,7 +171,7 @@ void main() {
     },
   );
 
-  test('disallowed method returns 405', () async {
+  knowledge_fixture.authorizedTest('disallowed method returns 405', () async {
     final res = await route.onRequest(
       _ctx(method: HttpMethod.delete, metaIndex: MetaIndex()),
     );
@@ -167,7 +179,8 @@ void main() {
   });
 
   group('POST /notes/tree', () {
-    test('creates a new empty folder and returns 201', () async {
+    knowledge_fixture
+        .authorizedTest('creates a new empty folder and returns 201', () async {
       final storage = Storage(contentDir: Directory('${tmp.path}/content'));
       final index = MetaIndex();
       await index.scan(storage);
@@ -190,7 +203,8 @@ void main() {
       );
     });
 
-    test('a subsequent GET lists the newly created folder', () async {
+    knowledge_fixture.authorizedTest(
+        'a subsequent GET lists the newly created folder', () async {
       final storage = Storage(contentDir: Directory('${tmp.path}/content'));
       final index = MetaIndex();
       await index.scan(storage);
@@ -212,7 +226,8 @@ void main() {
       ]);
     });
 
-    test('creates missing intermediate folders for a nested path', () async {
+    knowledge_fixture.authorizedTest(
+        'creates missing intermediate folders for a nested path', () async {
       final storage = Storage(contentDir: Directory('${tmp.path}/content'));
       final index = MetaIndex();
       await index.scan(storage);
@@ -231,7 +246,7 @@ void main() {
       expect(body, {'path': 'Projects/Gamma/Sub', 'note_count': 0});
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'a path that already has notes returns 200 with its count and no '
         'marker', () async {
       final storage = Storage(
@@ -263,7 +278,7 @@ void main() {
       );
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         're-posting to a note-backed folder does not make it linger after '
         'its notes are removed', () async {
       final storage = Storage(
@@ -301,7 +316,7 @@ void main() {
       expect(body['folders'], isEmpty);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'a path that already has a marker-only folder returns 200, no '
         'duplicate marker or error', () async {
       final storage = Storage(contentDir: Directory('${tmp.path}/content'));
@@ -323,8 +338,8 @@ void main() {
       expect(body, {'path': 'Ideas', 'note_count': 0});
     });
 
-    test('a case-only-different path resolves to the existing folder',
-        () async {
+    knowledge_fixture.authorizedTest(
+        'a case-only-different path resolves to the existing folder', () async {
       final storage = Storage(contentDir: Directory('${tmp.path}/content'));
       await storage.createFolder('Ideas');
       final index = MetaIndex();
@@ -344,7 +359,8 @@ void main() {
       expect(body, {'path': 'Ideas', 'note_count': 0});
     });
 
-    test('an empty path is rejected with 400', () async {
+    knowledge_fixture.authorizedTest('an empty path is rejected with 400',
+        () async {
       final storage = Storage(contentDir: Directory('${tmp.path}/content'));
       final index = MetaIndex();
       await index.scan(storage);
@@ -361,7 +377,8 @@ void main() {
       expect(res.statusCode, HttpStatus.badRequest);
     });
 
-    test('a malformed JSON body is rejected with 400', () async {
+    knowledge_fixture
+        .authorizedTest('a malformed JSON body is rejected with 400', () async {
       final storage = Storage(contentDir: Directory('${tmp.path}/content'));
       final index = MetaIndex();
 
@@ -377,7 +394,8 @@ void main() {
       expect(res.statusCode, HttpStatus.badRequest);
     });
 
-    test('an invalid path segment is rejected with 400', () async {
+    knowledge_fixture.authorizedTest(
+        'an invalid path segment is rejected with 400', () async {
       final storage = Storage(contentDir: Directory('${tmp.path}/content'));
       final index = MetaIndex();
 

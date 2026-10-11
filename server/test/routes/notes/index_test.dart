@@ -4,6 +4,8 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
@@ -13,6 +15,7 @@ import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/notes/index.dart' as route;
+import '../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -29,6 +32,10 @@ RequestContext _ctx({
   Object? body,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(uri ?? Uri.parse('/notes'));
@@ -67,6 +74,7 @@ Future<NoteWriteService> _writeService(
   );
   addTearDown(search.close);
   return NoteWriteService(
+    authorization: knowledge_fixture.fixtureAuthorization,
     storage: storage,
     metaIndex: metaIndex,
     searchIndex: search,
@@ -92,7 +100,7 @@ Storage _storage(Directory tmp, {int counter = 0}) {
 void main() {
   late Directory tmp;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
   });
 
@@ -101,7 +109,8 @@ void main() {
   });
 
   group('GET /notes', () {
-    test('returns paginated metadata with default limit 50', () async {
+    knowledge_fixture.authorizedTest(
+        'returns paginated metadata with default limit 50', () async {
       final storage = _storage(tmp);
       for (var i = 0; i < 3; i++) {
         await storage.create(title: 'note-$i', content: 'body-$i');
@@ -120,7 +129,8 @@ void main() {
       expect(body['next_cursor'], isNull);
     });
 
-    test('list items omit the content field', () async {
+    knowledge_fixture.authorizedTest('list items omit the content field',
+        () async {
       final storage = _storage(tmp);
       await storage.create(title: 'with-body', content: 'should not leak');
       final index = MetaIndex();
@@ -136,7 +146,8 @@ void main() {
       expect(first['title'], 'with-body');
     });
 
-    test('list items include a computed excerpt and sorted tags', () async {
+    knowledge_fixture.authorizedTest(
+        'list items include a computed excerpt and sorted tags', () async {
       final storage = _storage(tmp);
       await storage.create(
         title: 'with-tags',
@@ -155,7 +166,8 @@ void main() {
       expect(first['tags'], ['apple', 'zebra']);
     });
 
-    test('clamps limit to kMaxPageSize when caller asks for more', () async {
+    knowledge_fixture.authorizedTest(
+        'clamps limit to kMaxPageSize when caller asks for more', () async {
       final storage = _storage(tmp);
       for (var i = 0; i < 5; i++) {
         await storage.create(title: 'n-$i', content: '');
@@ -177,7 +189,8 @@ void main() {
       expect(body['limit'], kMaxPageSize);
     });
 
-    test('honors limit=200 verbatim (boundary value)', () async {
+    knowledge_fixture
+        .authorizedTest('honors limit=200 verbatim (boundary value)', () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final res = await route.onRequest(
@@ -192,8 +205,8 @@ void main() {
       expect(body['limit'], 200);
     });
 
-    test('cursor pagination walks the full index then ends with null',
-        () async {
+    knowledge_fixture.authorizedTest(
+        'cursor pagination walks the full index then ends with null', () async {
       final storage = _storage(tmp);
       for (var i = 0; i < 3; i++) {
         await storage.create(title: 't$i', content: '');
@@ -228,7 +241,8 @@ void main() {
       expect(body2['next_cursor'], isNull);
     });
 
-    test('limit=0 returns 400 bad_request', () async {
+    knowledge_fixture.authorizedTest('limit=0 returns 400 bad_request',
+        () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final res = await route.onRequest(
@@ -244,7 +258,8 @@ void main() {
       expect(body['error'], 'bad_request');
     });
 
-    test('sort=updated_desc returns newest-updated notes first', () async {
+    knowledge_fixture.authorizedTest(
+        'sort=updated_desc returns newest-updated notes first', () async {
       final contentDir = Directory('${tmp.path}/content');
       final early = Storage(
         contentDir: contentDir,
@@ -280,7 +295,8 @@ void main() {
       expect(ids.indexOf(b.id), lessThan(ids.indexOf(a.id)));
     });
 
-    test('sort=updated_desc paginates with an opaque cursor', () async {
+    knowledge_fixture.authorizedTest(
+        'sort=updated_desc paginates with an opaque cursor', () async {
       final storage = _storage(tmp);
       for (var i = 0; i < 3; i++) {
         await storage.create(title: 't$i', content: '');
@@ -315,7 +331,8 @@ void main() {
       expect(body2['next_cursor'], isNull);
     });
 
-    test('unknown sort value returns 400 bad_request', () async {
+    knowledge_fixture
+        .authorizedTest('unknown sort value returns 400 bad_request', () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final res = await route.onRequest(
@@ -331,7 +348,8 @@ void main() {
       expect(body['error'], 'bad_request');
     });
 
-    test('malformed cursor for sort=updated_desc returns 400 bad_request',
+    knowledge_fixture.authorizedTest(
+        'malformed cursor for sort=updated_desc returns 400 bad_request',
         () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
@@ -348,7 +366,8 @@ void main() {
       expect(body['error'], 'bad_request');
     });
 
-    test('path filter returns only notes under that folder', () async {
+    knowledge_fixture.authorizedTest(
+        'path filter returns only notes under that folder', () async {
       final storage = _storage(tmp);
       await storage.create(title: 'A', content: '', path: 'Projects/Alpha');
       await storage.create(title: 'B', content: '', path: 'Projects/Beta');
@@ -372,7 +391,8 @@ void main() {
       expect((items.single as Map)['path'], 'Projects/Alpha');
     });
 
-    test('path filter composes with sort=updated_desc', () async {
+    knowledge_fixture.authorizedTest(
+        'path filter composes with sort=updated_desc', () async {
       final contentDir = Directory('${tmp.path}/content');
       final early = Storage(
         contentDir: contentDir,
@@ -419,7 +439,8 @@ void main() {
       expect(ids, hasLength(2));
     });
 
-    test('tag filter returns only notes carrying that tag', () async {
+    knowledge_fixture.authorizedTest(
+        'tag filter returns only notes carrying that tag', () async {
       final storage = _storage(tmp);
       await storage.create(title: 'A', content: '#urgent');
       await storage.create(title: 'B', content: '#urgent');
@@ -442,7 +463,8 @@ void main() {
       expect(items.map((e) => e['title']), containsAll(['A', 'B']));
     });
 
-    test('tag filter composes with path filter', () async {
+    knowledge_fixture.authorizedTest('tag filter composes with path filter',
+        () async {
       final storage = _storage(tmp);
       await storage.create(
         title: 'A',
@@ -468,7 +490,8 @@ void main() {
       expect(items.single['title'], 'A');
     });
 
-    test('title filter returns only the note with that exact title', () async {
+    knowledge_fixture.authorizedTest(
+        'title filter returns only the note with that exact title', () async {
       final storage = _storage(tmp);
       await storage.create(title: 'Project Alpha', content: '');
       await storage.create(title: 'Project Beta', content: '');
@@ -490,7 +513,8 @@ void main() {
       expect(items.single['title'], 'Project Alpha');
     });
 
-    test('title filter is case- and NFC-insensitive', () async {
+    knowledge_fixture
+        .authorizedTest('title filter is case- and NFC-insensitive', () async {
       final storage = _storage(tmp);
       // 'é' composed (single codepoint) stored on disk.
       await storage.create(
@@ -519,8 +543,8 @@ void main() {
       expect(items, hasLength(1));
     });
 
-    test('title filter returning no match yields an empty items list',
-        () async {
+    knowledge_fixture.authorizedTest(
+        'title filter returning no match yields an empty items list', () async {
       final storage = _storage(tmp);
       await storage.create(title: 'Project Alpha', content: '');
       final index = MetaIndex();
@@ -539,7 +563,8 @@ void main() {
       expect(body['items'], isEmpty);
     });
 
-    test('title filter composes with path filter', () async {
+    knowledge_fixture.authorizedTest('title filter composes with path filter',
+        () async {
       final storage = _storage(tmp);
       await storage.create(
         title: 'Notes',
@@ -565,7 +590,8 @@ void main() {
       expect(items.single['path'], 'Projects/Alpha');
     });
 
-    test('title filter composes with pagination', () async {
+    knowledge_fixture.authorizedTest('title filter composes with pagination',
+        () async {
       final storage = _storage(tmp);
       await storage.create(title: 'Dup', content: '', path: 'A');
       await storage.create(title: 'Dup', content: '', path: 'B');
@@ -590,7 +616,8 @@ void main() {
   });
 
   group('POST /notes', () {
-    test('returns 201 with full record at version 1', () async {
+    knowledge_fixture
+        .authorizedTest('returns 201 with full record at version 1', () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final writes = await _writeService(tmp, storage, index);
@@ -615,7 +642,8 @@ void main() {
       expect(index.length, 1);
     });
 
-    test('properties are written to frontmatter', () async {
+    knowledge_fixture.authorizedTest('properties are written to frontmatter',
+        () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final writes = await _writeService(tmp, storage, index);
@@ -639,7 +667,8 @@ void main() {
       expect(onDisk.extra['status'], 'Idea');
     });
 
-    test('reserved property key is rejected', () async {
+    knowledge_fixture.authorizedTest('reserved property key is rejected',
+        () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final writes = await _writeService(tmp, storage, index);
@@ -661,8 +690,8 @@ void main() {
       expect(body['error'], 'validation_failed');
     });
 
-    test('persists into the meta index so the next list sees the row',
-        () async {
+    knowledge_fixture.authorizedTest(
+        'persists into the meta index so the next list sees the row', () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final writes = await _writeService(tmp, storage, index);
@@ -684,7 +713,8 @@ void main() {
       expect((items.first as Map)['title'], 'new');
     });
 
-    test('missing title returns 400 bad_request', () async {
+    knowledge_fixture.authorizedTest('missing title returns 400 bad_request',
+        () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final res = await route.onRequest(
@@ -700,7 +730,8 @@ void main() {
       expect(body['error'], 'bad_request');
     });
 
-    test('empty title returns 400 bad_request', () async {
+    knowledge_fixture.authorizedTest('empty title returns 400 bad_request',
+        () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final res = await route.onRequest(
@@ -714,7 +745,8 @@ void main() {
       expect(res.statusCode, HttpStatus.badRequest);
     });
 
-    test('non-object body returns 400 bad_request', () async {
+    knowledge_fixture.authorizedTest('non-object body returns 400 bad_request',
+        () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final res = await route.onRequest(
@@ -728,7 +760,8 @@ void main() {
       expect(res.statusCode, HttpStatus.badRequest);
     });
 
-    test('non-string content returns 400 bad_request', () async {
+    knowledge_fixture
+        .authorizedTest('non-string content returns 400 bad_request', () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final res = await route.onRequest(
@@ -742,7 +775,8 @@ void main() {
       expect(res.statusCode, HttpStatus.badRequest);
     });
 
-    test('creates the note under the given path', () async {
+    knowledge_fixture.authorizedTest('creates the note under the given path',
+        () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final writes = await _writeService(tmp, storage, index);
@@ -760,7 +794,8 @@ void main() {
       expect(body['path'], 'Projects/Alpha');
     });
 
-    test('colliding title returns 409 path_conflict', () async {
+    knowledge_fixture
+        .authorizedTest('colliding title returns 409 path_conflict', () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final writes = await _writeService(tmp, storage, index);
@@ -787,7 +822,8 @@ void main() {
       expect(body['error'], 'path_conflict');
     });
 
-    test('a path-traversal attempt is rejected, not written to disk', () async {
+    knowledge_fixture.authorizedTest(
+        'a path-traversal attempt is rejected, not written to disk', () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final writes = await _writeService(tmp, storage, index);
@@ -815,7 +851,8 @@ void main() {
   });
 
   group('disallowed methods', () {
-    test('PUT /notes returns 405 method_not_allowed', () async {
+    knowledge_fixture
+        .authorizedTest('PUT /notes returns 405 method_not_allowed', () async {
       final storage = _storage(tmp);
       final index = MetaIndex();
       final res = await route.onRequest(
@@ -828,7 +865,8 @@ void main() {
   });
 
   group('changed event', () {
-    test('successful POST emits a changed:created event without content',
+    knowledge_fixture.authorizedTest(
+        'successful POST emits a changed:created event without content',
         () async {
       final storage = _storage(tmp);
       final index = MetaIndex();

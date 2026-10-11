@@ -4,6 +4,8 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
@@ -14,6 +16,7 @@ import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/notes/[id]/properties.dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -66,6 +69,10 @@ RequestContext _ctx({
   Object? body,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/notes/x/properties'));
@@ -98,7 +105,7 @@ void main() {
   late _CapturingBroadcaster broadcaster;
   late NoteWriteService writes;
 
-  setUp(() async {
+  knowledge_fixture.authorizedSetUp(() async {
     tmp = _tempDir();
     storage = Storage(
       contentDir: Directory('${tmp.path}/content'),
@@ -115,6 +122,7 @@ void main() {
     );
     addTearDown(search.close);
     writes = NoteWriteService(
+      authorization: knowledge_fixture.fixtureAuthorization,
       storage: storage,
       metaIndex: meta,
       searchIndex: search,
@@ -128,7 +136,8 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  test('returns 200 with the updated note', () async {
+  knowledge_fixture.authorizedTest('returns 200 with the updated note',
+      () async {
     final note = await storage.create(
       title: 't',
       content: 'Hello',
@@ -155,7 +164,8 @@ void main() {
     expect(body['version'], 2);
   });
 
-  test('empty patch returns 400 validation_failed', () async {
+  knowledge_fixture.authorizedTest('empty patch returns 400 validation_failed',
+      () async {
     final note = await storage.create(title: 't', content: 'c');
     meta.upsert(note.toSummary());
 
@@ -169,7 +179,8 @@ void main() {
     expect(body['error'], 'validation_failed');
   });
 
-  test('reserved key returns 400 validation_failed', () async {
+  knowledge_fixture.authorizedTest('reserved key returns 400 validation_failed',
+      () async {
     final note = await storage.create(title: 't', content: 'c');
     meta.upsert(note.toSummary());
 
@@ -189,7 +200,8 @@ void main() {
     expect(body['error'], 'validation_failed');
   });
 
-  test('unknown id returns 404 not_found', () async {
+  knowledge_fixture.authorizedTest('unknown id returns 404 not_found',
+      () async {
     final res = await route.onRequest(
       _ctx(
         method: HttpMethod.patch,
@@ -206,7 +218,7 @@ void main() {
     expect(body['error'], 'not_found');
   });
 
-  test('needs no If-Match header', () async {
+  knowledge_fixture.authorizedTest('needs no If-Match header', () async {
     final note = await storage.create(title: 't', content: 'c');
     meta.upsert(note.toSummary());
 
@@ -224,7 +236,8 @@ void main() {
     expect(res.statusCode, HttpStatus.ok);
   });
 
-  test("ignores another actor's editor lock", () async {
+  knowledge_fixture.authorizedTest("ignores another actor's editor lock",
+      () async {
     final note = await storage.create(title: 't', content: 'c');
     meta.upsert(note.toSummary());
     await lockManager.acquire(noteId: note.id, actor: 'alice');
@@ -243,7 +256,8 @@ void main() {
     expect(res.statusCode, HttpStatus.ok);
   });
 
-  test('broadcasts a changed:updated event', () async {
+  knowledge_fixture.authorizedTest('broadcasts a changed:updated event',
+      () async {
     final note = await storage.create(title: 't', content: 'c');
     meta.upsert(note.toSummary());
 

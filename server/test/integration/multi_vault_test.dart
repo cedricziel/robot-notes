@@ -134,7 +134,11 @@ void main() {
       'create_note',
       {'vault_id': allowed, 'title': 'Write only', 'content': ''},
     );
-    expect(created['isError'], isNot(true));
+    expect(created['isError'], isTrue);
+    expect(
+      (created['structuredContent'] as Map<String, dynamic>)['error'],
+      'knowledge_access_denied',
+    );
   });
 
   test('MCP consent and refresh retain exact vault selection', () async {

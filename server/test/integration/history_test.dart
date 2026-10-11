@@ -3,13 +3,14 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
+import '../knowledge_test_context.dart' as knowledge_fixture;
 import '_oauth_test_helpers.dart';
 import '_test_app.dart';
 
 void main() {
   late TestApp app;
   late String id;
-  setUp(() async {
+  knowledge_fixture.authorizedSetUp(() async {
     app = await TestApp.start();
     final note = await app.deps.noteWriteService.create(
       title: 'Historical note',
@@ -28,7 +29,8 @@ void main() {
   });
   tearDown(() => app.close());
 
-  test('restore updates accepted search and purge removes retained revisions',
+  knowledge_fixture.authorizedTest(
+      'restore updates accepted search and purge removes retained revisions',
       () async {
     final response = await http.post(
       Uri.parse('${app.baseUrl}/notes/$id/history'),
@@ -50,7 +52,8 @@ void main() {
     expect(await app.deps.storage.revisions(id), isEmpty);
   });
 
-  test('history requires authentication and authorized vault', () async {
+  knowledge_fixture.authorizedTest(
+      'history requires authentication and authorized vault', () async {
     final anonymous =
         await http.get(Uri.parse('${app.baseUrl}/notes/$id/history'));
     expect(anonymous.statusCode, 401);
@@ -82,7 +85,8 @@ void main() {
     expect(restore.statusCode, 403);
   });
 
-  test('ordinary writer cannot permanently purge history', () async {
+  knowledge_fixture.authorizedTest(
+      'ordinary writer cannot permanently purge history', () async {
     final grant = await completeOAuthFlow(
       baseUrl: app.baseUrl,
       apiKey: app.config.apiKey,
@@ -96,7 +100,8 @@ void main() {
     expect(response.statusCode, 403);
     expect((await app.deps.storage.revisions(id)).length, 2);
   });
-  test('deleted restore conflict reports latest tombstone version', () async {
+  knowledge_fixture.authorizedTest(
+      'deleted restore conflict reports latest tombstone version', () async {
     await app.deps.noteWriteService.delete(id: id, actor: 'tester');
     final response = await http.post(
       Uri.parse('${app.baseUrl}/notes/$id/history'),

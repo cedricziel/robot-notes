@@ -10,6 +10,8 @@ import 'package:server/src/databases/registry.dart';
 import 'package:server/src/embeddings/embedding_provider_factory.dart';
 import 'package:server/src/evidence_store.dart';
 import 'package:server/src/invite_store.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/legacy_migration.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
@@ -63,6 +65,8 @@ class AppDeps {
     required Clock clock,
     AgentCredentialStore? agentCredentials,
     EvidenceStore? evidenceStore,
+    NoteAuthorizationService? authorization,
+    String vaultId = 'default',
     LinkIndex? linkIndex,
     NoteWriteService? noteWriteService,
     DatabaseRegistry? registry,
@@ -75,9 +79,23 @@ class AppDeps {
   }) {
     final resolvedLinkIndex = linkIndex ?? LinkIndex();
     final resolvedRegistry = registry ?? DatabaseRegistry();
+    final resolvedAuthorization = authorization ??
+        noteWriteService?.authorization ??
+        NoteAuthorizationService(
+          store: KnowledgePolicyStore.memory(),
+          vaultId: vaultId,
+          beforeMutation: storage.prepareHistory,
+        );
+    if (noteWriteService != null &&
+        !identical(noteWriteService.authorization, resolvedAuthorization)) {
+      throw ArgumentError(
+        'Accepted reads and writes require the same authorization',
+      );
+    }
     final resolvedWriteService = noteWriteService ??
         NoteWriteService(
           storage: storage,
+          authorization: resolvedAuthorization,
           metaIndex: metaIndex,
           searchIndex: searchIndex,
           broadcaster: broadcaster,
@@ -85,7 +103,22 @@ class AppDeps {
           lockManager: lockManager,
           registry: resolvedRegistry,
         );
-    return AppDeps._(
+    resolvedAuthorization.beforePolicyPublish ??=
+        resolvedWriteService.preparePolicyHistory;
+    storage.requiresHistoryForNote = (note) => resolvedAuthorization.store
+        .effective(KnowledgeTarget.note(note.id, note.path))
+        .curated;
+    final resolvedFileStore = (fileStore ??
+        FileStore(contentDir: storage.contentDir))
+      ..authorization = resolvedAuthorization;
+    final resolvedUploads = uploadSessions ??
+        UploadSessionStore(
+          stagingDir: Directory('${storage.contentDir.parent.path}/uploads'),
+          sweepInterval: null,
+        );
+    final authorizedUploads = resolvedUploads
+      ..authorization = resolvedAuthorization;
+    final deps = AppDeps._(
       evidenceStore: evidenceStore ??
           EvidenceStore(
             file: File('${storage.contentDir.parent.path}/evidence.db'),
@@ -93,6 +126,7 @@ class AppDeps {
             sweepInterval: const Duration(hours: 1),
           ),
       storage: storage,
+      authorization: resolvedAuthorization,
       metaIndex: metaIndex,
       searchIndex: searchIndex,
       inviteStore: inviteStore,
@@ -115,24 +149,23 @@ class AppDeps {
       oidcDiscovery: oidcDiscovery,
       oidcJwks: oidcJwks,
       pendingLoginStore: pendingLoginStore,
-      fileStore: fileStore ?? FileStore(contentDir: storage.contentDir),
+      fileStore: resolvedFileStore,
       // sweepInterval: null — this default is only reached by call sites
       // that don't care about upload sessions at all (most tests); a
       // background timer there would risk "pending timer" test-runner
       // warnings across the whole suite. Real production use goes
       // through bootstrap() below, which passes a real interval.
-      uploadSessions: uploadSessions ??
-          UploadSessionStore(
-            stagingDir: Directory('${storage.contentDir.parent.path}/uploads'),
-            sweepInterval: null,
-          ),
+      uploadSessions: authorizedUploads,
       maxUploadSizeBytes: maxUploadSizeBytes,
     );
+    deps.bindCredentialAuthority(deps);
+    return deps;
   }
 
   AppDeps._({
     required this.evidenceStore,
     required this.storage,
+    required this.authorization,
     required this.metaIndex,
     required this.searchIndex,
     required this.inviteStore,
@@ -181,6 +214,7 @@ class AppDeps {
     Tracer? tracer,
     HttpGet oidcHttpGet = httpGetViaHttpClient,
     bool initializeVaults = true,
+    String vaultId = 'default',
   }) async {
     final log = logger ?? Logger('app_deps');
     final contentDir = Directory('${config.dataDir}/content');
@@ -192,6 +226,15 @@ class AppDeps {
       log.info('Migrated $migrated legacy note file(s) to vault layout');
     }
     final storage = Storage(contentDir: contentDir, clock: clock);
+    final policies = KnowledgePolicyStore(
+      file: File('${config.dataDir}/knowledge-policy.json'),
+    );
+    await policies.load();
+    final authorization = NoteAuthorizationService(
+      store: policies,
+      vaultId: vaultId,
+      beforeMutation: storage.prepareHistory,
+    );
     final fileStore = FileStore(contentDir: contentDir);
     final uploadSessions = UploadSessionStore(
       stagingDir: Directory('${config.dataDir}/uploads'),
@@ -269,6 +312,7 @@ class AppDeps {
 
     final broadcaster = Broadcaster();
     final noteWriteService = NoteWriteService(
+      authorization: authorization,
       storage: storage,
       metaIndex: metaIndex,
       searchIndex: searchIndex,
@@ -281,6 +325,8 @@ class AppDeps {
     );
 
     final deps = AppDeps(
+      authorization: authorization,
+      vaultId: vaultId,
       storage: storage,
       metaIndex: metaIndex,
       searchIndex: searchIndex,
@@ -318,6 +364,50 @@ class AppDeps {
 
   /// Durable conversation evidence, excluded from note indexes.
   final EvidenceStore evidenceStore;
+
+  /// Trusted capabilities and policy for this vault.
+  /// Revalidates upload issuers against the root authentication ledger.
+  void bindCredentialAuthority(AppDeps root) {
+    uploadSessions.revalidatePrincipal = (principal) async {
+      if (principal.kind == KnowledgePrincipalKind.operator) return principal;
+      if (principal.kind == KnowledgePrincipalKind.agent) {
+        final matching = (await root.agentCredentials.list()).where(
+          (record) =>
+              record.revokedAt == null && 'agent:${record.id}' == principal.id,
+        );
+        if (matching.isEmpty) return null;
+        final record = matching.single;
+        return KnowledgePrincipal.agent(
+          credentialId: record.id,
+          scopes: record.scopes,
+          vaultIds: record.vaultIds,
+        );
+      }
+      if (principal.kind == KnowledgePrincipalKind.oauth) {
+        final matching = (await root.tokenStore.liveGrants())
+            .where((record) => 'oauth:${record.grantId}' == principal.id);
+        if (matching.isEmpty) return null;
+        final record = matching.single;
+        final current = KnowledgePrincipal.oauth(
+          grantId: record.grantId,
+          scopes: record.scopes,
+          vaultIds: record.vaultIds,
+        );
+        return principal.isAgentOrigin ? current.withAgentOrigin() : current;
+      }
+      return null;
+    };
+  }
+
+  /// Selected-vault read filters share the accepted-write authorization.
+  KnowledgeReadService get knowledgeReads => KnowledgeReadService(
+        authorization: authorization,
+        metaIndex: metaIndex,
+        writes: noteWriteService,
+      );
+
+  /// Shared policy enforcement for the selected vault.
+  final NoteAuthorizationService authorization;
 
   /// Write path for uploaded (non-note) files, rooted at the same
   /// `contentDir` as [storage].
@@ -412,5 +502,6 @@ class AppDeps {
     evidenceStore.close();
     uploadSessions.dispose();
     await agentCredentials.dispose();
+    await authorization.store.dispose();
   }
 }

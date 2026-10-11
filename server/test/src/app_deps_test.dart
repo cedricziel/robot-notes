@@ -17,6 +17,8 @@ import 'package:shared/shared.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
+import '../knowledge_test_context.dart' as knowledge_fixture;
+
 Directory _tempDir() {
   return Directory.systemTemp.createTempSync('robot-notes-app-deps-test-');
 }
@@ -54,7 +56,7 @@ void main() {
   group('AppDeps.bootstrap', () {
     late Directory tmp;
 
-    setUp(() {
+    knowledge_fixture.authorizedSetUp(() {
       tmp = _tempDir();
     });
 
@@ -62,7 +64,8 @@ void main() {
       if (tmp.existsSync()) tmp.deleteSync(recursive: true);
     });
 
-    test('builds storage rooted at <dataDir>/content', () async {
+    knowledge_fixture
+        .authorizedTest('builds storage rooted at <dataDir>/content', () async {
       final deps = await AppDeps.bootstrap(
         _config(tmp),
         clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
@@ -70,7 +73,8 @@ void main() {
       expect(deps.storage.contentDir.path, '${tmp.path}/content');
     });
 
-    test('scans existing files into the meta index on bootstrap', () async {
+    knowledge_fixture.authorizedTest(
+        'scans existing files into the meta index on bootstrap', () async {
       final deps = await AppDeps.bootstrap(
         _config(tmp),
         clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
@@ -90,7 +94,8 @@ void main() {
       expect(reloaded.metaIndex.length, 2);
     });
 
-    test('uses lockTtlSeconds from the config for the lock manager', () async {
+    knowledge_fixture.authorizedTest(
+        'uses lockTtlSeconds from the config for the lock manager', () async {
       final cfg = Config(
         apiKey: 'rn_test',
         dataDir: tmp.path,
@@ -104,7 +109,8 @@ void main() {
       expect(lock.expiresAt, DateTime.utc(2026, 4, 25, 10, 0, 30));
     });
 
-    test('forwards lock-manager transitions to the broadcaster', () async {
+    knowledge_fixture.authorizedTest(
+        'forwards lock-manager transitions to the broadcaster', () async {
       final clock = FixedClock([
         DateTime.utc(2026, 4, 25, 10),
         DateTime.utc(2026, 4, 25, 10, 0, 5),
@@ -125,7 +131,8 @@ void main() {
       expect((received.single as LockEvent).holder, 'alice');
     });
 
-    test('wires the OAuth stores under <dataDir>/oauth/', () async {
+    knowledge_fixture.authorizedTest(
+        'wires the OAuth stores under <dataDir>/oauth/', () async {
       final deps = await AppDeps.bootstrap(
         _config(tmp),
         clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
@@ -135,7 +142,8 @@ void main() {
       expect(deps.tokenStore.dir.path, '${tmp.path}/oauth/tokens');
     });
 
-    test('purges expired OAuth codes and tokens on bootstrap', () async {
+    knowledge_fixture.authorizedTest(
+        'purges expired OAuth codes and tokens on bootstrap', () async {
       final bootClock = FixedClock.fixed(DateTime.utc(2026));
       final seed = await AppDeps.bootstrap(_config(tmp), clock: bootClock);
       addTearDown(seed.close);
@@ -188,7 +196,7 @@ void main() {
       addTearDown(reloaded.close);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'revoking a grant through tokenStore also revokes its outstanding '
         'authorization code', () async {
       final deps = await AppDeps.bootstrap(
@@ -242,7 +250,8 @@ void main() {
             'jwks_uri': 'https://idp.example.com/jwks.json',
           });
 
-      test('is not fetched when OIDC is not configured', () async {
+      knowledge_fixture.authorizedTest(
+          'is not fetched when OIDC is not configured', () async {
         var called = false;
         final deps = await AppDeps.bootstrap(
           _config(tmp),
@@ -257,7 +266,8 @@ void main() {
         expect(deps.oidcDiscovery, isNull);
       });
 
-      test('is fetched and exposed when OIDC is configured', () async {
+      knowledge_fixture.authorizedTest(
+          'is fetched and exposed when OIDC is configured', () async {
         final deps = await AppDeps.bootstrap(
           oidcConfig(tmp),
           clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
@@ -271,7 +281,8 @@ void main() {
         );
       });
 
-      test('a JWKS cache pointed at the discovered jwks_uri is exposed',
+      knowledge_fixture.authorizedTest(
+          'a JWKS cache pointed at the discovered jwks_uri is exposed',
           () async {
         final deps = await AppDeps.bootstrap(
           oidcConfig(tmp),
@@ -283,7 +294,8 @@ void main() {
         expect(deps.oidcJwks!.jwksUri, 'https://idp.example.com/jwks.json');
       });
 
-      test('the JWKS cache is null when OIDC is not configured', () async {
+      knowledge_fixture.authorizedTest(
+          'the JWKS cache is null when OIDC is not configured', () async {
         final deps = await AppDeps.bootstrap(
           _config(tmp),
           clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
@@ -292,7 +304,8 @@ void main() {
         expect(deps.oidcJwks, isNull);
       });
 
-      test('a discovery failure fails bootstrap', () async {
+      knowledge_fixture.authorizedTest('a discovery failure fails bootstrap',
+          () async {
         await expectLater(
           AppDeps.bootstrap(
             oidcConfig(tmp),
@@ -305,7 +318,8 @@ void main() {
     });
 
     group('embedding provider', () {
-      test('no embedding provider is wired when unconfigured', () async {
+      knowledge_fixture.authorizedTest(
+          'no embedding provider is wired when unconfigured', () async {
         final deps = await AppDeps.bootstrap(
           _config(tmp),
           clock: FixedClock.fixed(DateTime.utc(2026, 4, 25)),
@@ -322,7 +336,7 @@ void main() {
         expect(tables, isEmpty);
       });
 
-      test(
+      knowledge_fixture.authorizedTest(
           'an Ollama embedding provider is wired into NoteWriteService and '
           'SearchIndex when configured', () async {
         final deps = await AppDeps.bootstrap(
@@ -347,7 +361,7 @@ void main() {
   });
 
   group('DatabaseRegistry wiring at bootstrap', () {
-    test(
+    knowledge_fixture.authorizedTest(
         'a vault with one valid and one invalid definition registers '
         'exactly one and logs the other, with no extra file reads', () async {
       final tmp = _tempDir();
@@ -444,14 +458,16 @@ void main() {
   });
 
   group('app_deps_holder', () {
-    setUp(debugResetAppDeps);
+    knowledge_fixture.authorizedSetUp(debugResetAppDeps);
     tearDown(debugResetAppDeps);
 
-    test('reading before setAppDeps throws StateError', () {
+    knowledge_fixture
+        .authorizedTest('reading before setAppDeps throws StateError', () {
       expect(() => appDeps, throwsStateError);
     });
 
-    test('setAppDeps then appDeps returns the installed instance', () async {
+    knowledge_fixture.authorizedTest(
+        'setAppDeps then appDeps returns the installed instance', () async {
       final tmp = _tempDir();
       addTearDown(() => tmp.deleteSync(recursive: true));
       final deps = await AppDeps.bootstrap(
@@ -462,7 +478,8 @@ void main() {
       expect(identical(appDeps, deps), isTrue);
     });
 
-    test('setAppDeps with the same instance is idempotent', () async {
+    knowledge_fixture.authorizedTest(
+        'setAppDeps with the same instance is idempotent', () async {
       final tmp = _tempDir();
       addTearDown(() => tmp.deleteSync(recursive: true));
       final deps = await AppDeps.bootstrap(
@@ -473,7 +490,8 @@ void main() {
       expect(() => setAppDeps(deps), returnsNormally);
     });
 
-    test('setAppDeps with a different instance throws StateError', () async {
+    knowledge_fixture.authorizedTest(
+        'setAppDeps with a different instance throws StateError', () async {
       final tmp = _tempDir();
       addTearDown(() => tmp.deleteSync(recursive: true));
       final deps1 = await AppDeps.bootstrap(

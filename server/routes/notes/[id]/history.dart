@@ -2,24 +2,47 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor.dart';
+import 'package:server/src/frontmatter.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/note_write_service.dart';
-import 'package:server/src/rest_principal.dart';
 import 'package:server/src/storage.dart';
 
 /// Inspects, restores, or permanently purges retained accepted revisions.
 Future<Response> onRequest(RequestContext context, String id) async {
   final storage = context.read<Storage>();
-  final principal = context.read<RestPrincipal>();
   final method = context.request.method;
   if (method == HttpMethod.get) {
-    return Response.json(body: {'revisions': await storage.revisions(id)});
+    final target = await context.read<NoteWriteService>().knowledgeTarget(id);
+    final authorization = context.read<NoteAuthorizationService>();
+    final revisions = await storage.revisions(id);
+    final visible = <Map<String, dynamic>>[];
+    for (final revision in revisions) {
+      final retained =
+          revision['path'] as String? ?? revision['previous_path'] as String?;
+      final metadataPath = parseFrontmatter(revision['markdown'] as String)
+          .metadata['path'] as String?;
+      final retainedFolder = metadataPath ??
+          (retained == null || !retained.contains('/')
+              ? ''
+              : retained.substring(0, retained.lastIndexOf('/')));
+      try {
+        authorization.requireHistoricalRead(
+          currentKnowledgePrincipal,
+          id,
+          retainedFolder,
+          target.path,
+        );
+        visible.add(revision);
+      } on KnowledgeAccessDeniedException {
+        continue;
+      }
+    }
+    return Response.json(body: {'revisions': visible});
   }
   if (method == HttpMethod.delete) {
-    if (!principal.canManageVaults) {
-      return Response.json(statusCode: 403, body: {'error': 'forbidden'});
-    }
-    await storage.purgeHistory(id);
+    await context.read<NoteWriteService>().purgeHistory(id);
     return Response(statusCode: HttpStatus.noContent);
   }
   if (method != HttpMethod.post) {

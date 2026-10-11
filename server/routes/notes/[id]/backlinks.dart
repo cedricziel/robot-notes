@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/backlinks.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
@@ -22,6 +23,7 @@ Future<Response> onRequest(RequestContext context, String id) async {
       metaIndex: context.read<MetaIndex>(),
       linkIndex: context.read<LinkIndex>(),
       storage: context.read<Storage>(),
+      allowedIds: context.read<KnowledgeReadService>().allowedIds,
     );
     return Response.json(
       body: {

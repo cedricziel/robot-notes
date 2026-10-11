@@ -4,6 +4,8 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
@@ -14,6 +16,7 @@ import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/notes/[id]/append.dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -26,6 +29,10 @@ RequestContext _ctx({
   Object? body,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/notes/x/append'));
@@ -75,6 +82,7 @@ Future<NoteWriteService> _writeService(
   );
   addTearDown(search.close);
   return NoteWriteService(
+    authorization: knowledge_fixture.fixtureAuthorization,
     storage: storage,
     metaIndex: metaIndex,
     searchIndex: search,
@@ -89,7 +97,7 @@ void main() {
   late MetaIndex index;
   late LockManager lockManager;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
     storage = _storage(tmp);
     index = MetaIndex();
@@ -104,7 +112,8 @@ void main() {
   });
 
   group('POST /notes/{id}/append', () {
-    test('appends on a new line and returns the updated note', () async {
+    knowledge_fixture.authorizedTest(
+        'appends on a new line and returns the updated note', () async {
       final note = await storage.create(title: 't', content: 'line one');
       index.upsert(note.toSummary());
       final writes = await _writeService(
@@ -132,7 +141,8 @@ void main() {
       expect(index.get(note.id)?.version, 2);
     });
 
-    test('appending to an empty note does not prepend a newline', () async {
+    knowledge_fixture.authorizedTest(
+        'appending to an empty note does not prepend a newline', () async {
       final note = await storage.create(title: 't', content: '');
       index.upsert(note.toSummary());
       final writes = await _writeService(
@@ -156,7 +166,8 @@ void main() {
       expect(body['content'], 'first line');
     });
 
-    test('missing content returns 400 validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'missing content returns 400 validation_failed', () async {
       final note = await storage.create(title: 't', content: 'c');
       final writes = await _writeService(tmp, storage, index);
 
@@ -174,7 +185,8 @@ void main() {
       expect(body['error'], 'validation_failed');
     });
 
-    test('empty content returns 400 validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'empty content returns 400 validation_failed', () async {
       final note = await storage.create(title: 't', content: 'c');
       final writes = await _writeService(tmp, storage, index);
 
@@ -192,7 +204,8 @@ void main() {
       expect(body['error'], 'validation_failed');
     });
 
-    test('non-JSON body returns 400 bad_request', () async {
+    knowledge_fixture.authorizedTest('non-JSON body returns 400 bad_request',
+        () async {
       final note = await storage.create(title: 't', content: 'c');
       final writes = await _writeService(tmp, storage, index);
 
@@ -206,7 +219,8 @@ void main() {
       expect(body['error'], 'bad_request');
     });
 
-    test('on unknown id returns 404 not_found', () async {
+    knowledge_fixture.authorizedTest('on unknown id returns 404 not_found',
+        () async {
       final writes = await _writeService(tmp, storage, index);
 
       final res = await route.onRequest(
@@ -223,7 +237,8 @@ void main() {
       expect(body['error'], 'not_found');
     });
 
-    test('while locked by another actor returns 423 locked', () async {
+    knowledge_fixture.authorizedTest(
+        'while locked by another actor returns 423 locked', () async {
       final note = await storage.create(title: 't', content: 'c');
       index.upsert(note.toSummary());
       await lockManager.acquire(noteId: note.id, actor: 'alice');
@@ -253,7 +268,7 @@ void main() {
       expect((await storage.read(note.id)).content, 'c');
     });
 
-    test('by the lock holder succeeds', () async {
+    knowledge_fixture.authorizedTest('by the lock holder succeeds', () async {
       final note = await storage.create(title: 't', content: 'c');
       index.upsert(note.toSummary());
       await lockManager.acquire(noteId: note.id, actor: 'alice');
@@ -279,7 +294,8 @@ void main() {
       expect(body['content'], 'c\nmore');
     });
 
-    test('two concurrent appends both land', () async {
+    knowledge_fixture.authorizedTest('two concurrent appends both land',
+        () async {
       final note = await storage.create(title: 't', content: 'base');
       index.upsert(note.toSummary());
       final writes = await _writeService(
@@ -321,7 +337,8 @@ void main() {
       expect(finalNote.content, contains('base'));
     });
 
-    test('emits a changed:updated event on success', () async {
+    knowledge_fixture.authorizedTest('emits a changed:updated event on success',
+        () async {
       final note = await storage.create(title: 't', content: 'c');
       index.upsert(note.toSummary());
       final broadcaster = Broadcaster();
@@ -359,7 +376,8 @@ void main() {
   });
 
   group('disallowed methods', () {
-    test('GET returns 405 method_not_allowed', () async {
+    knowledge_fixture.authorizedTest('GET returns 405 method_not_allowed',
+        () async {
       final writes = await _writeService(tmp, storage, index);
       final res = await route.onRequest(
         _ctx(method: HttpMethod.get, writes: writes),

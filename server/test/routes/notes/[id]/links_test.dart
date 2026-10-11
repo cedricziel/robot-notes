@@ -3,12 +3,15 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/notes/[id]/links.dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -20,6 +23,10 @@ RequestContext _ctx({
   required LinkIndex linkIndex,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/notes/x/links'));
@@ -51,7 +58,7 @@ void main() {
   late MetaIndex meta;
   late LinkIndex links;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
     storage = Storage(
       contentDir: Directory('${tmp.path}/content'),
@@ -65,7 +72,8 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  test('shows resolved and unresolved outgoing links', () async {
+  knowledge_fixture
+      .authorizedTest('shows resolved and unresolved outgoing links', () async {
     await _write(
       storage,
       meta,
@@ -102,7 +110,8 @@ void main() {
     expect(unresolvedItem.containsKey('id'), isFalse);
   });
 
-  test('a note with no links returns an empty items list', () async {
+  knowledge_fixture.authorizedTest(
+      'a note with no links returns an empty items list', () async {
     final a =
         await _write(storage, meta, links, title: 'Empty', content: 'text');
 
@@ -115,7 +124,7 @@ void main() {
     expect(body['items'], isEmpty);
   });
 
-  test(
+  knowledge_fixture.authorizedTest(
       'a phantom link becomes resolved once the target is created, without '
       're-saving the linking note', () async {
     final a = await _write(
@@ -153,7 +162,7 @@ void main() {
     expect(afterItem['id'], target.id);
   });
 
-  test('unknown note id returns 404', () async {
+  knowledge_fixture.authorizedTest('unknown note id returns 404', () async {
     final res = await route.onRequest(
       _ctx(method: HttpMethod.get, metaIndex: meta, linkIndex: links),
       'does-not-exist',
@@ -161,7 +170,7 @@ void main() {
     expect(res.statusCode, HttpStatus.notFound);
   });
 
-  test('disallowed method returns 405', () async {
+  knowledge_fixture.authorizedTest('disallowed method returns 405', () async {
     final res = await route.onRequest(
       _ctx(method: HttpMethod.post, metaIndex: meta, linkIndex: links),
       'anything',

@@ -2,11 +2,14 @@ import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:test/test.dart';
 
 import '../../routes/search.dart' as route;
+import '../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -18,6 +21,10 @@ RequestContext _ctx({
   Uri? uri,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(uri ?? Uri.parse('/search'));
@@ -40,7 +47,7 @@ Future<SearchIndex> _emptyIndex(Directory tmp) {
 void main() {
   late Directory tmp;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
   });
 
@@ -49,7 +56,8 @@ void main() {
   });
 
   group('GET /search', () {
-    test('returns ranked items for q=foo', () async {
+    knowledge_fixture.authorizedTest('returns ranked items for q=foo',
+        () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
       final stamp = DateTime.utc(2026, 3, 4, 5, 6);
@@ -84,7 +92,8 @@ void main() {
       expect(first['updated_at'], stamp.toIso8601String());
     });
 
-    test('missing q returns 400 missing_query', () async {
+    knowledge_fixture.authorizedTest('missing q returns 400 missing_query',
+        () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
 
@@ -101,7 +110,8 @@ void main() {
       expect(body['error'], 'missing_query');
     });
 
-    test('empty q returns 400 empty_query', () async {
+    knowledge_fixture.authorizedTest('empty q returns 400 empty_query',
+        () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
 
@@ -118,7 +128,8 @@ void main() {
       expect(body['error'], 'empty_query');
     });
 
-    test('whitespace-only q is treated as empty', () async {
+    knowledge_fixture.authorizedTest('whitespace-only q is treated as empty',
+        () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
 
@@ -135,7 +146,8 @@ void main() {
       expect(body['error'], 'empty_query');
     });
 
-    test('limit defaults to 20 and clamps at 100', () async {
+    knowledge_fixture.authorizedTest('limit defaults to 20 and clamps at 100',
+        () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
       for (var i = 0; i < 25; i++) {
@@ -171,7 +183,8 @@ void main() {
       expect(clampBody['limit'], 100);
     });
 
-    test('non-positive or non-numeric limit returns 400', () async {
+    knowledge_fixture.authorizedTest(
+        'non-positive or non-numeric limit returns 400', () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
 
@@ -191,7 +204,8 @@ void main() {
       }
     });
 
-    test('invalid FTS query returns 400 invalid_query', () async {
+    knowledge_fixture.authorizedTest(
+        'invalid FTS query returns 400 invalid_query', () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
 
@@ -208,7 +222,8 @@ void main() {
       expect(body['error'], 'invalid_query');
     });
 
-    test('path filter narrows results to a folder', () async {
+    knowledge_fixture.authorizedTest('path filter narrows results to a folder',
+        () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
       final stamp = DateTime.utc(2026);
@@ -235,7 +250,8 @@ void main() {
       expect(items.map((i) => i['id']), ['a']);
     });
 
-    test('tag filter narrows results to notes carrying the tag', () async {
+    knowledge_fixture.authorizedTest(
+        'tag filter narrows results to notes carrying the tag', () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
       final stamp = DateTime.utc(2026);
@@ -262,7 +278,7 @@ void main() {
       expect(items.map((i) => i['id']), ['a']);
     });
 
-    test('non-GET methods return 405', () async {
+    knowledge_fixture.authorizedTest('non-GET methods return 405', () async {
       final index = await _emptyIndex(tmp);
       addTearDown(index.close);
 

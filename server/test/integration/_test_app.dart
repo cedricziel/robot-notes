@@ -32,6 +32,8 @@ import '../../routes/invites/[token]/index.dart' as invites_token_route;
 import '../../routes/invites/[token]/onboarding.txt.dart'
     as invites_token_onboarding_route;
 import '../../routes/invites/index.dart' as invites_index_route;
+import '../../routes/knowledge/policies.dart' as knowledge_policies_route;
+import '../../routes/knowledge/principals.dart' as knowledge_principals_route;
 import '../../routes/mcp/index.dart' as mcp_route;
 import '../../routes/notes/[id]/append.dart' as notes_append_route;
 import '../../routes/notes/[id]/backlinks.dart' as notes_backlinks_route;
@@ -40,11 +42,13 @@ import '../../routes/notes/[id]/history.dart' as notes_history_route;
 import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/links.dart' as notes_links_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
+import '../../routes/notes/[id]/permissions.dart' as note_permissions_route;
 import '../../routes/notes/[id]/properties.dart' as notes_id_properties_route;
 import '../../routes/notes/file-uploads/[token].dart' as upload_route;
 import '../../routes/notes/files/[...path].dart' as file_route;
 import '../../routes/notes/files/index.dart' as files_route;
 import '../../routes/notes/index.dart' as notes_index_route;
+import '../../routes/notes/permissions.dart' as prospective_permissions_route;
 import '../../routes/notes/tree.dart' as notes_tree_route;
 import '../../routes/oauth/authorize.dart' as oauth_authorize_route;
 import '../../routes/oauth/oidc/callback.dart' as oauth_oidc_callback_route;
@@ -98,6 +102,10 @@ Future<HttpServer> startTestServer({
   );
 
   final root = Router()
+    ..all('/knowledge/policies', knowledge_policies_route.onRequest)
+    ..all('/knowledge/principals', knowledge_principals_route.onRequest)
+    ..all('/notes/permissions', prospective_permissions_route.onRequest)
+    ..all('/notes/<id>/permissions', note_permissions_route.onRequest)
     ..all('/credentials', credentials_route.onRequest)
     ..all('/credentials/<id>', credential_route.onRequest)
     ..all('/evidence/<id>', evidence_route.onRequest)

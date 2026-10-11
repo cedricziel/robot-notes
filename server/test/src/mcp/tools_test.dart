@@ -21,13 +21,17 @@ import 'package:server/src/ws/presence.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
+import '../../knowledge_test_context.dart' as knowledge_fixture;
+
 const McpPrincipal fullAccess = McpPrincipal.staticKey('tester');
 const McpPrincipal readOnly = McpPrincipal(
+  principalId: 'oauth:fixture-grant',
   actor: 'reader-bot',
   scopes: {kScopeNotesRead},
   isStaticKey: false,
 );
 const McpPrincipal writeOnly = McpPrincipal(
+  principalId: 'oauth:fixture-grant',
   actor: 'writer-bot',
   scopes: {kScopeNotesWrite},
   isStaticKey: false,
@@ -170,7 +174,7 @@ void main() {
   ]) =>
       registry.call(name, args, principal);
 
-  setUp(() async {
+  knowledge_fixture.authorizedSetUp(() async {
     tmp = _tempDir();
     deps = await _bootstrap(tmp);
     registry = McpToolRegistry.forDeps(deps);
@@ -182,7 +186,8 @@ void main() {
   });
 
   group('list_notes', () {
-    test('paginates with an explicit limit and honours a cursor', () async {
+    knowledge_fixture.authorizedTest(
+        'paginates with an explicit limit and honours a cursor', () async {
       await deps.noteWriteService.create(title: 'a', content: '', actor: 'x');
       await deps.noteWriteService.create(title: 'b', content: '', actor: 'x');
       await deps.noteWriteService.create(title: 'c', content: '', actor: 'x');
@@ -198,12 +203,14 @@ void main() {
       expect(s2['next_cursor'], isNull);
     });
 
-    test('defaults to the same page size as GET /notes', () async {
+    knowledge_fixture.authorizedTest(
+        'defaults to the same page size as GET /notes', () async {
       final result = await call('list_notes', {});
       expect(_structured(result)['items'], isEmpty);
     });
 
-    test('rejects a limit outside 1..200 as an invalid param', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects a limit outside 1..200 as an invalid param', () async {
       await expectLater(
         call('list_notes', {'limit': 500}),
         throwsA(isA<McpInvalidParamsException>()),
@@ -214,7 +221,8 @@ void main() {
       );
     });
 
-    test('sort: updated_desc returns newest-updated notes first', () async {
+    knowledge_fixture.authorizedTest(
+        'sort: updated_desc returns newest-updated notes first', () async {
       final a = await deps.noteWriteService.create(
         title: 'a',
         content: '',
@@ -235,13 +243,14 @@ void main() {
       expect(items.first['id'], a.id);
     });
 
-    test('rejects an unsupported sort value', () async {
+    knowledge_fixture.authorizedTest('rejects an unsupported sort value',
+        () async {
       final result = await call('list_notes', {'sort': 'bogus'});
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], kErrorValidationFailed);
     });
 
-    test('items include path', () async {
+    knowledge_fixture.authorizedTest('items include path', () async {
       await deps.noteWriteService.create(
         title: 'Nested',
         content: '',
@@ -255,7 +264,8 @@ void main() {
       expect(items.single['path'], 'Projects/Alpha');
     });
 
-    test('path filter narrows results to a folder', () async {
+    knowledge_fixture.authorizedTest('path filter narrows results to a folder',
+        () async {
       await deps.noteWriteService.create(
         title: 'In folder',
         content: '',
@@ -274,7 +284,8 @@ void main() {
       expect(items.map((i) => i['title']), ['In folder']);
     });
 
-    test('tag filter narrows results to notes carrying the tag', () async {
+    knowledge_fixture.authorizedTest(
+        'tag filter narrows results to notes carrying the tag', () async {
       await deps.noteWriteService.create(
         title: 'Tagged',
         content: '#urgent',
@@ -292,7 +303,8 @@ void main() {
       expect(items.map((i) => i['title']), ['Tagged']);
     });
 
-    test('title filter narrows results to the exact title', () async {
+    knowledge_fixture.authorizedTest(
+        'title filter narrows results to the exact title', () async {
       await deps.noteWriteService.create(
         title: 'Project Alpha',
         content: '',
@@ -310,7 +322,8 @@ void main() {
       expect(items.map((i) => i['title']), ['Project Alpha']);
     });
 
-    test('title filter matching is case- and NFC-insensitive', () async {
+    knowledge_fixture.authorizedTest(
+        'title filter matching is case- and NFC-insensitive', () async {
       await deps.noteWriteService.create(
         title: 'caf${String.fromCharCode(0x00e9)}',
         content: '',
@@ -326,7 +339,8 @@ void main() {
   });
 
   group('get_note', () {
-    test('includes lock only while an editor lock is active', () async {
+    knowledge_fixture.authorizedTest(
+        'includes lock only while an editor lock is active', () async {
       final note = await deps.noteWriteService.create(
         title: 'Locked note',
         content: 'body',
@@ -342,13 +356,14 @@ void main() {
       expect(lock['holder'], 'alice');
     });
 
-    test('returns not_found for an unknown id', () async {
+    knowledge_fixture.authorizedTest('returns not_found for an unknown id',
+        () async {
       final result = await call('get_note', {'id': 'missing'});
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], ErrorCode.notFound.wire);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'rejects a path-traversal id as not_found without reading the file',
       () async {
         _plantCanary(tmp);
@@ -362,7 +377,8 @@ void main() {
   });
 
   group('search_notes', () {
-    test('returns a hit with a <mark> snippet', () async {
+    knowledge_fixture.authorizedTest('returns a hit with a <mark> snippet',
+        () async {
       await deps.noteWriteService.create(
         title: 'Finance',
         content: 'quarterly budget review',
@@ -376,19 +392,21 @@ void main() {
       expect(hit['snippet'], contains('<mark>budget</mark>'));
     });
 
-    test('rejects a blank query as validation_failed', () async {
+    knowledge_fixture
+        .authorizedTest('rejects a blank query as validation_failed', () async {
       final result = await call('search_notes', {'query': '   '});
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('rejects invalid FTS syntax as validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects invalid FTS syntax as validation_failed', () async {
       final result = await call('search_notes', {'query': '"unterminated'});
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'rejects a limit above 100 as an invalid param, matching GET /search',
       () async {
         await expectLater(
@@ -398,7 +416,7 @@ void main() {
       },
     );
 
-    test('hits include path', () async {
+    knowledge_fixture.authorizedTest('hits include path', () async {
       await deps.noteWriteService.create(
         title: 'Finance',
         content: 'quarterly budget review',
@@ -412,7 +430,8 @@ void main() {
       expect(items.single['path'], 'Projects/Alpha');
     });
 
-    test('path filter narrows results to a folder', () async {
+    knowledge_fixture.authorizedTest('path filter narrows results to a folder',
+        () async {
       await deps.noteWriteService.create(
         title: 'In folder',
         content: 'budget plan',
@@ -434,7 +453,8 @@ void main() {
       expect(items.map((i) => i['title']), ['In folder']);
     });
 
-    test('tag filter narrows results to notes carrying the tag', () async {
+    knowledge_fixture.authorizedTest(
+        'tag filter narrows results to notes carrying the tag', () async {
       await deps.noteWriteService.create(
         title: 'Tagged',
         content: 'budget plan #finance',
@@ -457,7 +477,8 @@ void main() {
   });
 
   group('create_note', () {
-    test('creates the note and returns the full record', () async {
+    knowledge_fixture.authorizedTest(
+        'creates the note and returns the full record', () async {
       final result = await call('create_note', {
         'title': 'Inbox',
         'content': 'first line',
@@ -470,7 +491,8 @@ void main() {
       expect(s['path'], '');
     });
 
-    test('creates the note under the given path', () async {
+    knowledge_fixture.authorizedTest('creates the note under the given path',
+        () async {
       final result = await call('create_note', {
         'title': 'Nested',
         'path': 'Projects/Alpha',
@@ -478,13 +500,15 @@ void main() {
       expect(_structured(result)['path'], 'Projects/Alpha');
     });
 
-    test('rejects an empty title as validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects an empty title as validation_failed', () async {
       final result = await call('create_note', {'title': '   '});
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('a path collision is a path_conflict tool error', () async {
+    knowledge_fixture.authorizedTest(
+        'a path collision is a path_conflict tool error', () async {
       await deps.noteWriteService.create(
         title: 'Notes',
         content: '',
@@ -500,7 +524,7 @@ void main() {
       expect(_structured(result)['error'], kErrorPathConflict);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'a path-traversal path is a validation_failed tool error, not '
         'a crash', () async {
       final result = await call('create_note', {
@@ -511,7 +535,8 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('broadcasts a created event with the principal actor', () async {
+    knowledge_fixture.authorizedTest(
+        'broadcasts a created event with the principal actor', () async {
       final received = <WsMessage>[];
       deps.broadcaster
         ..register('c1').listen(received.add)
@@ -528,7 +553,8 @@ void main() {
   });
 
   group('update_note', () {
-    test('succeeds and returns the new version', () async {
+    knowledge_fixture.authorizedTest('succeeds and returns the new version',
+        () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',
         content: 'v1',
@@ -546,7 +572,7 @@ void main() {
       expect(s['title'], 'Draft');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'returns version_conflict with current state on stale version',
       () async {
         final note = await deps.noteWriteService.create(
@@ -575,9 +601,8 @@ void main() {
       },
     );
 
-    test(
-      'omits current_content from version_conflict for a write-only '
-      'principal',
+    knowledge_fixture.authorizedTest(
+      'denies source-reading mutations for a write-only principal',
       () async {
         final note = await deps.noteWriteService.create(
           title: 'Draft',
@@ -600,13 +625,14 @@ void main() {
         final result = await call('update_note', args, writeOnly);
         expect(result['isError'], isTrue);
         final s = _structured(result);
-        expect(s['error'], ErrorCode.versionConflict.wire);
-        expect(s['current_version'], 2);
+        expect(s['error'], 'knowledge_access_denied');
+        expect(s.containsKey('current_version'), isFalse);
         expect(s.containsKey('current_content'), isFalse);
       },
     );
 
-    test('rejects an update with neither title nor content', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects an update with neither title nor content', () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',
         content: 'v1',
@@ -621,7 +647,8 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('rejects a blank supplied title as validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects a blank supplied title as validation_failed', () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',
         content: 'v1',
@@ -637,7 +664,8 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('a path-only change moves the note and broadcasts moved', () async {
+    knowledge_fixture.authorizedTest(
+        'a path-only change moves the note and broadcasts moved', () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',
         content: 'v1',
@@ -663,7 +691,7 @@ void main() {
       expect((received.single as ChangedEvent).action, ChangeAction.moved);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'a colliding target path is a path_conflict tool error',
       () async {
         await deps.noteWriteService.create(
@@ -688,7 +716,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'a path-traversal path is a validation_failed tool error, not a crash',
       () async {
         final canary = _plantCanary(tmp);
@@ -710,7 +738,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'rejects a path-traversal id as not_found without writing the file',
       () async {
         final canary = _plantCanary(tmp);
@@ -727,7 +755,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'returns locked with holder when another actor holds the lock',
       () async {
         final note = await deps.noteWriteService.create(
@@ -750,7 +778,8 @@ void main() {
       },
     );
 
-    test('broadcasts an updated event with the principal actor', () async {
+    knowledge_fixture.authorizedTest(
+        'broadcasts an updated event with the principal actor', () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',
         content: 'v1',
@@ -776,7 +805,8 @@ void main() {
   });
 
   group('delete_note', () {
-    test('deletes an unlocked note and broadcasts', () async {
+    knowledge_fixture.authorizedTest('deletes an unlocked note and broadcasts',
+        () async {
       final note = await deps.noteWriteService.create(
         title: 'Doomed',
         content: '',
@@ -797,7 +827,7 @@ void main() {
       expect(event.by, fullAccess.actor);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'rejects a path-traversal id as not_found without deleting the file',
       () async {
         final canary = _plantCanary(tmp);
@@ -810,7 +840,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'returns locked with holder when another actor holds the lock',
       () async {
         final note = await deps.noteWriteService.create(
@@ -830,7 +860,8 @@ void main() {
   });
 
   group('append_to_note', () {
-    test('separates with a newline and bumps the version', () async {
+    knowledge_fixture.authorizedTest(
+        'separates with a newline and bumps the version', () async {
       final note = await deps.noteWriteService.create(
         title: 'Log',
         content: 'line one',
@@ -848,7 +879,8 @@ void main() {
       expect(reread.content, 'line one\nline two');
     });
 
-    test('appends without a separator to an empty note', () async {
+    knowledge_fixture.authorizedTest(
+        'appends without a separator to an empty note', () async {
       final note = await deps.noteWriteService.create(
         title: 'Log',
         content: '',
@@ -861,7 +893,8 @@ void main() {
       expect(reread.content, 'first');
     });
 
-    test('does not double an existing trailing newline', () async {
+    knowledge_fixture.authorizedTest(
+        'does not double an existing trailing newline', () async {
       final note = await deps.noteWriteService.create(
         title: 'Log',
         content: 'line one\n',
@@ -874,7 +907,8 @@ void main() {
       expect(reread.content, 'line one\nline two');
     });
 
-    test('rejects empty text as validation_failed', () async {
+    knowledge_fixture.authorizedTest('rejects empty text as validation_failed',
+        () async {
       final note = await deps.noteWriteService.create(
         title: 'Log',
         content: 'line one',
@@ -886,7 +920,8 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('rejects whitespace-only text as validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects whitespace-only text as validation_failed', () async {
       final note = await deps.noteWriteService.create(
         title: 'Log',
         content: 'line one',
@@ -901,7 +936,7 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'rejects a path-traversal id as not_found without writing the file',
       () async {
         final canary = _plantCanary(tmp);
@@ -917,7 +952,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'returns locked with holder when another actor holds the lock',
       () async {
         final note = await deps.noteWriteService.create(
@@ -936,7 +971,8 @@ void main() {
       },
     );
 
-    test('two concurrent appends both land', () async {
+    knowledge_fixture.authorizedTest('two concurrent appends both land',
+        () async {
       final note = await deps.noteWriteService.create(
         title: 'Log',
         content: 'start',
@@ -957,7 +993,7 @@ void main() {
       expect(reread.version, 3);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'returns version_conflict after exhausting all retries',
       () async {
         final flakyTmp = _tempDir();
@@ -990,7 +1026,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'returns locked if another actor acquires the lock between retries',
       () async {
         final flakyTmp = _tempDir();
@@ -1029,7 +1065,8 @@ void main() {
   });
 
   group('move_note', () {
-    test('relocates the note and returns the full record', () async {
+    knowledge_fixture.authorizedTest(
+        'relocates the note and returns the full record', () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',
         content: 'body',
@@ -1048,7 +1085,7 @@ void main() {
       expect(s['version'], 2);
     });
 
-    test('broadcasts a moved event', () async {
+    knowledge_fixture.authorizedTest('broadcasts a moved event', () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',
         content: '',
@@ -1072,7 +1109,8 @@ void main() {
       expect(event.by, fullAccess.actor);
     });
 
-    test('returns version_conflict with current state on stale version',
+    knowledge_fixture.authorizedTest(
+        'returns version_conflict with current state on stale version',
         () async {
       final note = await deps.noteWriteService.create(
         title: 'Draft',
@@ -1098,7 +1136,8 @@ void main() {
       expect(s['current_version'], 2);
     });
 
-    test('a colliding target path is a path_conflict tool error', () async {
+    knowledge_fixture.authorizedTest(
+        'a colliding target path is a path_conflict tool error', () async {
       await deps.noteWriteService.create(
         title: 'Existing',
         content: '',
@@ -1120,7 +1159,7 @@ void main() {
       expect(_structured(result)['error'], kErrorPathConflict);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'a path-traversal path is a validation_failed tool error, not a crash',
       () async {
         final canary = _plantCanary(tmp);
@@ -1142,7 +1181,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'returns locked with holder when another actor holds the lock',
       () async {
         final note = await deps.noteWriteService.create(
@@ -1168,7 +1207,7 @@ void main() {
       },
     );
 
-    test(
+    knowledge_fixture.authorizedTest(
       'rejects a path-traversal id as not_found without writing the file',
       () async {
         final canary = _plantCanary(tmp);
@@ -1187,7 +1226,8 @@ void main() {
   });
 
   group('get_backlinks', () {
-    test('lists every note whose content links to the given note', () async {
+    knowledge_fixture.authorizedTest(
+        'lists every note whose content links to the given note', () async {
       final a = await deps.noteWriteService.create(
         title: 'Alpha',
         content: '',
@@ -1207,7 +1247,8 @@ void main() {
       expect((items.single['snippet']! as String).contains('Alpha'), isTrue);
     });
 
-    test('a note with no backlinks returns an empty items list', () async {
+    knowledge_fixture.authorizedTest(
+        'a note with no backlinks returns an empty items list', () async {
       final a = await deps.noteWriteService.create(
         title: 'Lonely',
         content: '',
@@ -1218,13 +1259,14 @@ void main() {
       expect(_structured(result)['items'], isEmpty);
     });
 
-    test('returns not_found for an unknown id', () async {
+    knowledge_fixture.authorizedTest('returns not_found for an unknown id',
+        () async {
       final result = await call('get_backlinks', {'id': 'missing'});
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], ErrorCode.notFound.wire);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'rejects a path-traversal id as not_found without reading the file',
       () async {
         _plantCanary(tmp);
@@ -1238,25 +1280,29 @@ void main() {
   });
 
   group('scope gating', () {
-    test('a read-only principal cannot call a write tool', () async {
+    knowledge_fixture.authorizedTest(
+        'a read-only principal cannot call a write tool', () async {
       final result = await call('create_note', {'title': 'nope'}, readOnly);
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], kErrorInsufficientScope);
     });
 
-    test('a write-only principal cannot call a read tool', () async {
+    knowledge_fixture.authorizedTest(
+        'a write-only principal cannot call a read tool', () async {
       final result = await call('list_notes', {}, writeOnly);
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], kErrorInsufficientScope);
     });
 
-    test('vault discovery accepts write scope but rejects no scopes', () async {
+    knowledge_fixture.authorizedTest(
+        'vault discovery accepts write scope but rejects no scopes', () async {
       final allowed = await call('list_vaults', {}, writeOnly);
       expect(allowed['isError'], isNot(true));
       final denied = await call(
         'list_vaults',
         {},
         const McpPrincipal(
+          principalId: 'oauth:fixture-grant',
           actor: 'unscoped',
           scopes: {},
           isStaticKey: false,
@@ -1265,7 +1311,8 @@ void main() {
       expect(_structured(denied)['error'], kErrorInsufficientScope);
     });
 
-    test('the static-key principal passes both scope checks', () async {
+    knowledge_fixture.authorizedTest(
+        'the static-key principal passes both scope checks', () async {
       final readResult = await call('list_notes', {});
       expect(readResult['isError'], isNull);
 
@@ -1275,13 +1322,15 @@ void main() {
   });
 
   group('create_folder', () {
-    test('creates a new folder and returns structuredContent', () async {
+    knowledge_fixture.authorizedTest(
+        'creates a new folder and returns structuredContent', () async {
       final result = await call('create_folder', {'path': 'Ideas'});
       expect(result['isError'], isNot(true));
       expect(_structured(result), {'path': 'Ideas', 'note_count': 0});
     });
 
-    test('calling twice succeeds both times with the same structuredContent',
+    knowledge_fixture.authorizedTest(
+        'calling twice succeeds both times with the same structuredContent',
         () async {
       final first = await call('create_folder', {'path': 'Ideas'});
       final second = await call('create_folder', {'path': 'Ideas'});
@@ -1289,13 +1338,14 @@ void main() {
       expect(second['isError'], isNot(true));
     });
 
-    test('an empty path is a validation_failed error', () async {
+    knowledge_fixture
+        .authorizedTest('an empty path is a validation_failed error', () async {
       final result = await call('create_folder', {'path': ''});
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'calling create_folder on an existing note-backed folder does not '
         'register it as a marker-tracked empty folder', () async {
       await deps.noteWriteService.create(
@@ -1313,8 +1363,8 @@ void main() {
   });
 
   group('request_upload / finalize_upload', () {
-    test('request_upload returns a token, upload_url, and expires_at',
-        () async {
+    knowledge_fixture.authorizedTest(
+        'request_upload returns a token, upload_url, and expires_at', () async {
       final result = await call('request_upload', {
         'path': 'Ideas',
         'filename': 'photo.png',
@@ -1330,7 +1380,8 @@ void main() {
       expect(structured['expires_at'], isA<String>());
     });
 
-    test('a declared size_bytes over the configured limit is rejected',
+    knowledge_fixture.authorizedTest(
+        'a declared size_bytes over the configured limit is rejected',
         () async {
       final result = await call('request_upload', {
         'path': 'Ideas',
@@ -1342,7 +1393,7 @@ void main() {
       expect(_structured(result)['error'], 'payload_too_large');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'finalize_upload places a completed upload into the vault and it '
         'is retrievable', () async {
       final requested = _structured(
@@ -1380,7 +1431,8 @@ void main() {
       );
     });
 
-    test('rejects finalization after interrupted history deletion', () async {
+    knowledge_fixture.authorizedTest(
+        'rejects finalization after interrupted history deletion', () async {
       var failPublication = false;
       final storage = Storage(
         contentDir: Directory('${tmp.path}/faulted-content'),
@@ -1423,7 +1475,8 @@ void main() {
       expect(restored.content, 'retained');
     });
 
-    test('finalize_upload before the PUT has completed is validation_failed',
+    knowledge_fixture.authorizedTest(
+        'finalize_upload before the PUT has completed is validation_failed',
         () async {
       final requested = _structured(
         await call('request_upload', {
@@ -1441,16 +1494,16 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('finalize_upload with an unknown token is validation_failed',
-        () async {
+    knowledge_fixture.authorizedTest(
+        'finalize_upload with an unknown token is validation_failed', () async {
       final result = await call('finalize_upload', {'token': 'nope'});
 
       expect(result['isError'], isTrue);
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('a collision at finalize time is a path_conflict tool error',
-        () async {
+    knowledge_fixture.authorizedTest(
+        'a collision at finalize time is a path_conflict tool error', () async {
       final requested = _structured(
         await call('request_upload', {
           'path': 'Ideas',
@@ -1476,12 +1529,14 @@ void main() {
   });
 
   group('tools/list catalog', () {
-    test('has exactly the nineteen note tools with object schemas', () {
+    knowledge_fixture.authorizedTest(
+        'lists note tools and capability inspection with object schemas', () {
       final names = registry.tools.map((t) => t.name).toSet();
       expect(names, {
         'list_vaults',
         'list_notes',
         'get_note',
+        'get_note_permissions',
         'create_note',
         'update_note',
         'append_to_note',
@@ -1505,24 +1560,28 @@ void main() {
       }
     });
 
-    test('create_row declares id and title as required', () {
+    knowledge_fixture
+        .authorizedTest('create_row declares id and title as required', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'create_row');
       expect(tool.inputSchema['required'], ['id', 'title']);
     });
 
-    test('update_database declares id and version as required', () {
+    knowledge_fixture.authorizedTest(
+        'update_database declares id and version as required', () {
       final tool =
           registry.tools.firstWhere((t) => t.name == 'update_database');
       expect(tool.inputSchema['required'], ['id', 'version']);
     });
 
-    test('create_database declares only title as required', () {
+    knowledge_fixture
+        .authorizedTest('create_database declares only title as required', () {
       final tool =
           registry.tools.firstWhere((t) => t.name == 'create_database');
       expect(tool.inputSchema['required'], ['title']);
     });
 
-    test('list_databases accepts only optional vault selection', () {
+    knowledge_fixture.authorizedTest(
+        'list_databases accepts only optional vault selection', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'list_databases');
       expect(tool.inputSchema['required'], <String>[]);
       expect(
@@ -1531,14 +1590,16 @@ void main() {
       );
     });
 
-    test('database tool descriptions embed the filter grammar', () {
+    knowledge_fixture.authorizedTest(
+        'database tool descriptions embed the filter grammar', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'query_database');
       expect(tool.description, contains('is_empty'));
       expect(tool.description, contains('not_contains'));
       expect(tool.description, contains('gte'));
     });
 
-    test('database tool descriptions embed the per-type encoding table', () {
+    knowledge_fixture.authorizedTest(
+        'database tool descriptions embed the per-type encoding table', () {
       for (final name in [
         'create_database',
         'update_database',
@@ -1559,38 +1620,45 @@ void main() {
       }
     });
 
-    test('create_folder declares path as required', () {
+    knowledge_fixture.authorizedTest('create_folder declares path as required',
+        () {
       final tool = registry.tools.firstWhere((t) => t.name == 'create_folder');
       expect(tool.inputSchema['required'], ['path']);
     });
 
-    test('request_upload declares path and filename as required', () {
+    knowledge_fixture.authorizedTest(
+        'request_upload declares path and filename as required', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'request_upload');
       expect(tool.inputSchema['required'], ['path', 'filename']);
     });
 
-    test('finalize_upload declares token as required', () {
+    knowledge_fixture
+        .authorizedTest('finalize_upload declares token as required', () {
       final tool =
           registry.tools.firstWhere((t) => t.name == 'finalize_upload');
       expect(tool.inputSchema['required'], ['token']);
     });
 
-    test('update_note declares id and version as required', () {
+    knowledge_fixture
+        .authorizedTest('update_note declares id and version as required', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'update_note');
       expect(tool.inputSchema['required'], ['id', 'version']);
     });
 
-    test('move_note declares id, version, and path as required', () {
+    knowledge_fixture.authorizedTest(
+        'move_note declares id, version, and path as required', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'move_note');
       expect(tool.inputSchema['required'], ['id', 'version', 'path']);
     });
 
-    test('get_backlinks declares id as required', () {
+    knowledge_fixture.authorizedTest('get_backlinks declares id as required',
+        () {
       final tool = registry.tools.firstWhere((t) => t.name == 'get_backlinks');
       expect(tool.inputSchema['required'], ['id']);
     });
 
-    test('list_notes/create_note/search_notes declare path and tag params', () {
+    knowledge_fixture.authorizedTest(
+        'list_notes/create_note/search_notes declare path and tag params', () {
       for (final name in ['list_notes', 'search_notes']) {
         final tool = registry.tools.firstWhere((t) => t.name == name);
         final props = tool.inputSchema['properties']! as Map<String, Object?>;
@@ -1603,28 +1671,31 @@ void main() {
       expect(createProps.containsKey('path'), isTrue);
     });
 
-    test('list_notes declares a title param', () {
+    knowledge_fixture.authorizedTest('list_notes declares a title param', () {
       final props = registry.tools
           .firstWhere((t) => t.name == 'list_notes')
           .inputSchema['properties']! as Map<String, Object?>;
       expect(props.containsKey('title'), isTrue);
     });
 
-    test('unknown tool name throws McpUnknownToolException', () async {
+    knowledge_fixture.authorizedTest(
+        'unknown tool name throws McpUnknownToolException', () async {
       await expectLater(
         call('no_such_tool', {}),
         throwsA(isA<McpUnknownToolException>()),
       );
     });
 
-    test('every tool declares a non-empty title annotation', () {
+    knowledge_fixture
+        .authorizedTest('every tool declares a non-empty title annotation', () {
       for (final tool in registry.tools) {
         expect(tool.annotations['title'], isA<String>());
         expect(tool.annotations['title'], isNotEmpty);
       }
     });
 
-    test('read-only tools are marked readOnlyHint with no side effects', () {
+    knowledge_fixture.authorizedTest(
+        'read-only tools are marked readOnlyHint with no side effects', () {
       for (final name in ['list_notes', 'get_note', 'search_notes']) {
         final tool = registry.tools.firstWhere((t) => t.name == name);
         expect(tool.annotations['readOnlyHint'], isTrue, reason: name);
@@ -1633,14 +1704,15 @@ void main() {
       }
     });
 
-    test('delete_note is destructive and idempotent', () {
+    knowledge_fixture
+        .authorizedTest('delete_note is destructive and idempotent', () {
       final tool = registry.tools.firstWhere((t) => t.name == 'delete_note');
       expect(tool.annotations['readOnlyHint'], isFalse);
       expect(tool.annotations['destructiveHint'], isTrue);
       expect(tool.annotations['idempotentHint'], isTrue);
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
         'create_note and append_to_note are non-destructive and '
         'non-idempotent', () {
       for (final name in ['create_note', 'append_to_note']) {

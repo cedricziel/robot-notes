@@ -3,12 +3,15 @@ import 'dart:io';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/storage.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/notes/[id]/backlinks.dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -21,6 +24,10 @@ RequestContext _ctx({
   required LinkIndex linkIndex,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/notes/x/backlinks'));
@@ -55,7 +62,7 @@ void main() {
   late MetaIndex meta;
   late LinkIndex links;
 
-  setUp(() {
+  knowledge_fixture.authorizedSetUp(() {
     tmp = _tempDir();
     storage = Storage(
       contentDir: Directory('${tmp.path}/content'),
@@ -69,7 +76,8 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  test('lists every note whose content links to the given note', () async {
+  knowledge_fixture.authorizedTest(
+      'lists every note whose content links to the given note', () async {
     final a = await _write(storage, meta, links, title: 'Alpha', content: '');
     final b = await _write(
       storage,
@@ -107,7 +115,8 @@ void main() {
     }
   });
 
-  test('a note with no backlinks returns an empty items list', () async {
+  knowledge_fixture.authorizedTest(
+      'a note with no backlinks returns an empty items list', () async {
     final a = await _write(storage, meta, links, title: 'Lonely', content: '');
 
     final res = await route.onRequest(
@@ -124,7 +133,7 @@ void main() {
     expect(body['items'], isEmpty);
   });
 
-  test('unknown note id returns 404', () async {
+  knowledge_fixture.authorizedTest('unknown note id returns 404', () async {
     final res = await route.onRequest(
       _ctx(
         method: HttpMethod.get,
@@ -137,7 +146,7 @@ void main() {
     expect(res.statusCode, HttpStatus.notFound);
   });
 
-  test('disallowed method returns 405', () async {
+  knowledge_fixture.authorizedTest('disallowed method returns 405', () async {
     final res = await route.onRequest(
       _ctx(
         method: HttpMethod.post,

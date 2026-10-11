@@ -5,6 +5,8 @@ import 'dart:math';
 
 import 'package:mime/mime.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/vault_files.dart';
 
 export 'package:server/src/vault_files.dart'
@@ -48,8 +50,10 @@ class _Session {
     required this.filename,
     required this.maxBytes,
     required this.expiresAt,
+    required this.principal,
   });
 
+  final KnowledgePrincipal principal;
   final String path;
   final String filename;
   final int maxBytes;
@@ -97,6 +101,13 @@ class UploadSessionStore {
   /// content.
   final Directory stagingDir;
 
+  /// Selected-vault publication guard installed by AppDeps.
+  NoteAuthorizationService? authorization;
+
+  /// Rechecks the issuer against live server records before publication.
+  Future<KnowledgePrincipal?> Function(KnowledgePrincipal principal)?
+      revalidatePrincipal;
+
   final Clock _clock;
   final Random _random;
   final Duration _ttl;
@@ -112,6 +123,12 @@ class UploadSessionStore {
     required String filename,
     required int maxBytes,
   }) {
+    final principal = currentKnowledgePrincipal;
+    authorization?.require(
+      principal,
+      KnowledgeAction.edit,
+      KnowledgeTarget.folder(path),
+    );
     final token = _generateToken();
     final expiresAt = _clock.nowUtc().add(_ttl);
     _sessions[token] = _Session(
@@ -119,6 +136,7 @@ class UploadSessionStore {
       filename: filename,
       maxBytes: maxBytes,
       expiresAt: expiresAt,
+      principal: principal,
     );
     return (token: token, expiresAt: expiresAt);
   }
@@ -184,19 +202,69 @@ class UploadSessionStore {
   /// [FileCollisionException] from [store] untouched.
   Future<FileWriteResult> finalize(String token, FileStore store) async {
     final session = _usable(token, require: _Status.uploaded);
-    final file = _stagingFile(token);
-    try {
-      return await store.write(
-        path: session.path,
-        filename: session.filename,
-        bytes: file.openRead(),
-        maxBytes: session.maxBytes,
-        contentType: session.contentType,
-      );
-    } finally {
-      _sessions.remove(token);
-      if (file.existsSync()) await file.delete();
+    final guard = authorization;
+    final caller = currentKnowledgePrincipal;
+    if (guard != null) {
+      if (caller.id != session.principal.id ||
+          caller.kind == KnowledgePrincipalKind.unidentified) {
+        throw const KnowledgeAccessDeniedException(KnowledgeAction.edit);
+      }
+      final issuer = await revalidatePrincipal?.call(session.principal);
+      if (issuer == null) {
+        throw const KnowledgeAccessDeniedException(KnowledgeAction.edit);
+      }
+      guard
+        ..require(
+          issuer,
+          KnowledgeAction.edit,
+          KnowledgeTarget.folder(session.path),
+        )
+        ..require(
+          caller,
+          KnowledgeAction.edit,
+          KnowledgeTarget.folder(session.path),
+        );
     }
+    final file = _stagingFile(token);
+    Future<FileWriteResult> publish() async {
+      try {
+        return await store.write(
+          path: session.path,
+          filename: session.filename,
+          bytes: file.openRead(),
+          maxBytes: session.maxBytes,
+          contentType: session.contentType,
+          beforePublish: guard == null
+              ? null
+              : () async {
+                  final issuer =
+                      await revalidatePrincipal?.call(session.principal);
+                  if (issuer == null) {
+                    throw const KnowledgeAccessDeniedException(
+                      KnowledgeAction.edit,
+                    );
+                  }
+                  guard.require(
+                    issuer,
+                    KnowledgeAction.edit,
+                    KnowledgeTarget.folder(session.path),
+                  );
+                },
+        );
+      } finally {
+        _sessions.remove(token);
+        if (file.existsSync()) await file.delete();
+      }
+    }
+
+    return guard == null
+        ? publish()
+        : guard.runMutation(
+            caller,
+            KnowledgeAction.edit,
+            KnowledgeTarget.folder(session.path),
+            publish,
+          );
   }
 
   _Session _usable(String token, {required _Status require}) {

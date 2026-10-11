@@ -112,11 +112,12 @@ void main() {
   });
 
   group('tools/list', () {
-    test('returns the nineteen tools with declared required arrays', () async {
+    test('returns the note and permission tools with declared schemas',
+        () async {
       final response = await handler.handle(_req('tools/list'), fullAccess);
       final result = response!['result']! as Map<String, Object?>;
       final tools = result['tools']! as List<Object?>;
-      expect(tools, hasLength(20));
+      expect(tools, hasLength(21));
       final byName = {
         for (final t in tools.cast<Map<String, Object?>>()) t['name']: t,
       };

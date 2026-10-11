@@ -5,6 +5,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/databases/registry.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
@@ -14,6 +16,7 @@ import 'package:shared/shared.dart';
 import 'package:test/test.dart';
 
 import '../../../../routes/databases/[id]/index.dart' as route;
+import '../../../knowledge_test_context.dart' as knowledge_fixture;
 
 class _MockRequestContext extends Mock implements RequestContext {}
 
@@ -28,6 +31,10 @@ RequestContext _ctx({
   Object? body,
 }) {
   final ctx = _MockRequestContext();
+  when(() => ctx.read<KnowledgeReadService>())
+      .thenReturn(knowledge_fixture.fixtureReads);
+  when(() => ctx.read<NoteAuthorizationService>())
+      .thenReturn(knowledge_fixture.fixtureAuthorization);
   final req = _MockRequest();
   when(() => req.method).thenReturn(method);
   when(() => req.uri).thenReturn(Uri.parse('/databases/x'));
@@ -60,7 +67,7 @@ void main() {
   late DatabaseRegistry registry;
   late NoteWriteService writes;
 
-  setUp(() async {
+  knowledge_fixture.authorizedSetUp(() async {
     tmp = _tempDir();
     storage = Storage(
       contentDir: Directory('${tmp.path}/content'),
@@ -73,6 +80,7 @@ void main() {
     );
     registry = DatabaseRegistry();
     writes = NoteWriteService(
+      authorization: knowledge_fixture.fixtureAuthorization,
       storage: storage,
       metaIndex: meta,
       searchIndex: search,
@@ -101,7 +109,7 @@ void main() {
       );
 
   group('GET /databases/{id}', () {
-    test('returns the full definition', () async {
+    knowledge_fixture.authorizedTest('returns the full definition', () async {
       final note = await makeDb();
       final res = await route.onRequest(
         _ctx(method: HttpMethod.get, registry: registry),
@@ -114,7 +122,8 @@ void main() {
       expect(body['views'], isNotEmpty);
     });
 
-    test('an ordinary note id returns 404 not_found', () async {
+    knowledge_fixture
+        .authorizedTest('an ordinary note id returns 404 not_found', () async {
       final note = await storage.create(title: 'Not a db', content: '');
       final res = await route.onRequest(
         _ctx(method: HttpMethod.get, registry: registry),
@@ -127,7 +136,7 @@ void main() {
   });
 
   group('PUT /databases/{id}', () {
-    test('without If-Match returns 428', () async {
+    knowledge_fixture.authorizedTest('without If-Match returns 428', () async {
       final note = await makeDb();
       final res = await route.onRequest(
         _ctx(
@@ -141,7 +150,8 @@ void main() {
       expect(res.statusCode, 428);
     });
 
-    test('with a stale If-Match returns 409 version_conflict', () async {
+    knowledge_fixture.authorizedTest(
+        'with a stale If-Match returns 409 version_conflict', () async {
       final note = await makeDb();
       final res = await route.onRequest(
         _ctx(
@@ -175,7 +185,7 @@ void main() {
       expect(body['error'], 'version_conflict');
     });
 
-    test(
+    knowledge_fixture.authorizedTest(
       'removing a property from the schema keeps row values on disk',
       () async {
         final note = await makeDb();
@@ -207,7 +217,8 @@ void main() {
       },
     );
 
-    test('a body-only update preserves type/source/properties/views', () async {
+    knowledge_fixture.authorizedTest(
+        'a body-only update preserves type/source/properties/views', () async {
       final note = await makeDb();
       final res = await route.onRequest(
         _ctx(
@@ -225,7 +236,8 @@ void main() {
       expect(body['views'], isNotEmpty);
     });
 
-    test('after the definition is deleted returns 404', () async {
+    knowledge_fixture.authorizedTest(
+        'after the definition is deleted returns 404', () async {
       final note = await makeDb();
       await writes.delete(id: note.id, actor: 'a');
 

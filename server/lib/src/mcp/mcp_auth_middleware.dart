@@ -32,6 +32,10 @@ const String _protectedResourceMcpPath =
 Middleware mcpAuth({AgentCredentialStore? agentCredentials}) {
   return (handler) {
     return (context) async {
+      final agentOrigin = context.request.headers['x-robot-notes-agent']
+              ?.trim()
+              .toLowerCase() ==
+          'true';
       final supplied = extractBearerToken(
         context.request.headers['authorization'],
       );
@@ -43,7 +47,9 @@ Middleware mcpAuth({AgentCredentialStore? agentCredentials}) {
       if (constantTimeEquals(config.apiKey, supplied)) {
         final actor = context.read<Actor>().name;
         return handler(
-          context.provide<McpPrincipal>(() => McpPrincipal.staticKey(actor)),
+          context.provide<McpPrincipal>(
+            () => McpPrincipal.staticKey(actor, agentOrigin: agentOrigin),
+          ),
         );
       }
 
@@ -53,6 +59,7 @@ Middleware mcpAuth({AgentCredentialStore? agentCredentials}) {
           context.provide<McpPrincipal>(
             () => McpPrincipal(
               actor: agent.actor,
+              agentOrigin: true,
               scopes: agent.scopes,
               vaultIds: agent.vaultIds,
               principalId: 'agent:${agent.id}',
@@ -70,6 +77,7 @@ Middleware mcpAuth({AgentCredentialStore? agentCredentials}) {
 
       final principal = McpPrincipal(
         actor: record.actor,
+        agentOrigin: agentOrigin,
         principalId: 'oauth:${record.grantId}',
         scopes: record.scopes,
         vaultIds: record.vaultIds,

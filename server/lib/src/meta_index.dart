@@ -256,6 +256,7 @@ class MetaIndex {
     String? pathPrefix,
     String? tag,
     String? title,
+    Set<String>? allowedIds,
   }) {
     final effectiveLimit = limit.clamp(1, kMaxPageSize);
     switch (sort) {
@@ -266,6 +267,7 @@ class MetaIndex {
           pathPrefix: pathPrefix,
           tag: tag,
           title: title,
+          allowedIds: allowedIds,
         );
       case kSortUpdatedDesc:
         return _pageByUpdated(
@@ -274,6 +276,7 @@ class MetaIndex {
           pathPrefix: pathPrefix,
           tag: tag,
           title: title,
+          allowedIds: allowedIds,
         );
       default:
         throw ArgumentError.value(sort, 'sort', 'unsupported sort');
@@ -314,13 +317,17 @@ class MetaIndex {
     String? pathPrefix,
     String? tag,
     String? title,
+    Set<String>? allowedIds,
   }) {
-    final candidates = pathPrefix == null && tag == null && title == null
-        ? _sortedIds
-        : [
-            for (final id in _sortedIds)
-              if (_matchesFilters(_byId[id]!, pathPrefix, tag, title)) id,
-          ];
+    final candidates =
+        pathPrefix == null && tag == null && title == null && allowedIds == null
+            ? _sortedIds
+            : [
+                for (final id in _sortedIds)
+                  if ((allowedIds == null || allowedIds.contains(id)) &&
+                      _matchesFilters(_byId[id]!, pathPrefix, tag, title))
+                    id,
+              ];
     int startIdx;
     if (after == null) {
       startIdx = 0;
@@ -344,13 +351,17 @@ class MetaIndex {
     String? pathPrefix,
     String? tag,
     String? title,
+    Set<String>? allowedIds,
   }) {
-    final candidates = pathPrefix == null && tag == null && title == null
-        ? _sortedByUpdated
-        : [
-            for (final id in _sortedByUpdated)
-              if (_matchesFilters(_byId[id]!, pathPrefix, tag, title)) id,
-          ];
+    final candidates =
+        pathPrefix == null && tag == null && title == null && allowedIds == null
+            ? _sortedByUpdated
+            : [
+                for (final id in _sortedByUpdated)
+                  if ((allowedIds == null || allowedIds.contains(id)) &&
+                      _matchesFilters(_byId[id]!, pathPrefix, tag, title))
+                    id,
+              ];
     int startIdx;
     if (after == null) {
       startIdx = 0;

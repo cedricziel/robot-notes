@@ -87,7 +87,7 @@ class VaultRegistry {
     if (id == 'default') return Future.value(root);
     return _opened.putIfAbsent(id, () async {
       try {
-        return await AppDeps.bootstrap(
+        final deps = await AppDeps.bootstrap(
           Config(
             apiKey: config.apiKey,
             dataDir: '${config.dataDir}/vaults/$id',
@@ -100,7 +100,10 @@ class VaultRegistry {
           ),
           clock: root.clock,
           initializeVaults: false,
+          vaultId: id,
         );
+        deps.bindCredentialAuthority(root);
+        return deps;
       } on Object {
         unawaited(_opened.remove(id));
         rethrow;

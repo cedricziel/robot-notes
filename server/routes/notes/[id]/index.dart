@@ -5,6 +5,8 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/actor.dart';
 import 'package:server/src/databases/definition.dart';
 import 'package:server/src/databases/note_properties.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/storage.dart';
@@ -53,6 +55,10 @@ Future<Response> _read(RequestContext context, String id) async {
         'tags': computeTags(extra: note.extra, content: note.content).toList()
           ..sort(),
         'properties': propertiesOf(note.extra),
+        'permissions': context.read<NoteAuthorizationService>().permissions(
+              currentKnowledgePrincipal,
+              KnowledgeTarget.note(note.id, note.path),
+            ),
         if (isDatabaseDefinitionExtra(note.extra)) 'type': 'database',
         'lock': lock == null
             ? null

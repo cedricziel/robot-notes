@@ -1,18 +1,22 @@
 import 'package:meta/meta.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/backlinks.dart';
+import 'package:server/src/canonical_note_upload.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/databases/definition.dart';
 import 'package:server/src/databases/query.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/databases/validation.dart';
+import 'package:server/src/knowledge_identity.dart';
+import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/mcp/principal.dart';
 import 'package:server/src/mcp/tool_results.dart';
-import 'package:server/src/meta_index.dart' hide InvalidCursorException;
 import 'package:server/src/meta_index.dart' as meta_index
     show InvalidCursorException;
+import 'package:server/src/meta_index.dart' hide InvalidCursorException;
 import 'package:server/src/note_write_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
@@ -72,6 +76,8 @@ class McpTool {
     required this.annotations,
     required this.requiresWrite,
     required this.handler,
+    this.requiredScope,
+    this.requiredAnyScopes,
   });
 
   /// The tool name as it appears in `tools/list` and `tools/call`.
@@ -94,6 +100,12 @@ class McpTool {
   /// Whether this tool requires the `notes:write` scope (as opposed to
   /// `notes:read`).
   final bool requiresWrite;
+
+  /// Exact capability override for proposal, review, and policy operations.
+  final String? requiredScope;
+
+  /// Capability alternatives; handlers still enforce target policy and role.
+  final Set<String>? requiredAnyScopes;
 
   /// Implements the tool. Only invoked once `args` have passed schema
   /// validation and the principal has the required scope.
@@ -184,6 +196,8 @@ class McpToolRegistry {
           },
           annotations: tool.annotations,
           requiresWrite: tool.requiresWrite,
+          requiredScope: tool.requiredScope,
+          requiredAnyScopes: tool.requiredAnyScopes,
           handler: (args, principal) async {
             final id = args['vault_id'] as String? ?? 'default';
             if (!principal.canAccessVault(id)) {
@@ -208,43 +222,91 @@ class McpToolRegistry {
     AppDeps deps, {
     String vaultId = 'default',
   }) =>
-      McpToolRegistry([
-        _listNotesTool(deps.metaIndex),
-        _getNoteTool(deps.storage, deps.lockManager),
-        _searchNotesTool(deps.searchIndex),
-        _createNoteTool(deps.noteWriteService),
-        _updateNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
-        _appendToNoteTool(deps.noteWriteService),
-        _deleteNoteTool(deps.noteWriteService, deps.lockManager),
-        _moveNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
-        _getBacklinksTool(deps.metaIndex, deps.linkIndex, deps.storage),
-        _createFolderTool(deps.storage, deps.metaIndex),
-        _requestUploadTool(
-          deps.uploadSessions,
-          deps.maxUploadSizeBytes,
-          vaultId: vaultId,
-        ),
-        _finalizeUploadTool(
-          deps.uploadSessions,
-          deps.fileStore,
-          deps.storage,
-          deps.clock,
-        ),
-        _listDatabasesTool(deps.noteWriteService.registry, deps.searchIndex),
-        _getDatabaseTool(deps.noteWriteService.registry),
-        _createDatabaseTool(deps.noteWriteService),
-        _updateDatabaseTool(
-          deps.noteWriteService.registry,
-          deps.noteWriteService,
-        ),
-        _queryDatabaseTool(
-          deps.noteWriteService.registry,
-          deps.searchIndex,
-          deps.metaIndex,
-        ),
-        _createRowTool(deps.noteWriteService),
-        _updatePropertiesTool(deps.noteWriteService),
-      ]);
+      McpToolRegistry(
+        [
+          _getNotePermissionsTool(deps.noteWriteService),
+          _listNotesTool(deps.metaIndex, deps.knowledgeReads),
+          _getNoteTool(deps.storage, deps.lockManager),
+          _searchNotesTool(deps.searchIndex, deps.knowledgeReads),
+          _createNoteTool(deps.noteWriteService),
+          _updateNoteTool(
+            deps.storage,
+            deps.noteWriteService,
+            deps.lockManager,
+          ),
+          _appendToNoteTool(deps.noteWriteService),
+          _deleteNoteTool(deps.noteWriteService, deps.lockManager),
+          _moveNoteTool(deps.storage, deps.noteWriteService, deps.lockManager),
+          _getBacklinksTool(
+            deps.metaIndex,
+            deps.linkIndex,
+            deps.storage,
+            deps.knowledgeReads,
+          ),
+          _createFolderTool(deps.storage, deps.metaIndex),
+          _requestUploadTool(
+            deps.uploadSessions,
+            deps.maxUploadSizeBytes,
+            vaultId: vaultId,
+          ),
+          _finalizeUploadTool(
+            deps.uploadSessions,
+            deps.fileStore,
+            deps.storage,
+            deps.clock,
+          ),
+          _listDatabasesTool(
+            deps.noteWriteService.registry,
+            deps.searchIndex,
+            deps.knowledgeReads,
+          ),
+          _getDatabaseTool(deps.noteWriteService.registry),
+          _createDatabaseTool(deps.noteWriteService),
+          _updateDatabaseTool(
+            deps.noteWriteService.registry,
+            deps.noteWriteService,
+          ),
+          _queryDatabaseTool(
+            deps.noteWriteService.registry,
+            deps.searchIndex,
+            deps.metaIndex,
+            deps.knowledgeReads,
+          ),
+          _createRowTool(deps.noteWriteService),
+          _updatePropertiesTool(deps.noteWriteService),
+        ]
+            .map(
+              (tool) => McpTool(
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+                annotations: tool.annotations,
+                requiresWrite: tool.requiresWrite,
+                requiredScope: tool.requiredScope,
+                requiredAnyScopes: tool.requiredAnyScopes,
+                handler: (args, principal) async {
+                  final rawId = args['id'];
+                  if (rawId is String) {
+                    try {
+                      await deps.knowledgeReads.requireNote(rawId);
+                    } on NoteNotFoundException {
+                      return toolFail(ErrorCode.notFound.wire);
+                    }
+                  }
+                  if (tool.name == 'create_folder') {
+                    return deps.authorization.runMutation(
+                      currentKnowledgePrincipal,
+                      KnowledgeAction.edit,
+                      KnowledgeTarget.folder(_requiredString(args, 'path')),
+                      () => tool.handler(args, principal),
+                    );
+                  }
+                  return tool.handler(args, principal);
+                },
+              ),
+            )
+            .toList(),
+      );
 
   final List<McpTool> _tools;
   final Map<String, McpTool> _byName;
@@ -283,16 +345,30 @@ class McpToolRegistry {
     final tool = _byName[name];
     if (tool == null) throw McpUnknownToolException(name);
 
-    final requiredScope =
-        tool.requiresWrite ? kScopeNotesWrite : kScopeNotesRead;
+    final requiredScope = tool.requiredScope ??
+        (tool.requiresWrite ? kScopeNotesWrite : kScopeNotesRead);
     final canDiscoverVaults =
         name == 'list_vaults' && principal.scopes.contains(kScopeNotesWrite);
-    if (!principal.scopes.contains(requiredScope) && !canDiscoverVaults) {
+    final required = tool.requiredAnyScopes;
+    final hasScope = required == null
+        ? principal.hasScope(requiredScope)
+        : required.any(principal.hasScope);
+    if (!hasScope && !canDiscoverVaults) {
       return toolFail(kErrorInsufficientScope);
     }
 
     _validateArgs(tool, args);
-    return tool.handler(args, principal);
+    try {
+      return await withKnowledgePrincipal(
+        principal.knowledgePrincipal,
+        () => tool.handler(args, principal),
+      );
+    } on KnowledgeAccessDeniedException catch (error) {
+      return toolFail(
+        'knowledge_access_denied',
+        details: {'action': error.action.name},
+      );
+    }
   }
 
   void _validateArgs(McpTool tool, Map<String, Object?> args) {
@@ -377,7 +453,36 @@ Map<String, Object?> _writeAnnotations(
       'openWorldHint': false,
     };
 
-McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
+McpTool _getNotePermissionsTool(NoteWriteService writes) => McpTool(
+      name: 'get_note_permissions',
+      description:
+          'Inspect effective curation and your allowed actions for an existing note or prospective path/title.',
+      inputSchema: const {
+        'type': 'object',
+        'properties': {
+          'id': {'type': 'string'},
+          'path': {'type': 'string'},
+          'title': {'type': 'string'},
+        },
+        'required': <String>[],
+      },
+      annotations: _readOnlyAnnotations('Get note permissions'),
+      requiresWrite: false,
+      handler: (args, principal) async {
+        final id = args['id'] as String?;
+        final target = id == null
+            ? KnowledgeTarget.folder(args['path'] as String? ?? '')
+            : await writes.knowledgeTarget(id);
+        writes.authorization
+            .require(currentKnowledgePrincipal, KnowledgeAction.read, target);
+        return toolOk(
+          writes.authorization.permissions(currentKnowledgePrincipal, target),
+        );
+      },
+    );
+
+McpTool _listNotesTool(MetaIndex metaIndex, KnowledgeReadService reads) =>
+    McpTool(
       name: 'list_notes',
       description:
           'List note metadata (id, title, version, timestamps — no content) '
@@ -425,6 +530,7 @@ McpTool _listNotesTool(MetaIndex metaIndex) => McpTool(
             pathPrefix: pathFilter,
             tag: tagFilter,
             title: titleFilter,
+            allowedIds: reads.allowedIds,
           );
         } on meta_index.InvalidCursorException {
           return toolFail(
@@ -483,7 +589,8 @@ McpTool _getNoteTool(Storage storage, LockManager lockManager) => McpTool(
       },
     );
 
-McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
+McpTool _searchNotesTool(SearchIndex searchIndex, KnowledgeReadService reads) =>
+    McpTool(
       name: 'search_notes',
       description: 'Full-text search over note titles and content, ranked by '
           'relevance. query is a literal FTS5 keyword expression, not a '
@@ -527,10 +634,11 @@ McpTool _searchNotesTool(SearchIndex searchIndex) => McpTool(
             limit: limit,
             path: pathFilter,
             tag: tagFilter,
+            allowedIds: reads.allowedIds,
           );
           return toolOk({
             'items': [
-              for (final hit in hits)
+              for (final hit in hits.where((hit) => reads.canReadId(hit.id)))
                 {
                   'id': hit.id,
                   'title': hit.title,
@@ -842,6 +950,7 @@ McpTool _getBacklinksTool(
   MetaIndex metaIndex,
   LinkIndex linkIndex,
   Storage storage,
+  KnowledgeReadService reads,
 ) =>
     McpTool(
       name: 'get_backlinks',
@@ -867,6 +976,7 @@ McpTool _getBacklinksTool(
             metaIndex: metaIndex,
             linkIndex: linkIndex,
             storage: storage,
+            allowedIds: reads.allowedIds,
           );
           return toolOk({
             'items': [
@@ -1031,6 +1141,8 @@ McpTool _finalizeUploadTool(
             kErrorValidationFailed,
             message: 'token is unknown, expired, or not yet uploaded',
           );
+        } on CanonicalNoteUploadException {
+          return toolFail('canonical_note_upload_forbidden');
         } on FileCollisionException {
           return toolFail(kErrorPathConflict);
         }
@@ -1164,7 +1276,11 @@ Map<String, Object?> _definitionJson(StoredNote note) {
   return def.toJson();
 }
 
-McpTool _listDatabasesTool(DatabaseRegistry? registry, SearchIndex search) =>
+McpTool _listDatabasesTool(
+  DatabaseRegistry? registry,
+  SearchIndex search,
+  KnowledgeReadService reads,
+) =>
     McpTool(
       name: 'list_databases',
       description: 'List every registered database (a note whose '
@@ -1183,16 +1299,18 @@ McpTool _listDatabasesTool(DatabaseRegistry? registry, SearchIndex search) =>
         return toolOk({
           'items': [
             for (final def in defs)
-              DatabaseSummary(
-                id: def.id,
-                title: def.title,
-                path: def.path,
-                source: def.source,
-                rowCount: query.rowCount(
+              if (reads.canReadId(def.id))
+                DatabaseSummary(
+                  id: def.id,
+                  title: def.title,
+                  path: def.path,
                   source: def.source,
-                  excludeIds: [def.id],
-                ),
-              ).toJson(),
+                  rowCount: query.rowCount(
+                    source: def.source,
+                    excludeIds: [def.id],
+                    allowedIds: reads.allowedIds,
+                  ),
+                ).toJson(),
           ],
         });
       },
@@ -1443,6 +1561,7 @@ McpTool _queryDatabaseTool(
   DatabaseRegistry? registry,
   SearchIndex search,
   MetaIndex metaIndex,
+  KnowledgeReadService reads,
 ) =>
     McpTool(
       name: 'query_database',
@@ -1542,6 +1661,7 @@ McpTool _queryDatabaseTool(
             limit: (args['limit'] as int?) ?? 50,
             after: args['after'] as String?,
             excludeIds: [id],
+            allowedIds: reads.allowedIds,
           );
 
           return toolOk(

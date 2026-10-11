@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/search_index.dart';
 
 /// Default page size when the caller omits `limit`.
@@ -70,6 +71,7 @@ Future<Response> onRequest(RequestContext context) async {
     hits = await index.search(
       q,
       limit: effectiveLimit,
+      allowedIds: context.read<KnowledgeReadService>().allowedIds,
       path: pathFilter,
       tag: tagFilter,
     );
@@ -83,7 +85,9 @@ Future<Response> onRequest(RequestContext context) async {
   return Response.json(
     body: {
       'items': [
-        for (final hit in hits)
+        for (final hit in hits.where(
+          (hit) => context.read<KnowledgeReadService>().canReadId(hit.id),
+        ))
           {
             'id': hit.id,
             'title': hit.title,

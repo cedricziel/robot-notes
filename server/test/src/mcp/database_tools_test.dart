@@ -20,8 +20,11 @@ import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/presence.dart';
 import 'package:test/test.dart';
 
+import '../../knowledge_test_context.dart' as knowledge_fixture;
+
 const McpPrincipal fullAccess = McpPrincipal.staticKey('tester');
 const McpPrincipal readOnly = McpPrincipal(
+  principalId: 'oauth:fixture-grant',
   actor: 'reader-bot',
   scopes: {kScopeNotesRead},
   isStaticKey: false,
@@ -48,6 +51,7 @@ Future<AppDeps> _bootstrap(Directory tmp) async {
   final broadcaster = Broadcaster();
   final lockManager = LockManager(clock: clock);
   final noteWriteService = NoteWriteService(
+    authorization: knowledge_fixture.fixtureAuthorization,
     storage: storage,
     metaIndex: metaIndex,
     searchIndex: searchIndex,
@@ -89,7 +93,7 @@ void main() {
   ]) =>
       registry.call(name, args, principal);
 
-  setUp(() async {
+  knowledge_fixture.authorizedSetUp(() async {
     tmp = _tempDir();
     deps = await _bootstrap(tmp);
     registry = McpToolRegistry.forDeps(deps);
@@ -122,14 +126,16 @@ void main() {
   }
 
   group('6.1 _validateArgs type checks', () {
-    test('object arg of wrong type is invalid params', () async {
+    knowledge_fixture
+        .authorizedTest('object arg of wrong type is invalid params', () async {
       await expectLater(
         call('create_note', {'title': 'x', 'properties': 'nope'}),
         throwsA(isA<McpInvalidParamsException>()),
       );
     });
 
-    test('array arg of wrong type is invalid params', () async {
+    knowledge_fixture
+        .authorizedTest('array arg of wrong type is invalid params', () async {
       final db = await makeDatabase();
       await expectLater(
         call('query_database', {'id': db['id'], 'sort': 'nope'}),
@@ -137,7 +143,8 @@ void main() {
       );
     });
 
-    test('query_database with filter as a string is invalid params', () async {
+    knowledge_fixture.authorizedTest(
+        'query_database with filter as a string is invalid params', () async {
       final db = await makeDatabase();
       await expectLater(
         call('query_database', {'id': db['id'], 'filter': 'status=done'}),
@@ -145,7 +152,8 @@ void main() {
       );
     });
 
-    test('boolean and number args of wrong type are invalid params', () async {
+    knowledge_fixture.authorizedTest(
+        'boolean and number args of wrong type are invalid params', () async {
       final fakeTool = McpTool(
         name: 'fake_tool',
         description: 'test-only tool exercising boolean/number schema types',
@@ -182,7 +190,7 @@ void main() {
   });
 
   group('6.2 properties on note tools', () {
-    test('get_note returns properties', () async {
+    knowledge_fixture.authorizedTest('get_note returns properties', () async {
       final created = await deps.noteWriteService.create(
         title: 'Note',
         content: '',
@@ -193,7 +201,8 @@ void main() {
       expect(_structured(result)['properties'], {'status': 'Active'});
     });
 
-    test('create_note accepts properties', () async {
+    knowledge_fixture.authorizedTest('create_note accepts properties',
+        () async {
       final result = await call('create_note', {
         'title': 'Note',
         'properties': {'status': 'Active'},
@@ -201,7 +210,8 @@ void main() {
       expect(_structured(result)['properties'], {'status': 'Active'});
     });
 
-    test('update_note with only properties is valid', () async {
+    knowledge_fixture
+        .authorizedTest('update_note with only properties is valid', () async {
       final created = await call('create_note', {'title': 'Note'});
       final id = _structured(created)['id'];
       final result = await call('update_note', {
@@ -215,13 +225,15 @@ void main() {
   });
 
   group('6.3 database CRUD tools', () {
-    test('create_database creates a definition note', () async {
+    knowledge_fixture
+        .authorizedTest('create_database creates a definition note', () async {
       final def = await makeDatabase();
       expect(def['title'], 'Projects');
       expect((def['properties']! as Map)['status'], isNotNull);
     });
 
-    test('list_databases lists row_count', () async {
+    knowledge_fixture.authorizedTest('list_databases lists row_count',
+        () async {
       final def = await makeDatabase();
       await call('create_row', {
         'id': def['id'],
@@ -234,7 +246,8 @@ void main() {
       expect((items.first! as Map)['row_count'], 1);
     });
 
-    test('get_database returns the schema', () async {
+    knowledge_fixture.authorizedTest('get_database returns the schema',
+        () async {
       final def = await makeDatabase();
       final result = await call('get_database', {'id': def['id']});
       final props = _structured(result)['properties']! as Map<String, Object?>;
@@ -242,14 +255,16 @@ void main() {
       expect((props['status']! as Map)['options'], ['Idea', 'Active', 'Done']);
     });
 
-    test('get_database unknown id is not_found', () async {
+    knowledge_fixture.authorizedTest('get_database unknown id is not_found',
+        () async {
       final result = await call('get_database', {
         'id': '01ARZ3NDEKTSV4RRFFQ69G5FAV',
       });
       expect(_structured(result)['error'], 'not_found');
     });
 
-    test('update_database replaces properties wholesale', () async {
+    knowledge_fixture.authorizedTest(
+        'update_database replaces properties wholesale', () async {
       final def = await makeDatabase();
       final result = await call('update_database', {
         'id': def['id'],
@@ -267,7 +282,8 @@ void main() {
       expect(props.containsKey('priority'), isTrue);
     });
 
-    test('update_database with stale version is version_conflict', () async {
+    knowledge_fixture.authorizedTest(
+        'update_database with stale version is version_conflict', () async {
       final def = await makeDatabase();
       final result = await call('update_database', {
         'id': def['id'],
@@ -277,7 +293,8 @@ void main() {
       expect(_structured(result)['error'], 'version_conflict');
     });
 
-    test('create_database with a bad select is validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'create_database with a bad select is validation_failed', () async {
       final result = await call('create_database', {
         'title': 'Bad',
         'properties': {
@@ -290,7 +307,8 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('create_database colliding path is path_conflict', () async {
+    knowledge_fixture.authorizedTest(
+        'create_database colliding path is path_conflict', () async {
       await call('create_note', {'title': 'Taken'});
       final result = await call('create_database', {
         'title': 'Taken',
@@ -302,7 +320,8 @@ void main() {
       expect(_structured(result)['error'], 'path_conflict');
     });
 
-    test('create_database requires the write scope', () async {
+    knowledge_fixture.authorizedTest('create_database requires the write scope',
+        () async {
       final result = await call(
         'create_database',
         {
@@ -319,7 +338,8 @@ void main() {
   });
 
   group('6.4 query_database, create_row, update_properties', () {
-    test('create_row lands in the source folder and validates', () async {
+    knowledge_fixture.authorizedTest(
+        'create_row lands in the source folder and validates', () async {
       final def = await makeDatabase(source: const {'folder': 'Projects'});
       final result = await call('create_row', {
         'id': def['id'],
@@ -331,7 +351,8 @@ void main() {
       expect(note['properties'], {'status': 'Idea'});
     });
 
-    test('create_row with an invalid option is validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'create_row with an invalid option is validation_failed', () async {
       final def = await makeDatabase();
       final result = await call('create_row', {
         'id': def['id'],
@@ -341,7 +362,8 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('create_row for an unknown database is not_found', () async {
+    knowledge_fixture.authorizedTest(
+        'create_row for an unknown database is not_found', () async {
       final result = await call('create_row', {
         'id': '01ARZ3NDEKTSV4RRFFQ69G5FAV',
         'title': 'Row',
@@ -349,7 +371,8 @@ void main() {
       expect(_structured(result)['error'], 'not_found');
     });
 
-    test('query_database returns rows with properties', () async {
+    knowledge_fixture.authorizedTest(
+        'query_database returns rows with properties', () async {
       final def = await makeDatabase();
       await call('create_row', {
         'id': def['id'],
@@ -367,7 +390,8 @@ void main() {
       expect(items, hasLength(2));
     });
 
-    test('query_database with a filter narrows rows', () async {
+    knowledge_fixture
+        .authorizedTest('query_database with a filter narrows rows', () async {
       final def = await makeDatabase();
       await call('create_row', {
         'id': def['id'],
@@ -396,7 +420,8 @@ void main() {
       );
     });
 
-    test('query_database with group_by returns groups', () async {
+    knowledge_fixture.authorizedTest(
+        'query_database with group_by returns groups', () async {
       final def = await makeDatabase();
       await call('create_row', {
         'id': def['id'],
@@ -411,13 +436,15 @@ void main() {
       expect(_structured(result)['groups'], isNotNull);
     });
 
-    test('query_database allows the read scope', () async {
+    knowledge_fixture.authorizedTest('query_database allows the read scope',
+        () async {
       final def = await makeDatabase();
       final result = await call('query_database', {'id': def['id']}, readOnly);
       expect(result['isError'], isNot(isTrue));
     });
 
-    test('query_database rejects an inapplicable operator', () async {
+    knowledge_fixture.authorizedTest(
+        'query_database rejects an inapplicable operator', () async {
       final def = await makeDatabase();
       final result = await call('query_database', {
         'id': def['id'],
@@ -426,7 +453,8 @@ void main() {
       expect(_structured(result)['error'], 'validation_failed');
     });
 
-    test('update_properties sets a property without a version', () async {
+    knowledge_fixture.authorizedTest(
+        'update_properties sets a property without a version', () async {
       final def = await makeDatabase();
       final row = _structured(
         await call('create_row', {
@@ -443,7 +471,8 @@ void main() {
       expect(structured['properties'], {'status': 'Done'});
     });
 
-    test('update_properties ignores the editor lock', () async {
+    knowledge_fixture
+        .authorizedTest('update_properties ignores the editor lock', () async {
       final def = await makeDatabase();
       final row = _structured(
         await call('create_row', {
@@ -464,7 +493,8 @@ void main() {
       expect(result['isError'], isNot(isTrue));
     });
 
-    test('update_properties with a bad value is validation_failed', () async {
+    knowledge_fixture.authorizedTest(
+        'update_properties with a bad value is validation_failed', () async {
       final def = await makeDatabase();
       final row = _structured(
         await call('create_row', {

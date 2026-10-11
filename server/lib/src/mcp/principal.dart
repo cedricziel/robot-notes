@@ -25,12 +25,13 @@ class McpPrincipal {
     required this.isStaticKey,
     this.vaultIds = const {'default'},
     this.principalId,
+    this.agentOrigin = false,
   });
 
   /// Convenience constructor for the static API key, which is the root
   /// credential everywhere else in the API and so always holds both
   /// scopes, regardless of any caller-supplied header.
-  const McpPrincipal.staticKey(this.actor)
+  const McpPrincipal.staticKey(this.actor, {this.agentOrigin = false})
       : scopes = const {kScopeNotesRead, kScopeNotesWrite},
         principalId = 'operator',
         isStaticKey = true,
@@ -39,6 +40,9 @@ class McpPrincipal {
   /// Actor name attributed to this call's writes: the `X-Actor` header for
   /// the static key, or the actor name captured at OAuth consent.
   final String actor;
+
+  /// Restrictive transport origin; never grants scopes or changes identity.
+  final bool agentOrigin;
 
   /// Trusted credential identity, independent of attribution.
   final String? principalId;

@@ -37,6 +37,7 @@ Future<List<BacklinkEntry>> computeBacklinks({
   required MetaIndex metaIndex,
   required LinkIndex linkIndex,
   required Storage storage,
+  Set<String>? allowedIds,
 }) async {
   final target = metaIndex.get(targetId);
   if (target == null) throw NoteNotFoundException(targetId);
@@ -52,6 +53,7 @@ Future<List<BacklinkEntry>> computeBacklinks({
 
   final entries = <MapEntry<NoteSummary, String>>[];
   for (final sourceId in sourceIds) {
+    if (allowedIds != null && !allowedIds.contains(sourceId)) continue;
     final summary = metaIndex.get(sourceId);
     if (summary == null) continue; // raced with a concurrent delete
     StoredNote source;
