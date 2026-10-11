@@ -13,6 +13,42 @@ void main() {
   });
   tearDown(() => dir.deleteSync(recursive: true));
 
+  test('index acknowledgement keeps another pending note revision dirty',
+      () async {
+    final first = await storage.create(
+      title: 'First',
+      content: 'one',
+      properties: {'history': true},
+    );
+    final second = await storage.create(
+      title: 'Second',
+      content: 'two',
+      properties: {'history': true},
+    );
+
+    await storage.acknowledgeIndexedRevision(first.id, 1);
+
+    expect(storage.historyNeedsReindex, isTrue);
+    await storage.acknowledgeIndexedRevision(second.id, 1);
+    expect(storage.historyNeedsReindex, isFalse);
+  });
+
+  test('newer index acknowledgement cannot clear an older unindexed revision',
+      () async {
+    final note = await storage.create(
+      title: 'A',
+      content: 'first',
+      properties: {'history': true},
+    );
+    await storage.update(id: note.id, title: 'A', content: 'next', ifMatch: 1);
+
+    await storage.acknowledgeIndexedRevision(note.id, 2);
+
+    expect(storage.historyNeedsReindex, isTrue);
+    await storage.acknowledgeIndexedRevision(note.id, 1);
+    expect(storage.historyNeedsReindex, isFalse);
+  });
+
   test('retains opted-in updates and restores as a new version', () async {
     final note = await storage
         .create(title: 'A', content: 'first', properties: {'history': true});
@@ -176,6 +212,7 @@ void main() {
     final history = Directory('${dir.path}/content.history')
         .listSync()
         .whereType<Directory>()
+        .where((directory) => File('${directory.path}/1.json').existsSync())
         .single;
     File('${history.path}.purge').writeAsStringSync('', flush: true);
     File('${history.path}/1.json').deleteSync();

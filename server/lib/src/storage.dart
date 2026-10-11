@@ -290,8 +290,24 @@ class Storage {
 
   File get _historyDirty => File('${_historyDir.path}/index-dirty');
 
+  Directory get _historyIndexPending =>
+      Directory('${_historyDir.path}/index-pending');
+
+  File _historyIndexTicket(String id, int version) => File(
+        '${_historyIndexPending.path}/${base64Url.encode(utf8.encode(id))}-$version',
+      );
+
   /// Indicates accepted history may be newer than persisted search data.
-  bool get historyNeedsReindex => _historyDirty.existsSync();
+  bool get historyNeedsReindex =>
+      _historyDirty.existsSync() ||
+      (_historyIndexPending.existsSync() &&
+          _historyIndexPending.listSync().isNotEmpty);
+
+  /// Acknowledges only the indexed accepted revision, preserving other writes.
+  Future<void> acknowledgeIndexedRevision(String id, int version) async {
+    final ticket = _historyIndexTicket(id, version);
+    if (ticket.existsSync()) await ticket.delete();
+  }
 
   /// Prepares canonical notes before derived indices open.
   Future<void> prepareHistory() => _ensureIndexed();
@@ -299,6 +315,9 @@ class Storage {
   /// Clears startup invalidation only after rebuilding search successfully.
   Future<void> acknowledgeHistoryReindex() async {
     if (_historyDirty.existsSync()) await _historyDirty.delete();
+    if (_historyIndexPending.existsSync()) {
+      await _historyIndexPending.delete(recursive: true);
+    }
   }
 
   final Clock _clock;
@@ -802,7 +821,10 @@ class Storage {
       throw StateError('Incomplete history commit requires recovery');
     }
     await _historyDir.create(recursive: true);
-    await _historyDirty.writeAsString('', flush: true);
+    await _atomicText(
+      _historyIndexTicket(note.id, note.version + (deleted ? 1 : 0)),
+      '',
+    );
     await _atomicText(pending, jsonEncode(event));
     try {
       await beforeHistoryApply?.call();

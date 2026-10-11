@@ -121,6 +121,89 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
+  test('completed history create acknowledges its search update', () async {
+    final s = await _stack(tmp);
+    addTearDown(s.search.close);
+    final service = NoteWriteService(
+      storage: s.storage,
+      metaIndex: s.meta,
+      searchIndex: s.search,
+      broadcaster: _CapturingBroadcaster(),
+    );
+
+    final note = await service.create(
+      title: 'A',
+      content: 'indexedword',
+      actor: 'tester',
+      properties: {'history': true},
+    );
+
+    expect((await s.search.search('indexedword')).single.id, note.id);
+    expect(s.storage.historyNeedsReindex, isFalse);
+  });
+
+  test('completed history save preserves vectors across restart', () async {
+    final provider = FakeEmbeddingProvider();
+    final s = await _stack(tmp, embeddingProvider: provider);
+    final service = NoteWriteService(
+      storage: s.storage,
+      metaIndex: s.meta,
+      searchIndex: s.search,
+      broadcaster: _CapturingBroadcaster(),
+      embeddingProvider: provider,
+    );
+    final note = await service.create(
+      title: 'A',
+      content: 'retainedvector',
+      actor: 'tester',
+      properties: {'history': true},
+    );
+    await service.drainEmbeddings();
+    s.search.close();
+
+    final reopened = await SearchIndex.open(
+      dbFile: File('${tmp.path}/search.db'),
+      storage: Storage(contentDir: s.storage.contentDir),
+      embeddingProvider: provider,
+      autoBackfill: false,
+    );
+    addTearDown(reopened.close);
+
+    expect(reopened.vectorSearch([0, 0, 0, 0]).single.id, note.id);
+  });
+
+  test('search update failure keeps history dirty until restart', () async {
+    final s = await _stack(tmp);
+    final service = NoteWriteService(
+      storage: s.storage,
+      metaIndex: s.meta,
+      searchIndex: s.search,
+      broadcaster: _CapturingBroadcaster(),
+    );
+    s.search.close();
+
+    await expectLater(
+      service.create(
+        title: 'A',
+        content: 'recoveredword',
+        actor: 'tester',
+        properties: {'history': true},
+      ),
+      throwsA(anything),
+    );
+
+    expect((await s.storage.list()).single.title, 'A');
+    expect(s.storage.historyNeedsReindex, isTrue);
+    final recoveredStorage = Storage(contentDir: s.storage.contentDir);
+    final recoveredSearch = await SearchIndex.open(
+      dbFile: File('${tmp.path}/search.db'),
+      storage: recoveredStorage,
+    );
+    addTearDown(recoveredSearch.close);
+    expect(await recoveredSearch.search('recoveredword'), hasLength(1));
+    expect(recoveredStorage.historyNeedsReindex, isFalse);
+  });
+
   group('NoteWriteService.restoreRevision', () {
     test('broadcasts created when restoring a deleted note', () async {
       final s = await _stack(tmp);

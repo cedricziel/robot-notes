@@ -261,6 +261,7 @@ class NoteWriteService {
       isDefinition: isDatabaseDefinitionExtra(note.extra),
     );
     _refreshRegistry(summary, note.extra);
+    await storage.acknowledgeIndexedRevision(note.id, note.version);
     _safeBroadcast(
       ChangedEvent(
         noteId: note.id,
@@ -386,6 +387,7 @@ class NoteWriteService {
           isDefinition: isDatabaseDefinitionExtra(updated.extra),
         );
         _refreshRegistry(summary, updated.extra);
+        await storage.acknowledgeIndexedRevision(updated.id, updated.version);
         // A path change broadcasts as `moved` rather than `updated` (per
         // notes-api), even if title/content changed in the same request —
         // "moved" is what tells subscribed clients their folder tree view
@@ -603,6 +605,7 @@ class NoteWriteService {
       isDefinition: isDatabaseDefinitionExtra(note.extra),
     );
     _refreshRegistry(summary, note.extra);
+    await storage.acknowledgeIndexedRevision(note.id, note.version);
     _safeBroadcast(
       ChangedEvent(
         noteId: note.id,
@@ -643,6 +646,7 @@ class NoteWriteService {
         metaIndex.remove(id);
         linkIndex.remove(id);
         registry?.remove(id);
+        await storage.acknowledgeIndexedRevision(id, existing.version + 1);
         _safeBroadcast(
           ChangedEvent(
             noteId: id,
@@ -805,6 +809,7 @@ class NoteWriteService {
           isDefinition: isDatabaseDefinitionExtra(updated.extra),
         );
         _refreshRegistry(summary, updated.extra);
+        await storage.acknowledgeIndexedRevision(updated.id, updated.version);
         _safeBroadcast(
           ChangedEvent(
             noteId: updated.id,
