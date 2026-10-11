@@ -67,6 +67,21 @@ Users SHALL be able to apply bold, italic, inline code, and links to selected te
 - **WHEN** the user enters text with an input method while a save completes
 - **THEN** composition, selection, and newer unsaved text SHALL remain intact
 
+#### Scenario: Paste inline text into an existing block
+
+- **WHEN** the user pastes inline text into a heading, list item, checkbox, or quote
+- **THEN** insertion SHALL preserve the destination block type
+- **WHEN** the destination is a code block
+- **THEN** pasted Markdown syntax and newlines SHALL remain literal code
+
+#### Scenario: Reject a stale clipboard result
+
+- **GIVEN** a clipboard read is pending
+- **WHEN** the presentation, editing permission, document, or selection changes, or the editor closes
+- **THEN** the clipboard result SHALL NOT delete the selection or mutate the draft
+- **WHEN** a valid paste replaces a selection
+- **THEN** one undo SHALL restore the original content
+
 ### Requirement: Markdown and source switching preserve content
 
 Markdown SHALL remain the persisted note body. Opening a note or switching presentations without editing SHALL preserve the body byte-for-byte and SHALL NOT trigger a save. Editing a supported block SHALL preserve untouched source spans, including unsupported syntax. Unsupported constructs such as tables, nested lists, images, and extensions SHALL remain opaque blocks with an action to edit their source. Both presentations SHALL share one draft and version baseline. Switching SHALL retain pending edits and SHALL NOT save or acquire another lock by itself. If conversion fails, the app SHALL keep the exact draft available in source mode and explain the failure.
@@ -89,6 +104,11 @@ Markdown SHALL remain the persisted note body. Opening a note or switching prese
 - **WHEN** the user opens a note, switches presentations, and closes it without edits
 - **THEN** the body and version SHALL remain unchanged
 
+#### Scenario: Edit an indented code fence
+
+- **WHEN** the user edits a fenced code block whose opening fence is indented
+- **THEN** serialization SHALL preserve meaningful code indentation after removing the opening fence's indentation from content lines
+
 ### Requirement: Block editing retains save and accessibility guarantees
 
 Block edits SHALL use the existing autosave, explicit save, close flush, conflict resolution, and lock-loss behavior. Conflict reconciliation SHALL use Markdown source. Lock loss SHALL prevent further mutations without discarding unsaved draft content. Block actions SHALL be keyboard accessible, screen-reader labelled, and usable by touch without hover or drag. Source mode SHALL obey the same editing restrictions.
@@ -102,6 +122,12 @@ Block edits SHALL use the existing autosave, explicit save, close flush, conflic
 
 - **WHEN** a save returns a lock error
 - **THEN** both presentations SHALL become read-only while retaining the unsaved draft for recovery
+
+#### Scenario: Property response includes remote body changes
+
+- **WHEN** a property response includes a title or body different from an active or retained draft's baseline
+- **THEN** the original baseline SHALL remain available for conflict detection
+- **AND** automatic saving SHALL NOT overwrite the remote content
 
 #### Scenario: Operate with touch or a screen reader
 

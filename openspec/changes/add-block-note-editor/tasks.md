@@ -119,3 +119,14 @@ Follow-up complete.
 - [x] 8.1 Move source access into the note More menu and remove the selector.
 - [x] 8.2 Show Back to Blocks only in source mode and preserve the shared draft.
 - [x] 8.3 Verify editor regressions and the phone/landscape browser layout.
+
+
+## 9. Review findings
+
+Follow-up complete.
+
+- [x] 9.1 Preserve the retained body baseline across property responses after lock loss.
+- [x] 9.2 Preserve code indentation when editing indented fences.
+- [x] 9.3 Keep inline paste in its destination block and code paste literal.
+- [x] 9.4 Cancel stale clipboard work before selection deletion or insertion.
+- [x] 9.5 Rerun full app, editor package, compatibility, and reviewer reproductions.

@@ -111,3 +111,13 @@ The note screen requests presentation changes through the block editor's sourceM
 The source-menu follow-up passes 143 editor, screen, and navigation tests. Regressions cover menu access, source-only Back visibility, dirty drafts, document identity, exact Markdown preservation, saving, and lock-loss recovery.
 
 The rebuilt app was checked at 390×844 and 844×390. More opens Markdown source, Back to Blocks returns to the writing toolbar, and returning preserves the exact stored Markdown at version 1 without a save. Browser logs contain no errors or warnings. The disposable preview is cleaned up after verification; native mobile runtime coverage remains unverified.
+
+### Review corrections
+
+Property responses advance a draft's save baseline only when the returned title and body match its existing baseline. A divergent response during editing enters conflict with the remote note while preserving local edit buffers. After lock loss, the retained baseline stays unchanged so reacquisition detects the same conflict. Property-only responses still advance the version.
+
+Fence parsing removes up to the opening fence's indentation from each code line, matching Markdown parsing semantics. Untouched source remains exact; edited serialization preserves intentional additional indentation and tabs.
+
+The adaptive editor exposes a paste callback for keyboard shortcuts, macOS selectors, and mobile selection toolbars. The note editor reads the clipboard before deleting a selection, then validates the editor's lifetime, presentation, permissions, document generation, and selection. Changed state cancels insertion, including a round trip through source or read-only mode. Valid replacement and insertion share one undo transaction. Inline paste retains the destination block type and formatting; code paste keeps Markdown syntax and newlines literal. Structured Markdown continues through the block fragment parser.
+
+Regression validation passes all 979 app tests, all 53 editor package tests, and all 9 compatibility checks. The original review reproductions also pass. New regressions cover active and retained draft conflicts, code indentation, contextual paste, delayed clipboard reads, empty or failed clipboard results, selection changes, and disposal. Static analysis reports no issues, and strict OpenSpec validation passes. Mobile toolbar tests exercise platform widget controls; they do not establish physical device coverage.
