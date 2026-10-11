@@ -591,6 +591,59 @@ void main() {
       expect(find.text('stays'), findsOneWidget);
     });
 
+    testWidgets('hover keeps note text and row geometry stable', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(380, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(
+          (_) async => _page([
+            _metaJson(
+              id: '01H',
+              title: 'A long title for the desktop notes pane',
+              excerpt: 'An excerpt that should not jump under the pointer.',
+              path: 'Design',
+              tags: ['desktop', 'review'],
+            ),
+          ]),
+        ),
+      );
+      addTearDown(api.close);
+      final controller = NotesListController(api: api);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NotesListScreen(
+            controller: controller,
+            layout: NotesListLayout.wide,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final title = find.text('A long title for the desktop notes pane');
+      final tile = find.byKey(const Key('notes.tile.01H'));
+      final titleBefore = tester.getRect(title);
+      final tileBefore = tester.getRect(tile);
+      final pointer = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await pointer.addPointer(location: Offset.zero);
+      addTearDown(pointer.removePointer);
+      await pointer.moveTo(tileBefore.center);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('notes.tile.01H.hoverDelete')),
+        findsOneWidget,
+      );
+      expect(tester.getRect(title), titleBefore);
+      expect(tester.getRect(tile), tileBefore);
+      await pointer.moveTo(Offset.zero);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(title), titleBefore);
+      expect(tester.getRect(tile), tileBefore);
+    });
+
     testWidgets(
       'hovering a row on a wide screen reveals a delete button that works',
       (tester) async {
