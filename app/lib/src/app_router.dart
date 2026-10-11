@@ -256,6 +256,7 @@ GoRouter buildAppRouter({
   required ConfigHolder configHolder,
   String? initialLocation,
   PickFile pickFile = pickFileViaFilePicker,
+  Widget Function(BuildContext, Widget)? sessionBuilder,
 }) {
   // go_router 18 defaults this to false for backward compatibility, which
   // means `context.push`/`pushReplacement` (used below for notes and search)
@@ -269,8 +270,14 @@ GoRouter buildAppRouter({
     redirect: (context, state) => _redirect(configHolder, state),
     routes: [
       ShellRoute(
-        builder: (context, state, child) =>
-            _AppShell(location: state.uri, pickFile: pickFile, child: child),
+        builder: (context, state, child) {
+          final shell = _AppShell(
+            location: state.uri,
+            pickFile: pickFile,
+            child: child,
+          );
+          return sessionBuilder?.call(context, shell) ?? shell;
+        },
         routes: [
           GoRoute(
             path: '/',
@@ -1765,42 +1772,27 @@ class _SessionHostState extends State<SessionHost> {
       baseUrl: widget.config.baseUrl,
       connection: _status,
       onReset: widget.onReset,
-      child: Column(
-        children: [
-          ConnectionBanner(status: _status),
-          VaultSwitcher(
-            api: _api,
-            selectedId: widget.config.vaultId,
-            onSelect: widget.onVaultSelected,
-            canManage: true,
-          ),
-          Expanded(
-            child: ValueListenableBuilder<ConnectionStatus>(
-              valueListenable: _status,
-              // The banner already sits inside a SafeArea, so while it is
-              // visible the AppBar below must not reserve status-bar space
-              // a second time.
-              builder: (context, status, child) =>
-                  status == ConnectionStatus.connected
-                  ? child!
-                  : MediaQuery.removePadding(
-                      context: context,
-                      removeTop: true,
-                      child: child!,
-                    ),
-              child: widget.child,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            ConnectionBanner(status: _status),
+            VaultSwitcher(
+              api: _api,
+              selectedId: widget.config.vaultId,
+              onSelect: widget.onVaultSelected,
+              canManage: true,
             ),
-          ),
-        ],
+            Expanded(child: widget.child),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Wraps the routed content for [MaterialApp.router]'s `builder`: a splash
-/// while the persisted config is still loading, the raw routed [child]
-/// while none is configured (the router has already sent it to `/setup`),
-/// or a [SessionHost] once one exists.
+/// Owns the authenticated session below the router's navigator so workspace
+/// menus and dialogs can use its overlay.
 class AppRouterShell extends StatelessWidget {
   const AppRouterShell({
     required this.configHolder,
@@ -1825,7 +1817,7 @@ class AppRouterShell extends StatelessWidget {
         final content = child ?? const SizedBox.shrink();
         if (!configHolder.loaded) return const _Splash();
         final config = configHolder.config;
-        if (config == null) return content;
+        if (config == null) return const _Splash();
         final session = SessionHost(
           key: ValueKey<AppConfig>(config),
           config: config,
@@ -1834,7 +1826,7 @@ class AppRouterShell extends StatelessWidget {
             try {
               final changed = await configHolder.selectVault(id);
               if (!context.mounted || !changed) return;
-              GoRouter.of(context).go('/notes');
+              GoRouter.of(context).go('/');
             } on Object {
               if (!context.mounted) return;
               ScaffoldMessenger.maybeOf(context)?.showSnackBar(
