@@ -110,3 +110,12 @@ Follow-up complete.
 - [x] 7.1 Replace floating mode buttons with a grouped selector and a non-wrapping toolbar.
 - [x] 7.2 Verify source switching, narrow widths, and platform presentation.
 - [x] 7.3 Check the real browser layout and record the result.
+
+
+## 8. Secondary source action
+
+Follow-up complete.
+
+- [x] 8.1 Move source access into the note More menu and remove the selector.
+- [x] 8.2 Show Back to Blocks only in source mode and preserve the shared draft.
+- [x] 8.3 Verify editor regressions and the phone/landscape browser layout.

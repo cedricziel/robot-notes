@@ -149,8 +149,11 @@ The editing experience SHALL follow the application's adaptive presentation conv
 - **THEN** the source editor SHALL use one editing pane without a simultaneous preview
 - **AND** switching back to Blocks SHALL retain the draft and show its rendered presentation
 
-#### Scenario: Presentation selection stays anchored
+#### Scenario: Source access stays secondary
 
-- **WHEN** the user switches between Blocks and Markdown source
-- **THEN** the two presentations SHALL appear in one grouped platform-appropriate selector at a consistent position
-- **AND** formatting actions SHALL remain reachable without wrapping around the selector
+- **WHEN** the user opens an editable note in Blocks
+- **THEN** Markdown source SHALL be available through the note's More menu without a persistent presentation selector
+- **WHEN** the user enters source mode
+- **THEN** Back to Blocks SHALL be available in the editor
+- **AND** Back to Blocks SHALL not appear in Blocks mode
+- **AND** returning to Blocks SHALL retain the draft and editing history

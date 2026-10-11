@@ -102,8 +102,12 @@ Markdown source uses one full-width editing pane without a simultaneous preview.
 The follow-up passes 160 focused block, screen, and theme tests and all 955 app tests. New regressions cover handle geometry, checkbox alignment and undo, natural table sizing and horizontal scroll, and single-pane source layouts at desktop, phone portrait, and phone landscape widths. Real browser checks use 390×844, 844×390, and 1440×900 layouts. Portrait and landscape checks confirm that source and block content remain scrollable to the end of the note. A real checkbox edit persisted while both table sources remained byte-for-byte unchanged. Browser logs contained no errors or warnings. The verification tab was closed, its viewport reset, and the disposable server and data cleaned up. Native mobile runtime validation remains outside this browser check.
 
 
-### Stable presentation selector
+### Secondary source access
 
-Blocks and Markdown source use one grouped selector aligned to the editor's outer inset. Apple themes use a Cupertino sliding segmented control; Material themes use a segmented button. Formatting actions occupy a separate horizontal scroller in the same toolbar row. Narrow widths and larger text put that action row below the selector without wrapping individual actions around it. Switching presentations leaves the selector anchored.
+Blocks remains the default writing presentation. Markdown source is a secondary action in the note's More menu while the editor or a retained draft is open. The writing toolbar has no presentation selector. Source mode shows Back to Blocks; Blocks mode shows only its formatting actions in a horizontal scroller. Opaque blocks retain their direct source action.
 
-The selector follow-up passes 140 editor and screen tests, including phone toolbar geometry and 2× text scaling under Apple and Material themes. The rebuilt web app was checked at 390×844 and 844×390. Formatting actions scroll, both presentations remain reachable, and source switching leaves the stored note unchanged at version 1. Browser logs contain no errors or warnings. The temporary browser, viewport override, server, data, and credentials were cleaned up.
+The note screen requests presentation changes through the block editor's sourceMode property. The editor reports its own navigation through onSourceModeChanged. Both presentations share the same document, source controller, and undo history, and presentation changes do not trigger saves.
+
+The source-menu follow-up passes 143 editor, screen, and navigation tests. Regressions cover menu access, source-only Back visibility, dirty drafts, document identity, exact Markdown preservation, saving, and lock-loss recovery.
+
+The rebuilt app was checked at 390×844 and 844×390. More opens Markdown source, Back to Blocks returns to the writing toolbar, and returning preserves the exact stored Markdown at version 1 without a save. Browser logs contain no errors or warnings. The disposable preview is cleaned up after verification; native mobile runtime coverage remains unverified.
