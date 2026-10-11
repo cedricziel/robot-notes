@@ -1968,6 +1968,7 @@ void main() {
       WidgetTester tester, {
       required VoidCallback onClose,
       int deleteStatus = 204,
+      bool reducedMotion = false,
     }) async {
       final calls = <String>[];
       final mock = MockClient((request) async {
@@ -1986,6 +1987,11 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(disableAnimations: reducedMotion),
+            child: child!,
+          ),
           home: NoteScreen(controller: ctrl, onClose: onClose),
         ),
       );
@@ -2034,22 +2040,29 @@ void main() {
       expect(find.text("Couldn't delete the note"), findsOneWidget);
     });
 
-    testWidgets('cancelling keeps the note and sends no request', (
+    testWidgets('reduced-motion delete cancels without a request', (
       tester,
     ) async {
       var closed = 0;
       final calls = await pumpAndOpenDeleteDialog(
         tester,
         onClose: () => closed += 1,
+        reducedMotion: true,
       );
 
+      final route = ModalRoute.of(
+        tester.element(find.byKey(const Key('note.delete.cancel'))),
+      )!;
+      expect(route.transitionDuration, Duration.zero);
+      expect(route.reverseTransitionDuration, Duration.zero);
       await tester.tap(find.byKey(const Key('note.delete.cancel')));
       await tester.pumpAndSettle();
 
       expect(calls, isNot(contains('DELETE /notes/01H')));
+      expect(find.text('Delete this note?'), findsNothing);
       expect(closed, 0);
       expect(find.byKey(const Key('note.body')), findsOneWidget);
-    });
+    }, variant: TargetPlatformVariant.all());
   });
 
   group('link autocomplete', () {
@@ -2420,6 +2433,7 @@ void main() {
     Future<List<String>> pumpAndOpenMoveDialog(
       WidgetTester tester, {
       required http.Response Function(http.Request) putResponse,
+      bool reducedMotion = false,
     }) async {
       final calls = <String>[];
       final mock = MockClient((request) async {
@@ -2436,7 +2450,16 @@ void main() {
       final ctrl = NoteController(api: api, noteId: '01H', actor: 'cedric');
       addTearDown(ctrl.dispose);
 
-      await tester.pumpWidget(MaterialApp(home: NoteScreen(controller: ctrl)));
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(disableAnimations: reducedMotion),
+            child: child!,
+          ),
+          home: NoteScreen(controller: ctrl),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('note.menu')));
       await tester.pumpAndSettle();
@@ -2523,16 +2546,25 @@ void main() {
       },
     );
 
-    testWidgets('cancelling sends no request', (tester) async {
+    testWidgets('reduced-motion move cancels without a request', (
+      tester,
+    ) async {
       final calls = await pumpAndOpenMoveDialog(
         tester,
+        reducedMotion: true,
         putResponse: (request) => http.Response('unexpected', 500),
       );
 
+      final route = ModalRoute.of(
+        tester.element(find.byKey(const Key('note.move.input'))),
+      )!;
+      expect(route.transitionDuration, Duration.zero);
+      expect(route.reverseTransitionDuration, Duration.zero);
       await tester.tap(find.byKey(const Key('note.move.cancel')));
       await tester.pumpAndSettle();
 
+      expect(find.byKey(const Key('note.move.input')), findsNothing);
       expect(calls, isNot(contains('PUT /notes/01H')));
-    });
+    }, variant: TargetPlatformVariant.all());
   });
 }
