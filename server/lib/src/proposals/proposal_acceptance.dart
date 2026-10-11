@@ -12,7 +12,9 @@ class ProposalAcceptancePermit {
     required this.newNote,
     required this.actor,
     this.policyDelta,
-  });
+    StoredNote? expectedCurrent,
+  }) : _expectedCanonical =
+            expectedCurrent == null ? null : _canonical(expectedCurrent);
 
   /// Source store selected by the authenticated request.
   final Storage storage;
@@ -40,6 +42,11 @@ class ProposalAcceptancePermit {
 
   /// Minimal server-authorized note designation for journal replay.
   final Map<String, dynamic>? policyDelta;
+  final String? _expectedCanonical;
+
+  /// Rechecks every canonical field after asynchronous source resolution.
+  bool matchesCurrent(StoredNote current) =>
+      _expectedCanonical == _canonical(current);
   bool _active = true;
   bool _claimed = false;
 
@@ -51,3 +58,18 @@ class ProposalAcceptancePermit {
     _claimed = true;
   }
 }
+
+String _canonical(StoredNote note) => serializeFrontmatter(
+      Frontmatter(
+        metadata: {
+          'id': note.id,
+          'title': note.title,
+          'path': note.path,
+          'version': note.version,
+          'created_at': note.createdAt.toIso8601String(),
+          'updated_at': note.updatedAt.toIso8601String(),
+          ...note.extra,
+        },
+        body: note.content,
+      ),
+    );

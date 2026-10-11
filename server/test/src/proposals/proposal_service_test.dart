@@ -665,4 +665,245 @@ void main() {
     expect((result['structuredContent']! as Map)['error'], 'forbidden');
     expect((await storage.read(note.id)).version, 1);
   });
+  test('candidate history inspection requires read at every retained target',
+      () async {
+    final record = await submit();
+    await storage.update(
+      id: note.id,
+      title: 'A',
+      path: 'public',
+      content: note.content,
+      ifMatch: 1,
+    );
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      '',
+      KnowledgePolicyPatch(curated: true, access: {KnowledgeAction.read: {}}),
+    );
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      'public',
+      KnowledgePolicyPatch(
+        access: {
+          KnowledgeAction.read: {'*'},
+        },
+      ),
+    );
+    await expectLater(
+      withKnowledgePrincipal(
+        reviewer,
+        () => service.inspect(note.id, record.id),
+      ),
+      throwsA(isA<KnowledgeAccessDeniedException>()),
+    );
+    final index = await withKnowledgePrincipal(reviewer, () => service.list());
+    expect(index, isEmpty);
+    final inspect = await withKnowledgePrincipal(
+      const KnowledgePrincipal.operator(),
+      () => service.inspect(note.id, record.id),
+    );
+    expect(inspect['versions'], hasLength(1));
+  });
+  test('archive loss after submission leaves durable pending review', () async {
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      '',
+      KnowledgePolicyPatch(curated: true, approval: 'evidence_no_conflict'),
+    );
+    var reads = 0;
+    service = ProposalService(
+      storage: storage,
+      authorization: authorization,
+      onAccepted: (note, actor, {required deleted}) async {
+        indexed++;
+      },
+      archiveReader: (_) async =>
+          ++reads <= 2 ? {'payload': 'stored evidence'} : null,
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final record = await withKnowledgePrincipal(
+      proposer,
+      () => service.submit(note.id, {
+        'base_version': 1,
+        'idempotency_key': 'archive-loss',
+        'operations': [
+          {
+            'type': 'attach_evidence',
+            'block_id': block.id,
+            'expected_revision': 1,
+            'evidence_refs': [
+              {'kind': 'archive', 'digest': 'a' * 64},
+            ],
+          }
+        ],
+      }),
+    );
+    expect(record.state, 'pending');
+    expect((await storage.read(note.id)).version, 1);
+    expect(
+      (await storage.readProposalRecord(note.id, record.id)).state,
+      'pending',
+    );
+  });
+
+  test('external source rewrite during evidence lookup cannot be overwritten',
+      () async {
+    var reads = 0;
+    service = ProposalService(
+      storage: storage,
+      authorization: authorization,
+      onAccepted: (note, actor, {required deleted}) async {
+        indexed++;
+      },
+      archiveReader: (_) async {
+        if (++reads == 2) {
+          final file = File('${storage.contentDir.path}/A.md');
+          await file.writeAsString(
+            (await file.readAsString()).replaceFirst('first', 'external'),
+          );
+        }
+        return {'payload': 'stored evidence'};
+      },
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.first;
+    final record = await withKnowledgePrincipal(
+      proposer,
+      () => service.submit(note.id, {
+        'base_version': 1,
+        'idempotency_key': 'external',
+        'operations': [
+          {
+            'type': 'replace',
+            'block_id': block.id,
+            'expected_revision': 1,
+            'text': 'new\n',
+            'evidence_refs': [
+              {'kind': 'archive', 'digest': 'b' * 64},
+            ],
+          }
+        ],
+      }),
+    );
+    await expectLater(
+      approve(record),
+      throwsA(isA<BlockMapUnavailableException>()),
+    );
+    expect((await storage.read(note.id)).content, 'external\n\nlast');
+    expect(
+      (await storage.readProposalRecord(note.id, record.id)).state,
+      'pending',
+    );
+    expect(indexed, 0);
+  });
+  test('institutional draft outside curated folder requires policy authority',
+      () async {
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      'ordinary',
+      KnowledgePolicyPatch(curated: false),
+    );
+    storage.acceptedPolicyReplay = policies.replayAcceptedNoteDesignation;
+    final draft = await withKnowledgePrincipal(
+      proposer,
+      () => service.submitNew({
+        'path': 'ordinary',
+        'title': 'Institutional',
+        'content': 'draft',
+        'idempotency_key': 'institutional',
+      }),
+    );
+    final detail = await withKnowledgePrincipal(
+      reviewer,
+      () => service.inspect(draft.noteId, draft.id),
+    );
+    expect(detail['allowed_actions'], isNot(contains('approve')));
+    await expectLater(
+      withKnowledgePrincipal(
+        reviewer,
+        () => service.decide(
+          draft.noteId,
+          draft.id,
+          {'decision': 'approve', 'record_revision': 1},
+        ),
+      ),
+      throwsA(isA<KnowledgeAccessDeniedException>()),
+    );
+    final curator = KnowledgePrincipal.oauth(
+      grantId: 'curator',
+      scopes: {'notes:read', 'knowledge:review', 'knowledge:policy'},
+    );
+    await withKnowledgePrincipal(
+      curator,
+      () => service.decide(
+        draft.noteId,
+        draft.id,
+        {'decision': 'approve', 'record_revision': 1},
+      ),
+    );
+    expect(
+      authorization.store
+          .effective(
+            KnowledgeTarget.note(
+              draft.noteId,
+              'ordinary',
+            ),
+          )
+          .curated,
+      isTrue,
+    );
+    expect((await storage.read(draft.noteId)).content, 'draft');
+  });
+
+  test('institutional crash replays policy and final record once', () async {
+    await authorization.putFolderPolicy(
+      const KnowledgePrincipal.operator(),
+      'ordinary',
+      KnowledgePolicyPatch(curated: false),
+    );
+    final draft = await withKnowledgePrincipal(
+      proposer,
+      () => service.submitNew({
+        'path': 'ordinary',
+        'title': 'Institutional',
+        'content': 'draft',
+        'idempotency_key': 'replay-designation',
+      }),
+    );
+    final curator = KnowledgePrincipal.oauth(
+      grantId: 'curator',
+      scopes: {'notes:read', 'knowledge:review', 'knowledge:policy'},
+    );
+    final before = policies.revision;
+    storage = Storage(
+      contentDir: Directory('${dir.path}/content'),
+      acceptedPolicyReplay: policies.replayAcceptedNoteDesignation,
+      afterHistoryPublish: () async => throw StateError('crash'),
+    );
+    service = build();
+    await expectLater(
+      withKnowledgePrincipal(
+        curator,
+        () => service.decide(
+          draft.noteId,
+          draft.id,
+          {'decision': 'approve', 'record_revision': 1},
+        ),
+      ),
+      throwsStateError,
+    );
+    expect(policies.revision, before);
+    storage = Storage(
+      contentDir: Directory('${dir.path}/content'),
+      acceptedPolicyReplay: policies.replayAcceptedNoteDesignation,
+    );
+    final accepted = await storage.readProposalRecord(draft.noteId, draft.id);
+    expect(accepted.state, 'accepted');
+    expect(policies.revision, before + 1);
+    storage = Storage(
+      contentDir: Directory('${dir.path}/content'),
+      acceptedPolicyReplay: policies.replayAcceptedNoteDesignation,
+    );
+    await storage.prepareHistory();
+    expect(policies.revision, before + 1);
+  });
 }

@@ -1004,6 +1004,12 @@ class Storage {
           }
         } else {
           final current = await read(id);
+          await readBlockMap(id);
+          if (!permit.matchesCurrent(current)) {
+            throw const ProposalRecordConflictException(
+              'accepted_source_changed',
+            );
+          }
           if (current.version != permit.blockMap.version - 1 ||
               current.title != permit.note.title ||
               current.path != permit.note.path) {

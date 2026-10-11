@@ -270,6 +270,7 @@ class ProposalService {
         () => storage.withProposalMutation(id, () async {
           final record = await storage.readProposalRecord(id, proposalId);
           final target = await _recordTarget(record);
+          _requireRecordRead(record, target);
           authorization.require(
             currentKnowledgePrincipal,
             KnowledgeAction.propose,
@@ -392,6 +393,27 @@ class ProposalService {
     }
   }
 
+  bool _canReadRecord(ProposalRecord record, KnowledgeTarget current) {
+    final principal = currentKnowledgePrincipal;
+    if (!authorization.allows(principal, KnowledgeAction.read, current)) {
+      return false;
+    }
+    return record.versions.every((version) {
+      final candidate = version.candidate;
+      final path = candidate['path'] as String;
+      final target = candidate['new_note'] == true && record.state != 'accepted'
+          ? KnowledgeTarget.folder(path)
+          : KnowledgeTarget.note(record.noteId, path);
+      return authorization.allows(principal, KnowledgeAction.read, target);
+    });
+  }
+
+  void _requireRecordRead(ProposalRecord record, KnowledgeTarget current) {
+    if (!_canReadRecord(record, current)) {
+      throw const KnowledgeAccessDeniedException(KnowledgeAction.read);
+    }
+  }
+
   bool _policyCurrent(ProposalRecord record, KnowledgeTarget target) {
     final candidate = record.current.candidate;
     final permissions =
@@ -406,6 +428,7 @@ class ProposalService {
         () => storage.withProposalMutation(id, () async {
           var record = await storage.readProposalRecord(id, proposalId);
           final target = await _recordTarget(record);
+          _requireRecordRead(record, target);
           authorization.require(
             currentKnowledgePrincipal,
             KnowledgeAction.read,
@@ -434,6 +457,16 @@ class ProposalService {
           } on BlockMapUnavailableException {
             // External edits cannot manufacture a current comment anchor.
           }
+          detail['versions'] = [
+            for (final version in record.versions)
+              {
+                'proposal_revision': version.revision,
+                'author_label': version.author.label,
+                'author_kind': version.author.kind,
+                'created_at': version.createdAt.toUtc().toIso8601String(),
+                'candidate': _publicCandidate(version.candidate),
+              },
+          ];
           detail['comments'] = [
             for (final comment in record.comments)
               {
@@ -558,11 +591,7 @@ class ProposalService {
             continue;
           }
           final target = await _recordTarget(record);
-          if (!authorization.allows(
-            currentKnowledgePrincipal,
-            KnowledgeAction.read,
-            target,
-          )) {
+          if (!_canReadRecord(record, target)) {
             continue;
           }
           final candidate = record.current.candidate;
@@ -587,6 +616,7 @@ class ProposalService {
         () => storage.withProposalMutation(id, () async {
           final record = await storage.readProposalRecord(id, proposalId);
           final target = await _recordTarget(record);
+          _requireRecordRead(record, target);
           authorization.require(
             currentKnowledgePrincipal,
             KnowledgeAction.read,
@@ -865,6 +895,7 @@ class ProposalService {
         () => storage.withProposalMutation(id, () async {
           final record = await storage.readProposalRecord(id, proposalId);
           final target = await _recordTarget(record);
+          _requireRecordRead(record, target);
           authorization.require(
             currentKnowledgePrincipal,
             KnowledgeAction.review,
@@ -936,14 +967,26 @@ class ProposalService {
       KnowledgeAction.propose,
       target,
     );
-    await _resolve(refs);
-    return _accept(
-      record,
-      target,
-      {'decision': 'approve', 'record_revision': record.recordRevision},
-      actor,
-      automatic: true,
-    );
+    try {
+      await _resolve(refs);
+      return await _accept(
+        record,
+        target,
+        {'decision': 'approve', 'record_revision': record.recordRevision},
+        actor,
+        automatic: true,
+      );
+    } on ProposalEvidenceException {
+      return storage.readProposalRecord(record.noteId, record.id);
+    } on NoteNotFoundException {
+      return storage.readProposalRecord(record.noteId, record.id);
+    } on BlockMapUnavailableException {
+      return storage.readProposalRecord(record.noteId, record.id);
+    } on ProposalBlockConflictException {
+      return storage.readProposalRecord(record.noteId, record.id);
+    } on ProposalRecordConflictException {
+      return storage.readProposalRecord(record.noteId, record.id);
+    }
   }
 
   Future<ProposalRecord> _accept(
@@ -971,6 +1014,7 @@ class ProposalService {
     final newNote = candidate['new_note'] == true;
     final refs = _refs(candidate['evidence_refs']);
     late StoredNote note;
+    StoredNote? expectedCurrent;
     late MarkdownBlockMap map;
     var deleted = false;
     var provenance = <String, dynamic>{};
@@ -1018,6 +1062,7 @@ class ProposalService {
       }
     } else {
       final current = await storage.read(id);
+      expectedCurrent = current;
       final currentMap = await storage.readBlockMap(id);
       final operations = ProposalOperation.parseAll(candidate['operations']);
       await _resolve([
@@ -1122,6 +1167,7 @@ class ProposalService {
       newNote: newNote,
       actor: actor ?? _author(actor).label,
       policyDelta: policyDelta,
+      expectedCurrent: expectedCurrent,
     );
     try {
       await storage.acceptProposal(
@@ -1308,3 +1354,14 @@ void _commentInput(Map<String, dynamic> input) {
     throw const FormatException('Invalid block_revision');
   }
 }
+
+Map<String, dynamic> _publicCandidate(Map<String, dynamic> candidate) => {
+      for (final entry in candidate.entries)
+        if (!entry.key.startsWith('_') &&
+            !const {
+              'insertion_gaps',
+              'introduced_identities',
+              'evidence_resolution',
+            }.contains(entry.key))
+          entry.key: entry.value,
+    };
