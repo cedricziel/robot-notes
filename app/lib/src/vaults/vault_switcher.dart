@@ -51,7 +51,7 @@ class _VaultSwitcherState extends State<VaultSwitcher> {
         .where((v) => v['id'] == widget.selectedId)
         .firstOrNull;
     var enteredName = rename && current != null ? current['name']! : '';
-    final name = await showVaultDialog<String>(
+    final name = await showPlatformDialog<String>(
       context: context,
       builder: (context) => AlertDialog.adaptive(
         title: Text(rename ? 'Rename vault' : 'Create vault'),

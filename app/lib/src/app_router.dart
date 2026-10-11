@@ -980,8 +980,8 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
 /// Opens search as an overlay above the current screen instead of routing
 /// to a full page — the list underneath stays mounted (no refetch, no
 /// scroll-position loss) and dismissing (scrim tap, close button, or back
-/// gesture) just closes the overlay. On compact windows it slides down as
-/// a top sheet; from medium up it is a palette-style dialog near the top.
+/// gesture) just closes the overlay. Compact mobile layouts use native
+/// sheets; desktop and larger layouts use a palette-style dialog.
 /// [NotesSearchController] is scoped to this call: a fresh one is created
 /// per open and disposed once it closes.
 Future<void> _openSearch(BuildContext context, AppSession session) async {
@@ -998,8 +998,9 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
   }
 
   try {
-    if (Breakpoints.of(context) >= WindowSizeClass.medium) {
-      await showDialog<void>(
+    if (usesDesktopDialogs(context) ||
+        Breakpoints.of(context) >= WindowSizeClass.medium) {
+      await showPlatformDialog<void>(
         context: context,
         barrierLabel: 'Search',
         builder: (ctx) {
@@ -1030,120 +1031,26 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
       );
       return;
     }
-    if (Theme.of(context).platform == TargetPlatform.iOS) {
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        showDragHandle: true,
-        builder: (ctx) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
-          child: SizedBox(
-            height:
-                MediaQuery.sizeOf(ctx).height * 0.85 -
-                MediaQuery.viewInsetsOf(ctx).bottom,
-            child: SearchScreen(
-              controller: controller,
-              recentNotes: session.list.value.items,
-              onResultTap: (id) => openResult(ctx, id),
-              onClose: () => Navigator.of(ctx).pop(),
-            ),
-          ),
-        ),
-      );
-      return;
-    }
-    await showGeneralDialog<void>(
+    await showPlatformSheet<void>(
       context: context,
-      barrierLabel: 'Search',
-      barrierDismissible: true,
-      barrierColor: Colors.black54,
-      transitionDuration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 200),
-      pageBuilder: (ctx, animation, secondaryAnimation) {
-        return SafeArea(
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: FractionallySizedBox(
-              heightFactor: 0.92,
-              // Swiping the sheet up (over its header or the grab handle;
-              // the results list keeps vertical drags over itself) pops
-              // it through the same route pop the close button uses. No
-              // resize animation: the route's own exit transition removes
-              // the sheet, and a collapse would trip Dismissible's
-              // "still in the tree" check while it plays.
-              child: Dismissible(
-                key: const Key('search.sheet'),
-                direction: DismissDirection.up,
-                resizeDuration: null,
-                onDismissed: (_) => Navigator.of(ctx).pop(),
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    bottom: Radius.circular(16),
-                  ),
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: SearchScreen(
-                          controller: controller,
-                          recentNotes: session.list.value.items,
-                          onResultTap: (id) => openResult(ctx, id),
-                          onClose: () => Navigator.of(ctx).pop(),
-                        ),
-                      ),
-                      const _SheetGrabHandle(key: Key('search.sheet.handle')),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, -1),
-            end: Offset.zero,
-          ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-          child: child,
-        );
-      },
-    );
-  } finally {
-    controller.dispose();
-  }
-}
-
-/// The pill along the bottom edge of the compact search sheet: the visible
-/// affordance for swiping the sheet away, painted on the same surface as
-/// [SearchScreen] so it reads as part of the sheet rather than a footer.
-class _SheetGrabHandle extends StatelessWidget {
-  const _SheetGrabHandle({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surface,
-      child: Semantics(
-        label: 'Swipe up to close search',
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        child: SizedBox(
+          height:
+              (MediaQuery.sizeOf(ctx).height * 0.85 -
+                      MediaQuery.viewInsetsOf(ctx).bottom)
+                  .clamp(0.0, double.infinity),
+          child: SearchScreen(
+            controller: controller,
+            recentNotes: session.list.value.items,
+            onResultTap: (id) => openResult(ctx, id),
+            onClose: () => Navigator.of(ctx).pop(),
           ),
         ),
       ),
     );
+  } finally {
+    controller.dispose();
   }
 }
 
@@ -1243,8 +1150,9 @@ Future<void> _showAccount(BuildContext context, AppSession session) async {
   // Scrolls so the sheet still fits short windows with the app-lock row.
   final sheet = SingleChildScrollView(child: _AccountSheet(session: session));
   final bool? disconnect;
-  if (Breakpoints.of(context) >= WindowSizeClass.medium) {
-    disconnect = await showDialog<bool>(
+  if (usesDesktopDialogs(context) ||
+      Breakpoints.of(context) >= WindowSizeClass.medium) {
+    disconnect = await showPlatformDialog<bool>(
       context: context,
       builder: (_) => Dialog(
         clipBehavior: Clip.antiAlias,
@@ -1255,9 +1163,8 @@ Future<void> _showAccount(BuildContext context, AppSession session) async {
       ),
     );
   } else {
-    disconnect = await showModalBottomSheet<bool>(
+    disconnect = await showPlatformSheet<bool>(
       context: context,
-      showDragHandle: true,
       builder: (_) => SafeArea(top: false, child: sheet),
     );
   }
@@ -1409,7 +1316,7 @@ class _AppLockTile extends StatelessWidget {
 }
 
 Future<void> _confirmReset(BuildContext context, AppSession session) async {
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showPlatformDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog.adaptive(
       title: const Text('Disconnect from server?'),
