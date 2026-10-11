@@ -115,4 +115,30 @@ void main() {
     await storage.purgeHistory(note.id);
     expect(await storage.proposalRecords(), isEmpty);
   });
+  test('accepted history never exposes pending candidate journal updates',
+      () async {
+    final note = await storage.create(
+      title: 'A',
+      content: 'accepted',
+      properties: {'history': true},
+    );
+    final block = (await storage.readBlockMap(note.id)).blocks.single;
+    await pending('p1', block.id);
+    await storage.update(
+      id: note.id,
+      title: 'A',
+      content: 'edited',
+      ifMatch: 1,
+    );
+    final history = await storage.revisions(note.id);
+    expect(history.toString(), isNot(contains('pending secret')));
+    expect(history.last.containsKey('proposal_updates'), isFalse);
+    expect(
+      (await storage.readProposalRecord(note.id, 'p1'))
+          .current
+          .candidate
+          .toString(),
+      contains('pending secret'),
+    );
+  });
 }

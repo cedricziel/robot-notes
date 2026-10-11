@@ -1124,7 +1124,23 @@ class Storage {
       if (file is! File || !RegExp(r'/[0-9]+\.json$').hasMatch(file.path)) {
         continue;
       }
-      result.add(jsonDecode(await file.readAsString()) as Map<String, dynamic>);
+      final event =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      result.add({
+        for (final key in const {
+          'id',
+          'actor',
+          'version',
+          'deleted',
+          'recorded_at',
+          'markdown',
+          'block_map',
+          'path',
+          'previous_path',
+          'accepted_provenance',
+        })
+          if (event.containsKey(key)) key: event[key],
+      });
     }
     result.sort((a, b) => (a['version'] as int).compareTo(b['version'] as int));
     return result;

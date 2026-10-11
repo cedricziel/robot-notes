@@ -229,4 +229,42 @@ void main() {
     expect(result.blockMap.blocks.single.id, map.blocks.single.id);
     expect(result.blockMap.blocks.single.revision, 1);
   });
+  test('introduced preview identities survive a disjoint accepted edit', () {
+    const source = 'first\n\nlast';
+    final base = reconciler.reconcile(source, version: 1);
+    final operations = ProposalOperation.parseAll([
+      {
+        'type': 'insert_after',
+        'block_id': base.blocks.last.id,
+        'expected_revision': 1,
+        'text': '\n\nnew',
+      },
+    ]);
+    final gaps = compiler.captureGaps(source, base, operations);
+    final preview =
+        compiler.compile(source, base, operations, baseVersion: 1, gaps: gaps);
+    final disjoint = compiler.compile(
+      source,
+      base,
+      ProposalOperation.parseAll([
+        {
+          'type': 'replace',
+          'block_id': base.blocks.first.id,
+          'expected_revision': 1,
+          'text': 'different\n',
+        },
+      ]),
+      baseVersion: 1,
+    );
+    final accepted = compiler.compile(
+      disjoint.content,
+      disjoint.blockMap,
+      operations,
+      baseVersion: 1,
+      gaps: gaps,
+      introducedIdentities: preview.introducedIdentities,
+    );
+    expect(accepted.blockMap.blocks.last.id, preview.blockMap.blocks.last.id);
+    expect(accepted.content, 'different\n\nlast\n\nnew');
+  });
 }

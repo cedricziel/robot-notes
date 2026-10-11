@@ -49,7 +49,9 @@ class CompiledBlockProposal {
     required this.blockMap,
     required this.deleted,
     required Set<String> touchedIds,
-  }) : touchedIds = Set.unmodifiable(touchedIds);
+    Map<String, String> introducedIdentities = const {},
+  })  : touchedIds = Set.unmodifiable(touchedIds),
+        introducedIdentities = Map.unmodifiable(introducedIdentities);
 
   /// Exact candidate body with untouched source and whitespace preserved.
   final String content;
@@ -62,6 +64,9 @@ class CompiledBlockProposal {
 
   /// Explicit accepted targets whose freshness was checked.
   final Set<String> touchedIds;
+
+  /// Server-derived identity reservations for proposed source spans.
+  final Map<String, String> introducedIdentities;
 }
 
 /// Applies precise reviewed source edits without guessing duplicate identities.
@@ -103,6 +108,7 @@ class ProposalBlockCompiler {
     List<ProposalOperation> operations, {
     required int baseVersion,
     Map<int, ProposalInsertionGap> gaps = const {},
+    Map<String, String> introducedIdentities = const {},
   }) {
     if (!map.matches(source)) {
       throw const ProposalBlockConflictException('block_map_stale');
@@ -238,13 +244,25 @@ class ProposalBlockCompiler {
     }
     final oldIds = map.blocks.map((b) => b.id).toSet();
     final blocks = <MarkdownBlock>[];
+    final reserved = <String, String>{};
     for (var i = 0; i < candidate.blocks.length; i++) {
       final span = candidate.blocks[i];
       final prior = hints[i];
+      String? introducedId;
+      if (prior == null) {
+        final key = _originKey(span, edits);
+        if (key == null) {
+          throw const ProposalBlockConflictException(
+            'undeclared_structure_change',
+          );
+        }
+        introducedId = introducedIdentities[key] ??
+            (oldIds.contains(span.id) ? _idGenerator() : span.id);
+        reserved[key] = introducedId;
+      }
       blocks.add(
         MarkdownBlock(
-          id: prior?.id ??
-              (oldIds.contains(span.id) ? _idGenerator() : span.id),
+          id: prior?.id ?? introducedId!,
           revision: prior == null
               ? 1
               : prior.revision + (changed.contains(prior.id) ? 1 : 0),
@@ -272,6 +290,7 @@ class ProposalBlockCompiler {
       ),
       deleted: false,
       touchedIds: touched,
+      introducedIdentities: reserved,
     );
   }
 }
@@ -330,4 +349,18 @@ int _translate(
     }
   }
   return result;
+}
+
+String? _originKey(MarkdownBlock block, List<_SourceEdit> edits) {
+  var delta = 0;
+  for (final edit in edits) {
+    final start = edit.start + delta;
+    final end = start + edit.text.length;
+    if (block.start >= start && block.end <= end) {
+      return '${edit.operationIndex}:${block.start - start}:'
+          '${block.end - start}:${block.kind}:${block.hash}';
+    }
+    delta += edit.text.length - (edit.end - edit.start);
+  }
+  return null;
 }
