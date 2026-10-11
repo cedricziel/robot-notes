@@ -443,13 +443,35 @@ class RobotNotesProvider(MemoryProvider):
         paths = self._load_config().recall_paths
         if paths == (None,):
             return client.search(query, limit=5)
-        results = [client.search(query, path=path, limit=5) for path in paths]
+        results, errors = [None] * len(paths), [None] * len(paths)
+
+        def search(index, path):
+            try:
+                results[index] = client.search(query, path=path, limit=5)
+            except Exception as exc:
+                errors[index] = exc
+
+        threads = [spawn_context_thread(lambda index=index, path=path: search(index, path), name="robot-notes-scope") for index, path in enumerate(paths)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        for error in errors:
+            if error is not None:
+                raise error
+        if not all(isinstance(result, list) for result in results):
+            raise ClientError("Malformed search response", kind=ErrorKind.OTHER, code="invalid_response")
         selected, seen = [], set()
         for group in zip_longest(*results):
             for item in group:
-                if item is not None and item["id"] not in seen:
+                if item is None:
+                    continue
+                note_id = item.get("id") if isinstance(item, dict) else None
+                if not isinstance(note_id, str) or not note_id or not isinstance(item.get("title"), str):
+                    raise ClientError("Malformed search result", kind=ErrorKind.OTHER, code="invalid_response")
+                if note_id not in seen:
                     selected.append(item)
-                    seen.add(item["id"])
+                    seen.add(note_id)
                     if len(selected) == 5:
                         return selected
         return selected

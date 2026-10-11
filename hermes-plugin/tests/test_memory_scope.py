@@ -144,3 +144,35 @@ def test_shared_scope_replays_a_legacy_durable_queue(tmp_path, monkeypatch):
         assert queue.status()['pending'] == 0
     finally:
         provider.shutdown()
+
+
+@respx.mock
+def test_malformed_scoped_search_does_not_escape_prefetch(tmp_path, monkeypatch):
+    provider = make_provider(tmp_path, monkeypatch)
+    respx.get('https://notes.example.com/search').mock(return_value=httpx.Response(200, json={'items': [{'title': 'Missing identity'}]}))
+    try:
+        assert provider.prefetch('project') == ''
+        assert provider.memory_health()['recall']['state'] == 'failed'
+    finally:
+        provider.shutdown()
+
+
+@respx.mock
+def test_scoped_searches_can_progress_concurrently(tmp_path, monkeypatch):
+    import threading
+
+    provider = make_provider(tmp_path, monkeypatch)
+    barrier = threading.Barrier(3)
+
+    def respond(request):
+        barrier.wait(timeout=2)
+        path = request.url.params['path']
+        return httpx.Response(200, json={'items': [{'id': path, 'title': path, 'snippet': 'project'}]})
+
+    respx.get('https://notes.example.com/search').mock(side_effect=respond)
+    try:
+        context = provider.prefetch('project')
+        assert context.index('Hermes/users/alice') < context.index('Hermes/agents/assistant') < context.index('Team')
+        assert provider.recall_status().count == 3
+    finally:
+        provider.shutdown()

@@ -214,12 +214,14 @@ to any service other than the `base_url` configured above.
   written back.
 - **Session transcripts** — `on_session_end` sends the session's messages as
   the content of one summary note per session, under
-  `conversations/<actor>/<session id>`. This currently includes the raw
-  role/content of every message in the session, so treat the robot-notes
-  workspace as within the conversation's trust boundary.
+  `conversations/<actor>/<session id>`. The readable transcript includes
+  filtered user and assistant text, with a bounded body; tool results and
+  non-text content are excluded. Treat the workspace as within the conversation's
+  trust boundary.
 - **Built-in memory mirror** — content written to Hermes' own
   `MEMORY.md`/`USER.md` is mirrored one-directionally by default into
-  `Hermes/Memory.md`/`Hermes/User.md` notes (see Write behavior below);
+  the configured memory notes, defaulting to `Hermes/Memory` and
+  `Hermes/User` (see Write behavior below);
   whatever text lands in those files is sent to the server.
 - **Explicit tool writes** — `robotnotes_remember` sends the model-authored
   `title`/`content` as a new note; `robotnotes_forget` sends a note id to
@@ -291,8 +293,8 @@ conversation turn:
   `robotnotes_forget`) let the model manage notes directly — search before
   creating, and append rather than duplicate a note on the same topic.
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
-  are mirrored one-directionally by default into `Hermes/Memory.md` and
-  `Hermes/User.md` in the workspace.
+  are mirrored one-directionally by default into the configured memory notes, defaulting to `Hermes/Memory` and
+  `Hermes/User` in the workspace.
 
 `initialize()` also honors the host's `agent_context` kwarg
 (`"primary"` | `"subagent"` | `"cron"` | `"flush"`): every write path above
@@ -401,6 +403,9 @@ The queue lives under `$HERMES_HOME/robot_notes_outbox/<destination-hash>/queue.
 
 Delivery runs at initialization, when automatic writes arrive, and at turn start. Network failures and server errors remain pending. Authorization failures and conflicts block the queue until corrected. `flush_memory_writes(retry_blocked=True)` explicitly permits another attempt. A prepared note mutation retains its intended content and original version, so a lost acknowledgement cannot reapply a remove selector or duplicate a multiline addition. An intervening edit blocks replay for review.
 ### Choose memory destinations
+
+Identity scope searches run concurrently with the host profile and secret context.
+Results retain configured-root order; a failed scope suppresses the whole recall block.
 
 The default `memory_scope: "shared"` keeps the existing `Hermes/Memory` and
 `Hermes/User` mirrors and searches the selected vault. To organize personal and
