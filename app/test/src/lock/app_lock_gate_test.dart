@@ -119,6 +119,32 @@ void main() {
     expect(find.text('secret note'), findsOneWidget);
   });
 
+  testWidgets(
+    'desktop keeps notes visible when window focus changes',
+    (tester) async {
+      await pump(tester);
+      final noteElement = tester.element(find.text('secret note'));
+      for (var i = 0; i < 3; i++) {
+        for (final state in [
+          AppLifecycleState.inactive,
+          AppLifecycleState.resumed,
+        ]) {
+          tester.binding.handleAppLifecycleStateChanged(state);
+          await tester.pump();
+          expect(find.text('secret note'), findsOneWidget);
+          expect(tester.element(find.text('secret note')), same(noteElement));
+          expect(find.byKey(const Key('lock.screen')), findsNothing);
+        }
+      }
+      expect(auth.authenticateCalls, 1);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+      TargetPlatform.linux,
+    }),
+  );
+
   testWidgets('a lock that is off ignores the background', (tester) async {
     await pump(tester, enabled: false);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
