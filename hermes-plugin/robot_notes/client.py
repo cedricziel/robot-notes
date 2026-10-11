@@ -393,7 +393,11 @@ class RobotNotesClient:
                 raise
         else:
             items = response.json().get("items", [])
-            return items[0] if items else None
+            if not items:
+                return None
+            item = items[0]
+            if item.get("path", path) == path:
+                return item
 
         return self._find_note_by_title_scan(title, path=path)
 
@@ -411,7 +415,7 @@ class RobotNotesClient:
             response = self._request("GET", "/notes", params=params)
             payload = response.json()
             for item in payload.get("items", []):
-                if item.get("title") == title:
+                if item.get("title") == title and item.get("path", path) == path:
                     return item
             cursor = payload.get("next_cursor")
             if not cursor:

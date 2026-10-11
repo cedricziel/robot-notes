@@ -205,3 +205,14 @@ def test_raced_or_malformed_block_snapshot_is_reloaded_then_rejected(client):
         client.get_note_blocks("note")
     assert blocks.call_count == 2
     assert error.value.code == "invalid_response"
+
+
+@respx.mock
+def test_mirror_lookup_skips_newer_descendant_and_finds_exact_folder(client):
+    respx.get(BASE + '/notes').mock(side_effect=[
+        httpx.Response(200, json={'items': [{'id': 'child', 'title': 'Memory', 'path': 'Hermes/agents/other', 'version': 9}]}),
+        httpx.Response(200, json={'items': [
+            {'id': 'child', 'title': 'Memory', 'path': 'Hermes/agents/other', 'version': 9},
+            {'id': 'shared', 'title': 'Memory', 'path': 'Hermes', 'version': 1}], 'next_cursor': None}),
+    ])
+    assert client.find_note_by_title('Memory', path='Hermes')['id'] == 'shared'
