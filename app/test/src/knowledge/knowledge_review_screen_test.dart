@@ -47,6 +47,19 @@ void main() {
                   .convert(utf8.encode('Accepted truth'))
                   .toString(),
               'offset_encoding': 'utf-16',
+              'provenance': {
+                'b': {
+                  'block_revision': 1,
+                  'source_unknown': false,
+                  'evidence_refs': [
+                    {
+                      'kind': 'note_revision',
+                      'note_id': 'source',
+                      'version': 2,
+                    },
+                  ],
+                },
+              },
               'blocks': [
                 {
                   'id': 'b',
@@ -123,6 +136,7 @@ void main() {
       await tester.tap(find.text('Blocks and comments'));
       await tester.pumpAndSettle();
       expect(find.text('Accepted truth'), findsOneWidget);
+      expect(find.text('Note source · version 2'), findsOneWidget);
       expect(find.text('Propose update'), findsNothing);
     },
   );

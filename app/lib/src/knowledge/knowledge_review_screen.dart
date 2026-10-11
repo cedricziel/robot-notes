@@ -233,6 +233,34 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
         : '';
   }
 
+  Widget _sources(Map<String, dynamic> block) {
+    final provenance = (_blocks?['provenance'] as Map?)?[block['id']];
+    if (provenance is! Map ||
+        provenance['block_revision'] != block['revision']) {
+      return const Text('Source not recorded');
+    }
+    final refs = _rows(provenance['evidence_refs']);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (provenance['source_unknown'] == true || refs.isEmpty)
+          const Text('Source not recorded'),
+        for (final source in refs)
+          SelectableText(switch (source['kind']) {
+            'note_revision' =>
+              'Note ${source['note_id']} · version ${source['version']}',
+            'block_revision' =>
+              'Note ${source['note_id']} · version ${source['version']} · block ${source['block_id']} · revision ${source['block_revision']}',
+            'archive' => 'Evidence archive · ${source['digest']}',
+            'url' => '${source['url']}',
+            'conversation' =>
+              'Conversation ${source['session_id']}${source['turn_id'] == null ? '' : ' · turn ${source['turn_id']}'}',
+            _ => 'Source not recorded',
+          }),
+      ],
+    );
+  }
+
   Future<void> _blockAction(Map<String, dynamic> block, bool proposal) async {
     final source = _source(block);
     if (source.isEmpty) return;
@@ -351,6 +379,8 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               SelectableText(_source(block)),
+                              const SizedBox(height: 8),
+                              _sources(block),
                               Wrap(
                                 children: [
                                   if (_can('propose'))
