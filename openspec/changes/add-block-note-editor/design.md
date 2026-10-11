@@ -52,6 +52,8 @@ The compatibility widgets verify that `AdaptiveMoreMenu` opens and dismisses thr
 
 No contribution to `material_ui` or `cupertino_ui` is currently needed. The probes show that the existing host controls and presentation policies integrate with Super Editor through the local bridge. A cursor-anchored slash menu or selection toolbar may need editor-specific work; defer any shared control until app integration demonstrates a reusable host behavior and a tested gap.
 
+The existing `notesPage` motion helper had a shared lifecycle defect: crossing the large layout breakpoint changed the `Page` type and remounted the note controller. A dirty draft could disappear before autosave. Keep each platform's page type stable while updating transition durations for split views and reduced motion. Desktop pages remain `CustomTransitionPage`; native pages retain Material or Cupertino routes, including iOS swipe-back. This bounded local helper improvement belongs to `app/lib/src/widgets/platform_motion.dart`. Router regressions preserve the same controller, dirty source buffer, and acquired lock across both resize directions with macOS, iOS, and Android theme overrides. Motion and swipe-back tests cover the route policy; these widget variants are not native device validation.
+
 ### Enter editing through the existing lock lifecycle
 
 After initial load, automatically enter the existing acquisition flow once per note opening. Until acquisition and re-fetch succeed, display read-only content. Failed acquisition offers retry. Opening a note therefore holds the exclusive lock even if the user only reads it; closing releases it through the existing flow. Keep this tradeoff explicit rather than adding an unrequested lock protocol.
@@ -72,3 +74,18 @@ Provide the agreed flat block set, inline formatting, links, slash insertion, an
 ## Migration Plan
 
 No file or API migration is needed. Deliver adapter, editor interactions, and screen integration as small coherent commits. Keep the new editor disconnected until its persistence tests pass. Switching the UI back to the source editor is a rollback path because saved notes remain Markdown. Validate the complete workflow using the project's isolated local verification skill before release.
+
+
+## Implementation validation
+
+Validated on October 11, 2026, using Flutter 3.47.6 and Dart 3.13.5 on macOS:
+
+- The complete Super Editor compatibility gate passes all nine tests.
+- The reusable editor package passes all 46 tests, including Markdown preservation, accessibility actions, adaptive themes, composition, Unicode, and complete-value web input.
+- The app passes all 955 tests. Analyzer and formatting checks pass through the repository commit hooks.
+- The release web client builds successfully.
+- The real web app connected through its setup flow to a disposable loopback server with separate HTTP and VM-service ports, isolated data, a temporary API key, and telemetry disabled. Direct block typing, checkbox autosave, source switching, explicit saving, reopening, lock contention and retry, and conflict recovery were exercised. API reads confirmed the saved Markdown and unchanged unsupported table source through version 8.
+- Browser layouts were checked at 390×844, 844×390, 768×1024, 1024×768, and 1440×900. An unsaved block draft survived crossing the desktop breakpoint and persisted afterward. Browser logs contained no errors or warnings.
+- The verification tab was closed, its viewport override reset, the server stopped, and disposable data and credentials removed.
+
+Native VoiceOver and TalkBack, physical software keyboards and composition, and native Android, iOS, macOS, Linux, and Windows runtimes remain unverified. Platform-theme widget variants do not establish native device coverage. The exact Flutter 3.47.2 CI toolchain also remains unverified locally. These limits do not change the passing widget compatibility gate or the observed web workflow.
