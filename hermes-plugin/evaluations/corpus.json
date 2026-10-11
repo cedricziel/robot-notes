@@ -1,0 +1,37 @@
+[
+  {
+    "name": "paraphrase", "query": "automobile",
+    "notes": [{"key": "transport", "content": "Alice commutes in a crimson car."}],
+    "evidence": {"transport": "crimson car"}
+  },
+  {
+    "name": "long-note-tail", "query": "saffron",
+    "notes": [{"key": "conversation", "padding": "User: Reviewed routine build output. Assistant: No changes required.\n", "repeat": 800, "content": "User: What is the recovery phrase? Assistant: The recovery phrase is saffron telescope."}],
+    "evidence": {"conversation": "saffron telescope"}
+  },
+  {
+    "name": "correction", "query": "deployment",
+    "notes": [
+      {"key": "previous-decision", "content": "The previous deployment destination was Oslo. This decision is superseded."},
+      {"key": "current-decision", "content": "The current deployment destination is Lisbon. This replaces the previous decision."}
+    ],
+    "evidence": {"current-decision": "Lisbon"}, "stale": ["previous-decision"]
+  },
+  {
+    "name": "irrelevant-notes", "query": "deployment",
+    "notes": [
+      {"key": "release", "content": "The deployment destination is Lisbon."},
+      {"key": "garden", "content": "Plant tulips in October."},
+      {"key": "lunch", "content": "Lunch is mushroom soup."}
+    ],
+    "evidence": {"release": "Lisbon"}
+  },
+  {
+    "name": "identity-scope", "query": "beverage",
+    "notes": [
+      {"key": "alice", "path": "people/alice", "content": "Alice's preferred beverage is jasmine tea."},
+      {"key": "bob", "path": "people/bob", "content": "Bob's preferred beverage is espresso."}
+    ],
+    "evidence": {"alice": "jasmine tea"}
+  }
+]
