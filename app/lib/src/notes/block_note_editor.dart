@@ -60,6 +60,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
   late String _published;
   bool _sourceMode = false;
   bool _replacing = false;
+  int _pasteGeneration = 0;
   bool _menuOpen = false;
   String? _slashDismissed;
   DocumentSelection? _blockSelection;
@@ -78,7 +79,39 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
     );
     _editor.requestHandlers.insert(0, (_, request) {
       if (request is! PasteEditorRequest) return null;
+      final node = _draft.document.getNodeById(request.pastePosition.nodeId);
+      if (!mounted || _sourceMode || widget.readOnly || node == null) {
+        return _IgnoredPasteCommand();
+      }
+      final position = request.pastePosition.nodePosition;
+      if (node is TextNode &&
+          position is TextNodePosition &&
+          (position.offset < 0 || position.offset > node.text.length)) {
+        return _IgnoredPasteCommand();
+      }
+      if (node is TextNode &&
+          node.getMetadataValue('blockType') == codeAttribution) {
+        return _PasteInlineCommand(
+          _editor,
+          _composer,
+          request.pastePosition,
+          AttributedText(request.content.replaceAll('\r\n', '\n')),
+          literal: true,
+        );
+      }
       final fragment = MarkdownEditingDocument.fromMarkdown(request.content);
+      final first = fragment.document.first;
+      if (node is TextNode &&
+          fragment.document.nodeCount == 1 &&
+          first is ParagraphNode &&
+          first.getMetadataValue('blockType') == paragraphAttribution) {
+        return _PasteInlineCommand(
+          _editor,
+          _composer,
+          request.pastePosition,
+          first.text,
+        );
+      }
       _draft.retainSources(fragment);
       return PasteStructuredContentEditorCommand(
         content: fragment.document,
@@ -126,6 +159,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
     if (oldWidget.sourceMode != widget.sourceMode) {
       _switchMode(widget.sourceMode, notify: false);
     }
+    if (widget.readOnly != oldWidget.readOnly) _pasteGeneration++;
     if (widget.readOnly && !oldWidget.readOnly) {
       _links?.close();
       _focus.unfocus();
@@ -134,6 +168,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
 
   @override
   void dispose() {
+    _pasteGeneration++;
     _draft.document.removeListener(_documentChanged);
     _composer.selectionNotifier.removeListener(_selectionChanged);
     _links?.removeListener(_linksChanged);
@@ -143,6 +178,45 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
     _editor.dispose();
     _composer.dispose();
     super.dispose();
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    if (!mounted || _sourceMode || widget.readOnly) return;
+    final selection = _composer.selection;
+    if (selection == null) return;
+    final generation = _pasteGeneration;
+    ClipboardData? clipboard;
+    try {
+      clipboard = await Clipboard.getData(Clipboard.kTextPlain);
+    } on PlatformException {
+      return;
+    }
+    if (!mounted ||
+        _sourceMode ||
+        widget.readOnly ||
+        generation != _pasteGeneration ||
+        _composer.selection != selection) {
+      return;
+    }
+    final text = clipboard?.text;
+    if (text == null || text.isEmpty) return;
+    final position = selection.isCollapsed
+        ? selection.extent
+        : CommonEditorOperations.getDocumentPositionAfterExpandedDeletion(
+            document: _draft.document,
+            selection: selection,
+          );
+    if (position == null) return;
+    _editor.execute([
+      if (!selection.isCollapsed)
+        DeleteContentRequest(documentRange: selection),
+      ChangeSelectionRequest(
+        DocumentSelection.collapsed(position: position),
+        SelectionChangeType.placeCaret,
+        SelectionReason.userInteraction,
+      ),
+      PasteEditorRequest(content: text, pastePosition: position),
+    ]);
   }
 
   void _setSource(String value) {
@@ -160,7 +234,8 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
   }
 
   void _documentChanged(DocumentChangeLog changes) {
-    if (_replacing) return;
+    _pasteGeneration++;
+    if (_replacing || _sourceMode || widget.readOnly) return;
     _publish(_draft.toMarkdown());
     _selectionChanged();
   }
@@ -202,6 +277,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
 
   void _switchMode(bool source, {String? nodeId, bool notify = true}) {
     if (source == _sourceMode) return;
+    _pasteGeneration++;
     _links?.close();
     if (source) {
       _blockSelection = _composer.selection;
@@ -876,6 +952,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
                     ),
                     child: AdaptiveSuperEditor(
                       editor: _editor,
+                      onPaste: _pasteFromClipboard,
                       document: _draft.document,
                       composer: _composer,
                       focusNode: _focus,
@@ -1136,5 +1213,70 @@ class _AlignedTaskComponentState extends State<_AlignedTaskComponent>
         ],
       ),
     );
+  }
+}
+
+class _IgnoredPasteCommand extends EditCommand {
+  @override
+  HistoryBehavior get historyBehavior => HistoryBehavior.nonHistorical;
+  @override
+  void execute(EditContext context, CommandExecutor executor) {}
+}
+
+class _PasteInlineCommand extends EditCommand {
+  _PasteInlineCommand(
+    this.editor,
+    this.composer,
+    this.position,
+    this.text, {
+    this.literal = false,
+  });
+  final Editor editor;
+  final MutableDocumentComposer composer;
+  final DocumentPosition position;
+  final AttributedText text;
+  final bool literal;
+  @override
+  HistoryBehavior get historyBehavior => HistoryBehavior.nonHistorical;
+  @override
+  void execute(EditContext context, CommandExecutor executor) {
+    editor.execute([
+      ChangeSelectionRequest(
+        DocumentSelection.collapsed(position: position),
+        SelectionChangeType.placeCaret,
+        SelectionReason.userInteraction,
+      ),
+    ]);
+    final lines = literal
+        ? [text.toPlainText()]
+        : text.toPlainText().split('\n');
+    var offset = 0;
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) editor.execute([InsertNewlineAtCaretRequest()]);
+      final caret = composer.selection!.extent;
+      final nodePosition = caret.nodePosition;
+      if (nodePosition is! TextNodePosition) return;
+      if (lines[i].isNotEmpty) {
+        editor.execute([
+          InsertAttributedTextRequest(
+            caret,
+            text.copyText(offset, offset + lines[i].length),
+          ),
+          ChangeSelectionRequest(
+            DocumentSelection.collapsed(
+              position: DocumentPosition(
+                nodeId: caret.nodeId,
+                nodePosition: TextNodePosition(
+                  offset: nodePosition.offset + lines[i].length,
+                ),
+              ),
+            ),
+            SelectionChangeType.insertContent,
+            SelectionReason.userInteraction,
+          ),
+        ]);
+      }
+      offset += lines[i].length + 1;
+    }
   }
 }
