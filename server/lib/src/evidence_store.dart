@@ -26,7 +26,7 @@ class EvidenceStore {
         payload TEXT,
         lineage TEXT,
         created_at TEXT NOT NULL,
-        expires_at TEXT NOT NULL
+        expires_at INTEGER NOT NULL
       )
     ''');
     _expire();
@@ -44,7 +44,7 @@ class EvidenceStore {
   void _expire() => _db.execute(
         'UPDATE evidence SET payload = NULL, lineage = NULL '
         'WHERE expires_at <= ? AND payload IS NOT NULL',
-        [clock.nowUtc().toIso8601String()],
+        [clock.nowUtc().microsecondsSinceEpoch],
       );
 
   /// Commits a snapshot before returning. Retries preserve original metadata.
@@ -82,7 +82,7 @@ class EvidenceStore {
         payload,
         lineageJson,
         now.toIso8601String(),
-        now.add(Duration(days: retentionDays)).toIso8601String(),
+        now.add(Duration(days: retentionDays)).microsecondsSinceEpoch,
       ],
     );
     return _record(
@@ -97,7 +97,10 @@ class EvidenceStore {
             ? null
             : jsonDecode(row['lineage'] as String),
         'created_at': row['created_at'],
-        'expires_at': row['expires_at'],
+        'expires_at': DateTime.fromMicrosecondsSinceEpoch(
+          row['expires_at'] as int,
+          isUtc: true,
+        ).toIso8601String(),
       };
 
   /// Returns an unexpired snapshot or null after expiry or purge.

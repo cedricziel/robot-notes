@@ -56,6 +56,17 @@ void main() {
     expect(reopened.read(id), isNull);
   });
 
+  test('expiry remains exact within the same millisecond', () {
+    open(epoch)
+      ..put(id, payload, retentionDays: 1)
+      ..close();
+    final reopened = open(
+      epoch.add(const Duration(days: 1, microseconds: 1)),
+    );
+    addTearDown(reopened.close);
+    expect(reopened.read(id), isNull);
+  });
+
   test('digest mismatch cannot replace existing evidence', () {
     final store = open(epoch)..put(id, payload, retentionDays: 7);
     addTearDown(store.close);
