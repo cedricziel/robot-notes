@@ -54,6 +54,9 @@ jobs:
       - name: Analyze (strict-mode)
         run: dart analyze
 
+      - name: Test — workspace tooling
+        run: dart test test --reporter expanded
+
       - name: Test — shared
         run: cd shared && dart test --reporter expanded
 
@@ -62,6 +65,18 @@ jobs:
 
       - name: Test — app (Flutter)
         run: cd app && flutter test --reporter expanded
+
+  hooks:
+    name: Test conversation hooks (Python)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Test
+        run: python -m unittest discover -s claude-plugin/hooks -p 'test_*.py'
 
   hermes-plugin-changes:
     name: Detect hermes-plugin/ changes
