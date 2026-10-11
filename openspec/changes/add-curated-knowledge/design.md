@@ -52,6 +52,28 @@ Separate stale block checks from semantic conflicts: two disjoint blocks can sti
 
 Accepted curated knowledge is the default recall source. Working observations can become proposals with evidence; they do not become institutional knowledge merely through repetition. Optional conversation evidence capture supports provenance and recovery but is distinct from curated knowledge. A later gardening agent submits consolidation or retirement proposals through the same permissions and review contract.
 
+## Ontologies, reusable types, and linked knowledge
+
+Support entities and knowledge objects as ordinary Markdown notes with stable identities. Start with Person and Project for entities, and Claim, Decision, Procedure, and Evidence for knowledge objects. These are reusable semantic types, independent of folder location and database membership. Existing database property schemas remain compatible views and constraints, not the identity of a knowledge type. Preserve the existing reserved frontmatter keys when choosing the type-assignment representation.
+
+A versioned type definition contains a stable namespaced identity, description, parent type references, properties, relation definitions, and authoring guidance. Guidance includes examples, suggested sections, and instructions available to humans and agents. Enforced constraints include required properties, primitive value types, enumerations, cardinality, and allowed relation target types. Prose section guidance is advisory unless an explicit supported constraint says otherwise. Validation establishes structural consistency, not truth.
+
+Custom types can extend imported terms and add local properties or stronger compatible constraints. Preserve external term identities and mappings. Reject cyclic inheritance and conflicting inherited constraints. Do not treat an external vocabulary's suggested properties as mandatory without an explicit local constraint. Entries record their applicable type-definition versions so validation and queries remain reproducible.
+
+Bulk adoption imports the selected ontology's complete supported vocabulary rather than requiring manual adoption of individual terms. Record the source, namespace, pinned version or immutable snapshot digest, and imported dependencies. Preview term counts, identity collisions, dependencies, and unsupported constructs before activation. Never silently discard unsupported semantics or claim reasoning capabilities that the importer does not implement. Activation requires an authorized adoption decision and an explicit disposition for unsupported constructs. Repeat adoption of the same snapshot is idempotent. A newer snapshot is a reviewed upgrade, not an automatic replacement. The initial adoption uses a pinned published Schema.org release, recording its release identifier, release artifact source, and immutable snapshot digest. Never resolve the initial vocabulary from a moving latest or development endpoint. The exact release identifier and supported import formats remain implementation decisions.
+
+Build the six initial local types and their enforced constraints on this imported vocabulary. Preserve Schema.org term identities and keep local additions namespaced separately. Importing suggested domains and ranges does not automatically make every suggested property required. Make the bulk-imported vocabulary discoverable, while presenting Person, Project, Claim, Decision, Procedure, and Evidence as the initial authoring choices.
+
+PROV-O provenance and SKOS concept organization are later extensions, not initial import dependencies. Reserve namespace and version support for combining these vocabularies without requiring their adoption or implementation now. Local evidence references and named relations remain available in the initial release.
+
+Incomplete drafts and proposals expose validation diagnostics to authors and agents. Acceptance and authorized direct writes into curated knowledge validate properties and relations against the selected accepted type versions. Invalid updates leave the accepted revision unchanged. Ordinary untyped notes remain supported. Type definitions and ontology adoption records use the same review, capability, history, and provenance rules as curated content.
+
+Keep prose wikilinks for navigation. Named relations reference stable note identities, with titles and aliases for display. Relations can connect entities and knowledge objects, including Claim supported_by Evidence, Decision affects Project, Decision supersedes Decision, and Procedure maintained_by Person. These examples guide the initial vocabulary without choosing external mappings prematurely. An unresolved prose link can remain navigable as a dangling link, but a required typed relation must resolve to an accepted, type-compatible target before acceptance.
+
+Agents can propose a page's prose, properties, and relations as one reviewed mutation with evidence. Schema changes invalidate affected pending acceptance eligibility. Normal queries and graph traversal use accepted entries and accepted relations under the caller's effective access policy. Suggested relations and inferred claims remain outside accepted recall until accepted. Derived indexes are rebuildable from accepted notes, relation records, and pinned type definitions.
+
+Type upgrades preview affected entries and validation failures. Existing entries retain their prior type versions until an explicit reviewed migration succeeds. Imports, upgrades, and migrations must not silently reinterpret or invalidate existing accepted knowledge. Renames preserve relation targets. Target deletion or type migration must reject an operation that would break enforced accepted relations unless an authorized coherent migration resolves those relations.
+
 ## Implementation order and tracking
 
 1. #368 records this specification and dependency plan.
@@ -64,8 +86,12 @@ Accepted curated knowledge is the default recall source. Working observations ca
 8. #345 adds optional evidence capture; #346 adds durable retries; #347 improves scoped passage recall.
 9. #350 measures quality and #351 exposes health independently.
 
+Ontology adoption, reusable type definitions, typed relations, validation, query integration, and authoring diagnostics need focused implementation tracking after the existing foundations. No issue numbers or completed runtime work are claimed for this extension.
+
 Independent foundations can proceed in parallel. Dependent PRs must name their base and remain independently verifiable. Feature PRs receive their own issue and specification changes; this design PR does not claim to close implementation issues.
 
 ## Risks and verification
 
 The main risks are falsely trusted identities, ambiguous Markdown matching, cross-store crash consistency, incomplete authorization across read paths, and unapproved evidence entering normal recall. Verify behavior with deterministic concurrency and failure injection, real storage/index tests, adapter authorization tests, and isolated Flutter verification for the review UI. Preserve existing ordinary-note workflows and define migration before enabling curated policies.
+
+Verify the typed extension with import idempotency and unsupported-construct cases, inheritance conflicts, acceptance validation, stable relation targets, access-filtered graph queries, and versioned migration failures.

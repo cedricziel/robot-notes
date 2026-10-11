@@ -145,3 +145,109 @@ Conversation evidence capture SHALL be separately enabled and SHALL have configu
 - **GIVEN** optional evidence capture is disabled
 - **WHEN** curated knowledge is reviewed and maintained
 - **THEN** the curated workflow SHALL remain usable with other explicit supporting evidence
+
+
+### Requirement: Reusable types guide authors and enforce structure
+
+The system SHALL support Person, Project, Claim, Decision, Procedure, and Evidence as initial reusable types for ordinary Markdown entries. Types SHALL remain independent of folders and database membership. Each versioned type SHALL expose descriptions, examples, suggested sections, and agent guidance alongside required properties, value types, enumerations, cardinality, and allowed relation target types. Untyped ordinary notes SHALL remain supported.
+
+#### Scenario: Discovering a type before authoring
+
+- **WHEN** a human or authorized agent inspects the Decision type
+- **THEN** the system SHALL expose its authoring guidance and machine-readable constraints with the definition identity and version
+
+#### Scenario: Reusing a type across views
+
+- **WHEN** a Project entry moves folders or appears in another database view
+- **THEN** its semantic type identity SHALL remain unchanged and applicable database constraints SHALL remain enforced
+
+### Requirement: Custom types extend established schemas
+
+The system SHALL allow custom namespaced types to extend accepted imported type definitions and add local guidance, properties, and compatible constraints. External term identities and source mappings SHALL be preserved. Inheritance SHALL resolve against pinned definition versions. Cycles and conflicting inherited constraints SHALL prevent activation. External vocabulary guidance SHALL NOT become mandatory without an explicit constraint.
+
+#### Scenario: Extending an imported type
+
+- **WHEN** an authorized user defines a custom Decision type extending an imported term with a required decision date
+- **THEN** its effective definition SHALL preserve the parent term identity and include the local requirement
+
+#### Scenario: Conflicting inheritance
+
+- **WHEN** a proposed type introduces cyclic inheritance or incompatible constraints
+- **THEN** activation SHALL fail with actionable diagnostics and accepted definitions SHALL remain unchanged
+
+### Requirement: Ontologies can be adopted in bulk
+
+The system SHALL initially bulk-adopt the complete supported vocabulary of a pinned published Schema.org release and support local types and constraints extending its terms. Schema.org adoption SHALL record an explicit release identifier, release artifact source, and immutable snapshot digest. It SHALL NOT use a moving latest or development endpoint as the accepted vocabulary source. The system SHALL retain the bulk-adoption contract for later user-selected ontologies. Adoption SHALL record its source, namespace, pinned version or immutable snapshot digest, and dependencies. Before activation, a preview SHALL identify imported terms, identity collisions, unresolved dependencies, and unsupported constructs. Unsupported semantics SHALL NOT be silently discarded. Activation SHALL require authorized review and an explicit disposition for unsupported constructs. Repeating adoption of the same snapshot SHALL be idempotent. Ontology upgrades SHALL require a separately reviewed version change.
+
+#### Scenario: Adopting Schema.org rather than individual terms
+
+- **WHEN** an authorized user adopts a pinned published Schema.org release after reviewing its preview
+- **THEN** the supported type and property definitions SHALL become available together without manual adoption of each term
+- **AND** repeating the adoption SHALL NOT create duplicate definitions
+
+#### Scenario: Local constraints over imported vocabulary
+
+- **GIVEN** a pinned Schema.org release has been adopted
+- **WHEN** an authorized user defines a local type with required properties and named relation constraints
+- **THEN** the effective definition SHALL retain imported term identities and enforce the explicit local constraints
+- **AND** imported suggested properties SHALL NOT become required solely through bulk adoption
+
+#### Scenario: Later vocabulary extensions
+
+- **WHEN** the initial Schema.org vocabulary and local types are activated
+- **THEN** PROV-O and SKOS adoption SHALL NOT be required for authoring, validation, evidence references, or accepted relation queries
+- **AND** vocabulary namespaces and version identities SHALL permit their separate adoption in a later extension
+
+#### Scenario: Unsupported ontology constructs
+
+- **WHEN** an import contains unsupported constructs or unresolved dependencies
+- **THEN** the preview SHALL identify them and activation SHALL remain blocked until their disposition is explicitly reviewed and dependencies are resolved
+- **AND** the system SHALL NOT claim enforcement or inference for unsupported semantics
+
+### Requirement: Acceptance validates typed knowledge
+
+Drafts and proposals MAY remain structurally incomplete and SHALL expose validation diagnostics. Acceptance and authorized direct curated writes SHALL validate supplied properties and named relations against accepted, pinned type-definition versions. Invalid mutations SHALL leave accepted knowledge unchanged. Structural validity SHALL NOT establish factual truth or bypass evidence and approval policy. Changes to applicable definitions SHALL invalidate affected pending acceptance eligibility.
+
+#### Scenario: Incomplete typed proposal
+
+- **WHEN** a proposed Decision omits a required property or supplies an invalid relation target
+- **THEN** it SHALL remain inspectable with actionable diagnostics but SHALL NOT become accepted knowledge
+
+#### Scenario: Valid evidence-backed proposal
+
+- **WHEN** a typed entry satisfies its structural constraints
+- **THEN** acceptance SHALL still require the effective evidence, authorization, and review checks
+
+### Requirement: Named relations support accepted knowledge queries
+
+The system SHALL support named relations between entities and knowledge objects using stable target identities. Titles and aliases SHALL remain display attributes. Prose wikilinks SHALL remain available. Required typed relations SHALL resolve to accepted targets satisfying the declared target types before acceptance. Prose, properties, and relations in a proposal SHALL be reviewable and accepted together. Normal queries and graph traversal SHALL use only accepted entries and relations and SHALL enforce effective read access for results, traversed targets, and evidence.
+
+#### Scenario: Querying linked decisions
+
+- **GIVEN** an accepted Decision affects an accepted Project and a pending proposal adds another such relation
+- **WHEN** an authorized caller queries accepted decisions affecting the Project
+- **THEN** only accepted relations and entries accessible to that caller SHALL contribute to the result
+
+#### Scenario: Renaming a relation target
+
+- **WHEN** an accepted Project is renamed
+- **THEN** incoming named relations SHALL retain their target identity and display the updated title
+
+#### Scenario: Breaking a required relation
+
+- **WHEN** deletion or type migration would invalidate an enforced accepted relation
+- **THEN** the mutation SHALL be rejected unless an authorized coherent migration resolves the affected relations
+
+### Requirement: Type evolution preserves accepted knowledge
+
+Type definitions and ontology adoption records SHALL follow curated review, authorization, provenance, and retained-history rules. An upgrade SHALL preview affected entries and validation failures. Accepted entries SHALL retain their pinned definition versions until an explicit reviewed migration succeeds. Failed imports, upgrades, or migrations SHALL NOT silently reinterpret existing accepted entries. Derived query indexes SHALL be rebuildable from accepted data and pinned definitions.
+
+#### Scenario: Adding a required property
+
+- **WHEN** a proposed type version adds a property missing from existing accepted entries
+- **THEN** the preview SHALL identify those entries and they SHALL remain on their prior definition version until a reviewed migration succeeds
+
+#### Scenario: Agent proposes a type change
+
+- **WHEN** an agent with proposal-only authority submits a type definition or ontology upgrade
+- **THEN** it SHALL remain pending under the effective review policy and SHALL NOT directly alter accepted validation or query behavior
