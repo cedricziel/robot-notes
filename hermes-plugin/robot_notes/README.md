@@ -218,7 +218,7 @@ to any service other than the `base_url` configured above.
   role/content of every message in the session, so treat the robot-notes
   workspace as within the conversation's trust boundary.
 - **Built-in memory mirror** — content written to Hermes' own
-  `MEMORY.md`/`USER.md` is mirrored one-directionally into
+  `MEMORY.md`/`USER.md` is mirrored one-directionally by default into
   `Hermes/Memory.md`/`Hermes/User.md` notes (see Write behavior below);
   whatever text lands in those files is sent to the server.
 - **Explicit tool writes** — `robotnotes_remember` sends the model-authored
@@ -291,7 +291,7 @@ conversation turn:
   `robotnotes_forget`) let the model manage notes directly — search before
   creating, and append rather than duplicate a note on the same topic.
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
-  are mirrored one-directionally into `Hermes/Memory.md` and
+  are mirrored one-directionally by default into `Hermes/Memory.md` and
   `Hermes/User.md` in the workspace.
 
 `initialize()` also honors the host's `agent_context` kwarg
