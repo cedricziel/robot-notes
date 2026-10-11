@@ -606,11 +606,19 @@ void main() {
 
       final title = tester.widget<TextField>(find.byKey(_titleField));
       expect(title.decoration?.border, InputBorder.none);
+      expect(title.decoration?.enabledBorder, InputBorder.none);
+      expect(title.decoration?.focusedBorder, InputBorder.none);
+      expect(title.decoration?.disabledBorder, InputBorder.none);
+      expect(title.decoration?.filled, isFalse);
       expect(title.decoration?.labelText, isNull);
       expect(title.decoration?.hintText, 'Title');
 
       final content = tester.widget<TextField>(find.byKey(_contentField));
       expect(content.decoration?.border, InputBorder.none);
+      expect(content.decoration?.enabledBorder, InputBorder.none);
+      expect(content.decoration?.focusedBorder, InputBorder.none);
+      expect(content.decoration?.disabledBorder, InputBorder.none);
+      expect(content.decoration?.filled, isFalse);
       expect(content.decoration?.labelText, isNull);
       expect(content.decoration?.hintText, 'Start writing…');
     });
@@ -719,7 +727,7 @@ void main() {
 
   group('database embeds', () {
     testWidgets(
-      'a resolvable embed renders in Blocks and preserves its source and preview',
+      'a resolvable embed renders in Blocks and preserves its source',
       (tester) async {
         final mock = MockClient((request) async {
           if (request.method == 'GET' && request.url.path == '/notes/01H') {
@@ -824,107 +832,41 @@ void main() {
         // Source mode keeps the literal embed syntax.
         await _showSource(tester);
         expect(_fieldController(tester, _contentField).text, '![[Projects]]');
-        // ...while the preview pane (shown by default at this window size)
-        // renders the embed.
-        expect(find.byKey(const Key('note.editor.preview')), findsOneWidget);
-        expect(find.byKey(const Key('database.embed.title')), findsOneWidget);
+        expect(find.byKey(const Key('note.editor.preview')), findsNothing);
+        expect(find.byKey(const Key('database.embed.title')), findsNothing);
       },
     );
   });
 
-  group('preview toggle', () {
-    const toggle = Key('note.toolbar.preview');
-    const preview = Key('note.editor.preview');
+  group('Markdown source pane', () {
+    for (final size in [
+      const Size(1200, 800),
+      const Size(390, 844),
+      const Size(844, 390),
+    ]) {
+      testWidgets('uses one full-width pane at $size', (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await _pumpEditor(tester);
 
-    testWidgets('preview is shown by default at medium width and up', (
-      tester,
-    ) async {
-      _setWindow(tester, 800);
-      await _pumpEditor(tester);
+        expect(find.byKey(const Key('note.editor.preview')), findsNothing);
+        expect(find.byKey(const Key('note.toolbar.preview')), findsNothing);
+        expect(find.byKey(_contentField), findsOneWidget);
+        final editor = tester.getRect(find.byKey(_contentField));
+        expect(editor.width, greaterThan(size.width - 80));
+        expect(tester.takeException(), isNull);
+      });
+    }
 
-      expect(find.byKey(preview), findsOneWidget);
-      final button = tester.widget<IconButton>(find.byKey(toggle));
-      expect(button.isSelected, isTrue);
-      expect(button.tooltip, 'Hide preview');
-    });
-
-    testWidgets('preview is hidden by default on a compact width', (
-      tester,
-    ) async {
-      _setWindow(tester, 400);
-      await _pumpEditor(tester);
-
-      expect(find.byKey(preview), findsNothing);
-      final button = tester.widget<IconButton>(find.byKey(toggle));
-      expect(button.isSelected, isFalse);
-      expect(button.tooltip, 'Show preview');
-    });
-
-    testWidgets('toggling hides the preview on a wide window', (tester) async {
-      _setWindow(tester, 800);
-      await _pumpEditor(tester);
-
-      await tester.tap(find.byKey(toggle));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(preview), findsNothing);
-      expect(tester.widget<IconButton>(find.byKey(toggle)).isSelected, isFalse);
-
-      await tester.tap(find.byKey(toggle));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(preview), findsOneWidget);
-    });
-
-    testWidgets('toggling on a compact window stacks the preview below', (
-      tester,
-    ) async {
-      _setWindow(tester, 400);
-      await _pumpEditor(tester);
-
-      await tester.tap(find.byKey(toggle));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(preview), findsOneWidget);
-      expect(tester.widget<IconButton>(find.byKey(toggle)).isSelected, isTrue);
-      final contentRect = tester.getRect(find.byKey(_contentField));
-      final previewRect = tester.getRect(find.byKey(preview));
-      expect(previewRect.top, greaterThanOrEqualTo(contentRect.bottom));
-      expect(previewRect.left, closeTo(contentRect.left, 1));
-    });
-
-    testWidgets('the user\'s choice survives a rebuild', (tester) async {
-      _setWindow(tester, 800);
-      await _pumpEditor(tester);
-
-      await tester.tap(find.byKey(toggle));
-      await tester.pumpAndSettle();
-      // Typing rebuilds the screen through the controller listener.
-      await tester.enterText(find.byKey(_contentField), 'still hidden');
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(preview), findsNothing);
-    });
-
-    testWidgets('the formatting toolbar scrolls sideways on a narrow window', (
+    testWidgets('formatting stays available without a preview toggle', (
       tester,
     ) async {
       _setWindow(tester, 320);
       await _pumpEditor(tester);
-
-      // No overflow error; the last button is reachable by scrolling.
+      expect(find.byKey(const Key('note.toolbar.link')), findsOneWidget);
+      expect(find.byKey(const Key('note.toolbar.preview')), findsNothing);
       expect(tester.takeException(), isNull);
-      expect(
-        find.ancestor(
-          of: find.byKey(toggle),
-          matching: find.byWidgetPredicate(
-            (w) =>
-                w is SingleChildScrollView &&
-                w.scrollDirection == Axis.horizontal,
-          ),
-        ),
-        findsOneWidget,
-      );
     });
   });
 
@@ -975,37 +917,6 @@ void main() {
       await tester.pump();
 
       expect(field.controller!.text, '[title](url)');
-    });
-  });
-
-  group('live preview', () {
-    testWidgets('renders the content as it is typed', (tester) async {
-      await _pumpEditor(tester);
-
-      await tester.enterText(find.byKey(_contentField), '# Heading');
-      await tester.pump();
-
-      final preview = find.byKey(const Key('note.editor.preview'));
-      expect(
-        find.descendant(of: preview, matching: find.text('Heading')),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('sits beside the content field on a wide window', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(1200, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-
-      await _pumpEditor(tester);
-
-      final contentTop = tester.getTopLeft(find.byKey(_contentField)).dy;
-      final previewTop = tester
-          .getTopLeft(find.byKey(const Key('note.editor.preview')))
-          .dy;
-      expect(contentTop, closeTo(previewTop, 1));
     });
   });
 

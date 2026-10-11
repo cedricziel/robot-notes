@@ -122,11 +122,6 @@ class _NoteScreenState extends State<NoteScreen> {
   late final _DiffTextController _content = _DiffTextController(_serverContent);
   late final LinkAutocompleteController _linkAutocomplete;
 
-  /// The user's explicit choice for the editor's live preview, if they've
-  /// made one this session. `null` means "whatever the width suggests":
-  /// shown side-by-side at [WindowSizeClass.medium] and up, hidden on a
-  /// compact window where it would halve an already small editor.
-  bool? _previewOverride;
   bool _transitionPending = false;
   bool _allowPop = false;
   bool _resumeEditingOnReturn = false;
@@ -596,10 +591,6 @@ class _NoteScreenState extends State<NoteScreen> {
     }
   }
 
-  void _setPreviewShown(bool shown) {
-    setState(() => _previewOverride = shown);
-  }
-
   DatabaseEmbedBuilder? _embedBuilder() {
     final databases = widget.databases;
     if (databases == null) return null;
@@ -974,33 +965,35 @@ class _NoteScreenState extends State<NoteScreen> {
                   onChanged: widget.controller.setEditContent,
                   readOnly: !editing || _transitionPending,
                   searchLinkTitles: widget.controller.searchLinkTitles,
-                  header: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: PaneSizes.readingColumn,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            TextField(
-                              key: const Key('note.editor.title'),
-                              controller: _title,
-                              autofocus: widget.startEditing && editing,
-                              readOnly: !editing || _transitionPending,
-                              onChanged: widget.controller.setEditTitle,
-                              style: Theme.of(context).textTheme.headlineSmall,
-                              decoration: const InputDecoration(
-                                border: InputBorder.none,
-                                hintText: 'Title',
-                              ),
-                            ),
-                            _MetadataLine(note: note),
-                            const SizedBox(height: 8),
-                          ],
+                  header: Padding(
+                    padding: const EdgeInsets.only(
+                      left: PaneSizes.editorPadding + PaneSizes.blockGutter,
+                      right: PaneSizes.editorPadding + PaneSizes.blockActions,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          key: const Key('note.editor.title'),
+                          controller: _title,
+                          autofocus: widget.startEditing && editing,
+                          readOnly: !editing || _transitionPending,
+                          onChanged: widget.controller.setEditTitle,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            filled: false,
+                            contentPadding: EdgeInsets.zero,
+                            hintText: 'Title',
+                            constraints: BoxConstraints(minHeight: 44),
+                          ),
                         ),
-                      ),
+                        _MetadataLine(note: note),
+                        const SizedBox(height: 8),
+                      ],
                     ),
                   ),
                   sourceBuilder: (context, source, readOnly) => _Editor(
@@ -1014,9 +1007,6 @@ class _NoteScreenState extends State<NoteScreen> {
                     readOnly: readOnly,
                     linkAutocomplete: _linkAutocomplete,
                     onSelectLink: _insertLink,
-                    previewOverride: _previewOverride,
-                    onPreviewShown: _setPreviewShown,
-                    embedBuilder: _embedBuilder(),
                   ),
                   opaqueBuilder: (context, source) {
                     final embeds = _embedBuilder();
@@ -1216,9 +1206,6 @@ class _Editor extends StatelessWidget {
     required this.saving,
     required this.linkAutocomplete,
     required this.onSelectLink,
-    required this.previewOverride,
-    required this.onPreviewShown,
-    this.embedBuilder,
     this.readOnly = false,
     this.note,
   });
@@ -1234,16 +1221,6 @@ class _Editor extends StatelessWidget {
   final LinkAutocompleteController linkAutocomplete;
   final ValueChanged<String> onSelectLink;
 
-  /// See `_NoteScreenState._previewOverride`.
-  final bool? previewOverride;
-  final ValueChanged<bool> onPreviewShown;
-
-  /// Resolves `![[Title]]` embeds in the preview pane — "the split-view
-  /// preview pane, being a rendering surface, shall render embeds like view
-  /// mode". Never applied to [content]'s own `TextField`, which always
-  /// shows the literal source.
-  final DatabaseEmbedBuilder? embedBuilder;
-
   /// Applies [transform] to [content]'s current value and reports the
   /// result the same way typing does, so undo/dirty-tracking/autocomplete
   /// all see it as an ordinary content change.
@@ -1258,127 +1235,82 @@ class _Editor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide =
-            Breakpoints.fromConstraints(constraints) >= WindowSizeClass.medium;
-        final showPreview = previewOverride ?? wide;
-        final sideBySide = showPreview && wide;
-
-        final contentField = Column(
-          children: [
-            Expanded(
-              child: TextField(
-                key: const Key('note.editor.content'),
-                controller: content,
-                onChanged: onContent,
-                style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Start writing…',
-                  contentPadding: EdgeInsets.symmetric(vertical: 12),
-                ),
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                readOnly: readOnly,
-              ),
+    final contentField = Column(
+      children: [
+        Expanded(
+          child: TextField(
+            key: const Key('note.editor.content'),
+            controller: content,
+            onChanged: onContent,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              height: 1.5,
+              fontFamily: AppTheme.codeFont(theme.platform).fontFamily,
+              fontFamilyFallback: AppTheme.codeFont(theme.platform)
+                  .fontFamilyFallback,
             ),
-            _LinkSuggestions(
-              linkAutocomplete: linkAutocomplete,
-              onSelect: onSelectLink,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              filled: false,
+              hintText: 'Start writing…',
+              contentPadding: EdgeInsets.zero,
             ),
-          ],
-        );
-
-        final Widget workspace;
-        if (!showPreview) {
-          workspace = contentField;
-        } else {
-          final preview = ListenableBuilder(
-            listenable: content,
-            builder: (context, _) => Markdown(
-              key: const Key('note.editor.preview'),
-              data: content.text,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              styleSheet: AppTheme.markdown(context),
-              imageBuilder: (uri, title, alt) => Text(alt ?? uri.toString()),
-              blockSyntaxes: embedBuilder == null
-                  ? const []
-                  : const [DatabaseEmbedSyntax()],
-              builders: embedBuilder == null
-                  ? const {}
-                  : {databaseEmbedTag: embedBuilder!},
-            ),
-          );
-          workspace = sideBySide
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: contentField),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: VerticalDivider(),
-                    ),
-                    Expanded(child: preview),
-                  ],
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: contentField),
-                    const Divider(),
-                    Expanded(child: preview),
-                  ],
-                );
-        }
-
-        return Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: sideBySide
-                  ? PaneSizes.editorSplit
-                  : PaneSizes.readingColumn,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    key: const Key('note.editor.title'),
-                    controller: title,
-                    autofocus: autofocusTitle,
-                    onChanged: onTitle,
-                    style: theme.textTheme.headlineSmall,
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'Title',
-                      contentPadding: EdgeInsets.symmetric(vertical: 8),
-                    ),
-                    readOnly: readOnly,
-                  ),
-                  if (note != null) _MetadataLine(note: note!),
-                  _FormattingToolbar(
-                    enabled: !readOnly,
-                    onBold: () => _applyFormat((v) => wrapSelection(v, '**')),
-                    onItalic: () => _applyFormat((v) => wrapSelection(v, '*')),
-                    onHeading: () =>
-                        _applyFormat((v) => toggleLinePrefix(v, '# ')),
-                    onList: () =>
-                        _applyFormat((v) => toggleLinePrefix(v, '- ')),
-                    onLink: () => _applyFormat(insertMarkdownLink),
-                    previewShown: showPreview,
-                    onTogglePreview: () => onPreviewShown(!showPreview),
-                  ),
-                  const Divider(),
-                  Expanded(child: workspace),
-                ],
-              ),
-            ),
+            maxLines: null,
+            expands: true,
+            textAlignVertical: TextAlignVertical.top,
+            readOnly: readOnly,
           ),
-        );
-      },
+        ),
+        _LinkSuggestions(
+          linkAutocomplete: linkAutocomplete,
+          onSelect: onSelectLink,
+        ),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        PaneSizes.editorPadding,
+        8,
+        PaneSizes.editorPadding,
+        16,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            key: const Key('note.editor.title'),
+            controller: title,
+            autofocus: autofocusTitle,
+            onChanged: onTitle,
+            style: theme.textTheme.headlineSmall,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              filled: false,
+              hintText: 'Title',
+              constraints: BoxConstraints(minHeight: 44),
+              contentPadding: EdgeInsets.zero,
+            ),
+            readOnly: readOnly,
+          ),
+          if (note != null) _MetadataLine(note: note!),
+          _FormattingToolbar(
+            enabled: !readOnly,
+            onBold: () => _applyFormat((v) => wrapSelection(v, '**')),
+            onItalic: () => _applyFormat((v) => wrapSelection(v, '*')),
+            onHeading: () => _applyFormat((v) => toggleLinePrefix(v, '# ')),
+            onList: () => _applyFormat((v) => toggleLinePrefix(v, '- ')),
+            onLink: () => _applyFormat(insertMarkdownLink),
+          ),
+          const Divider(),
+          Expanded(child: contentField),
+        ],
+      ),
     );
   }
 }
@@ -1387,7 +1319,7 @@ class _Editor extends StatelessWidget {
 /// the selection, heading/list toggle a marker on the current line, link
 /// inserts a `[title](url)` template. All operate on the same
 /// [TextEditingController] typing does, via [markdown_toolbar.dart]'s
-/// pure `TextEditingValue` transforms. Ends with the live-preview toggle.
+/// pure `TextEditingValue` transforms.
 /// Scrolls sideways rather than overflowing on a narrow window.
 class _FormattingToolbar extends StatelessWidget {
   const _FormattingToolbar({
@@ -1397,8 +1329,6 @@ class _FormattingToolbar extends StatelessWidget {
     required this.onHeading,
     required this.onList,
     required this.onLink,
-    required this.previewShown,
-    required this.onTogglePreview,
   });
 
   final bool enabled;
@@ -1407,8 +1337,6 @@ class _FormattingToolbar extends StatelessWidget {
   final VoidCallback onHeading;
   final VoidCallback onList;
   final VoidCallback onLink;
-  final bool previewShown;
-  final VoidCallback onTogglePreview;
 
   @override
   Widget build(BuildContext context) {
@@ -1446,15 +1374,6 @@ class _FormattingToolbar extends StatelessWidget {
             tooltip: 'Link',
             icon: const Icon(Icons.link),
             onPressed: enabled ? onLink : null,
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            key: const Key('note.toolbar.preview'),
-            tooltip: previewShown ? 'Hide preview' : 'Show preview',
-            isSelected: previewShown,
-            icon: const Icon(Icons.visibility),
-            selectedIcon: const Icon(Icons.visibility_off),
-            onPressed: onTogglePreview,
           ),
         ],
       ),
