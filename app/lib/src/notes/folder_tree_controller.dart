@@ -139,6 +139,8 @@ class FolderTreeController extends ValueNotifier<FolderTreeState> {
     }
   }
 
+  RobotNotesClient get api => _api;
+
   final RobotNotesClient _api;
   StreamSubscription<RealtimeEvent>? _sub;
   bool _disposed = false;

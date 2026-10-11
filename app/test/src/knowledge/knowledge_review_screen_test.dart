@@ -81,8 +81,9 @@ void main() {
               'author_label': 'Agent',
               'state': 'pending',
               'record_revision': 1,
+              'allowed_actions': ['read', 'approve', 'deny', 'request_changes'],
               'operations': [
-                {'type': 'replace', 'content': 'Pending claim'},
+                {'type': 'replace', 'text': 'Pending claim'},
               ],
               'evidence_refs': <Object?>[],
               'comments': <Object?>[],

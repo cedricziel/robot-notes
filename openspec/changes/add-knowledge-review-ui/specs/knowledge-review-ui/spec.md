@@ -22,3 +22,11 @@ Authorized users SHALL inspect accepted versions and restore a version as a new 
 - **WHEN** an authorized user restores an earlier version
 - **THEN** the application submits the current accepted version as a concurrency precondition
 - **AND** reloads accepted content after success
+
+### Requirement: Discover unaccepted new knowledge
+The application SHALL expose an explicit vault proposal index for new-note drafts without creating accepted placeholder notes.
+
+#### Scenario: Review new-note draft
+- **WHEN** an agent proposes a new institutional note
+- **THEN** an authorized reviewer can inspect its content and evidence through the proposal index
+- **AND** approval uses the proposal record revision without requiring an accepted note to exist first

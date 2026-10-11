@@ -7,6 +7,7 @@ import 'package:shared/shared.dart';
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
 import 'knowledge_policy_screen.dart';
+import 'proposal_review_dialog.dart';
 
 class KnowledgeReviewScreen extends StatefulWidget {
   const KnowledgeReviewScreen({
@@ -175,134 +176,29 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
         summary['proposal_id'] as String,
       );
       if (!mounted) return;
-      await showDialog<void>(
+      await showProposalReview(
         context: context,
-        builder: (context) => AlertDialog(
-          title: Text(
-            'Proposal by ${proposal['author_label'] ?? 'Unknown author'}',
-          ),
-          content: SizedBox(
-            width: 640,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Status: ${proposal['state']}'),
-                  const SizedBox(height: 16),
-                  for (final operation in _rows(proposal['operations']))
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${operation['type'] ?? operation['op']}',
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          SelectableText(
-                            '${operation['content'] ?? operation['text'] ?? ''}',
-                          ),
-                        ],
-                      ),
-                    ),
-                  Text(
-                    'Evidence',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  for (final evidence in _rows(proposal['evidence_refs']))
-                    SelectableText(
-                      '${evidence['kind']}: ${evidence['url'] ?? evidence['note_id'] ?? evidence['digest'] ?? evidence['reason'] ?? 'Source reference'}',
-                    ),
-                  const SizedBox(height: 16),
-                  for (final comment in _rows(proposal['comments']))
-                    ListTile(
-                      title: Text(
-                        '${comment['author_label'] ?? 'Unknown author'}',
-                      ),
-                      subtitle: Text('${comment['body'] ?? ''}'),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-            if (_can('read') && (_can('propose') || _can('review')))
-              TextButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  final body = await _text('Comment on proposal');
-                  if (body == null || body.trim().isEmpty || !mounted) return;
-                  await _mutate(() async {
-                    await widget.api.commentKnowledge(
-                      '/notes/${_note.id}/proposals/${proposal['proposal_id']}/comments',
-                      {
-                        'record_revision': proposal['record_revision'],
-                        'body': body,
-                      },
-                    );
-                  });
-                },
-                child: const Text('Comment'),
-              ),
-            if (_can('review') &&
-                [
-                  'pending',
-                  'changes_requested',
-                  'needs_re_review',
-                  'conflicted',
-                ].contains(proposal['state'])) ...[
-              for (final decision in [
-                'deny',
-                'request_changes',
-                if ([
-                  'pending',
-                  'changes_requested',
-                ].contains(proposal['state']))
-                  'approve',
-              ])
-                TextButton(
-                  onPressed: _busy
-                      ? null
-                      : () async {
-                          Navigator.pop(context);
-                          final comment = decision == 'approve'
-                              ? null
-                              : await _text(
-                                  decision == 'deny'
-                                      ? 'Deny proposal'
-                                      : 'Request changes',
-                                );
-                          if (decision != 'approve' && comment == null ||
-                              !mounted) {
-                            return;
-                          }
-                          await _mutate(() async {
-                            await widget.api.decideKnowledgeProposal(
-                              _note.id,
-                              proposal['proposal_id'] as String,
-                              decision: decision,
-                              recordRevision:
-                                  proposal['record_revision'] as int,
-                              comment: comment,
-                            );
-                            if (decision == 'approve') {
-                              await widget.onAcceptedChange();
-                            }
-                          });
-                        },
-                  child: Text(switch (decision) {
-                    'approve' => 'Approve',
-                    'deny' => 'Deny',
-                    _ => 'Request changes',
-                  }),
-                ),
-            ],
-          ],
-        ),
+        proposal: proposal,
+        acceptedBlocks: {
+          for (final block in _rows(_blocks?['blocks']))
+            block['id'] as String: _source(block),
+        },
+        onComment: (body) => _mutate(() async {
+          await widget.api.commentKnowledge(
+            '/notes/${_note.id}/proposals/${proposal['proposal_id']}/comments',
+            {'record_revision': proposal['record_revision'], 'body': body},
+          );
+        }),
+        onDecision: (decision, comment) => _mutate(() async {
+          await widget.api.decideKnowledgeProposal(
+            _note.id,
+            proposal['proposal_id'] as String,
+            decision: decision,
+            recordRevision: proposal['record_revision'] as int,
+            comment: comment,
+          );
+          if (decision == 'approve') await widget.onAcceptedChange();
+        }),
       );
     } on ApiException catch (error) {
       if (mounted) {
