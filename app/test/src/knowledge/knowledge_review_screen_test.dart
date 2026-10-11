@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/knowledge/knowledge_review_screen.dart';
@@ -41,8 +43,20 @@ void main() {
           if (path.endsWith('/blocks')) {
             body = {
               'version': 1,
+              'content_hash': sha256
+                  .convert(utf8.encode('Accepted truth'))
+                  .toString(),
+              'offset_encoding': 'utf-16',
               'blocks': [
-                {'id': 'b', 'revision': 1, 'start': 0, 'end': 14},
+                {
+                  'id': 'b',
+                  'revision': 1,
+                  'start': 0,
+                  'end': 14,
+                  'hash': sha256
+                      .convert(utf8.encode('Accepted truth'))
+                      .toString(),
+                },
               ],
             };
           }

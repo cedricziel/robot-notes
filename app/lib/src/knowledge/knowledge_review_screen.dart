@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared/shared.dart';
 
@@ -47,15 +50,33 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
     setState(() {
       _busy = true;
       _error = null;
+      _permissions = null;
+      _proposals = [];
+      _blocks = null;
+      _comments = null;
+      _history = [];
     });
     try {
       final currentNote = await widget.api.getNote(_note.id);
       final permissions = await widget.api.getKnowledgePermissions(_note.id);
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _permissions = permissions;
+        _note = currentNote;
+      });
       final proposals = await widget.api.listKnowledgeProposals(_note.id);
       final blocks = await widget.api.getKnowledgeBlocks(
         _note.id,
         version: currentNote.version,
       );
+      if (blocks['content_hash'] !=
+              sha256.convert(utf8.encode(currentNote.content)).toString() ||
+          blocks['offset_encoding'] != 'utf-16') {
+        throw const ApiServerException(
+          statusCode: 409,
+          message: 'Block anchors changed. Refresh the accepted note before reviewing.',
+        );
+      }
       final comments = await widget.api.getKnowledgeComments(_note.id);
       final history = await widget.api.getKnowledgeHistory(_note.id);
       if (!mounted || generation != _generation) return;
@@ -209,7 +230,7 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
               onPressed: () => Navigator.pop(context),
               child: const Text('Close'),
             ),
-            if (_can('propose'))
+            if (_can('read') && (_can('propose') || _can('review')))
               TextButton(
                 onPressed: () async {
                   Navigator.pop(context);
@@ -231,8 +252,18 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
                 [
                   'pending',
                   'changes_requested',
+                  'needs_re_review',
+                  'conflicted',
                 ].contains(proposal['state'])) ...[
-              for (final decision in ['deny', 'request_changes', 'approve'])
+              for (final decision in [
+                'deny',
+                'request_changes',
+                if ([
+                  'pending',
+                  'changes_requested',
+                ].contains(proposal['state']))
+                  'approve',
+              ])
                 TextButton(
                   onPressed: _busy
                       ? null
@@ -293,10 +324,14 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
         end > _note.content.length) {
       return '';
     }
-    return _note.content.substring(start, end);
+    final source = _note.content.substring(start, end);
+    return block['hash'] == sha256.convert(utf8.encode(source)).toString()
+        ? source
+        : '';
   }
 
   Future<void> _blockAction(Map<String, dynamic> block, bool proposal) async {
+    if (_source(block).isEmpty) return;
     final text = await _text(
       proposal ? 'Propose block update' : 'Comment on block',
       initial: proposal ? _source(block) : '',
@@ -312,7 +347,7 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
               'type': 'replace',
               'block_id': block['id'],
               'expected_revision': block['revision'],
-              'content': text,
+              'text': text,
             },
           ],
           'evidence_refs': [
@@ -417,7 +452,8 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
                                           : () => _blockAction(block, true),
                                       child: const Text('Propose update'),
                                     ),
-                                  if (_can('read'))
+                                  if (_can('read') &&
+                                      (_can('propose') || _can('review')))
                                     TextButton(
                                       onPressed: _busy
                                           ? null
@@ -441,6 +477,18 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
                                 ),
                             ],
                           ),
+                        ),
+                      ),
+                    for (final comment in _rows(_comments?['items']).where(
+                      (comment) => !_rows(_blocks?['blocks'])
+                          .any((block) => block['id'] == comment['block_id']),
+                    ))
+                      ListTile(
+                        title: Text(
+                          '${comment['author_label'] ?? 'Unknown author'}',
+                        ),
+                        subtitle: Text(
+                          '${comment['body']}\nOriginal block is no longer present.',
                         ),
                       ),
                   ],
