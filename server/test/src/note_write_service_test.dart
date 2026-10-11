@@ -121,6 +121,74 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
+  group('NoteWriteService.restoreRevision', () {
+    test('broadcasts created when restoring a deleted note', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final broadcaster = _CapturingBroadcaster();
+      final service = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: broadcaster,
+      );
+      final note = await service.create(
+        title: 'A',
+        content: 'retained',
+        actor: 'tester',
+        properties: {'history': true},
+      );
+      await service.delete(id: note.id, actor: 'tester');
+      broadcaster.changed.clear();
+
+      await service.restoreRevision(
+        id: note.id,
+        version: 1,
+        ifMatch: 2,
+        actor: 'tester',
+      );
+
+      expect(broadcaster.changed.single.action, ChangeAction.created);
+    });
+
+    test('broadcasts moved when restoring another folder', () async {
+      final s = await _stack(tmp);
+      addTearDown(s.search.close);
+      final broadcaster = _CapturingBroadcaster();
+      final service = NoteWriteService(
+        storage: s.storage,
+        metaIndex: s.meta,
+        searchIndex: s.search,
+        broadcaster: broadcaster,
+      );
+      final note = await service.create(
+        title: 'A',
+        content: 'retained',
+        actor: 'tester',
+        path: 'Original',
+        properties: {'history': true},
+      );
+      await service.update(
+        id: note.id,
+        title: 'A',
+        content: 'new',
+        actor: 'tester',
+        path: 'Moved',
+        ifMatch: 1,
+      );
+      broadcaster.changed.clear();
+
+      await service.restoreRevision(
+        id: note.id,
+        version: 1,
+        ifMatch: 2,
+        actor: 'tester',
+      );
+
+      expect(broadcaster.changed.single.action, ChangeAction.moved);
+    });
+  });
+
   group('NoteWriteService.create', () {
     test('updates storage, search, meta, and emits created event', () async {
       final s = await _stack(tmp);

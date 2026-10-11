@@ -570,7 +570,8 @@ class NoteWriteService {
       properties: _propertyKeysOnly(source.extra),
       selfId: id,
     );
-    final oldTitle = metaIndex.get(id)?.title;
+    final before = metaIndex.get(id);
+    final oldTitle = before?.title;
     final note = await storage.restoreRevision(
       id,
       version,
@@ -607,7 +608,11 @@ class NoteWriteService {
         noteId: note.id,
         version: note.version,
         by: actor,
-        action: ChangeAction.updated,
+        action: before == null
+            ? ChangeAction.created
+            : before.path != note.path
+                ? ChangeAction.moved
+                : ChangeAction.updated,
       ),
     );
     if (oldTitle != null && oldTitle != note.title) {
