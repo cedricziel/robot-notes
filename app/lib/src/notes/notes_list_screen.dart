@@ -9,6 +9,7 @@ import 'package:shared/shared.dart';
 import '../format/note_time.dart';
 import '../layout/breakpoints.dart';
 import '../widgets/adaptive.dart';
+import '../widgets/platform_motion.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/error_strip.dart';
 import '../widgets/resizable_panel.dart';
@@ -144,7 +145,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
 
   /// Asks, then deletes. Resolves to whether the note is gone.
   Future<bool> _confirmDelete(String id) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPlatformDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog.adaptive(
         title: const Text('Delete this note?'),

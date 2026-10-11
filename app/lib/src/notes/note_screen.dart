@@ -17,6 +17,7 @@ import '../layout/breakpoints.dart';
 import '../realtime/ws_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/adaptive.dart';
+import '../widgets/platform_motion.dart';
 import '../widgets/status_strip.dart';
 import 'link_autocomplete.dart';
 import 'markdown_toolbar.dart';
@@ -515,7 +516,7 @@ class _NoteScreenState extends State<NoteScreen> {
     // The field owns its own controller, so there's nothing to clean up
     // once the dialog closes.
     var draft = note.path;
-    final target = await showDialog<String>(
+    final target = await showPlatformDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog.adaptive(
         title: const Text('Move to folder'),
@@ -564,7 +565,7 @@ class _NoteScreenState extends State<NoteScreen> {
   }
 
   Future<void> _confirmDelete() async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showPlatformDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog.adaptive(
         title: const Text('Delete this note?'),
