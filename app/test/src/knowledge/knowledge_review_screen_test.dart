@@ -126,4 +126,88 @@ void main() {
       expect(find.text('Propose update'), findsNothing);
     },
   );
+  testWidgets(
+    'block replacement preserves its boundary before the next block',
+    (tester) async {
+      const content = 'First paragraph.\n\nNext paragraph.';
+      const first = 'First paragraph.\n';
+      Map<String, dynamic>? submitted;
+      final rawNote = {
+        'id': 'n',
+        'title': 'Knowledge',
+        'content': content,
+        'version': 1,
+        'created_at': '2026-10-11T00:00:00Z',
+        'updated_at': '2026-10-11T00:00:00Z',
+      };
+      final client = RobotNotesClient(
+        config: const AppConfig(
+          baseUrl: 'https://notes.example',
+          apiKey: 'test',
+          actor: 'agent',
+        ),
+        httpClient: MockClient((request) async {
+          Object body = {};
+          final path = request.url.path;
+          if (path == '/notes/n') body = rawNote;
+          if (path.endsWith('/permissions')) {
+            body = {
+              'curated': true,
+              'allowed_actions': ['read', 'propose'],
+            };
+          }
+          if (path.endsWith('/blocks')) {
+            body = {
+              'version': 1,
+              'content_hash': sha256.convert(utf8.encode(content)).toString(),
+              'offset_encoding': 'utf-16',
+              'blocks': [
+                {
+                  'id': 'b',
+                  'revision': 1,
+                  'start': 0,
+                  'end': first.length,
+                  'hash': sha256.convert(utf8.encode(first)).toString(),
+                },
+              ],
+            };
+          }
+          if (path.endsWith('/comments')) {
+            body = {'items': <Object?>[], 'record_revision': 1};
+          }
+          if (path.endsWith('/history')) body = {'revisions': <Object?>[]};
+          if (path.endsWith('/proposals')) {
+            if (request.method == 'POST') {
+              submitted = jsonDecode(request.body) as Map<String, dynamic>;
+            }
+            body = {'items': <Object?>[]};
+          }
+          return http.Response(jsonEncode(body), 200);
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
+          home: KnowledgeReviewScreen(
+            api: client,
+            note: Note.fromJson(rawNote),
+            onAcceptedChange: () async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Blocks and comments'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Propose update'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField), 'Updated paragraph.');
+      await tester.tap(find.text('Submit'));
+      await tester.pumpAndSettle();
+      expect(
+        (submitted?['operations'] as List).single['text'],
+        'Updated paragraph.\n',
+      );
+      expect((submitted?['operations'] as List).single['expected_revision'], 1);
+    },
+  );
 }

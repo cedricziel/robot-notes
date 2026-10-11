@@ -282,7 +282,7 @@ class _KnowledgePolicyScreenState extends State<KnowledgePolicyScreen> {
               DropdownMenuItem(value: 'human', child: Text('Human approval')),
               DropdownMenuItem(
                 value: 'evidence_no_conflict',
-                child: Text('Automatically accept verified sources'),
+                child: Text('Accept verified source links automatically'),
               ),
             ],
             onChanged: _busy || !allowed
@@ -292,6 +292,9 @@ class _KnowledgePolicyScreenState extends State<KnowledgePolicyScreen> {
                   ),
           ),
           const SizedBox(height: 16),
+          const Text(
+            'Source checks verify availability and access. Changes to note text still require human approval.',
+          ),
           for (final action in labels.keys)
             ListTile(
               title: Text(labels[action]!),

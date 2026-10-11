@@ -22,15 +22,15 @@ Future<void> showProposalReview({
   List<Map<String, dynamic>> rows(Object? value) =>
       value is List ? value.whereType<Map<String, dynamic>>().toList() : [];
   Future<String?> compose(String title) async {
-    final controller = TextEditingController();
+    var comment = '';
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
         content: SizedBox(
           width: 520,
-          child: TextField(
-            controller: controller,
+          child: TextFormField(
+            onChanged: (value) => comment = value,
             minLines: 3,
             maxLines: 8,
             decoration: const InputDecoration(labelText: 'Comment'),
@@ -42,13 +42,12 @@ Future<void> showProposalReview({
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, controller.text),
+            onPressed: () => Navigator.pop(context, comment),
             child: const Text('Submit'),
           ),
         ],
       ),
     );
-    controller.dispose();
     return result;
   }
 
@@ -65,6 +64,9 @@ Future<void> showProposalReview({
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('Status: ${proposalStateLabel(proposal['state'])}'),
+              if (proposal['author_agent_origin'] == true ||
+                  proposal['author_kind'] == 'agent')
+                const Text('Agent proposal'),
               if (proposal['accepted_version'] is int)
                 Text('Accepted as version ${proposal['accepted_version']}'),
               if (proposal['new_note'] == true) ...[

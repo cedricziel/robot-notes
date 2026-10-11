@@ -139,15 +139,16 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
     String initial = '',
     String label = 'Comment',
   }) async {
-    final controller = TextEditingController(text: initial);
+    var draft = initial;
     final value = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
         content: SizedBox(
           width: 520,
-          child: TextField(
-            controller: controller,
+          child: TextFormField(
+            initialValue: initial,
+            onChanged: (value) => draft = value,
             maxLines: 8,
             minLines: 3,
             decoration: InputDecoration(labelText: label),
@@ -159,13 +160,12 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, controller.text),
+            onPressed: () => Navigator.pop(context, draft),
             child: const Text('Submit'),
           ),
         ],
       ),
     );
-    controller.dispose();
     return value;
   }
 
@@ -234,10 +234,11 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
   }
 
   Future<void> _blockAction(Map<String, dynamic> block, bool proposal) async {
-    if (_source(block).isEmpty) return;
+    final source = _source(block);
+    if (source.isEmpty) return;
     final text = await _text(
       proposal ? 'Propose block update' : 'Comment on block',
-      initial: proposal ? _source(block) : '',
+      initial: proposal ? source : '',
       label: proposal ? 'Proposed Markdown' : 'Comment',
     );
     if (text == null || text.trim().isEmpty || !mounted) return;
@@ -250,7 +251,11 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
               'type': 'replace',
               'block_id': block['id'],
               'expected_revision': block['revision'],
-              'text': text,
+              'text': source.endsWith('\r\n') && !text.endsWith('\n')
+                  ? '$text\r\n'
+                  : source.endsWith('\n') && !text.endsWith('\n')
+                  ? '$text\n'
+                  : text,
             },
           ],
           'evidence_refs': [
