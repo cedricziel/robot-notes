@@ -391,3 +391,11 @@ cannot overwrite a newer attempt's status, and session switches reset health.
 `retry_queue: "unsupported"` means automatic writes remain best-effort; failed
 writes are not queued for delivery. A later successful operation does not retry
 an earlier failed write. Successful operation produces no additional log output.
+
+### Durable automatic writes
+
+Set `"durable_writes": true` in `robot_notes.json` to queue automatic memory mirrors and readable session notes on disk. The default is false. Explicit tool calls continue to return their immediate result or error.
+
+The queue lives under `$HERMES_HOME/robot_notes_outbox/<destination-hash>/queue.sqlite`. The destination includes server, vault, actor, credential hash, and available scope identity. Queue files have mode `0600`. Each queue retains at most 1000 operations and 2 MiB for 30 days. Capacity failures and expired writes appear in `robotnotes_health`.
+
+Delivery runs at initialization, when automatic writes arrive, and at turn start. Network failures and server errors remain pending. Authorization failures and conflicts block the queue until corrected. `flush_memory_writes(retry_blocked=True)` explicitly permits another attempt. A prepared note mutation retains its intended content and original version, so a lost acknowledgement cannot reapply a remove selector or duplicate a multiline addition. An intervening edit blocks replay for review.

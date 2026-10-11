@@ -112,7 +112,7 @@ def test_health_snapshot_cannot_mutate_provider_state(tmp_path, monkeypatch):
     snapshot = provider.memory_health()
     snapshot["recall"]["state"] = "matched"
     assert provider.memory_health()["recall"] == {"state": "not_attempted"}
-    assert snapshot["retry_queue"] == "unsupported"
+    assert snapshot["retry_queue"] == "disabled"
 
 
 @respx.mock
