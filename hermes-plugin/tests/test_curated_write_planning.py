@@ -2,6 +2,7 @@ import pytest
 
 from robot_notes.client import ClientError
 from robot_notes.curated_writes import prepare_write, deliver_write
+from robot_notes.outbox import Outbox
 from test_correction_proposals import accepted
 
 
@@ -166,3 +167,76 @@ def test_frozen_ordinary_effect_blocks_after_curated_designation_change():
     assert error.value.code == "curated_policy_changed"
     assert client.note["content"] == "old"
     assert not client.submissions
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_identical_independent_proposals_use_distinct_retry_keys(existing):
+    client = Client()
+    arguments = {
+        "current": client.note if existing else None,
+        "title": "Memory",
+        "path": "Knowledge",
+        "desired": "new",
+        "refs": [],
+    }
+    first = prepare_write(client, **arguments)
+    second = prepare_write(client, **arguments)
+
+    deliver_write(client, first)
+    deliver_write(client, second)
+
+    assert (
+        client.submissions[0][1]["idempotency_key"]
+        != client.submissions[1][1]["idempotency_key"]
+    )
+
+
+def test_explicit_retry_key_survives_preparation_and_delivery():
+    client = Client()
+    prepared = prepare_write(
+        client,
+        current=None,
+        title="Memory",
+        path="Knowledge",
+        desired="new",
+        refs=[],
+        idempotency_key="caller-operation",
+    )
+
+    deliver_write(client, prepared)
+    deliver_write(client, prepared)
+
+    assert client.submissions[0][1]["idempotency_key"] == "caller-operation"
+    assert client.submissions[1] == client.submissions[0]
+
+
+def test_queued_proposal_retry_preserves_generated_key_after_restart(tmp_path):
+    client = Client()
+    path = tmp_path / "outbox.sqlite"
+    queue = Outbox(path)
+    queue.enqueue({"content": "new"})
+
+    def prepare(operation):
+        return {
+            **operation,
+            "prepared": prepare_write(
+                client,
+                current=None,
+                title="Memory",
+                path="Knowledge",
+                desired=operation["content"],
+                refs=[],
+            ),
+        }
+
+    def lose_ack(operation):
+        deliver_write(client, operation["prepared"])
+        raise OSError("lost acknowledgement")
+
+    assert queue.deliver_one(lose_ack, prepare=prepare) is False
+    resumed = Outbox(path)
+    assert resumed.deliver_one(
+        lambda operation: deliver_write(client, operation["prepared"]),
+        prepare=lambda operation: pytest.fail("Prepared proposal was not persisted"),
+    )
+    assert client.submissions[1] == client.submissions[0]

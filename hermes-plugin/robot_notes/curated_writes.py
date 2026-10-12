@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Optional
+from uuid import uuid4
 
 from .client import ClientError, ErrorKind
 from .correction_proposals import compile_block_edit
@@ -73,14 +72,9 @@ def prepare_write(
     }
     if current:
         base.update(id=current["id"], version=current["version"])
-    key = (
-        idempotency_key
-        or "hermes-"
-        + hashlib.sha256(
-            json.dumps(base, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
+    base["idempotency_key"] = (
+        idempotency_key if idempotency_key is not None else f"hermes-{uuid4().hex}"
     )
-    base["idempotency_key"] = key
     if not curated:
         return {**base, "route": "accepted"}
     if policy is not None and "propose" not in policy["allowed_actions"]:
