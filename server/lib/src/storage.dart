@@ -8,6 +8,8 @@ import 'package:server/src/canonical_note_upload.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/excerpt.dart';
 import 'package:server/src/frontmatter.dart';
+import 'package:server/src/knowledge/typed_proposals.dart'
+    show TypedKnowledgeAcceptancePermit;
 import 'package:server/src/markdown_blocks.dart';
 import 'package:server/src/note_path.dart';
 import 'package:server/src/proposals/proposal_record.dart';
@@ -17,6 +19,8 @@ import 'package:server/src/tags.dart';
 import 'package:ulid/ulid.dart';
 
 export 'package:server/src/note_path.dart' show InvalidPathException;
+
+part 'knowledge/accepted_group.dart';
 
 /// Stable, sortable identifier for a note. Ulids are 26-character
 /// Crockford base-32 strings.
@@ -614,7 +618,14 @@ class Storage {
   /// a fresh [list] scan replaces them), by recursively walking
   /// [contentDir]. Concurrent callers await the same in-flight build
   /// rather than triggering redundant scans.
+  Future<void>? _groupPublication;
+  final Object _groupZone = Object();
+
   Future<void> _ensureIndexed() {
+    final publication = _groupPublication;
+    if (publication != null && Zone.current[_groupZone] != true) {
+      return publication.then((_) => _ensureIndexed());
+    }
     _assertHistoryHealthy();
     if (_relPathById.isNotEmpty || _indexBuild != null) {
       return _indexBuild ?? Future.value();
@@ -786,6 +797,7 @@ class Storage {
       await _commitHistory(note, relPath, actor: actor);
       return;
     }
+    await validateKnowledgeMutation?.call(note, note.id, reviewed: false);
     final tmp = File('${finalFile.path}.tmp');
     final raf = await tmp.open(mode: FileMode.writeOnly);
     try {
@@ -1060,6 +1072,87 @@ class Storage {
         });
       });
 
+  /// Consumes a validated typed-group permit and publishes ordinary notes
+  /// together.
+  Future<void> acceptTypedKnowledge(
+    TypedKnowledgeAcceptancePermit permit,
+  ) async {
+    await _ensureIndexed();
+    permit.claim(this);
+    final completer = Completer<void>();
+    _groupPublication = completer.future;
+    try {
+      await runZoned(
+        () => _commitTypedGroup(permit),
+        zoneValues: {_groupZone: true},
+      );
+      completer.complete();
+    } on Object {
+      _historyFaulted = true;
+      completer.complete();
+      rethrow;
+    } finally {
+      _groupPublication = null;
+    }
+  }
+
+  /// Reads a non-content consumed-key receipt outside purgeable note history.
+  Future<Map<String, dynamic>?> typedProposalReceipt(String key) async {
+    await _ensureIndexed();
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(key)) {
+      throw const FormatException('Invalid typed receipt key');
+    }
+    final file = File('${_historyDir.path}/typed-receipts/$key.json');
+    return file.existsSync()
+        ? jsonDecode(await file.readAsString()) as Map<String, dynamic>
+        : null;
+  }
+
+  /// Journals proposal state and its retry receipt before acknowledging either.
+  Future<void> writeTypedProposalRecord(
+    ProposalRecord record, {
+    required String key,
+    required String payloadDigest,
+    int? expectedRecordRevision,
+  }) async {
+    await _ensureIndexed();
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(key) ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(payloadDigest) ||
+        record.state != 'pending') {
+      throw const FormatException('Invalid typed proposal journal');
+    }
+    await withProposalMutation(record.noteId, () async {
+      final intent = File('${_historyDir.path}/typed-intents/$key.json');
+      await _atomicText(
+        intent,
+        jsonEncode({
+          'record': record.toStoredJson(),
+          'expected_record_revision': expectedRecordRevision,
+          'key': key,
+          'receipt': {
+            'payload_digest': payloadDigest,
+            'note_id': record.noteId,
+            'proposal_id': record.id,
+            'proposal_revision': record.proposalRevision,
+          },
+        }),
+      );
+      try {
+        await _applyTypedProposalIntent(
+          jsonDecode(await intent.readAsString()) as Map<String, dynamic>,
+        );
+        await intent.delete();
+      } on Object {
+        _historyFaulted = true;
+        rethrow;
+      }
+    });
+  }
+
+  /// Optional typed integrity checks shared by ordinary accepted writes.
+  Future<void> Function(StoredNote? next, String id, {required bool reviewed})?
+      validateKnowledgeMutation;
+
   String _serializeNote(StoredNote note) => serializeFrontmatter(
         Frontmatter(metadata: _buildMetadataMap(note), body: note.content),
       );
@@ -1083,6 +1176,13 @@ class Storage {
     Map<String, dynamic>? acceptedPolicyDelta,
     int? restoredVersion,
   }) async {
+    if (!captureCurrent) {
+      await validateKnowledgeMutation?.call(
+        deleted ? null : note,
+        note.id,
+        reviewed: acceptedProposal != null,
+      );
+    }
     final history = _noteHistory(note.id);
     final oldPath = _relPathById[note.id];
     final previousVersion = note.version - (deleted ? 0 : 1);
@@ -1279,6 +1379,8 @@ class Storage {
 
   Future<void> _recoverHistory() async {
     if (!_historyDir.existsSync()) return;
+    await _recoverTypedProposalIntents();
+    await _recoverTypedGroups();
     final entries = await _historyDir.list().toList();
     for (final marker in entries.whereType<File>()) {
       if (!marker.path.endsWith('.purge')) continue;
@@ -1594,6 +1696,7 @@ class Storage {
   // a storage.dart <-> search_index.dart import cycle — `search_index.dart`
   // already imports `storage.dart`. See [_rebuildExtra].
   static const Set<String> _serverInterpretedExtraKeys = {
+    'knowledge',
     'type',
     'tags',
     'source',
