@@ -927,7 +927,7 @@ If the lock's setting or the device's capability cannot be read at startup, the 
 
 ### Requirement: OIDC refresh responses remain recoverable
 
-The app SHALL send a stable, high-entropy `refresh_request_id` derived from its persisted access token when refreshing its OIDC session. A lost response or interrupted persistence SHALL leave the identifier unchanged for the next attempt. The app SHALL persist the complete credential pair in one secure-storage entry and SHALL read existing installations' legacy credential entries until a replacement session has been saved.
+The app SHALL send a stable, independently generated, high-entropy `refresh_request_id` persisted with its credential pair when refreshing its OIDC session. A lost response or interrupted persistence SHALL leave the identifier unchanged for the next attempt. The app SHALL persist a recovery identifier before refreshing a legacy session that lacks one. The app SHALL generate a new identifier for each replacement credential pair. The app SHALL persist the complete credential pair and identifier in one secure-storage entry and SHALL read existing installations' legacy credential entries until a replacement session has been saved.
 
 #### Scenario: Retry after a lost response
 

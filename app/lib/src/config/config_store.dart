@@ -135,8 +135,10 @@ class SecureConfigStore implements ConfigStore {
   Future<AppConfig?> read() async {
     final session = await _storage.read(key: _keySession);
     if (session != null) {
-      return AppConfig.fromJson(
-        Map<String, String>.from(jsonDecode(session) as Map<String, dynamic>),
+      return _migrateRecoveryIdentifier(
+        AppConfig.fromJson(
+          Map<String, String>.from(jsonDecode(session) as Map<String, dynamic>),
+        ),
       );
     }
     final baseUrl = await _storage.read(key: _keyBaseUrl);
@@ -145,14 +147,28 @@ class SecureConfigStore implements ConfigStore {
     if (baseUrl == null || apiKey == null || actor == null) {
       return null;
     }
-    return AppConfig(
-      baseUrl: baseUrl,
-      apiKey: apiKey,
-      actor: actor,
-      vaultId: await _storage.read(key: 'robot_notes.vault_id') ?? 'default',
-      oauthClientId: await _storage.read(key: _keyOauthClientId),
-      oauthRefreshToken: await _storage.read(key: _keyOauthRefreshToken),
+    return _migrateRecoveryIdentifier(
+      AppConfig(
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        actor: actor,
+        vaultId: await _storage.read(key: 'robot_notes.vault_id') ?? 'default',
+        oauthClientId: await _storage.read(key: _keyOauthClientId),
+        oauthRefreshToken: await _storage.read(key: _keyOauthRefreshToken),
+      ),
     );
+  }
+
+  Future<AppConfig> _migrateRecoveryIdentifier(AppConfig config) async {
+    if (!config.isOidcSession || config.oauthRefreshRequestId != null) {
+      return config;
+    }
+    final migrated = AppConfig.fromJson({
+      ...config.toJson(),
+      'oauth_refresh_request_id': generateRefreshRequestId(),
+    });
+    await write(migrated);
+    return migrated;
   }
 
   @override

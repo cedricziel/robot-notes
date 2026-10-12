@@ -39,6 +39,7 @@ void main() {
       actor: 'Alice',
       oauthClientId: 'client-1',
       oauthRefreshToken: 'new-refresh',
+      oauthRefreshRequestId: 'independent-secret',
       vaultId: 'personal',
     );
     test('saves the credential pair in one secure storage entry', () async {
@@ -57,7 +58,16 @@ void main() {
           'robot_notes.oauth_client_id': 'client-1',
           'robot_notes.oauth_refresh_token': 'old-refresh',
         });
-        expect((await store.read())!.apiKey, 'old-access');
+        final migrated = (await store.read())!;
+        expect(migrated.apiKey, 'old-access');
+        expect(
+          migrated.oauthRefreshRequestId,
+          matches(RegExp(r'^[a-f0-9]{64}$')),
+        );
+        expect(
+          (await store.read())!.oauthRefreshRequestId,
+          migrated.oauthRefreshRequestId,
+        );
         await store.write(session);
         expect(await store.read(), session);
         await store.clear();

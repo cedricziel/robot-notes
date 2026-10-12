@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 
 /// Configuration the app authenticates with, supplied either by manually
@@ -29,6 +31,7 @@ class AppConfig {
     this.vaultId = 'default',
     this.oauthClientId,
     this.oauthRefreshToken,
+    this.oauthRefreshRequestId,
   });
 
   final String baseUrl;
@@ -37,6 +40,9 @@ class AppConfig {
   final String actor;
   final String? oauthClientId;
   final String? oauthRefreshToken;
+
+  /// Independent secret identifying retries of the current refresh token.
+  final String? oauthRefreshRequestId;
 
   /// Whether this session came from an OIDC sign-in rather than a
   /// manually entered key.
@@ -56,6 +62,7 @@ class AppConfig {
       actor: actor.trim(),
       oauthClientId: oauthClientId,
       oauthRefreshToken: oauthRefreshToken,
+      oauthRefreshRequestId: oauthRefreshRequestId,
     );
   }
 
@@ -66,6 +73,7 @@ class AppConfig {
     vaultId: id,
     oauthClientId: oauthClientId,
     oauthRefreshToken: oauthRefreshToken,
+    oauthRefreshRequestId: oauthRefreshRequestId,
   );
 
   Map<String, String> toJson() => {
@@ -75,6 +83,7 @@ class AppConfig {
     'actor': actor,
     'oauth_client_id': ?oauthClientId,
     'oauth_refresh_token': ?oauthRefreshToken,
+    'oauth_refresh_request_id': ?oauthRefreshRequestId,
   };
 
   factory AppConfig.fromJson(Map<String, String> json) => AppConfig(
@@ -84,6 +93,7 @@ class AppConfig {
     actor: json['actor'] ?? '',
     oauthClientId: json['oauth_client_id'],
     oauthRefreshToken: json['oauth_refresh_token'],
+    oauthRefreshRequestId: json['oauth_refresh_request_id'],
   );
 
   @override
@@ -94,7 +104,8 @@ class AppConfig {
       other.apiKey == apiKey &&
       other.actor == actor &&
       other.oauthClientId == oauthClientId &&
-      other.oauthRefreshToken == oauthRefreshToken;
+      other.oauthRefreshToken == oauthRefreshToken &&
+      other.oauthRefreshRequestId == oauthRefreshRequestId;
 
   @override
   int get hashCode => Object.hash(
@@ -103,6 +114,7 @@ class AppConfig {
     actor,
     oauthClientId,
     oauthRefreshToken,
+    oauthRefreshRequestId,
     vaultId,
   );
 
@@ -112,4 +124,13 @@ class AppConfig {
   String toString() =>
       'AppConfig(baseUrl: $baseUrl, actor: $actor, '
       'apiKey: <redacted>, isOidcSession: $isOidcSession)';
+}
+
+/// Generates an independent 256-bit secret for refresh response recovery.
+String generateRefreshRequestId() {
+  final random = Random.secure();
+  return List.generate(
+    32,
+    (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+  ).join();
 }

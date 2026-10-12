@@ -338,6 +338,7 @@ class OidcSignInController extends ValueNotifier<OidcSignInState> {
         actor: actor,
         oauthClientId: clientId,
         oauthRefreshToken: refreshToken,
+        oauthRefreshRequestId: generateRefreshRequestId(),
       );
     } finally {
       client.close();

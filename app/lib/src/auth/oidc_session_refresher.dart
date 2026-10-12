@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 
@@ -55,10 +54,8 @@ class OidcSessionRefresher {
               'grant_type': 'refresh_token',
               'refresh_token': config.oauthRefreshToken!,
               'client_id': config.oauthClientId!,
-              // Persisted access token keeps retries stable across app restarts.
-              'refresh_request_id': sha256
-                  .convert(utf8.encode(config.apiKey))
-                  .toString(),
+              if (config.oauthRefreshRequestId != null)
+                'refresh_request_id': config.oauthRefreshRequestId!,
             },
           )
           .timeout(const Duration(seconds: 30));
@@ -88,6 +85,7 @@ class OidcSessionRefresher {
         vaultId: config.vaultId,
         oauthClientId: config.oauthClientId,
         oauthRefreshToken: refreshToken,
+        oauthRefreshRequestId: generateRefreshRequestId(),
       );
     } on http.ClientException {
       throw const OidcRefreshException(

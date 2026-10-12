@@ -366,6 +366,12 @@ class TokenStore {
         if (!record.scopes.containsAll(requestedScopes)) {
           throw const ScopeWideningException();
         }
+        await _write(
+          record.rotatedCopy(
+            _clock.nowUtc(),
+            requestHash: requestId == null ? null : hashSecret(requestId),
+          ),
+        );
         final issued = await _issueLocked(
           clientId: record.clientId,
           actor: record.actor,
@@ -375,12 +381,7 @@ class TokenStore {
           grantId: record.grantId,
           replacementRefresh: replacementRefresh,
         );
-        await _write(
-          record.rotatedCopy(
-            _clock.nowUtc(),
-            requestHash: requestId == null ? null : hashSecret(requestId),
-          ),
-        );
+
         return issued;
       });
     } finally {

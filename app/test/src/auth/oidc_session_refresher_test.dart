@@ -26,6 +26,8 @@ void main() {
     actor: 'Alice Example',
     oauthClientId: 'client-1',
     oauthRefreshToken: 'old-refresh-token',
+    oauthRefreshRequestId:
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
   );
 
   group('OidcSessionRefresher.refresh', () {
@@ -102,6 +104,14 @@ void main() {
 
       expect(refreshed.apiKey, 'new-access-token');
       expect(refreshed.oauthRefreshToken, 'new-refresh-token');
+      expect(
+        refreshed.oauthRefreshRequestId,
+        matches(RegExp(r'^[a-f0-9]{64}$')),
+      );
+      expect(
+        refreshed.oauthRefreshRequestId,
+        isNot(session.oauthRefreshRequestId),
+      );
       expect(refreshed.baseUrl, session.baseUrl);
       expect(refreshed.actor, session.actor);
       expect(refreshed.oauthClientId, session.oauthClientId);
