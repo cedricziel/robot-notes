@@ -1,31 +1,27 @@
 ## Context
 
-PR #387 merged the umbrella contract in `add-curated-knowledge`. Existing revision retention, stable block identities, scoped credentials, Hermes identity scope, and durable memory retries are available foundations. Planning completion is not runtime completion.
+PR #391 implemented #369 in `enforce-curated-permissions`. The existing policy service, write service, adapter checks, and permission documentation are the foundation for this plan.
 
 ## Goals / Non-Goals
 
-**Goals:** Implement the requirements in this change's delta spec with one bounded service contract and focused adapter changes.
+**Goals:** Verify that new knowledge services reuse the existing enforcement contract and identify only concrete regression gaps.
 
-**Non-Goals:** Implement sibling slices, alter ordinary note behavior incidentally, or enable the full feature before the release gate passes.
+**Non-Goals:** Build another policy resolver or repeat completed REST, MCP, and WebSocket implementation work.
 
 ## Decisions
 
-Resolve vault and nearest-folder policy with explicit note overrides. Centralize trusted capability checks across ordinary note writes, properties, move, restore, REST, MCP, WebSocket events, search and database rows. Agent credentials remain proposal-only for curated knowledge.
+Use existing policy resolution and credential-derived principal contexts. This slice audits and verifies; integration checks and calls are implemented inside their owning service slices. Enumerated new boundaries are type candidate review/activation, source ingestion/inspection, typed proposal validation/acceptance, query traversal, and extraction read/submit. Each must check applicable read and mutation capabilities and effective scope through the existing service.
 
-Reuse the umbrella document formats and service contracts rather than introduce parallel stores or adapter-specific semantics. Stage externally visible functionality behind explicit enablement so each foundation can land safely. Reuse existing history and credential primitives; add regression checks instead of rebuilding completed foundations.
-
-Dependencies: completed repository foundations. Dependencies must provide their verified service contract before this slice enables its dependent operations. Existing issue alignment: #369. No additional issues are filed by this planning change.
-
-Implement tests before behavior in each task pair. Keep conventional commits coherent and use focused PRs, preferably below 500 lines; split a slice into service, adapter, or verification PRs when needed. Dependencies describe semantic order, not a requirement to build a single long-lived branch stack.
+Proposal review consumes completed `enforce-curated-permissions` directly. It does not wait for this regression-audit slice. The final release gate requires this audit and all owning-slice checks to pass.
 
 ## Risks / Trade-offs
 
-Partial deployment may expose incomplete semantics. Keep new operations disabled or return explicit capability diagnostics until prerequisites are available. Authorization, crash recovery, and compatibility require real integration checks; mocked tests alone do not satisfy the release gate.
+A closed issue does not prove that future endpoints are protected. Require explicit authorization checks at each new boundary and fix demonstrated failures in the existing service rather than fork its semantics.
 
 ## Migration Plan
 
-Land foundations with new behavior disabled. Preserve existing data and index encodings, use explicit versioned migration when accepted data changes, and rebuild only derived indexes. Roll back feature enablement without deleting retained sources, accepted snapshots, or proposal history. Follow the umbrella purge contract for any explicit erasure.
+No policy data migration is planned. Preserve existing overlays and authority. Any discovered regression fix gets its own failing test and atomic commit.
 
 ## Verification
 
-Exercise this slice's scenarios with deterministic failure and authorization cases where applicable. Record relevant formatting, lint, tests, and strict OpenSpec validation. For app or Hermes flows use isolated real-server verification with disposable data and test principals. Integrated feature activation requires `verify-curated-hermes-release`; this slice does not independently claim full release readiness.
+Run existing enforcement regressions and audit new boundary test coverage. Confirm source and type operations cannot use ordinary-note writes to bypass review. Record supported revision and results without claiming unimplemented integrations already pass.

@@ -39,3 +39,18 @@ Implementation SHALL satisfy the applicable file, permission, review, retention,
 
 - **WHEN** this slice passes its focused checks before all dependent release checks pass
 - **THEN** incomplete curated functionality SHALL remain disabled and existing ordinary workflows SHALL remain available
+
+
+### Requirement: Type review is separate from entry proposals
+
+A type-definition review service SHALL validate, propose, inspect, amend, and accept definition candidates using the existing review core. Proposal authority SHALL NOT grant activation authority. Bulk adoption candidates SHALL group the artifact, manifest, imported terms, and local definitions. Authorized acceptance SHALL revalidate policy and versions and publish the complete group atomically with retained history. Initial knowledge-entry proposal operations SHALL remain limited to knowledge entries.
+
+#### Scenario: Importer submits a bulk candidate
+
+- **WHEN** the importer submits an adoption containing a manifest and dependent type definitions
+- **THEN** they SHALL remain candidates until authorized type review acceptance publishes the complete valid group atomically
+
+#### Scenario: Agent attempts type activation
+
+- **WHEN** a proposal-only agent attempts to accept a definition candidate
+- **THEN** the service SHALL deny activation while retaining the proposal for authorized review

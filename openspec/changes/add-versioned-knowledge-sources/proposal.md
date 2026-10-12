@@ -18,8 +18,10 @@ None. Existing foundations retain their contracts; adapter integration must pres
 
 ## Impact
 
-Dependencies: `enforce-curated-knowledge-policy`, `add-filesystem-knowledge-types`, `adopt-pinned-schema-org`. Existing tracking: #348; reuse completed #345 capture foundation. Shared contracts and affected server, app, or Hermes adapters receive focused implementation PRs.
+Dependencies: `add-filesystem-knowledge-types`, `adopt-pinned-schema-org`. Existing tracking: #348; reuse completed #345 capture foundation. Shared contracts and affected server, app, or Hermes adapters receive focused implementation PRs.
 
 ## Non-goals
 
 Other slices in the dependency plan, PROV-O, SKOS, universal reasoning, and autonomous gardening. This change plans implementation; it does not implement runtime behavior.
+
+Policy prerequisite: completed `enforce-curated-permissions` from PR #391. Reuse its service for ingestion and inspection checks.

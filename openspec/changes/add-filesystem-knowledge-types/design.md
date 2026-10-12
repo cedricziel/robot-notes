@@ -20,6 +20,12 @@ Implement tests before behavior in each task pair. Keep conventional commits coh
 
 Local type constraints can be verified against pinned import fixtures here. Production activation of the six Schema.org-based definitions belongs to `adopt-pinned-schema-org`, after their imported parents are accepted.
 
+## Type candidate review boundary
+
+A dedicated type-definition review service owns validate_type_candidate, propose_type_definition, inspect_type_proposal, amend_type_proposal, and authorized accept_type_proposal operations. These are service contracts for type documents, not additions to the initial knowledge-entry proposal operation set. Reuse the review core's durable history, principal checks, amendment freshness, and default human approval. Proposal-only agents can submit candidates; acceptance requires review authority and rechecks inherited policy, definition versions, and constraint compatibility. Publication changes accepted type files and their retained snapshots atomically before rebuilding indexes.
+
+The Schema.org importer submits a bulk adoption candidate to this service. The candidate groups the retained artifact, manifest, imported terms, and local definitions with stable version references. Adoption inspection exposes dependencies, collisions, unsupported dispositions, and migration impacts. Authorized adoption acceptance publishes that complete group atomically after revalidation; retries reuse candidate identity. It does not invoke knowledge-entry proposals or expose direct publication authority to the importer. Upgrades preserve existing pinned versions and use this same boundary; entry migrations belong to the atomic typed proposal service.
+
 ## Risks / Trade-offs
 
 Partial deployment may expose incomplete semantics. Keep new operations disabled or return explicit capability diagnostics until prerequisites are available. Authorization, crash recovery, and compatibility require real integration checks; mocked tests alone do not satisfy the release gate.

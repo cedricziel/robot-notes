@@ -3,15 +3,18 @@
 - [ ] 1.1 Confirm verified dependency contracts and inspect applicable umbrella requirements.
 - [ ] 1.2 Identify affected service and adapter boundaries and select the first failing regression.
 
-## 2. Implementation
+## 2. Verification and integration audit
 
-- [ ] 2.1 Write failing service authorization tests for direct edit and proposal-only credentials.
-- [ ] 2.2 Implement effective vault and folder policy resolution.
-- [ ] 2.3 Write failing adapter tests for property, append, move and restore bypasses.
-- [ ] 2.4 Route mutation adapters through the shared authorization service.
-- [ ] 2.5 Write failing read tests for snippets, rows and WebSocket events.
-- [ ] 2.6 Filter all read adapters through effective access.
-- [ ] 2.7 Run adapter integration checks and commit the policy slice.
+- [ ] 2.1 Confirm PR #391 service and documentation match the existing policy foundation.
+- [ ] 2.2 Run existing policy inheritance and trusted-principal regression tests.
+- [ ] 2.3 Run existing property, append, move, and restore authorization regressions.
+- [ ] 2.4 Run existing snippets, database row, and WebSocket read-access regressions.
+- [ ] 2.5 Audit type review and activation authorization tests in the owning slice.
+- [ ] 2.6 Audit source ingestion and inspection authorization tests in the owning slice.
+- [ ] 2.7 Audit typed proposal and query traversal authorization tests in the owning slices.
+- [ ] 2.8 Audit extraction credential and revocation tests in the owning slice.
+- [ ] 2.9 Record demonstrated gaps; for each, write one failing regression before a focused fix.
+- [ ] 2.10 Verify each focused fix reuses the existing policy service and record results.
 
 ## 3. Verification and delivery
 
@@ -21,4 +24,4 @@
 
 ## Definition of Done
 
-All delta scenarios pass, applicable umbrella constraints remain satisfied, dependencies are verified, and ordinary workflows remain usable. Implementation tasks are bounded to 15-minute increments; split any larger step into named substeps before applying it. TDD tasks introduce a failing regression before changing behavior. Use atomic conventional commits and independently verifiable PRs. Full curated release readiness remains gated by isolated Hermes and Flutter verification, not by planning completion.
+All delta scenarios pass, applicable umbrella constraints remain satisfied, dependencies are verified, and ordinary workflows remain usable. Each task targets one bounded behavior or one verification result and is estimated at no more than 15 minutes. Stop and re-plan any task that exceeds its stated boundary. TDD tasks introduce a failing regression before changing behavior. Use atomic conventional commits and independently verifiable PRs. Full curated release readiness remains gated by isolated Hermes and Flutter verification, not by planning completion.

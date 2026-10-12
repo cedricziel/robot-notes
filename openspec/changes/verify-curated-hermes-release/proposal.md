@@ -18,7 +18,7 @@ None. Existing foundations retain their contracts; adapter integration must pres
 
 ## Impact
 
-Dependencies: `adopt-pinned-schema-org`, `add-background-knowledge-extraction`, `integrate-hermes-knowledge-tools`, `add-curated-review-authoring-ui`. Existing tracking: No new issue filed. Shared contracts and affected server, app, or Hermes adapters receive focused implementation PRs.
+Dependencies: `enforce-curated-knowledge-policy`, `adopt-pinned-schema-org`, `add-background-knowledge-extraction`, `integrate-hermes-knowledge-tools`, `add-curated-review-authoring-ui`. Existing tracking: No new issue filed. Shared contracts and affected server, app, or Hermes adapters receive focused implementation PRs.
 
 ## Non-goals
 

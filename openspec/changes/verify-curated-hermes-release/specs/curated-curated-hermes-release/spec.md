@@ -48,3 +48,13 @@ Implementation SHALL satisfy the applicable file, permission, review, retention,
 
 - **WHEN** this slice passes its focused checks before all dependent release checks pass
 - **THEN** incomplete curated functionality SHALL remain disabled and existing ordinary workflows SHALL remain available
+
+
+### Requirement: Every shared Hermes operation is exercised
+
+The release gate SHALL exercise list_knowledge_types, get_knowledge_type, query_knowledge, inspect_source, validate_knowledge_candidate, propose_knowledge, get_knowledge_proposal, and amend_knowledge_proposal through the real registered Hermes tools against the isolated real server. Discovery SHALL cover both listing and reading a pinned definition.
+
+#### Scenario: Tool coverage is incomplete
+
+- **WHEN** any named operation lacks a passing live-server verification result
+- **THEN** the release gate SHALL remain incomplete regardless of other successful checks

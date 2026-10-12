@@ -14,7 +14,7 @@ Separate explicit source imports from opt-in automatic capture. Store descriptor
 
 Reuse the umbrella document formats and service contracts rather than introduce parallel stores or adapter-specific semantics. Stage externally visible functionality behind explicit enablement so each foundation can land safely. Reuse existing history and credential primitives; add regression checks instead of rebuilding completed foundations.
 
-Dependencies: `enforce-curated-knowledge-policy`, `add-filesystem-knowledge-types`, `adopt-pinned-schema-org`. Dependencies must provide their verified service contract before this slice enables its dependent operations. Existing issue alignment: #348; reuse completed #345 capture foundation. No additional issues are filed by this planning change.
+Dependencies: `add-filesystem-knowledge-types`, `adopt-pinned-schema-org`. Dependencies must provide their verified service contract before this slice enables its dependent operations. Existing issue alignment: #348; reuse completed #345 capture foundation. No additional issues are filed by this planning change.
 
 Implement tests before behavior in each task pair. Keep conventional commits coherent and use focused PRs, preferably below 500 lines; split a slice into service, adapter, or verification PRs when needed. Dependencies describe semantic order, not a requirement to build a single long-lived branch stack.
 
@@ -29,3 +29,5 @@ Land foundations with new behavior disabled. Preserve existing data and index en
 ## Verification
 
 Exercise this slice's scenarios with deterministic failure and authorization cases where applicable. Record relevant formatting, lint, tests, and strict OpenSpec validation. For app or Hermes flows use isolated real-server verification with disposable data and test principals. Integrated feature activation requires `verify-curated-hermes-release`; this slice does not independently claim full release readiness.
+
+Policy prerequisite: completed `enforce-curated-permissions` from PR #391. Reuse its service for ingestion and inspection checks.

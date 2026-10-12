@@ -1,32 +1,23 @@
 ## Purpose
 
-Enforce curated policy across all adapters implements a focused part of the merged curated knowledge contract while preserving existing ordinary note and memory workflows.
+Verify reuse of the existing curated policy implementation at new knowledge service boundaries without introducing duplicate enforcement semantics.
 
 ## ADDED Requirements
 
-### Requirement: Policy cannot be bypassed
+### Requirement: New services reuse existing enforcement
 
-All server adapters SHALL enforce effective read and mutation policy using credential-derived principals. Database membership SHALL NOT alter approval policy.
+New type review, source ingestion, proposal, query, and extraction operations SHALL use the existing credential-derived policy service. Existing policy and adapter behavior from `enforce-curated-permissions` SHALL remain unchanged unless a demonstrated regression requires a tested fix.
 
-#### Scenario: Policy cannot be bypassed
+#### Scenario: New operation lacks authority
 
-- **WHEN** an agent lacking accepted-edit authority writes curated content through append, properties, or restore
-- **THEN** the server SHALL deny each operation and leave accepted content unchanged
+- **WHEN** a caller invokes a new knowledge service operation without its required capability or effective scope
+- **THEN** the service SHALL deny it through existing policy semantics without bypassing enforcement through an ordinary write
 
-### Requirement: Policy follows moves
+### Requirement: Regression verification gates integrated release
 
-Moves SHALL recalculate effective policy and invalidate stale acceptance eligibility.
+Release verification SHALL record existing policy regressions and authorization coverage of every enumerated new boundary. Proposal review SHALL consume the already merged enforcement foundation without requiring a replacement resolver.
 
-#### Scenario: Policy follows moves
+#### Scenario: Audit discovers a protection gap
 
-- **WHEN** a note moves to a stricter folder
-- **THEN** subsequent operations SHALL use destination policy without permission escalation
-
-### Requirement: Slice conforms to the merged contract
-
-Implementation SHALL satisfy the applicable file, permission, review, retention, and compatibility requirements in `add-curated-knowledge/specs/curated-knowledge/spec.md`; this slice SHALL NOT weaken that contract. Feature activation SHALL remain gated by the integrated Hermes release verification.
-
-#### Scenario: Foundation lands before integrated release
-
-- **WHEN** this slice passes its focused checks before all dependent release checks pass
-- **THEN** incomplete curated functionality SHALL remain disabled and existing ordinary workflows SHALL remain available
+- **WHEN** a new endpoint fails an authorization regression
+- **THEN** release verification SHALL remain incomplete until a focused fix and regression pass against the existing enforcement service

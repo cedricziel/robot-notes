@@ -200,21 +200,21 @@ PR #387 is the merged umbrella contract. The following focused changes implement
 
 | Order | Change | Dependencies | Existing tracking |
 |---|---|---|---|
-| 1 | [`enforce-curated-knowledge-policy`](../enforce-curated-knowledge-policy/proposal.md) | Existing completed foundations | #369 |
-| 2 | [`add-curated-proposal-review`](../add-curated-proposal-review/proposal.md) | `enforce-curated-knowledge-policy` | #371 |
+| 1 | [`enforce-curated-knowledge-policy`](../enforce-curated-knowledge-policy/proposal.md) | Completed `enforce-curated-permissions` (#391); verification audit only | #369 closed by #391 |
+| 2 | [`add-curated-proposal-review`](../add-curated-proposal-review/proposal.md) | Completed `enforce-curated-permissions` (#391) | #371 |
 | 3 | [`add-filesystem-knowledge-types`](../add-filesystem-knowledge-types/proposal.md) | `add-curated-proposal-review` | No new issue filed |
 | 4 | [`adopt-pinned-schema-org`](../adopt-pinned-schema-org/proposal.md) | `add-filesystem-knowledge-types` | No new issue filed |
-| 5 | [`add-versioned-knowledge-sources`](../add-versioned-knowledge-sources/proposal.md) | `enforce-curated-knowledge-policy`, `add-filesystem-knowledge-types`, `adopt-pinned-schema-org` | #348; reuse completed #345 capture foundation |
+| 5 | [`add-versioned-knowledge-sources`](../add-versioned-knowledge-sources/proposal.md) | Completed `enforce-curated-permissions` (#391), `add-filesystem-knowledge-types`, `adopt-pinned-schema-org` | #348; reuse completed #345 capture foundation |
 | 6 | [`add-atomic-typed-knowledge-proposals`](../add-atomic-typed-knowledge-proposals/proposal.md) | `add-curated-proposal-review`, `add-filesystem-knowledge-types`, `add-versioned-knowledge-sources` | Extends #371; #348 evidence lineage |
 | 7 | [`add-knowledge-agent-tools`](../add-knowledge-agent-tools/proposal.md) | `add-atomic-typed-knowledge-proposals` | No new issue filed |
 | 8 | [`add-background-knowledge-extraction`](../add-background-knowledge-extraction/proposal.md) | `add-knowledge-agent-tools`, `add-versioned-knowledge-sources` | No new issue filed |
 | 9 | [`integrate-hermes-knowledge-tools`](../integrate-hermes-knowledge-tools/proposal.md) | `add-knowledge-agent-tools`, `add-versioned-knowledge-sources` | Reuse #344 and #346; do not reopen completed foundations |
 | 10 | [`add-curated-review-authoring-ui`](../add-curated-review-authoring-ui/proposal.md) | `add-atomic-typed-knowledge-proposals`, `add-knowledge-agent-tools` | #372 |
-| 11 | [`verify-curated-hermes-release`](../verify-curated-hermes-release/proposal.md) | `adopt-pinned-schema-org`, `add-background-knowledge-extraction`, `integrate-hermes-knowledge-tools`, `add-curated-review-authoring-ui` | No new issue filed |
+| 11 | [`verify-curated-hermes-release`](../verify-curated-hermes-release/proposal.md) | `enforce-curated-knowledge-policy`, `adopt-pinned-schema-org`, `add-background-knowledge-extraction`, `integrate-hermes-knowledge-tools`, `add-curated-review-authoring-ui` | No new issue filed |
 
-Completed foundations are scoped agent credentials, revision history (#349), stable block identities (#370), identity destinations (#344), durable ordinary-memory retries (#346), scoped recall (#347), health (#351), and the capture implementation tracked by #345. Reuse and verify them rather than reopen them. The new adapter-neutral capture and immutable-source contract still requires its own integration; a closed capture issue does not establish that contract.
+Completed foundations are curated policy enforcement (`enforce-curated-permissions`, #369 via PR #391), scoped agent credentials, revision history (#349), stable block identities (#370), identity destinations (#344), durable ordinary-memory retries (#346), scoped recall (#347), health (#351), and the capture implementation tracked by #345. Reuse and verify them rather than reopen them. The new adapter-neutral capture and immutable-source contract still requires its own integration; a closed capture issue does not establish that contract.
 
-The dependency graph permits policy and existing-foundation regression work first, then Schema.org adoption and activation of local types before typed Evidence integration. Source blob storage can be developed independently, but the complete source slice requires the accepted Evidence definition. Hermes integration can develop against the shared tools while extraction develops against the same service. The release gate depends on both working together. Review UI work depends on review and typed tools, not the extraction implementation.
+Proposal review consumes the completed policy foundation directly. The dependency graph permits the policy verification audit alongside implementation, then Schema.org adoption and activation of local types before typed Evidence integration. Source blob storage can be developed independently, but the complete source slice requires the accepted Evidence definition. Hermes integration can develop against the shared tools while extraction develops against the same service. The release gate depends on both working together. Review UI work depends on review and typed tools, not the extraction implementation.
 
 Each change may use several atomic PRs below 500 lines where practical. Dependencies are acceptance prerequisites, not a mandate for one long-lived stack. Foundation PRs must keep incomplete features disabled and ordinary workflows usable. No slice may claim full release readiness until the final verification change passes.
 
@@ -222,7 +222,7 @@ Each change may use several atomic PRs below 500 lines where practical. Dependen
 
 | Umbrella concern | Owning change |
 |---|---|
-| Trusted capabilities, folder inheritance, all read and mutation adapters | `enforce-curated-knowledge-policy` |
+| Trusted capabilities, folder inheritance, existing adapters | Completed `enforce-curated-permissions` (#391); `enforce-curated-knowledge-policy` audits new service integrations |
 | Stable block review, amendments, approval policy, stale anchors, direct-save history and retained proposals | `add-curated-proposal-review` with existing history and block foundations |
 | File formats, explicit roles, accepted snapshots, local constraints, external edit candidates, offline rebuild and portable export | `add-filesystem-knowledge-types` |
 | Pinned Schema.org release, term mappings, previews, bulk activation and reviewed upgrades | `adopt-pinned-schema-org` |

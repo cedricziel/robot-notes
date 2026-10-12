@@ -18,6 +18,8 @@ Dependencies: `add-filesystem-knowledge-types`. Dependencies must provide their 
 
 Implement tests before behavior in each task pair. Keep conventional commits coherent and use focused PRs, preferably below 500 lines; split a slice into service, adapter, or verification PRs when needed. Dependencies describe semantic order, not a requirement to build a single long-lived branch stack.
 
+The importer submits bulk candidates to the type-definition review service owned by `add-filesystem-knowledge-types`. Review and atomic activation use that service and its reused review core; the importer never directly publishes accepted definitions.
+
 ## Risks / Trade-offs
 
 Partial deployment may expose incomplete semantics. Keep new operations disabled or return explicit capability diagnostics until prerequisites are available. Authorization, crash recovery, and compatibility require real integration checks; mocked tests alone do not satisfy the release gate.

@@ -14,7 +14,7 @@ Create a repeatable checked-in release verification harness and extend project-l
 
 Reuse the umbrella document formats and service contracts rather than introduce parallel stores or adapter-specific semantics. Stage externally visible functionality behind explicit enablement so each foundation can land safely. Reuse existing history and credential primitives; add regression checks instead of rebuilding completed foundations.
 
-Dependencies: `adopt-pinned-schema-org`, `add-background-knowledge-extraction`, `integrate-hermes-knowledge-tools`, `add-curated-review-authoring-ui`. Dependencies must provide their verified service contract before this slice enables its dependent operations. Existing issue alignment: No new issue filed. No additional issues are filed by this planning change.
+Dependencies: `enforce-curated-knowledge-policy`, `adopt-pinned-schema-org`, `add-background-knowledge-extraction`, `integrate-hermes-knowledge-tools`, `add-curated-review-authoring-ui`. Dependencies must provide their verified service contract before this slice enables its dependent operations. Existing issue alignment: No new issue filed. No additional issues are filed by this planning change.
 
 Implement tests before behavior in each task pair. Keep conventional commits coherent and use focused PRs, preferably below 500 lines; split a slice into service, adapter, or verification PRs when needed. Dependencies describe semantic order, not a requirement to build a single long-lived branch stack.
 

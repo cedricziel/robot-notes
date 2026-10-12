@@ -12,10 +12,13 @@
 - [ ] 2.5 Write failing opt-in capture and trusted scope tests.
 - [ ] 2.6 Implement adapter-neutral ingestion policy checks.
 - [ ] 2.7 Write failing duplicate delivery and changed-scope conflict tests.
-- [ ] 2.8 Persist canonical event deduplication with source transactions.
-- [ ] 2.9 Write failing purge retry and retention tests.
-- [ ] 2.10 Implement unavailable references and consumed-key tombstones.
-- [ ] 2.11 Run source integration checks and commit ingestion.
+- [ ] 2.8 Compute canonical source request digest.
+- [ ] 2.9 Persist source revision and event key in one transaction.
+- [ ] 2.10 Return original revision for identical authorized retry.
+- [ ] 2.11 Reject changed scope or metadata without new extraction work.
+- [ ] 2.12 Write failing purge retry and retention tests.
+- [ ] 2.13 Implement unavailable references and consumed-key tombstones.
+- [ ] 2.14 Run source integration checks and commit ingestion.
 
 ## 3. Verification and delivery
 
@@ -25,4 +28,4 @@
 
 ## Definition of Done
 
-All delta scenarios pass, applicable umbrella constraints remain satisfied, dependencies are verified, and ordinary workflows remain usable. Implementation tasks are bounded to 15-minute increments; split any larger step into named substeps before applying it. TDD tasks introduce a failing regression before changing behavior. Use atomic conventional commits and independently verifiable PRs. Full curated release readiness remains gated by isolated Hermes and Flutter verification, not by planning completion.
+All delta scenarios pass, applicable umbrella constraints remain satisfied, dependencies are verified, and ordinary workflows remain usable. Each task targets one bounded behavior or one verification result and is estimated at no more than 15 minutes. Stop and re-plan any task that exceeds its stated boundary. TDD tasks introduce a failing regression before changing behavior. Use atomic conventional commits and independently verifiable PRs. Full curated release readiness remains gated by isolated Hermes and Flutter verification, not by planning completion.

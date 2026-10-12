@@ -18,7 +18,7 @@ None. Existing foundations retain their contracts; adapter integration must pres
 
 ## Impact
 
-Dependencies: `enforce-curated-knowledge-policy`. Existing tracking: #371. Shared contracts and affected server, app, or Hermes adapters receive focused implementation PRs.
+Dependencies: completed `enforce-curated-permissions` (PR #391). Existing tracking: #371. Shared contracts and affected server, app, or Hermes adapters receive focused implementation PRs.
 
 ## Non-goals
 
