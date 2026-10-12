@@ -57,6 +57,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(locks, 0);
+    expect(controller.value.mode, NoteMode.viewing);
+    expect(find.text('Knowledge review'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
     expect(find.byTooltip('Propose update'), findsOneWidget);
     await tester.tap(find.byKey(const Key('note.edit')));
     await tester.pumpAndSettle();
