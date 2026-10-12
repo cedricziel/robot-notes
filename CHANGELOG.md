@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.2.21](https://github.com/cedricziel/robot-notes/compare/v0.2.20...v0.2.21) (2026-10-12)
+
+
+### Features
+
+* **app:** adapt Appearance selection to Apple platforms ([#364](https://github.com/cedricziel/robot-notes/issues/364)) ([4e8dad9](https://github.com/cedricziel/robot-notes/commit/4e8dad95c9f6884cea72a49fe05670065dc841fe))
+* **app:** adapt note and upload result feedback by platform ([#381](https://github.com/cedricziel/robot-notes/issues/381)) ([24a72dc](https://github.com/cedricziel/robot-notes/commit/24a72dc9007d5224e15cc3151120b09ac2cb784e))
+* **app:** adapt note and vault menus to each platform ([#367](https://github.com/cedricziel/robot-notes/issues/367)) ([ba91f82](https://github.com/cedricziel/robot-notes/commit/ba91f8265d2b7357fbf1649d4a82fef9adb59644))
+* **app:** adapt search and settings overlays to each platform ([#362](https://github.com/cedricziel/robot-notes/issues/362)) ([0dafe26](https://github.com/cedricziel/robot-notes/commit/0dafe26343fbe90a52fb41953e8edbc48d1c72aa))
+* **app:** add platform-specific notes and vault dialog motion ([#361](https://github.com/cedricziel/robot-notes/issues/361)) ([ab44ddf](https://github.com/cedricziel/robot-notes/commit/ab44ddf8075186b700956f383044af65855782ce))
+* **app:** review curated knowledge within the note editor ([#386](https://github.com/cedricziel/robot-notes/issues/386)) ([39df771](https://github.com/cedricziel/robot-notes/commit/39df771002d5ef7014145f4c094b9aaaf176ed99))
+* **auth:** issue scoped agent credentials with trusted identities ([c849d44](https://github.com/cedricziel/robot-notes/commit/c849d444ec7a60f198a993cbe8f5fce70d7e08db))
+* **hermes:** add scoped and budgeted recall evidence ([#379](https://github.com/cedricziel/robot-notes/issues/379)) ([7e43b19](https://github.com/cedricziel/robot-notes/commit/7e43b19d5118e856d1894824443d0ad0e0472f6b))
+* **hermes:** expose automatic memory health ([#373](https://github.com/cedricziel/robot-notes/issues/373)) ([cfa548e](https://github.com/cedricziel/robot-notes/commit/cfa548e95940fdb20ba76ed3f178adb9f3bce447))
+* **hermes:** persist retry-safe automatic memory writes ([ef10174](https://github.com/cedricziel/robot-notes/commit/ef10174c6d4e717af24d24a6fe5b299504d2e086))
+* **hermes:** preserve correction provenance in proposals ([#389](https://github.com/cedricziel/robot-notes/issues/389)) ([3dfef68](https://github.com/cedricziel/robot-notes/commit/3dfef68b71df5bf8d5cf9a11b090d857209ff228))
+* **hermes:** scope memory by configured identities ([#376](https://github.com/cedricziel/robot-notes/issues/376)) ([adb807b](https://github.com/cedricziel/robot-notes/commit/adb807bf76faaad14c7d866af8a21230ff74436a))
+* **memory:** archive optional conversation evidence durably ([#383](https://github.com/cedricziel/robot-notes/issues/383)) ([f279ac1](https://github.com/cedricziel/robot-notes/commit/f279ac1b910c9aeab671129b4b9f6e5f5e3c1aa7))
+* **notes:** add adaptive block editing with Markdown source ([#390](https://github.com/cedricziel/robot-notes/issues/390)) ([ba9c3ed](https://github.com/cedricziel/robot-notes/commit/ba9c3ede9a892d5938a49762994ee05e88b9bb07))
+* **server:** enforce curated knowledge permissions ([#391](https://github.com/cedricziel/robot-notes/issues/391)) ([5bc44c0](https://github.com/cedricziel/robot-notes/commit/5bc44c01d948548bef4e2e117508e34184b9eb60))
+* **server:** review evidence-backed block proposals ([#393](https://github.com/cedricziel/robot-notes/issues/393)) ([870983a](https://github.com/cedricziel/robot-notes/commit/870983a398208789032191ad20e0e8c03e28b2e5))
+* **storage:** persist stable accepted Markdown block identities ([#385](https://github.com/cedricziel/robot-notes/issues/385)) ([33efd80](https://github.com/cedricziel/robot-notes/commit/33efd80387a040b9aa068c78e6ae2cfed559849d))
+* **storage:** retain and restore opted-in note revisions ([e77c826](https://github.com/cedricziel/robot-notes/commit/e77c82685f104379a94b5a999a8d506f04994f21))
+
+
+### Bug Fixes
+
+* **app:** refine the platform-aware workspace header ([#360](https://github.com/cedricziel/robot-notes/issues/360)) ([b4a1ce6](https://github.com/cedricziel/robot-notes/commit/b4a1ce6dfd75b254242fe8e13bc58df6b481cff2))
+* **app:** renew expired sessions while the app is running ([#357](https://github.com/cedricziel/robot-notes/issues/357)) ([a0db37f](https://github.com/cedricziel/robot-notes/commit/a0db37f6c6b4cbd1b77c3333de64afd1c403ac99))
+* **app:** use platform motion for note and folder dialogs ([#363](https://github.com/cedricziel/robot-notes/issues/363)) ([a116051](https://github.com/cedricziel/robot-notes/commit/a116051ef6555d091354b74545bb751ef8648436))
+* **hermes:** clarify credential-authorized note deletion ([#353](https://github.com/cedricziel/robot-notes/issues/353)) ([0745e65](https://github.com/cedricziel/robot-notes/commit/0745e655827c33dbbd16eca61eeb7230be6e69ba))
+* **oauth:** accept dynamic loopback redirect ports ([#336](https://github.com/cedricziel/robot-notes/issues/336)) ([f438ff2](https://github.com/cedricziel/robot-notes/commit/f438ff292a784e6241f7065c8cc93e1427f0b77d))
+* **search:** cap echoed query in invalid-query log to 100 chars ([#333](https://github.com/cedricziel/robot-notes/issues/333)) ([159986b](https://github.com/cedricziel/robot-notes/commit/159986b25faca9d37f62fddb4e8490bab855c8cb))
+* **search:** discard stale background embeddings ([#352](https://github.com/cedricziel/robot-notes/issues/352)) ([f27eca5](https://github.com/cedricziel/robot-notes/commit/f27eca5e158ecb57638aec15c8382c47e274dfa1))
+* **search:** neutralize : and parens in FTS5 sanitize fallback ([#332](https://github.com/cedricziel/robot-notes/issues/332)) ([24853c0](https://github.com/cedricziel/robot-notes/commit/24853c0dfb875c08727a725e4cbe35f6325e2fb7))
+
+
+### Performance
+
+* **search:** compute note embeddings after-write with retry instead of inline ([#334](https://github.com/cedricziel/robot-notes/issues/334)) ([0eec213](https://github.com/cedricziel/robot-notes/commit/0eec2137cc0c691bee24dd7f20cc5a579f087255))
+
+
+### Documentation
+
+* **knowledge:** decompose curated implementation work ([#392](https://github.com/cedricziel/robot-notes/issues/392)) ([7d7fc63](https://github.com/cedricziel/robot-notes/commit/7d7fc63f6e493f92ca2c79e1891333463f985b3a))
+* **knowledge:** specify ontology adoption and typed knowledge ([#387](https://github.com/cedricziel/robot-notes/issues/387)) ([131e1ed](https://github.com/cedricziel/robot-notes/commit/131e1edc2f52e2337e87d8285655c9030bbfc049))
+* **memory:** specify curated knowledge review workflow ([7a91d18](https://github.com/cedricziel/robot-notes/commit/7a91d1875dad9697d95ba10d1943f836771a9f5d))
+
 ## [0.2.20](https://github.com/cedricziel/robot-notes/compare/v0.2.19...v0.2.20) (2026-10-05)
 
 

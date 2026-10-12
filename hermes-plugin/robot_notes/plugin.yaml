@@ -1,5 +1,5 @@
 name: robot_notes
-version: 0.2.20 # x-release-please-version
+version: 0.2.21 # x-release-please-version
 description: "robot-notes — shared notes workspace as external memory (REST bearer credential, configurable vault)."
 pip_dependencies:
   - httpx
