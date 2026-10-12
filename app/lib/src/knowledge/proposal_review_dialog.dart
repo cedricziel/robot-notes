@@ -31,6 +31,7 @@ Future<void> showProposalReview({
   required Future<void> Function(String decision, String? comment) onDecision,
   required Future<void> Function(String body) onComment,
   Map<String, String> acceptedBlocks = const {},
+  String? acceptedContent,
 }) async {
   final actions = proposal['allowed_actions'] as List? ?? [];
   final draft = proposal['draft'] as Map? ?? proposal;
@@ -106,6 +107,12 @@ Future<void> showProposalReview({
                         'delete_note' => 'Delete note',
                         _ => 'Proposed update',
                       }, style: Theme.of(context).textTheme.titleSmall),
+                      if (operation['type'] == 'delete_note' &&
+                          acceptedContent != null) ...[
+                        const Text('Accepted target'),
+                        SelectableText(acceptedContent),
+                        const SizedBox(height: 8),
+                      ],
                       if (acceptedBlocks.containsKey(
                         operation['block_id'],
                       )) ...[

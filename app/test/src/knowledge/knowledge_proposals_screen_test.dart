@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:app/src/api/api_client.dart';
 import 'package:app/src/config/app_config.dart';
 import 'package:app/src/knowledge/knowledge_proposals_screen.dart';
@@ -91,4 +93,106 @@ void main() {
     expect(acceptedReads, 0);
     expect(find.text('No active proposals'), findsOneWidget);
   });
+  for (final type in ['delete', 'replace', 'delete_note']) {
+    testWidgets('inbox $type review shows verified accepted target', (
+      tester,
+    ) async {
+      const original = 'Accepted original claim';
+      final summary = {
+        'note_id': 'n',
+        'proposal_id': 'p',
+        'new_note': false,
+        'title': 'Existing knowledge',
+        'path': 'Team',
+        'state': 'pending',
+        'author_label': 'Agent',
+      };
+      final client = RobotNotesClient(
+        config: const AppConfig(
+          baseUrl: 'https://notes.example',
+          apiKey: 'human',
+          actor: 'Reviewer',
+        ),
+        httpClient: MockClient((request) async {
+          final path = request.url.path;
+          Object body = {};
+          if (path == '/notes/proposals' || path == '/notes/n/proposals') {
+            body = {
+              'items': [summary],
+            };
+          }
+          if (path == '/notes/n') {
+            body = {
+              'id': 'n',
+              'title': 'Existing knowledge',
+              'content': original,
+              'version': 1,
+              'created_at': '2026-10-12T00:00:00Z',
+              'updated_at': '2026-10-12T00:00:00Z',
+            };
+          }
+          if (path.endsWith('/permissions')) {
+            body = {
+              'curated': true,
+              'allowed_actions': ['read', 'review'],
+            };
+          }
+          if (path.endsWith('/blocks')) {
+            body = {
+              'version': 1,
+              'offset_encoding': 'utf-16',
+              'content_hash': sha256.convert(utf8.encode(original)).toString(),
+              'blocks': [
+                {
+                  'id': 'b',
+                  'revision': 1,
+                  'start': 0,
+                  'end': original.length,
+                  'hash': sha256.convert(utf8.encode(original)).toString(),
+                },
+              ],
+            };
+          }
+          if (path.endsWith('/comments')) {
+            body = {'items': <Object?>[], 'record_revision': 0};
+          }
+          if (path.endsWith('/history')) body = {'revisions': <Object?>[]};
+          if (path.endsWith('/proposals/p')) {
+            body = {
+              ...summary,
+              'record_revision': 1,
+              'allowed_actions': ['read', 'approve'],
+              'operations': [
+                {
+                  'type': type,
+                  if (type != 'delete_note') 'block_id': 'b',
+                  if (type != 'delete_note') 'expected_revision': 1,
+                  if (type == 'delete_note') 'expected_version': 1,
+                  if (type == 'replace') 'text': 'Proposed replacement',
+                },
+              ],
+              'evidence_refs': <Object?>[],
+              'comments': <Object?>[],
+            };
+          }
+          return http.Response(jsonEncode(body), 200);
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
+          home: KnowledgeProposalsScreen(api: client),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Existing knowledge'));
+      await tester.pumpAndSettle();
+      if (find.text('Knowledge review').evaluate().isNotEmpty) {
+        await tester.tap(find.text('Agent'));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text(original), findsOneWidget);
+      expect(find.text('Approve'), findsOneWidget);
+    });
+  }
 }

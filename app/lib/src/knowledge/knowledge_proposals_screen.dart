@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../api/api_client.dart';
 import '../api/api_exceptions.dart';
+import 'knowledge_review_screen.dart';
 import 'proposal_review_dialog.dart';
 
 class KnowledgeProposalsScreen extends StatefulWidget {
@@ -84,6 +85,22 @@ class _KnowledgeProposalsScreenState extends State<KnowledgeProposalsScreen> {
       final proposal = await widget.api.getKnowledgeProposal(id, proposalId);
       if (!mounted) return;
       setState(() => summary['state'] = proposal['state']);
+      if (proposal['new_note'] != true &&
+          !const {'accepted', 'denied'}.contains(proposal['state'])) {
+        final note = await widget.api.getNote(id);
+        if (!mounted) return;
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute(
+            builder: (_) => KnowledgeReviewScreen(
+              api: widget.api,
+              note: note,
+              onAcceptedChange: _load,
+            ),
+          ),
+        );
+        if (mounted) await _load();
+        return;
+      }
       await showProposalReview(
         context: context,
         proposal: proposal,

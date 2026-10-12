@@ -180,6 +180,7 @@ class _KnowledgeReviewScreenState extends State<KnowledgeReviewScreen> {
       await showProposalReview(
         context: context,
         proposal: proposal,
+        acceptedContent: _note.content,
         acceptedBlocks: {
           for (final block in _rows(_blocks?['blocks']))
             block['id'] as String: _source(block),
