@@ -10,6 +10,9 @@ import 'package:server/src/excerpt.dart';
 import 'package:server/src/frontmatter.dart';
 import 'package:server/src/markdown_blocks.dart';
 import 'package:server/src/note_path.dart';
+import 'package:server/src/proposals/proposal_record.dart';
+import 'package:server/src/proposals/proposal_service.dart'
+    show ProposalAcceptancePermit;
 import 'package:server/src/tags.dart';
 import 'package:ulid/ulid.dart';
 
@@ -279,6 +282,7 @@ class Storage {
     Logger? logger,
     this.beforeHistoryApply,
     this.afterHistoryPublish,
+    this.acceptedPolicyReplay,
   })  : _clock = clock,
         _idGenerator = idGenerator ?? _ulid,
         _log = logger ?? Logger('storage');
@@ -294,6 +298,9 @@ class Storage {
   /// Failure injection after canonical publication, before snapshot commit.
   @visibleForTesting
   final Future<void> Function()? afterHistoryPublish;
+
+  /// Replays an authorized note designation before pending history is cleared.
+  Future<void> Function(Map<String, dynamic> delta)? acceptedPolicyReplay;
 
   Directory get _historyDir => Directory('${contentDir.path}.history');
   final _blockReconciler = MarkdownBlockReconciler();
@@ -338,6 +345,7 @@ class Storage {
 
   // Per-id write serialization (unchanged from before path support).
   final Map<NoteId, Future<void>> _locks = {};
+  final Object _noteTransactionZone = Object();
 
   // Per-target-path write serialization: keyed by `collisionKey` of the
   // relative file path a write is about to claim. Guards the
@@ -851,6 +859,207 @@ class Storage {
         return next;
       });
 
+  Directory _proposalDirectory(String id) =>
+      Directory('${_noteHistory(id).path}/proposals');
+
+  File _proposalFile(String noteId, String proposalId) => File(
+        '${_proposalDirectory(noteId).path}/'
+        '${base64Url.encode(utf8.encode(proposalId))}.json',
+      );
+
+  /// Serializes review work with every accepted mutation of the same note.
+  /// Nested storage operations retain this lock only while [body] is awaited.
+  Future<T> withProposalMutation<T>(String id, Future<T> Function() body) =>
+      _withLock(id, () async {
+        await _ensureIndexed();
+        return body();
+      });
+
+  /// Reads server-owned review state after accepted journal recovery.
+  Future<ProposalRecord> readProposalRecord(String noteId, String proposalId) =>
+      withProposalMutation(noteId, () async {
+        final file = _proposalFile(noteId, proposalId);
+        if (!file.existsSync()) throw NoteNotFoundException(noteId);
+        final record = ProposalRecord.fromStoredJson(
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>,
+        );
+        if (record.id != proposalId || record.noteId != noteId) {
+          throw const FormatException('Proposal identity mismatch');
+        }
+        return record;
+      });
+
+  /// Lists review records without putting candidates in canonical note scans.
+  Future<List<ProposalRecord>> proposalRecords({String? noteId}) async {
+    await _ensureIndexed();
+    final directories = noteId != null
+        ? [_proposalDirectory(noteId)]
+        : (!_historyDir.existsSync()
+            ? <Directory>[]
+            : (await _historyDir.list().toList())
+                .whereType<Directory>()
+                .map((directory) => Directory('${directory.path}/proposals'))
+                .toList());
+    final records = <ProposalRecord>[];
+    for (final directory in directories) {
+      if (!directory.existsSync()) continue;
+      await for (final file in directory.list()) {
+        if (file is File && file.path.endsWith('.json')) {
+          records.add(
+            ProposalRecord.fromStoredJson(
+              jsonDecode(await file.readAsString()) as Map<String, dynamic>,
+            ),
+          );
+        }
+      }
+    }
+    records.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return records;
+  }
+
+  /// Saves pending activity with CAS; accepted state requires the journal.
+  Future<void> writeProposalRecord(
+    ProposalRecord record, {
+    int? expectedRecordRevision,
+  }) =>
+      withProposalMutation(record.noteId, () async {
+        final file = _proposalFile(record.noteId, record.id);
+        ProposalRecord? previous;
+        if (file.existsSync()) {
+          previous = await readProposalRecord(record.noteId, record.id);
+        }
+        if (previous?.recordRevision != expectedRecordRevision) {
+          throw const ProposalRecordConflictException('record_changed');
+        }
+        if (record.state == 'accepted' && previous?.state != 'accepted') {
+          throw StateError('Accepted proposal requires journal publication');
+        }
+        await _atomicText(file, jsonEncode(record.toStoredJson()));
+      });
+
+  /// Loads immutable accepted-block comment events, independent of proposals.
+  Future<Map<String, dynamic>> readBlockComments(String id) =>
+      withProposalMutation(id, () async {
+        final file = File('${_noteHistory(id).path}/comments.json');
+        if (!file.existsSync()) {
+          return {'record_revision': 0, 'items': <Object?>[]};
+        }
+        return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      });
+
+  /// Appends accepted-block activity under the same canonical note lock.
+  Future<void> writeBlockComments(
+    String id,
+    Map<String, dynamic> next, {
+    required int expectedRecordRevision,
+  }) =>
+      withProposalMutation(id, () async {
+        final current = await readBlockComments(id);
+        if (current['record_revision'] != expectedRecordRevision ||
+            next['record_revision'] != expectedRecordRevision + 1) {
+          throw const ProposalRecordConflictException('comments_changed');
+        }
+        await _atomicText(
+          File('${_noteHistory(id).path}/comments.json'),
+          jsonEncode(next),
+        );
+      });
+
+  /// Reads accepted source associations without any pending candidate data.
+  Future<Map<String, dynamic>> readAcceptedProvenance(
+    String id, {
+    int? version,
+  }) =>
+      withProposalMutation(id, () async {
+        final wanted = version ?? (await read(id)).version;
+        final snapshot = File('${_noteHistory(id).path}/$wanted.json');
+        if (!snapshot.existsSync()) return {};
+        final event = jsonDecode(await snapshot.readAsString()) as Map;
+        return (event['accepted_provenance'] as Map?)
+                ?.cast<String, dynamic>() ??
+            {};
+      });
+
+  /// Consumes authority issued only by the trusted review service.
+  /// Journals canonical source and final review state together.
+  Future<void> acceptProposal(
+    ProposalAcceptancePermit permit, {
+    required int expectedRecordRevision,
+  }) =>
+      withProposalMutation(permit.note.id, () async {
+        permit.claim(this);
+        final id = permit.note.id;
+        final record = await readProposalRecord(id, permit.record.id);
+        if (record.recordRevision != expectedRecordRevision ||
+            !const {'pending', 'changes_requested'}.contains(record.state) ||
+            permit.record.state != 'accepted' ||
+            permit.record.acceptedVersion != permit.blockMap.version) {
+          throw const ProposalRecordConflictException('record_changed');
+        }
+        if (permit.newNote) {
+          if (_relPathById.containsKey(id) || permit.note.version != 1) {
+            throw const ProposalRecordConflictException(
+              'draft_already_created',
+            );
+          }
+        } else {
+          final current = await read(id);
+          await readBlockMap(id);
+          if (!permit.matchesCurrent(current)) {
+            throw const ProposalRecordConflictException(
+              'accepted_source_changed',
+            );
+          }
+          if (current.version != permit.blockMap.version - 1 ||
+              current.title != permit.note.title ||
+              current.path != permit.note.path) {
+            throw VersionConflictException(
+              current: current,
+              suppliedIfMatch: permit.blockMap.version - 1,
+            );
+          }
+        }
+        final body = permit.deleted ? '' : permit.note.content;
+        if (!permit.blockMap.matches(body) ||
+            (!permit.deleted &&
+                permit.note.version != permit.blockMap.version)) {
+          throw StateError('Reviewed source does not match accepted block map');
+        }
+        final path = permit.deleted
+            ? null
+            : _relativeFilePath(
+                path: permit.note.path,
+                title: permit.note.title,
+              );
+        final key = path == null ? 'deleted:$id' : collisionKey(path);
+        await _withPathLock(key, () async {
+          final owner = path == null ? null : _idByKey[key];
+          if (owner != null && owner != id) {
+            throw PathConflictException(
+              path: permit.note.path,
+              title: permit.note.title,
+            );
+          }
+          if (permit.requiresHistory) await ensureRequiredHistory(id);
+          await _commitHistory(
+            permit.note,
+            path,
+            deleted: permit.deleted,
+            actor: permit.actor,
+            reviewedBlockMap: permit.blockMap,
+            acceptedProposal: permit.record,
+            acceptedProvenance: permit.provenance,
+            acceptedPolicyDelta: permit.policyDelta,
+          );
+          if (path == null) {
+            final oldPath = _relPathById.remove(id);
+            if (oldPath != null) _idByKey.remove(collisionKey(oldPath));
+          } else {
+            _claim(id: id, key: key, relPath: path);
+          }
+        });
+      });
+
   String _serializeNote(StoredNote note) => serializeFrontmatter(
         Frontmatter(metadata: _buildMetadataMap(note), body: note.content),
       );
@@ -868,6 +1077,11 @@ class Storage {
     bool deleted = false,
     bool captureCurrent = false,
     String? actor,
+    MarkdownBlockMap? reviewedBlockMap,
+    ProposalRecord? acceptedProposal,
+    Map<String, dynamic>? acceptedProvenance,
+    Map<String, dynamic>? acceptedPolicyDelta,
+    int? restoredVersion,
   }) async {
     final history = _noteHistory(note.id);
     final oldPath = _relPathById[note.id];
@@ -890,12 +1104,72 @@ class Storage {
       previousSource =
           parseFrontmatter(await _fileForRelative(oldPath).readAsString()).body;
     }
-    final blockMap = _blockReconciler.reconcile(
-      deleted ? '' : note.content,
-      version: note.version + (deleted ? 1 : 0),
-      previous: previousMap,
-      previousSource: previousSource,
-    );
+    final blockMap = reviewedBlockMap ??
+        _blockReconciler.reconcile(
+          deleted ? '' : note.content,
+          version: note.version + (deleted ? 1 : 0),
+          previous: previousMap,
+          previousSource: previousSource,
+        );
+    final invalidated = <Map<String, dynamic>>[];
+    final changed = {
+      ...blockMap.changedIds,
+      ...blockMap.retiredIds,
+      ...blockMap.ambiguousIds,
+    };
+    for (final record in await proposalRecords(noteId: note.id)) {
+      if (record.id == acceptedProposal?.id) continue;
+      final operations = record.current.candidate['operations'] as List? ?? [];
+      final overlaps = operations.any((raw) {
+        final operation = raw as Map;
+        return operation['type'] == 'delete_note' ||
+            changed.contains(operation['block_id']);
+      });
+      if (deleted || (oldPath != null && oldPath != path) || overlaps) {
+        final next = record.invalidate(
+          reason: deleted ? 'note_deleted' : 'accepted_target_changed',
+          at: _clock.nowUtc(),
+        );
+        if (!identical(next, record)) invalidated.add(next.toStoredJson());
+      }
+    }
+    if (acceptedProposal != null) {
+      invalidated.add(acceptedProposal.toStoredJson());
+    }
+    final provenance = acceptedProvenance ??
+        await readAcceptedProvenance(note.id, version: previousVersion);
+    if (restoredVersion != null) {
+      provenance.clear();
+      final restoredFile = File('${history.path}/$restoredVersion.json');
+      final restored = jsonDecode(await restoredFile.readAsString()) as Map;
+      final rawMap = restored['block_map'];
+      final links =
+          (restored['accepted_provenance'] as Map?)?.cast<String, dynamic>() ??
+              {};
+      if (rawMap is Map<String, dynamic>) {
+        final sourceMap = MarkdownBlockMap.fromJson(rawMap);
+        for (final block in sourceMap.blocks) {
+          final target = blockMap.blocks
+              .where(
+                (candidate) =>
+                    candidate.start == block.start &&
+                    candidate.end == block.end &&
+                    candidate.kind == block.kind &&
+                    candidate.hash == block.hash,
+              )
+              .firstOrNull;
+          final source = links[block.id];
+          if (target != null && source is Map<String, dynamic>) {
+            provenance[target.id] = {
+              ...source,
+              'block_revision': target.revision,
+            };
+          }
+        }
+      }
+    } else if (acceptedProvenance == null) {
+      provenance.removeWhere((id, _) => changed.contains(id));
+    }
     final event = <String, Object?>{
       'id': note.id,
       if (actor != null) 'actor': actor,
@@ -904,6 +1178,10 @@ class Storage {
       'recorded_at': _clock.nowUtc().toIso8601String(),
       'markdown': _serializeNote(note),
       'block_map': blockMap.toJson(),
+      'accepted_provenance': provenance,
+      if (acceptedPolicyDelta != null)
+        'accepted_policy_delta': acceptedPolicyDelta,
+      if (invalidated.isNotEmpty) 'proposal_updates': invalidated,
       'path': path,
       'previous_path': oldPath,
       if (!captureCurrent &&
@@ -937,6 +1215,9 @@ class Storage {
     Map<String, dynamic> event, {
     bool injectFailure = false,
   }) async {
+    if (event['accepted_policy_delta'] is Map<String, dynamic>) {
+      await ensureRequiredHistory(event['id'] as String);
+    }
     final path = event['path'] as String?;
     final oldPath = event['previous_path'] as String?;
     if (path != null) {
@@ -976,6 +1257,24 @@ class Storage {
         ),
       );
     }
+    final policyDelta = event['accepted_policy_delta'];
+    if (policyDelta is Map<String, dynamic>) {
+      final replay = acceptedPolicyReplay;
+      if (replay == null) {
+        throw StateError('Accepted designation replay is not configured');
+      }
+      await replay(policyDelta);
+    }
+    for (final raw in event['proposal_updates'] as List? ?? []) {
+      final record = ProposalRecord.fromStoredJson(raw as Map<String, dynamic>);
+      if (record.noteId != event['id']) {
+        throw const FormatException('Journal proposal identity mismatch');
+      }
+      await _atomicText(
+        _proposalFile(record.noteId, record.id),
+        jsonEncode(record.toStoredJson()),
+      );
+    }
   }
 
   Future<void> _recoverHistory() async {
@@ -1009,7 +1308,23 @@ class Storage {
       if (file is! File || !RegExp(r'/[0-9]+\.json$').hasMatch(file.path)) {
         continue;
       }
-      result.add(jsonDecode(await file.readAsString()) as Map<String, dynamic>);
+      final event =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      result.add({
+        for (final key in const {
+          'id',
+          'actor',
+          'version',
+          'deleted',
+          'recorded_at',
+          'markdown',
+          'block_map',
+          'path',
+          'previous_path',
+          'accepted_provenance',
+        })
+          if (event.containsKey(key)) key: event[key],
+      });
     }
     result.sort((a, b) => (a['version'] as int).compareTo(b['version'] as int));
     return result;
@@ -1097,7 +1412,12 @@ class Storage {
           if (owner != null && owner != id) {
             throw PathConflictException(path: next.path, title: next.title);
           }
-          await _commitHistory(next, path, actor: actor);
+          await _commitHistory(
+            next,
+            path,
+            actor: actor,
+            restoredVersion: version,
+          );
           final oldPath = _relPathById[id];
           if (oldPath != null) _idByKey.remove(collisionKey(oldPath));
           _claim(id: id, key: key, relPath: path);
@@ -1214,8 +1534,21 @@ class Storage {
     }
   }
 
-  Future<T> _withLock<T>(NoteId id, Future<T> Function() body) =>
-      _withKeyedLock(_locks, id, body);
+  Future<T> _withLock<T>(NoteId id, Future<T> Function() body) {
+    final lease = Zone.current[_noteTransactionZone];
+    if (lease is _NoteTransactionLease && lease.active && lease.id == id) {
+      _assertHistoryHealthy();
+      return body();
+    }
+    return _withKeyedLock(_locks, id, () async {
+      final lease = _NoteTransactionLease(id);
+      try {
+        return await runZoned(body, zoneValues: {_noteTransactionZone: lease});
+      } finally {
+        lease.active = false;
+      }
+    });
+  }
 
   Future<T> _withPathLock<T>(String key, Future<T> Function() body) =>
       _withKeyedLock(_pathLocks, key, body);
@@ -1291,4 +1624,10 @@ class Storage {
   }
 
   static NoteId _ulid() => Ulid().toString();
+}
+
+class _NoteTransactionLease {
+  _NoteTransactionLease(this.id);
+  final String id;
+  bool active = true;
 }

@@ -645,6 +645,75 @@ class NoteWriteService {
     }
   }
 
+  /// Validates a proposed draft using the same declared properties as create.
+  void validateProposalDraft(StoredNote note) {
+    if (isDatabaseDefinitionExtra(note.extra)) {
+      throw const PropertyValidationException([
+        PropertyViolation(key: 'type', reason: 'database proposal unsupported'),
+      ]);
+    }
+    _validateCallerProperties(
+      path: note.path,
+      tags: note.toSummary().tags,
+      isDefinition: false,
+      properties: note.extra,
+    );
+  }
+
+  /// Updates derived views after the review service commits accepted history.
+  Future<void> indexAcceptedProposal(
+    StoredNote note,
+    String actor, {
+    required bool deleted,
+  }) async {
+    final before = metaIndex.get(note.id);
+    if (deleted) {
+      searchIndex.delete(note.id);
+      metaIndex.remove(note.id);
+      linkIndex.remove(note.id);
+      registry?.remove(note.id);
+      _safeBroadcast(
+        ChangedEvent(
+          noteId: note.id,
+          version: note.version + 1,
+          by: actor,
+          action: ChangeAction.deleted,
+        ),
+      );
+      return;
+    }
+    final summary = note.toSummary();
+    scheduleEmbedding(note);
+    metaIndex.upsert(summary);
+    final covering = _coveringOf(note, summary);
+    linkIndex.upsert(
+      note.id,
+      note.content,
+      extraLinks: _relationLinks(covering, note.extra),
+    );
+    searchIndex.upsert(
+      id: note.id,
+      title: note.title,
+      path: note.path,
+      content: note.content,
+      updatedAt: note.updatedAt,
+      tags: summary.tags,
+      links: _searchLinkEdges(note.id),
+      extra: note.extra,
+      createdAt: note.createdAt,
+      isDefinition: isDatabaseDefinitionExtra(note.extra),
+    );
+    _refreshRegistry(summary, note.extra);
+    _safeBroadcast(
+      ChangedEvent(
+        noteId: note.id,
+        version: note.version,
+        by: actor,
+        action: before == null ? ChangeAction.created : ChangeAction.updated,
+      ),
+    );
+  }
+
   /// Restores an accepted revision and refreshes current search and links.
   Future<StoredNote> restoreRevision({
     required String id,

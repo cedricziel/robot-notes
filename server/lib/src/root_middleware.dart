@@ -25,6 +25,7 @@ import 'package:server/src/oidc/jwks.dart';
 import 'package:server/src/oidc/pending_login_store.dart';
 import 'package:server/src/oidc/token_exchange.dart';
 import 'package:server/src/otel/http_trace_middleware.dart';
+import 'package:server/src/proposals/proposal_service.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/static_web_middleware.dart';
 import 'package:server/src/storage.dart';
@@ -80,6 +81,7 @@ Handler applyRootMiddleware(
       .use(provider<NoteWriteService>((_) => deps.noteWriteService))
       .use(provider<DatabaseRegistry>((_) => deps.registry))
       .use(provider<Storage>((_) => deps.storage))
+      .use(provider<ProposalService>((_) => deps.proposals))
       .use(provider<EvidenceStore>((_) => deps.evidenceStore))
       .use(provider<FileStore>((_) => deps.fileStore))
       .use(provider<UploadSessionStore>((_) => deps.uploadSessions))

@@ -38,17 +38,26 @@ import '../../routes/mcp/index.dart' as mcp_route;
 import '../../routes/notes/[id]/append.dart' as notes_append_route;
 import '../../routes/notes/[id]/backlinks.dart' as notes_backlinks_route;
 import '../../routes/notes/[id]/blocks.dart' as notes_blocks_route;
+import '../../routes/notes/[id]/comments.dart' as note_comments_route;
 import '../../routes/notes/[id]/history.dart' as notes_history_route;
 import '../../routes/notes/[id]/index.dart' as notes_id_route;
 import '../../routes/notes/[id]/links.dart' as notes_links_route;
 import '../../routes/notes/[id]/lock.dart' as notes_id_lock_route;
 import '../../routes/notes/[id]/permissions.dart' as note_permissions_route;
 import '../../routes/notes/[id]/properties.dart' as notes_id_properties_route;
+import '../../routes/notes/[id]/proposals/[proposalId]/comments.dart'
+    as proposal_comments_route;
+import '../../routes/notes/[id]/proposals/[proposalId]/decisions.dart'
+    as proposal_decisions_route;
+import '../../routes/notes/[id]/proposals/[proposalId]/index.dart'
+    as proposal_item_route;
+import '../../routes/notes/[id]/proposals/index.dart' as proposals_note_route;
 import '../../routes/notes/file-uploads/[token].dart' as upload_route;
 import '../../routes/notes/files/[...path].dart' as file_route;
 import '../../routes/notes/files/index.dart' as files_route;
 import '../../routes/notes/index.dart' as notes_index_route;
 import '../../routes/notes/permissions.dart' as prospective_permissions_route;
+import '../../routes/notes/proposals.dart' as proposals_index_route;
 import '../../routes/notes/tree.dart' as notes_tree_route;
 import '../../routes/oauth/authorize.dart' as oauth_authorize_route;
 import '../../routes/oauth/oidc/callback.dart' as oauth_oidc_callback_route;
@@ -113,6 +122,18 @@ Future<HttpServer> startTestServer({
     ..all('/notes/tree', notes_tree_route.onRequest)
     ..all('/notes/files', files_route.onRequest)
     ..all('/notes/files/<path|.*>', file_route.onRequest)
+    ..all('/notes/proposals', proposals_index_route.onRequest)
+    ..all('/notes/<id>/proposals', proposals_note_route.onRequest)
+    ..all('/notes/<id>/proposals/<proposalId>', proposal_item_route.onRequest)
+    ..all(
+      '/notes/<id>/proposals/<proposalId>/comments',
+      proposal_comments_route.onRequest,
+    )
+    ..all(
+      '/notes/<id>/proposals/<proposalId>/decisions',
+      proposal_decisions_route.onRequest,
+    )
+    ..all('/notes/<id>/comments', note_comments_route.onRequest)
     ..all('/notes/<id>/blocks', notes_blocks_route.onRequest)
     ..all('/notes/<id>/history', notes_history_route.onRequest)
     ..all('/notes/<id>/append', notes_append_route.onRequest)

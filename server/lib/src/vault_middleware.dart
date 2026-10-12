@@ -8,6 +8,7 @@ import 'package:server/src/link_index.dart';
 import 'package:server/src/lock_manager.dart';
 import 'package:server/src/meta_index.dart';
 import 'package:server/src/note_write_service.dart';
+import 'package:server/src/proposals/proposal_service.dart';
 import 'package:server/src/rest_principal.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
@@ -63,6 +64,7 @@ Middleware vaultSelection(VaultRegistry vaults) =>
                 .provide<NoteAuthorizationService>(() => deps.authorization)
                 .provide<KnowledgePolicyStore>(() => deps.authorization.store)
                 .provide<Storage>(() => deps.storage)
+                .provide<ProposalService>(() => deps.proposals)
                 .provide<EvidenceStore>(() => deps.evidenceStore)
                 .provide<MetaIndex>(() => deps.metaIndex)
                 .provide<SearchIndex>(() => deps.searchIndex)
