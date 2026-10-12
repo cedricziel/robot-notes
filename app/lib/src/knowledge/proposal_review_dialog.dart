@@ -1,5 +1,20 @@
 import 'package:material_ui/material_ui.dart';
 
+String _sourceLabel(Map<String, dynamic> source) => switch (source['kind']) {
+  'note_revision' => 'Note ${source['note_id']} · version ${source['version']}',
+  'block_revision' =>
+    'Note ${source['note_id']} · version ${source['version']} · block ${source['block_id']} · revision ${source['block_revision']}',
+  'archive' => 'Evidence archive · ${source['digest']}',
+  'url' => '${source['url']}',
+  'conversation' => [
+    'Conversation ${source['session_id']}',
+    if (source['turn_id'] != null) 'turn ${source['turn_id']}',
+    if (source['tool_call_id'] != null) 'tool call ${source['tool_call_id']}',
+    if (source['task_id'] != null) 'task ${source['task_id']}',
+  ].join(' · '),
+  _ => '${source['reason'] ?? 'Source not recorded'}',
+};
+
 String proposalStateLabel(Object? state) => switch (state) {
   'pending' => 'Awaiting review',
   'changes_requested' => 'Changes requested',
@@ -102,14 +117,24 @@ Future<void> showProposalReview({
                         const Text('Proposed text'),
                         SelectableText(operation['text'] as String),
                       ],
+                      if (rows(operation['evidence_refs']).isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Supporting evidence'),
+                        for (final source in rows(operation['evidence_refs']))
+                          SelectableText(_sourceLabel(source)),
+                      ],
+                      if (rows(operation['supersedes']).isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Text('Superseded sources'),
+                        for (final source in rows(operation['supersedes']))
+                          SelectableText(_sourceLabel(source)),
+                      ],
                     ],
                   ),
                 ),
               Text('Evidence', style: Theme.of(context).textTheme.titleSmall),
               for (final evidence in rows(proposal['evidence_refs']))
-                SelectableText(
-                  '${evidence['kind']}: ${evidence['url'] ?? evidence['note_id'] ?? evidence['digest'] ?? evidence['reason'] ?? 'Source reference'}',
-                ),
+                SelectableText(_sourceLabel(evidence)),
               const SizedBox(height: 16),
               for (final comment in rows(proposal['comments']))
                 ListTile(
