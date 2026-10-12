@@ -880,6 +880,7 @@ void main() {
         isDefinition: true,
         extra: const {
           'type': 'database',
+          'knowledge': {'format_version': 1, 'role': 'knowledge'},
           'source': {'folder': 'Projects'},
           'properties': {
             'status': {'type': 'select'},
@@ -891,6 +892,7 @@ void main() {
       );
 
       expect(_noteProperties(tmp, 'n1', 'type'), isEmpty);
+      expect(_noteProperties(tmp, 'n1', 'knowledge'), isEmpty);
       expect(_noteProperties(tmp, 'n1', 'source'), isEmpty);
       expect(_noteProperties(tmp, 'n1', 'properties'), isEmpty);
       expect(_noteProperties(tmp, 'n1', 'views'), isEmpty);

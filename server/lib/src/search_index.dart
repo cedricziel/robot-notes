@@ -34,6 +34,7 @@ const int kSearchSchemaVersion = 5;
 /// `extra` — they describe the note's role as a database definition, not a
 /// row's property values.
 const Set<String> kServerInterpretedKeys = {
+  'knowledge',
   'type',
   'tags',
   'source',

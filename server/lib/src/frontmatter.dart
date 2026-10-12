@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:meta/meta.dart';
 import 'package:yaml/yaml.dart';
 
@@ -130,25 +132,42 @@ void _emitKv(
   required int indent,
 }) {
   final pad = ' ' * indent;
+  final emittedKey = _emitKey(key);
+  if (value is List && value.isEmpty) {
+    buf.writeln('$pad$emittedKey: []');
+    return;
+  }
+  if (value is Map && value.isEmpty) {
+    buf.writeln('$pad$emittedKey: {}');
+    return;
+  }
   if (value is List) {
-    buf.writeln('$pad$key:');
+    buf.writeln('$pad$emittedKey:');
     for (final item in value) {
       _emitListItem(buf, item, indent: indent + 2);
     }
     return;
   }
   if (value is Map) {
-    buf.writeln('$pad$key:');
+    buf.writeln('$pad$emittedKey:');
     value.forEach((k, v) {
       _emitKv(buf, k as String, v, indent: indent + 2);
     });
     return;
   }
-  buf.writeln('$pad$key: ${_emitScalar(value)}');
+  buf.writeln('$pad$emittedKey: ${_emitScalar(value)}');
 }
 
 void _emitListItem(StringBuffer buf, Object? item, {required int indent}) {
   final pad = ' ' * indent;
+  if (item is List && item.isEmpty) {
+    buf.writeln('$pad- []');
+    return;
+  }
+  if (item is Map && item.isEmpty) {
+    buf.writeln('$pad- {}');
+    return;
+  }
   if (item is List) {
     buf.writeln('$pad-');
     for (final inner in item) {
@@ -159,9 +178,14 @@ void _emitListItem(StringBuffer buf, Object? item, {required int indent}) {
   if (item is Map) {
     var first = true;
     item.forEach((k, v) {
+      final emittedKey = _emitKey(k as String);
       if (first) {
-        if (v is List || v is Map) {
-          buf.writeln('$pad- $k:');
+        if (v is List && v.isEmpty) {
+          buf.writeln('$pad- $emittedKey: []');
+        } else if (v is Map && v.isEmpty) {
+          buf.writeln('$pad- $emittedKey: {}');
+        } else if (v is List || v is Map) {
+          buf.writeln('$pad- $emittedKey:');
           if (v is List) {
             for (final inner in v) {
               _emitListItem(buf, inner, indent: indent + 4);
@@ -172,11 +196,11 @@ void _emitListItem(StringBuffer buf, Object? item, {required int indent}) {
             });
           }
         } else {
-          buf.writeln('$pad- $k: ${_emitScalar(v)}');
+          buf.writeln('$pad- $emittedKey: ${_emitScalar(v)}');
         }
         first = false;
       } else {
-        _emitKv(buf, k as String, v, indent: indent + 2);
+        _emitKv(buf, k, v, indent: indent + 2);
       }
     });
     return;
@@ -194,10 +218,14 @@ String _emitScalar(Object? value) {
   );
 }
 
-String _quoteString(String s) {
-  final escaped = s.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
-  return '"$escaped"';
-}
+String _emitKey(String key) =>
+    RegExp(r'^[a-zA-Z_][a-zA-Z_0-9]*$').hasMatch(key) &&
+            !const {'null', 'true', 'false', 'yes', 'no', 'on', 'off'}
+                .contains(key.toLowerCase())
+        ? key
+        : _quoteString(key);
+
+String _quoteString(String s) => jsonEncode(s);
 
 Map<String, Object?> _normaliseMap(YamlMap map) {
   final out = <String, Object?>{};
