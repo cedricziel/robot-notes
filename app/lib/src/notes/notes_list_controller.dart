@@ -94,6 +94,7 @@ class NotesListController extends ValueNotifier<NotesListState> {
   final int _pageSize;
   StreamSubscription<RealtimeEvent>? _sub;
   bool _disposed = false;
+  bool hasLoaded = false;
   Future<void>? _refreshInFlight;
 
   /// Re-fetches the first page. Used both for initial load and pull-to-refresh.
@@ -102,23 +103,37 @@ class NotesListController extends ValueNotifier<NotesListState> {
   /// during a pull-to-refresh) is coalesced into the same request rather than
   /// issuing a second one, so the two results can't race to overwrite each
   /// other.
-  Future<void> refresh() {
+  Future<void> refresh({bool preservePages = false}) {
     if (_disposed) return Future<void>.value();
-    return _refreshInFlight ??= _doRefresh();
+    return _refreshInFlight ??= _doRefresh(preservePages: preservePages);
   }
 
-  Future<void> _doRefresh() async {
+  Future<void> _doRefresh({required bool preservePages}) async {
+    final targetCount = preservePages ? value.items.length : 0;
     value = value.copyWith(isLoadingFirst: true, error: null);
     try {
-      final page = await _api.listNotes(
+      var page = await _api.listNotes(
         limit: _pageSize,
         sort: 'updated_desc',
         path: value.selectedPath,
         tag: value.selectedTag,
       );
       if (_disposed) return;
+      final items = [...page.items];
+      while (items.length < targetCount && page.nextCursor != null) {
+        page = await _api.listNotes(
+          after: page.nextCursor,
+          limit: _pageSize,
+          sort: 'updated_desc',
+          path: value.selectedPath,
+          tag: value.selectedTag,
+        );
+        if (_disposed) return;
+        items.addAll(page.items);
+      }
+      hasLoaded = true;
       value = value.copyWith(
-        items: page.items,
+        items: items,
         nextCursor: page.nextCursor,
         isLoadingFirst: false,
       );

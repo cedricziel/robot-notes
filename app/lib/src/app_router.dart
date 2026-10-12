@@ -23,6 +23,8 @@ import 'databases/new_database_form.dart';
 import 'desktop/app_menu_actions.dart';
 import 'desktop/app_menu_bar.dart';
 import 'files/picked_file.dart';
+import 'files/file_screen.dart';
+import 'notes/folder_overview.dart';
 import 'layout/breakpoints.dart';
 import 'lock/app_lock_controller.dart';
 import 'lock/app_lock_gate.dart';
@@ -116,6 +118,7 @@ class ConfigHolder extends ChangeNotifier {
       _refresher = OidcSessionRefresher(clientFactory: tracingHttpClient),
       loaded = true;
 
+  final navigation = NoteNavigationRegistry();
   final ConfigStore _store;
   Future<void> _mutations = Future<void>.value();
   int _sessionRevision = 0;
@@ -129,7 +132,9 @@ class ConfigHolder extends ChangeNotifier {
     return result;
   }
 
-  Future<bool> selectVault(String id) {
+  Future<bool> selectVault(String id) async {
+    if (config == null || config!.vaultId == id) return false;
+    if (!await navigation.leave()) return false;
     final revision = _sessionRevision;
     return _mutate(() async {
       final current = config;
@@ -325,9 +330,7 @@ FutureOr<String?> _redirect(ConfigHolder configHolder, GoRouterState state) {
 /// Builds the app's [GoRouter]. A single instance lives for the app's
 /// lifetime; [ConfigHolder] drives redirects as the config comes and goes.
 ///
-/// `/` and `/notes/:id` share a [ShellRoute] so the three-pane layout at
-/// [WindowSizeClass.large] (folders | notes list | note) can keep the
-/// folder tree and the list mounted while the note pane navigates.
+/// Workspace routes share persistent vault navigation.
 GoRouter buildAppRouter({
   required ConfigHolder configHolder,
   String? initialLocation,
@@ -340,7 +343,7 @@ GoRouter buildAppRouter({
   // Every pushed route here is itself deep-link-able, so reflecting it is
   // safe and required for bookmarking, sharing, and reload-to-same-note.
   GoRouter.optionURLReflectsImperativeAPIs = true;
-  final navigation = NoteNavigationRegistry();
+  final navigation = configHolder.navigation;
   return GoRouter(
     initialLocation: initialLocation ?? '/',
     refreshListenable: configHolder,
@@ -364,8 +367,11 @@ GoRouter buildAppRouter({
             pageBuilder: (context, state) => notesPage(
               context,
               key: state.pageKey,
-              splitView: _isLarge(context),
-              child: _HomePage(pickFile: pickFile),
+              splitView: _isDesktopWorkspace(context),
+              child: _HomePage(
+                pickFile: pickFile,
+                folder: state.uri.queryParameters['folder'],
+              ),
             ),
           ),
           GoRoute(
@@ -373,7 +379,7 @@ GoRouter buildAppRouter({
             pageBuilder: (context, state) => notesPage(
               context,
               key: state.pageKey,
-              splitView: _isLarge(context),
+              splitView: _isDesktopWorkspace(context),
               child: NoteNavigationScope(
                 registry: navigation,
                 location: state.uri,
@@ -382,6 +388,14 @@ GoRouter buildAppRouter({
                   startEditing: state.uri.queryParameters['edit'] == '1',
                 ),
               ),
+            ),
+          ),
+          GoRoute(
+            path: '/file',
+            builder: (context, state) => FileScreen(
+              api: AppSession.of(context).api,
+              relativePath: state.uri.queryParameters['path'] ?? '',
+              onClose: () => _returnToBrowse(context),
             ),
           ),
           GoRoute(
@@ -405,10 +419,8 @@ GoRouter buildAppRouter({
   );
 }
 
-/// Whether the window is wide enough for the three-pane shell, in which
-/// notes open beside the list (`go`) instead of on top of it (`push`).
-bool _isLarge(BuildContext context) =>
-    Breakpoints.of(context) >= WindowSizeClass.large;
+bool _isDesktopWorkspace(BuildContext context) =>
+    Breakpoints.of(context) >= WindowSizeClass.expanded;
 
 /// The note id a shell location points at, or `null` on the list route.
 String? _noteIdFromLocation(Uri location) {
@@ -457,10 +469,6 @@ const Map<ShortcutActivator, Intent> appShortcuts = {
   SingleActivator(LogicalKeyboardKey.comma, control: true): OpenAccountIntent(),
 };
 
-/// The [ShellRoute] chrome around `/` and `/notes/:id`: keyboard
-/// shortcuts on every size, plus the folder sidebar and the notes list as
-/// persistent panes at [WindowSizeClass.large]. Stateful so the sidebar
-/// width survives navigation between notes.
 class _AppShell extends StatefulWidget {
   const _AppShell({
     required this.location,
@@ -477,6 +485,9 @@ class _AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<_AppShell> {
+  final _routedContent = GlobalKey();
+  final _browseStorage = PageStorageBucket();
+  Uri? _browseLocation;
   double _sidebarWidth = PaneSizes.sidebarDefault;
   int _compactDestination = 0;
   final Set<int> _visitedDestinations = {0};
@@ -486,6 +497,18 @@ class _AppShellState extends State<_AppShell> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _rememberBrowse();
+    if (widget.location.path == '/file') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final path = widget.location.queryParameters['path'] ?? '';
+        final slash = path.lastIndexOf('/');
+        unawaited(
+          AppSession.of(context).tree
+              .revealFile(slash < 0 ? '' : path.substring(0, slash)),
+        );
+      });
+    }
     // The macOS menu bar's File and View items call these; there is no
     // registry (and nothing to do) anywhere the app runs without one.
     _menuActions = AppMenuActionsScope.maybeOf(context);
@@ -496,11 +519,81 @@ class _AppShellState extends State<_AppShell> {
         newFolder: _newFolderInSelectedFolder,
         uploadFile: _uploadToSelectedFolder,
         search: () => unawaited(_openSearch(context, AppSession.of(context))),
-        refresh: () => unawaited(AppSession.of(context).list.refresh()),
+        refresh: () {
+          final session = AppSession.of(context);
+          unawaited(session.list.refresh());
+          unawaited(session.tree.refresh());
+        },
         account: () => unawaited(_showAccount(context, AppSession.of(context))),
       ),
     );
   }
+
+  void _rememberBrowse() {
+    if (widget.location.path == '/') _browseLocation = widget.location;
+  }
+
+  @override
+  void didUpdateWidget(_AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _rememberBrowse();
+    if (oldWidget.location != widget.location) {
+      AppSession.of(context).tree.cancelReveal();
+      if (widget.location.path == '/file') {
+        final path = widget.location.queryParameters['path'] ?? '';
+        final slash = path.lastIndexOf('/');
+        unawaited(
+          AppSession.of(context).tree
+              .revealFile(slash < 0 ? '' : path.substring(0, slash)),
+        );
+      }
+    }
+  }
+
+  String get _selectedFolder =>
+      _browseLocation?.queryParameters['folder'] ?? '';
+  void _selectFolder(String? path) {
+    Scaffold.maybeOf(context)?.closeDrawer();
+    context.go(
+      Uri(
+        path: '/',
+        queryParameters: path == null ? null : {'folder': path},
+      ).toString(),
+    );
+  }
+
+  void _openNote(String id) {
+    if (_isDesktopWorkspace(context)) {
+      context.go('/notes/$id');
+    } else {
+      unawaited(context.push('/notes/$id'));
+    }
+  }
+
+  void _openFile(VaultFile file) {
+    final uri = Uri(
+      path: '/file',
+      queryParameters: {'path': file.relativePath},
+    ).toString();
+    if (_isDesktopWorkspace(context)) {
+      context.go(uri);
+    } else {
+      unawaited(context.push(uri));
+    }
+  }
+
+  void _returnToBrowse() {
+    if (!_isDesktopWorkspace(context) && context.canPop()) {
+      context.pop();
+    } else {
+      context.go((_browseLocation ?? Uri(path: '/')).toString());
+    }
+  }
+
+  Widget _content() => PageStorage(
+    bucket: _browseStorage,
+    child: KeyedSubtree(key: _routedContent, child: widget.child),
+  );
 
   @override
   void dispose() {
@@ -511,24 +604,12 @@ class _AppShellState extends State<_AppShell> {
 
   void _newNoteInSelectedFolder() {
     final session = AppSession.of(context);
-    unawaited(
-      _createNote(
-        context,
-        session,
-        path: session.list.value.selectedPath ?? '',
-      ),
-    );
+    unawaited(_createNote(context, session, path: _selectedFolder));
   }
 
   void _newFolderInSelectedFolder() {
     final session = AppSession.of(context);
-    unawaited(
-      _createFolder(
-        context,
-        session,
-        initialPath: session.list.value.selectedPath,
-      ),
-    );
+    unawaited(_createFolder(context, session, initialPath: _selectedFolder));
   }
 
   void _uploadToSelectedFolder() {
@@ -538,7 +619,7 @@ class _AppShellState extends State<_AppShell> {
         context,
         session,
         pickFile: widget.pickFile,
-        path: session.list.value.selectedPath ?? '',
+        path: _selectedFolder,
       ),
     );
   }
@@ -546,7 +627,7 @@ class _AppShellState extends State<_AppShell> {
   @override
   Widget build(BuildContext context) {
     final session = AppSession.of(context);
-    final large = _isLarge(context);
+    final large = _isDesktopWorkspace(context);
     return Shortcuts(
       shortcuts: withoutMenuOwnedShortcuts(appShortcuts),
       child: Actions(
@@ -566,6 +647,7 @@ class _AppShellState extends State<_AppShell> {
           RefreshNotesIntent: CallbackAction<RefreshNotesIntent>(
             onInvoke: (_) {
               unawaited(session.list.refresh());
+              unawaited(session.tree.refresh());
               return null;
             },
           ),
@@ -583,11 +665,11 @@ class _AppShellState extends State<_AppShell> {
         child: FocusScope(
           autofocus: true,
           child: large
-              ? _buildThreePane(context, session)
+              ? _buildTwoPane(context, session)
               : Breakpoints.of(context) == WindowSizeClass.compact &&
                     widget.location.path == '/'
               ? _buildCompactWorkspace(context, session)
-              : widget.child,
+              : _content(),
         ),
       ),
     );
@@ -609,7 +691,7 @@ class _AppShellState extends State<_AppShell> {
       body: IndexedStack(
         index: _compactDestination,
         children: [
-          widget.child,
+          _content(),
           if (_visitedDestinations.contains(1))
             _DatabaseLibrary(
               session: session,
@@ -704,13 +786,15 @@ class _AppShellState extends State<_AppShell> {
     );
   }
 
-  Widget _buildThreePane(BuildContext context, AppSession session) {
+  Widget _buildTwoPane(BuildContext context, AppSession session) {
     final scheme = Theme.of(context).colorScheme;
     final selectedNoteId = _noteIdFromLocation(widget.location);
     return ValueListenableBuilder<NotesListState>(
       valueListenable: session.list,
       builder: (context, listState, _) {
-        final selectedPath = listState.selectedPath;
+        final selectedPath = widget.location.path == '/'
+            ? widget.location.queryParameters['folder']
+            : null;
         return ColoredBox(
           color: scheme.surface,
           child: Row(
@@ -721,7 +805,10 @@ class _AppShellState extends State<_AppShell> {
                     AppPreferencesScope.maybeOf(context)?.sidebarWidth ??
                     _sidebarWidth,
                 minWidth: PaneSizes.sidebarMin,
-                maxWidth: PaneSizes.sidebarMax,
+                maxWidth: min(
+                  PaneSizes.sidebarMax,
+                  MediaQuery.sizeOf(context).width - 488,
+                ),
                 onWidthChanged: (w) {
                   setState(() => _sidebarWidth = w);
                   final prefs = AppPreferencesScope.maybeOf(context);
@@ -730,10 +817,7 @@ class _AppShellState extends State<_AppShell> {
                 child: Material(
                   key: const Key('shell.sidebar'),
                   color: scheme.surfaceContainerLow,
-                  // The Material itself paints all the way up under a macOS
-                  // unified title bar (so the sidebar's background extends
-                  // behind the traffic lights); only its content — starting
-                  // with the "Folders" header — insets below it.
+                  // Paint behind macOS traffic lights while insetting navigation controls.
                   child: SafeArea(
                     bottom: false,
                     child: ValueListenableBuilder<DatabasesState>(
@@ -744,7 +828,14 @@ class _AppShellState extends State<_AppShell> {
                             child: FolderTreeSidebar(
                               controller: session.tree,
                               selectedPath: selectedPath,
-                              onSelect: session.list.selectFolder,
+                              selectedNoteId: selectedNoteId,
+                              selectedFilePath: widget.location.path == '/file'
+                                  ? widget.location.queryParameters['path']
+                                  : null,
+                              documentOpen: widget.location.path != '/',
+                              onSelectNote: _openNote,
+                              onSelectFile: _openFile,
+                              onSelect: _selectFolder,
                               onCreateFolder: () => unawaited(
                                 _createFolder(
                                   context,
@@ -763,6 +854,29 @@ class _AppShellState extends State<_AppShell> {
                                 ),
                               ),
                             ),
+                          ),
+                          Wrap(
+                            children: [
+                              IconButton(
+                                key: const Key('shell.newNote'),
+                                tooltip: 'New note',
+                                icon: const Icon(Icons.note_add_outlined),
+                                onPressed: _newNoteInSelectedFolder,
+                              ),
+                              IconButton(
+                                key: const Key('shell.upload'),
+                                tooltip: 'Upload file',
+                                icon: const Icon(Icons.upload_file_outlined),
+                                onPressed: _uploadToSelectedFolder,
+                              ),
+                              IconButton(
+                                key: const Key('shell.search'),
+                                tooltip: 'Search',
+                                icon: const Icon(Icons.search),
+                                onPressed: () =>
+                                    unawaited(_openSearch(context, session)),
+                              ),
+                            ],
                           ),
                           Padding(
                             padding: const EdgeInsets.all(12),
@@ -783,42 +897,7 @@ class _AppShellState extends State<_AppShell> {
                   ),
                 ),
               ),
-              SizedBox(
-                width: PaneSizes.listPane,
-                // A nested messenger so app-level SnackBars surface once, in
-                // the note pane, instead of in every Scaffold of the shell.
-                child: ScaffoldMessenger(
-                  child: NotesListScreen(
-                    key: const Key('shell.list'),
-                    controller: session.list,
-                    layout: NotesListLayout.wide,
-                    selectedNoteId: selectedNoteId,
-                    onNoteTap: (id) => context.go('/notes/$id'),
-                    onCreateNote: () => unawaited(
-                      _createNote(context, session, path: selectedPath ?? ''),
-                    ),
-                    onCreateFolder: () => unawaited(
-                      _createFolder(
-                        context,
-                        session,
-                        initialPath: selectedPath,
-                      ),
-                    ),
-                    onUploadFile: () => unawaited(
-                      _uploadFile(
-                        context,
-                        session,
-                        pickFile: widget.pickFile,
-                        path: selectedPath ?? '',
-                      ),
-                    ),
-                    onSearch: () => unawaited(_openSearch(context, session)),
-                    onAccount: () => unawaited(_showAccount(context, session)),
-                  ),
-                ),
-              ),
-              const VerticalDivider(width: 1),
-              Expanded(child: widget.child),
+              Expanded(child: _content()),
             ],
           ),
         );
@@ -900,29 +979,55 @@ class _DatabaseLibrary extends StatelessWidget {
   );
 }
 
-/// The `/` route. Inside the three-pane shell the list already lives in
-/// its own pane, so this is just the "nothing selected" placeholder for
-/// the note pane; below that, it is the full notes list screen. Reads the
-/// size class in `build` so a window resize flips between the two.
 class _HomePage extends StatelessWidget {
-  const _HomePage({required this.pickFile});
-
+  const _HomePage({required this.pickFile, this.folder});
   final PickFile pickFile;
-
+  final String? folder;
   @override
   Widget build(BuildContext context) {
-    if (_isLarge(context)) {
-      return const Scaffold(
-        body: EmptyState(
-          key: Key('shell.detail.empty'),
-          icon: Icons.notes,
-          title: 'Select a note',
-          message: 'Choose a note from the list, or create a new one.',
+    final session = AppSession.of(context);
+    final shell = context.findAncestorStateOfType<_AppShellState>()!;
+    if (folder != null) {
+      return PageStorage(
+        bucket: shell._browseStorage,
+        child: FolderOverview(
+          key: ValueKey('folder.$folder'),
+          controller: session.tree,
+          path: folder!,
+          onSelectFolder: shell._selectFolder,
+          onSelectNote: shell._openNote,
+          onSelectFile: shell._openFile,
+          onCreateNote: shell._newNoteInSelectedFolder,
+          onCreateFolder: shell._newFolderInSelectedFolder,
+          onUploadFile: shell._uploadToSelectedFolder,
+          sidebar: _isDesktopWorkspace(context)
+              ? null
+              : _browseSidebar(context, session),
         ),
       );
     }
-    return _buildListPage(context, pickFile);
+    return PageStorage(
+      bucket: shell._browseStorage,
+      child: _buildListPage(context, pickFile),
+    );
   }
+}
+
+void _returnToBrowse(BuildContext context) =>
+    context.findAncestorStateOfType<_AppShellState>()?._returnToBrowse();
+Widget _browseSidebar(BuildContext context, AppSession session) {
+  final shell = context.findAncestorStateOfType<_AppShellState>()!;
+  return FolderTreeSidebar(
+    controller: session.tree,
+    selectedPath: shell.widget.location.queryParameters['folder'],
+    onSelect: shell._selectFolder,
+    onSelectNote: shell._openNote,
+    onSelectFile: shell._openFile,
+    onCreateFolder: shell._newFolderInSelectedFolder,
+    databases: session.databases.value.items,
+    onSelectDatabase: (id) => unawaited(context.push('/databases/$id')),
+    onNewDatabase: () => unawaited(_openNewDatabaseForm(context, session)),
+  );
 }
 
 Widget _buildListPage(BuildContext context, PickFile pickFile) {
@@ -934,7 +1039,8 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
         showCompactNavigation:
             Breakpoints.of(context) != WindowSizeClass.compact,
         controller: session.list,
-        onNoteTap: (id) => unawaited(context.push('/notes/$id')),
+        onNoteTap: (id) =>
+            context.findAncestorStateOfType<_AppShellState>()!._openNote(id),
         onCreateNote: () => unawaited(
           _createNote(context, session, path: listState.selectedPath ?? ''),
         ),
@@ -959,30 +1065,9 @@ Widget _buildListPage(BuildContext context, PickFile pickFile) {
           }
         },
         onAccount: () => unawaited(_showAccount(context, session)),
-        sidebar: ValueListenableBuilder<DatabasesState>(
-          valueListenable: session.databases,
-          builder: (context, dbState, _) => FolderTreeSidebar(
-            controller: session.tree,
-            selectedPath: listState.selectedPath,
-            onSelect: session.list.selectFolder,
-            onCreateFolder: () => unawaited(
-              _createFolder(
-                context,
-                session,
-                initialPath: listState.selectedPath,
-              ),
-            ),
-            databases: dbState.items,
-            onSelectDatabase: (id) => unawaited(context.push('/databases/$id')),
-            onNewDatabase: () => unawaited(
-              _openNewDatabaseForm(
-                context,
-                session,
-                initialFolder: listState.selectedPath,
-              ),
-            ),
-          ),
-        ),
+        sidebar: _isDesktopWorkspace(context)
+            ? null
+            : _browseSidebar(context, session),
       );
     },
   );
@@ -999,7 +1084,7 @@ Future<void> _openSearch(BuildContext context, AppSession session) async {
   final controller = NotesSearchController(api: session.api);
   final router = GoRouter.of(context);
   void openResult(BuildContext dialogContext, String id) {
-    final large = _isLarge(dialogContext);
+    final large = _isDesktopWorkspace(dialogContext);
     Navigator.of(dialogContext).pop();
     if (large) {
       router.go('/notes/$id');
@@ -1075,7 +1160,7 @@ Future<void> _createNote(
     final note = await createBlankNote(session.api, path: path);
     if (!context.mounted) return;
     final location = '/notes/${note.id}?edit=1';
-    if (_isLarge(context)) {
+    if (_isDesktopWorkspace(context)) {
       context.go(location);
     } else {
       unawaited(context.push(location));
@@ -1138,6 +1223,7 @@ Future<void> _uploadFile(
   try {
     final result = await uploadPickedFile(session.api, pickFile, path: path);
     if (result == null) return; // user cancelled the picker
+    await session.tree.refresh();
     feedback.show('Uploaded ${result.filename}');
   } on ApiException catch (e) {
     final message = describeError(e, fallback: 'Could not upload file.');
@@ -1334,7 +1420,7 @@ Future<void> _confirmReset(BuildContext context, AppSession session) async {
 /// The `/notes/:id` route. Keyed on the note id so `go`-ing from one note
 /// to another inside the shell (same page key) remounts [NoteRoute] and
 /// its controller instead of updating a controller bound to the old id.
-/// Reads the size class in `build`, so a resize across the large boundary
+/// Reads the size class in `build`, so a resize across the desktop boundary
 /// switches the close affordance between "back" (page) and "close" (pane).
 class _NotePage extends StatelessWidget {
   const _NotePage({required this.noteId, required this.startEditing});
@@ -1345,7 +1431,7 @@ class _NotePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final session = AppSession.of(context);
-    final large = _isLarge(context);
+    final large = _isDesktopWorkspace(context);
     return NoteRoute(
       key: ValueKey<String>(noteId),
       api: session.api,
@@ -1355,10 +1441,12 @@ class _NotePage extends StatelessWidget {
       startEditing: startEditing,
       presentation: large ? NotePresentation.pane : NotePresentation.page,
       onClosed: (saved) => _handleNoteClosed(context, session, saved),
-      // Backlinks open the referencing note: beside the list in the shell,
+      onNoteLoaded: (note) =>
+          unawaited(session.tree.revealNote(note.id, note.path)),
+      // Backlinks replace desktop content,
       // or on top of the current note (a further close pops back here).
       onOpenNote: (id) {
-        if (_isLarge(context)) {
+        if (_isDesktopWorkspace(context)) {
           context.go('/notes/$id');
         } else {
           unawaited(context.push('/notes/$id'));
@@ -1366,7 +1454,10 @@ class _NotePage extends StatelessWidget {
       },
       // Tag filtering is a list-view concern: scope the list, then go there
       // directly (replacing this route, like a search-result tap does).
-      onTagTap: (tag) {
+      onTagTap: (tag) async {
+        final navigation = NoteNavigationScope.maybeOf(context)?.registry;
+        if (navigation != null && !await navigation.leave()) return;
+        if (!context.mounted) return;
         unawaited(session.list.selectTag(tag));
         context.findAncestorStateOfType<_AppShellState>()?._selectDestination(
           0,
@@ -1383,18 +1474,6 @@ class _NotePage extends StatelessWidget {
   }
 }
 
-/// The `/databases/:id` route. Wires the parsed `id`/`view`, the session's
-/// [RobotNotesClient]/[RobotNotesWsClient], and the shell's close behavior
-/// into a [DatabaseRoute], which owns the [DatabaseController] and
-/// [DatabasesController] and renders the real [DatabaseScreen] (group 5).
-///
-/// TODO(add-database-views task 5.1+): scope the list pane's notes list to
-/// the database's source folder when the source is a folder, per the
-/// `flutter-client` spec's routing requirement. That needs the cached full
-/// definition, which is now available via `DatabasesController.definition`,
-/// but wiring it into the list pane's selection is left for a follow-up —
-/// until then the list pane shows its normal, unscoped selection exactly
-/// as the `/` and `/notes/:id` routes do.
 class _DatabasePage extends StatelessWidget {
   const _DatabasePage({required this.databaseId, required this.viewName});
 
@@ -1412,7 +1491,7 @@ class _DatabasePage extends StatelessWidget {
       viewName: viewName,
       onClose: () => _handleDatabaseClosed(context),
       onOpenNote: (id) {
-        if (_isLarge(context)) {
+        if (_isDesktopWorkspace(context)) {
           context.go('/notes/$id');
         } else {
           unawaited(context.push('/notes/$id'));
@@ -1428,8 +1507,8 @@ class _DatabasePage extends StatelessWidget {
 /// Mirrors [_handleNoteClosed] without the "was it saved" refresh — the
 /// database screen doesn't mutate note-list-relevant state on close.
 void _handleDatabaseClosed(BuildContext context) {
-  if (_isLarge(context)) {
-    context.go('/');
+  if (_isDesktopWorkspace(context)) {
+    _returnToBrowse(context);
   } else if (context.canPop()) {
     context.pop();
   } else {
@@ -1437,20 +1516,12 @@ void _handleDatabaseClosed(BuildContext context) {
   }
 }
 
-/// The list only learns about a save through the realtime stream, which is
-/// not always connected — refresh explicitly, but only when a save actually
-/// happened, so viewing a note doesn't cost an extra fetch on every close.
-///
-/// Only needed on the `canPop()` and shell branches: the no-history branch
-/// remounts [NotesListScreen], which already refreshes itself in `initState`.
 void _handleNoteClosed(BuildContext context, AppSession session, bool saved) {
-  if (_isLarge(context)) {
-    // The list stays mounted beside the note pane; closing just empties
-    // the pane.
-    if (saved) unawaited(session.list.refresh());
-    context.go('/');
+  if (_isDesktopWorkspace(context)) {
+    if (saved) unawaited(session.list.refresh(preservePages: true));
+    _returnToBrowse(context);
   } else if (context.canPop()) {
-    if (saved) unawaited(session.list.refresh());
+    if (saved) unawaited(session.list.refresh(preservePages: true));
     context.pop();
   } else {
     // A deep-linked note (reload, bookmark, or a search hit reached via
@@ -1517,6 +1588,7 @@ class NoteRoute extends StatefulWidget {
     this.startEditing = false,
     this.presentation = NotePresentation.page,
     this.onClosed,
+    this.onNoteLoaded,
     this.onOpenNote,
     this.onTagTap,
     this.databases,
@@ -1539,7 +1611,7 @@ class NoteRoute extends StatefulWidget {
   final void Function(String databaseId, String viewName)? onOpenDatabase;
 
   /// Whether the note is a full page (back arrow) or the detail pane of
-  /// the three-pane shell (close button).
+  /// the desktop workspace (close button).
   final NotePresentation presentation;
 
   /// Called when the user taps a backlink entry in the note view, with the
@@ -1554,6 +1626,7 @@ class NoteRoute extends StatefulWidget {
   /// loaded. Defaults to a plain [Navigator] pop, so pushing this widget
   /// directly (as existing tests do) keeps working without a router.
   final ValueChanged<bool>? onClosed;
+  final ValueChanged<Note>? onNoteLoaded;
 
   @override
   State<NoteRoute> createState() => _NoteRouteState();
@@ -1584,6 +1657,7 @@ class _NoteRouteState extends State<NoteRoute> {
   void _captureOpenedVersion() {
     _openedVersion ??= _controller.value.note?.version;
     if (_openedVersion != null) {
+      widget.onNoteLoaded?.call(_controller.value.note!);
       _controller.removeListener(_captureOpenedVersion);
     }
   }
@@ -1845,6 +1919,7 @@ class AppRouterShell extends StatelessWidget {
           onReset: configHolder.reset,
           onVaultSelected: (id) async {
             try {
+              if (id == configHolder.config?.vaultId) return;
               final changed = await configHolder.selectVault(id);
               if (!context.mounted || !changed) return;
               GoRouter.of(context).go('/');

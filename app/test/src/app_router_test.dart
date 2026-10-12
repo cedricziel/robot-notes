@@ -9,6 +9,9 @@ import 'package:app/src/databases/databases_controller.dart';
 import 'package:app/src/desktop/app_menu_actions.dart';
 import 'package:app/src/desktop/app_menu_bar.dart';
 import 'package:app/src/files/picked_file.dart';
+import 'package:app/src/files/file_screen.dart';
+import 'package:app/src/notes/folder_overview.dart';
+import 'package:app/src/notes/note_screen.dart';
 import 'package:app/src/layout/breakpoints.dart';
 import 'package:app/src/lock/app_lock_controller.dart';
 import 'package:app/src/lock/app_lock_gate.dart';
@@ -87,8 +90,14 @@ Future<http.Response> _fakeBackend(http.Request request) async {
   if (method == 'GET' && path == '/notes') {
     return _emptyList();
   }
+  if (method == 'GET' && path == '/notes/files') {
+    return http.Response(jsonEncode({'items': <Object?>[]}), 200);
+  }
   if (method == 'GET' && path == '/notes/tree') {
-    return http.Response(jsonEncode(<String, Object?>{'folders': []}), 200);
+    return http.Response(
+      jsonEncode(<String, Object?>{'folders': <Object?>[]}),
+      200,
+    );
   }
   return http.Response('not found', 404);
 }
@@ -237,10 +246,63 @@ Future<http.Response> _backendWithOneNote(http.Request request) async {
 /// reads "hello", so the list must be named explicitly).
 Finder _listRow() => find.descendant(
   of: find.byType(NotesListScreen),
-  matching: find.text('hello'),
+  matching: find.byKey(const Key('notes.tile.01H')),
 );
 
 void main() {
+  testWidgets('file deep link expands ancestors and highlights its row', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(1000, 900));
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/notes/tree') {
+          return http.Response(
+            jsonEncode({
+              'folders': [
+                {'path': 'Projects/Alpha', 'note_count': 0, 'file_count': 1},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/notes/files') {
+          return http.Response(
+            jsonEncode({
+              'items': request.url.queryParameters['path'] == 'Projects/Alpha'
+                  ? [
+                      {
+                        'path': 'Projects/Alpha',
+                        'filename': 'data.txt',
+                        'size': 3,
+                        'content_type': 'text/plain',
+                        'updated_at': _now,
+                      },
+                    ]
+                  : <Object?>[],
+            }),
+            200,
+          );
+        }
+        return _fakeBackend(request);
+      }),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      _harness(
+        api: api,
+        initialLocation: '/file?path=Projects%2FAlpha%2Fdata.txt',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Collapse Projects'), findsOneWidget);
+    expect(find.byTooltip('Collapse Alpha'), findsOneWidget);
+    final row = find.byKey(const Key('sidebar.file.Projects/Alpha/data.txt'));
+    expect(row, findsOneWidget);
+    expect(tester.widget<ListTile>(row).selected, isTrue);
+  });
+
   testWidgets('session shell waits for redirect when configuration is absent', (
     tester,
   ) async {
@@ -456,23 +518,20 @@ void main() {
 
         final sizeClass = Breakpoints.classify(scenario.size.width);
         final compact = sizeClass == WindowSizeClass.compact;
-        final large = sizeClass == WindowSizeClass.large;
+        final desktop = sizeClass >= WindowSizeClass.expanded;
         expect(
           find.byKey(const Key('shell.destinations')),
           compact ? findsOneWidget : findsNothing,
         );
         expect(
           find.byKey(const Key('notes.sidebar.wide')),
-          !compact && !large ? findsOneWidget : findsNothing,
+          !compact && !desktop ? findsOneWidget : findsNothing,
         );
         expect(
           find.byKey(const Key('shell.sidebar')),
-          large ? findsOneWidget : findsNothing,
+          desktop ? findsOneWidget : findsNothing,
         );
-        expect(
-          find.byKey(const Key('shell.detail.empty')),
-          large ? findsOneWidget : findsNothing,
-        );
+        expect(find.byKey(const Key('shell.detail.empty')), findsNothing);
         expect(_listRow(), findsOneWidget);
         expect(tester.takeException(), isNull);
 
@@ -481,18 +540,11 @@ void main() {
         expect(router.routeInformationProvider.value.uri.path, '/notes/01H');
         expect(find.byType(BlockNoteEditor), findsOneWidget);
         expect(find.text('world', findRichText: true), findsOneWidget);
-        expect(
-          find.byType(NotesListScreen),
-          large ? findsOneWidget : findsNothing,
-        );
-        if (large) {
-          expect(
-            tester.getSize(find.byType(NotesListScreen)).width,
-            PaneSizes.listPane,
-          );
+        expect(find.byType(NotesListScreen), findsNothing);
+        if (desktop) {
           expect(
             tester.getTopLeft(find.byType(BlockNoteEditor)).dx,
-            greaterThan(PaneSizes.listPane + PaneSizes.sidebarMin),
+            greaterThanOrEqualTo(PaneSizes.sidebarMin),
           );
         }
         expect(tester.takeException(), isNull);
@@ -539,7 +591,7 @@ void main() {
           expect(find.text('world', findRichText: true), findsOneWidget);
           expect(
             find.byKey(const Key('shell.sidebar')),
-            size.width >= Breakpoints.large ? findsOneWidget : findsNothing,
+            size.width >= Breakpoints.expanded ? findsOneWidget : findsNothing,
           );
           expect(tester.takeException(), isNull, reason: 'Note at $size');
         }
@@ -722,6 +774,32 @@ void main() {
               request: request,
             );
           }
+          if (request.method == 'GET' && request.url.path == '/notes/files') {
+            return http.StreamedResponse(
+              Stream.value(
+                utf8.encode(
+                  jsonEncode({
+                    'items':
+                        capturedFields != null &&
+                            request.url.queryParameters['path'] ==
+                                capturedFields!['path']
+                        ? [
+                            {
+                              'path': capturedFields!['path'],
+                              'filename': capturedFields!['filename'],
+                              'size': 3,
+                              'content_type': 'image/png',
+                              'updated_at': _now,
+                            },
+                          ]
+                        : <Object?>[],
+                  }),
+                ),
+              ),
+              200,
+              request: request,
+            );
+          }
           final res = await _fakeBackend(
             http.Request(request.method, request.url)
               ..headers.addAll(request.headers),
@@ -746,9 +824,6 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The sidebar lives in a drawer on this narrow layout; open it to
-      // select a folder, then dismiss it (tapping the scrim) so the FAB
-      // underneath is reachable again.
       await tester.tap(find.byKey(const Key('notes.create.more')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('notes.sidebar.open')));
@@ -757,17 +832,16 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Alpha'));
       await tester.pumpAndSettle();
-      await tester.tapAt(const Offset(390, 10));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('notes.create.more')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('notes.create.upload')));
+      await tester.tap(find.byTooltip('Upload file'));
       await tester.pumpAndSettle();
 
       expect(capturedFields?['path'], 'Projects/Alpha');
       expect(capturedFields?['filename'], 'diagram.png');
       expect(find.text('Uploaded diagram.png'), findsOneWidget);
+      expect(
+        find.byKey(const Key('sidebar.file.Projects/Alpha/diagram.png')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('cancelling the file picker sends no request', (tester) async {
@@ -778,7 +852,7 @@ void main() {
       final api = RobotNotesClient(
         config: _config,
         httpClient: MockClient((request) async {
-          if (request.url.path == '/notes/files') {
+          if (request.method == 'POST' && request.url.path == '/notes/files') {
             uploadRequested = true;
           }
           return _fakeBackend(request);
@@ -1108,7 +1182,7 @@ void main() {
     await tester.tap(find.text('Alpha'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('notes.create.toolbar')));
+    await tester.tap(find.byTooltip('New note'));
     await tester.pumpAndSettle();
 
     expect(createBody?['path'], 'Projects/Alpha');
@@ -1457,46 +1531,42 @@ void main() {
       },
     );
 
-    testWidgets(
-      'in the three-pane shell, closing goes back to "/" with the list '
-      'pane still mounted (list-pane scoping to the source folder is a '
-      'TODO — see the deviation note on task 2.1 in tasks.md — so the '
-      'list pane shows its normal, unscoped selection for now)',
-      (tester) async {
-        _setWindow(tester, const Size(1400, 900));
-        final api = RobotNotesClient(
-          config: _config,
-          httpClient: MockClient((request) async {
-            final one = await _backendWithOneNote(request);
-            if (one.statusCode != 404) return one;
-            return _databaseBackend(request);
-          }),
-        );
-        addTearDown(api.close);
-        final router = buildAppRouter(
-          configHolder: ConfigHolder.seeded(_config),
-          initialLocation: '/databases/01D',
-        );
-        addTearDown(router.dispose);
+    testWidgets('closing a desktop database returns to All notes', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(1400, 900));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          final one = await _backendWithOneNote(request);
+          if (one.statusCode != 404) return one;
+          return _databaseBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+      final router = buildAppRouter(
+        configHolder: ConfigHolder.seeded(_config),
+        initialLocation: '/databases/01D',
+      );
+      addTearDown(router.dispose);
 
-        await tester.pumpWidget(
-          _harness(api: api, initialLocation: '/databases/01D', router: router),
-        );
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/databases/01D', router: router),
+      );
+      await tester.pumpAndSettle();
 
-        expect(find.byKey(const Key('shell.sidebar')), findsOneWidget);
-        expect(find.byType(NotesListScreen), findsOneWidget);
-        expect(_listRow(), findsOneWidget);
-        expect(find.byKey(const Key('database.title')), findsOneWidget);
+      expect(find.byKey(const Key('shell.sidebar')), findsOneWidget);
+      expect(find.byType(NotesListScreen), findsNothing);
+      expect(_listRow(), findsNothing);
+      expect(find.byKey(const Key('database.title')), findsOneWidget);
 
-        await tester.tap(find.byKey(const Key('database.close')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('database.close')));
+      await tester.pumpAndSettle();
 
-        expect(router.routeInformationProvider.value.uri.toString(), '/');
-        expect(find.byKey(const Key('database.title')), findsNothing);
-        expect(find.byType(NotesListScreen), findsOneWidget);
-      },
-    );
+      expect(router.routeInformationProvider.value.uri.toString(), '/');
+      expect(find.byKey(const Key('database.title')), findsNothing);
+      expect(find.byType(NotesListScreen), findsOneWidget);
+    });
   });
 
   testWidgets(
@@ -1682,7 +1752,9 @@ void main() {
       (tester) async {
         var listFetches = 0;
         final mock = MockClient((request) async {
-          if (request.method == 'GET' && request.url.path == '/notes') {
+          if (request.method == 'GET' &&
+              request.url.path == '/notes' &&
+              request.url.queryParameters['include_subfolders'] != 'false') {
             listFetches += 1;
           }
           return _fakeBackend(request);
@@ -1713,7 +1785,9 @@ void main() {
       _setWindow(tester, const Size(400, 800));
       var listFetches = 0;
       final mock = MockClient((request) async {
-        if (request.method == 'GET' && request.url.path == '/notes') {
+        if (request.method == 'GET' &&
+            request.url.path == '/notes' &&
+            request.url.queryParameters['include_subfolders'] != 'false') {
           listFetches += 1;
         }
         return _fakeBackend(request);
@@ -1847,12 +1921,11 @@ void main() {
     },
   );
 
-  group('three-pane shell (large window)', () {
+  for (final width in [840.0, 1000.0, 1200.0]) {
     testWidgets(
-      'renders folders, the list and an empty detail pane; tapping a row '
-      'opens the note beside the list with the row selected',
+      'two-pane desktop at $width replaces the list when opening a note',
       (tester) async {
-        _setWindow(tester, const Size(1400, 900));
+        _setWindow(tester, Size(width, 900));
         final api = RobotNotesClient(
           config: _config,
           httpClient: MockClient(_backendWithOneNote),
@@ -1863,79 +1936,364 @@ void main() {
           initialLocation: '/',
         );
         addTearDown(router.dispose);
-
         await tester.pumpWidget(
           _harness(api: api, initialLocation: '/', router: router),
         );
         await tester.pumpAndSettle();
-
         expect(find.byKey(const Key('shell.sidebar')), findsOneWidget);
-        expect(find.byKey(const Key('sidebar.allNotes')), findsOneWidget);
-        expect(find.byType(NotesListScreen), findsOneWidget);
-        expect(find.byKey(const Key('shell.detail.empty')), findsOneWidget);
-        expect(find.text('Select a note'), findsOneWidget);
-        expect(
-          tester.getSize(find.byType(NotesListScreen)).width,
-          PaneSizes.listPane,
-        );
-        expect(_listRow(), findsOneWidget);
-        expect(
-          tester
-              .getSemantics(_listRow())
-              .getSemanticsData()
-              .flagsCollection
-              .isSelected,
-          Tristate.isFalse,
-        );
-
         await tester.tap(_listRow());
+        await tester.pumpAndSettle();
+        expect(find.byType(BlockNoteEditor), findsOneWidget);
+        expect(find.byType(NotesListScreen), findsNothing);
+        expect(find.byKey(const Key('shell.sidebar')), findsOneWidget);
+      },
+    );
+  }
+
+  group('two-pane shell (desktop window)', () {
+    testWidgets(
+      'failed save retains the draft and selection on folder activation',
+      (tester) async {
+        _setWindow(tester, const Size(1000, 800));
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: MockClient((request) async {
+            if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+              return http.Response('unavailable', 500);
+            }
+            if (request.url.path == '/notes/tree') {
+              return http.Response(
+                jsonEncode({
+                  'folders': [
+                    {'path': 'Projects', 'note_count': 0},
+                    {'path': '', 'note_count': 1},
+                  ],
+                }),
+                200,
+              );
+            }
+            return _backendWithOneNote(request);
+          }),
+        );
+        addTearDown(api.close);
+        final router = buildAppRouter(
+          configHolder: ConfigHolder.seeded(_config),
+          initialLocation: '/notes/01H?edit=1',
+        );
+        addTearDown(router.dispose);
+        await tester.pumpWidget(
+          _harness(
+            api: api,
+            initialLocation: '/notes/01H?edit=1',
+            router: router,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('note.menu')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('note.source')));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('note.editor.content')),
+          'Draft',
+        );
+        final controller = tester
+            .widget<NoteScreen>(find.byType(NoteScreen))
+            .controller;
+
+        await tester.tap(find.byKey(const Key('sidebar.folder.Projects')));
         await tester.pumpAndSettle();
 
         expect(
           router.routeInformationProvider.value.uri.toString(),
-          '/notes/01H',
+          '/notes/01H?edit=1',
         );
-        // The note renders in the detail pane, beside the still-mounted list.
-        expect(find.byType(BlockNoteEditor), findsOneWidget);
-        expect(find.text('world', findRichText: true), findsOneWidget);
-        expect(find.byType(NotesListScreen), findsOneWidget);
-        expect(find.byKey(const Key('shell.detail.empty')), findsNothing);
         expect(
-          tester.getTopLeft(find.byType(BlockNoteEditor)).dx,
-          greaterThan(PaneSizes.listPane + PaneSizes.sidebarMin),
+          tester.widget<NoteScreen>(find.byType(NoteScreen)).controller,
+          same(controller),
+        );
+        expect(controller.value.editContent, 'Draft');
+        expect(controller.value.isDirty, isTrue);
+        expect(
+          tester
+              .widget<ListTile>(find.byKey(const Key('sidebar.note.01H')))
+              .selected,
+          isTrue,
         );
         expect(
           tester
-              .getSemantics(_listRow())
-              .getSemanticsData()
-              .flagsCollection
-              .isSelected,
-          Tristate.isTrue,
+              .widget<ListTile>(
+                find.byKey(const Key('sidebar.folder.Projects')),
+              )
+              .selected,
+          isFalse,
         );
-        // Pane presentation: a close button rather than a back arrow, and
-        // nothing was pushed (the shell replaced the detail pane).
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('note.close')),
-            matching: find.byIcon(Icons.close),
-          ),
-          findsOneWidget,
-        );
-        expect(router.canPop(), isFalse);
-
-        await tester.tap(find.byKey(const Key('note.close')));
+        expect(find.byType(FolderOverview), findsNothing);
+        await tester.pumpWidget(const SizedBox());
         await tester.pumpAndSettle();
-
-        expect(router.routeInformationProvider.value.uri.toString(), '/');
-        expect(find.byType(BlockNoteEditor), findsNothing);
-        expect(find.byKey(const Key('shell.detail.empty')), findsOneWidget);
-        expect(find.byType(NotesListScreen), findsOneWidget);
       },
     );
 
+    testWidgets('folder breadcrumbs and files retain the browse destination', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(1000, 800));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.url.path == '/notes/tree') {
+            return http.Response(
+              jsonEncode({
+                'folders': [
+                  {'path': 'Projects/Alpha', 'note_count': 0},
+                  {'path': '', 'note_count': 0, 'file_count': 1},
+                ],
+              }),
+              200,
+            );
+          }
+          if (request.url.path == '/notes/files') {
+            final root = request.url.queryParameters['path'] == '';
+            return http.Response(
+              jsonEncode({
+                'items': root
+                    ? [
+                        {
+                          'path': '',
+                          'filename': 'notes & data.txt',
+                          'size': 12,
+                          'content_type': 'text/plain',
+                          'updated_at': _now,
+                        },
+                      ]
+                    : <Object?>[],
+              }),
+              200,
+            );
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+      final router = buildAppRouter(
+        configHolder: ConfigHolder.seeded(_config),
+        initialLocation: '/',
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/', router: router),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('sidebar.folder.Projects')));
+      await tester.pumpAndSettle();
+      expect(
+        router.routeInformationProvider.value.uri.queryParameters['folder'],
+        'Projects',
+      );
+      expect(find.byType(FolderOverview), findsOneWidget);
+      await tester.tap(
+        find.byKey(const Key('sidebar.overview.folder.Projects/Alpha')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        router.routeInformationProvider.value.uri.queryParameters['folder'],
+        'Projects/Alpha',
+      );
+      await tester.tap(find.byKey(const Key('overview.breadcrumb.0')));
+      await tester.pumpAndSettle();
+      expect(
+        router.routeInformationProvider.value.uri.queryParameters['folder'],
+        'Projects',
+      );
+
+      await tester.tap(find.byKey(const Key('overview.root')));
+      await tester.pumpAndSettle();
+      expect(
+        router.routeInformationProvider.value.uri.queryParameters['folder'],
+        '',
+      );
+      expect(find.byType(NotesListScreen), findsNothing);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(FolderOverview),
+          matching: find.byKey(const Key('sidebar.file.notes & data.txt')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(router.routeInformationProvider.value.uri.path, '/file');
+      expect(
+        router.routeInformationProvider.value.uri.queryParameters['path'],
+        'notes & data.txt',
+      );
+      expect(find.byType(FileScreen), findsOneWidget);
+      expect(find.text('text/plain'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close file'));
+      await tester.pumpAndSettle();
+      expect(
+        router.routeInformationProvider.value.uri.queryParameters['folder'],
+        '',
+      );
+      expect(find.byType(FolderOverview), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('overview.allNotes')));
+      await tester.pumpAndSettle();
+      expect(router.routeInformationProvider.value.uri.toString(), '/');
+      expect(find.byType(NotesListScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('closing a later-page note restores list pages and scroll', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(1000, 600));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          if (request.url.path == '/notes' &&
+              request.url.queryParameters['include_subfolders'] != 'false') {
+            final secondPage =
+                request.url.queryParameters['after'] == 'page-one';
+            return http.Response(
+              jsonEncode({
+                'items': secondPage
+                    ? [_noteJson()]
+                    : [
+                        for (var index = 0; index < 30; index++)
+                          _noteJson(id: 'note-$index', title: 'Note $index'),
+                      ],
+                'limit': 50,
+                'next_cursor': secondPage ? null : 'page-one',
+              }),
+              200,
+            );
+          }
+          return _fakeBackend(request);
+        }),
+      );
+      addTearDown(api.close);
+      final router = buildAppRouter(
+        configHolder: ConfigHolder.seeded(_config),
+        initialLocation: '/',
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/', router: router),
+      );
+      await tester.pumpAndSettle();
+      final list = tester
+          .widget<NotesListScreen>(find.byType(NotesListScreen))
+          .controller;
+      await list.loadMore();
+      await tester.pumpAndSettle();
+      final scrollable = find.descendant(
+        of: find.byType(NotesListScreen),
+        matching: find.byType(Scrollable),
+      );
+      await tester.scrollUntilVisible(_listRow(), 400, scrollable: scrollable);
+      await tester.pumpAndSettle();
+      final offset = tester.state<ScrollableState>(scrollable).position.pixels;
+      expect(offset, greaterThan(0));
+      expect(list.value.items, hasLength(31));
+
+      await tester.tap(_listRow());
+      await tester.pumpAndSettle();
+      expect(find.byType(NotesListScreen), findsNothing);
+      await _closeNote(tester);
+
+      expect(list.value.items, hasLength(31));
+      expect(
+        tester.state<ScrollableState>(scrollable).position.pixels,
+        closeTo(offset, 1),
+      );
+      expect(_listRow(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('opening a note replaces All notes and selects its tree row', (
+      tester,
+    ) async {
+      _setWindow(tester, const Size(1400, 900));
+      final api = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(_backendWithOneNote),
+      );
+      addTearDown(api.close);
+      final router = buildAppRouter(
+        configHolder: ConfigHolder.seeded(_config),
+        initialLocation: '/',
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _harness(api: api, initialLocation: '/', router: router),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('shell.sidebar')), findsOneWidget);
+      expect(find.byKey(const Key('sidebar.allNotes')), findsOneWidget);
+      expect(find.byType(NotesListScreen), findsOneWidget);
+      expect(find.byKey(const Key('shell.detail.empty')), findsNothing);
+      expect(
+        tester.getSize(find.byType(NotesListScreen)).width,
+        greaterThan(PaneSizes.readingColumn),
+      );
+      expect(_listRow(), findsOneWidget);
+      expect(
+        tester
+            .getSemantics(_listRow())
+            .getSemanticsData()
+            .flagsCollection
+            .isSelected,
+        Tristate.isFalse,
+      );
+
+      await tester.tap(_listRow());
+      await tester.pumpAndSettle();
+
+      expect(
+        router.routeInformationProvider.value.uri.toString(),
+        '/notes/01H',
+      );
+      expect(find.byType(BlockNoteEditor), findsOneWidget);
+      expect(find.text('world', findRichText: true), findsOneWidget);
+      expect(find.byType(NotesListScreen), findsNothing);
+      expect(find.byKey(const Key('shell.detail.empty')), findsNothing);
+      expect(
+        tester.getTopLeft(find.byType(BlockNoteEditor)).dx,
+        greaterThanOrEqualTo(PaneSizes.sidebarMin),
+      );
+      expect(
+        tester
+            .getSemantics(find.byKey(const Key('sidebar.note.01H')))
+            .getSemanticsData()
+            .flagsCollection
+            .isSelected,
+        Tristate.isTrue,
+      );
+      // Pane presentation: a close button rather than a back arrow, and
+      // nothing was pushed (the shell replaced the detail pane).
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('note.close')),
+          matching: find.byIcon(Icons.close),
+        ),
+        findsOneWidget,
+      );
+      expect(router.canPop(), isFalse);
+
+      await tester.tap(find.byKey(const Key('note.close')));
+      await tester.pumpAndSettle();
+
+      expect(router.routeInformationProvider.value.uri.toString(), '/');
+      expect(find.byType(BlockNoteEditor), findsNothing);
+      expect(find.byKey(const Key('shell.detail.empty')), findsNothing);
+      expect(find.byType(NotesListScreen), findsOneWidget);
+    });
+
     testWidgets('honours a macOS unified-title-bar inset from the ambient '
         'MediaQuery: the sidebar Material still starts at the top, but its '
-        "'Folders' header and the notes list's app bar inset below it", (
+        "'Vault' header and the notes list's app bar inset below it", (
       tester,
     ) async {
       _setWindow(tester, const Size(1400, 900));
@@ -1967,7 +2325,7 @@ void main() {
       expect(tester.getTopLeft(find.byKey(const Key('shell.sidebar'))).dy, 0);
       // ...but its content insets below the title-bar inset.
       expect(
-        tester.getTopLeft(find.text('Folders')).dy,
+        tester.getTopLeft(find.text('Vault')).dy,
         greaterThanOrEqualTo(28),
       );
       // The notes list pane's own AppBar (a Scaffold-hosted AppBar
@@ -1978,30 +2336,33 @@ void main() {
       );
     });
 
-    testWidgets('a deep-linked note renders beside the list', (tester) async {
-      _setWindow(tester, const Size(1400, 900));
-      final api = RobotNotesClient(
-        config: _config,
-        httpClient: MockClient(_backendWithOneNote),
-      );
-      addTearDown(api.close);
+    testWidgets(
+      'a deep-linked note renders beside the tree with its row selected',
+      (tester) async {
+        _setWindow(tester, const Size(1400, 900));
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: MockClient(_backendWithOneNote),
+        );
+        addTearDown(api.close);
 
-      await tester.pumpWidget(
-        _harness(api: api, initialLocation: '/notes/01H'),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _harness(api: api, initialLocation: '/notes/01H'),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byType(BlockNoteEditor), findsOneWidget);
-      expect(find.byType(NotesListScreen), findsOneWidget);
-      expect(
-        tester
-            .getSemantics(_listRow())
-            .getSemanticsData()
-            .flagsCollection
-            .isSelected,
-        Tristate.isTrue,
-      );
-    });
+        expect(find.byType(BlockNoteEditor), findsOneWidget);
+        expect(find.byType(NotesListScreen), findsNothing);
+        expect(
+          tester
+              .getSemantics(find.byKey(const Key('sidebar.note.01H')))
+              .getSemanticsData()
+              .flagsCollection
+              .isSelected,
+          Tristate.isTrue,
+        );
+      },
+    );
 
     testWidgets('the sidebar width survives navigating to a note', (
       tester,
@@ -2038,9 +2399,7 @@ void main() {
       expect(tester.getSize(sidebar).width, widened);
     });
 
-    testWidgets('"New note" opens the editor in the detail pane', (
-      tester,
-    ) async {
+    testWidgets('"New note" replaces the list with the editor', (tester) async {
       _setWindow(tester, const Size(1400, 900));
       final api = RobotNotesClient(
         config: _config,
@@ -2071,7 +2430,7 @@ void main() {
         '/notes/01H?edit=1',
       );
       expect(find.byKey(const Key('note.editor.title')), findsOneWidget);
-      expect(find.byType(NotesListScreen), findsOneWidget);
+      expect(find.byType(NotesListScreen), findsNothing);
       expect(router.canPop(), isFalse);
 
       await _closeNote(tester);
@@ -2126,11 +2485,11 @@ void main() {
     expect(find.byType(BlockNoteEditor), findsNothing);
   }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
 
-  group('single-pane below the large breakpoint', () {
+  group('stacked navigation below the desktop breakpoint', () {
     testWidgets('tapping a row pushes the note as a page over the list', (
       tester,
     ) async {
-      _setWindow(tester, const Size(800, 600));
+      _setWindow(tester, const Size(839, 600));
       final api = RobotNotesClient(
         config: _config,
         httpClient: MockClient(_backendWithOneNote),
@@ -2291,7 +2650,9 @@ void main() {
       final api = RobotNotesClient(
         config: _config,
         httpClient: MockClient((request) async {
-          if (request.method == 'GET' && request.url.path == '/notes') {
+          if (request.method == 'GET' &&
+              request.url.path == '/notes' &&
+              request.url.queryParameters['include_subfolders'] != 'false') {
             listCalls++;
           }
           return _fakeBackend(request);
@@ -2345,7 +2706,9 @@ void main() {
       final api = RobotNotesClient(
         config: _config,
         httpClient: MockClient((request) async {
-          if (request.method == 'GET' && request.url.path == '/notes') {
+          if (request.method == 'GET' &&
+              request.url.path == '/notes' &&
+              request.url.queryParameters['include_subfolders'] != 'false') {
             listCalls++;
           }
           if (request.method == 'POST' && request.url.path == '/notes') {
