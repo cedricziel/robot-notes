@@ -196,19 +196,43 @@ Serialize relation acceptance, target deletion, and type migration across affect
 
 ## Implementation order and tracking
 
-1. #368 records this specification and dependency plan.
-2. #369 adds trustworthy capabilities and policy enforcement across server adapters.
-3. #349 adds immutable revisions, restore, deletion recovery, and explicit purge.
-4. #370 adds stable block identity against accepted revisions.
-5. #371 adds evidence-backed proposals, comments, decisions, and acceptance.
-6. #372 adds review and history to the existing editor.
-7. #344 integrates explicit memory destinations; #348 integrates provenance and supersession with proposals.
-8. #345 adds optional evidence capture; #346 adds durable retries; #347 improves scoped passage recall.
-9. #350 measures quality and #351 exposes health independently.
+PR #387 is the merged umbrella contract. The following focused changes implement it; their unchecked tasks track runtime work independently from the umbrella's completed planning tasks. Existing issue links remain valid. No new implementation issues are filed by this decomposition.
 
-Ontology adoption, reusable type definitions, typed relations, validation, query integration, and authoring diagnostics need focused implementation tracking after the existing foundations. No issue numbers or completed runtime work are claimed for this extension.
+| Order | Change | Dependencies | Existing tracking |
+|---|---|---|---|
+| 1 | [`enforce-curated-knowledge-policy`](../enforce-curated-knowledge-policy/proposal.md) | Existing completed foundations | #369 |
+| 2 | [`add-curated-proposal-review`](../add-curated-proposal-review/proposal.md) | `enforce-curated-knowledge-policy` | #371 |
+| 3 | [`add-filesystem-knowledge-types`](../add-filesystem-knowledge-types/proposal.md) | `add-curated-proposal-review` | No new issue filed |
+| 4 | [`adopt-pinned-schema-org`](../adopt-pinned-schema-org/proposal.md) | `add-filesystem-knowledge-types` | No new issue filed |
+| 5 | [`add-versioned-knowledge-sources`](../add-versioned-knowledge-sources/proposal.md) | `enforce-curated-knowledge-policy`, `add-filesystem-knowledge-types`, `adopt-pinned-schema-org` | #348; reuse completed #345 capture foundation |
+| 6 | [`add-atomic-typed-knowledge-proposals`](../add-atomic-typed-knowledge-proposals/proposal.md) | `add-curated-proposal-review`, `add-filesystem-knowledge-types`, `add-versioned-knowledge-sources` | Extends #371; #348 evidence lineage |
+| 7 | [`add-knowledge-agent-tools`](../add-knowledge-agent-tools/proposal.md) | `add-atomic-typed-knowledge-proposals` | No new issue filed |
+| 8 | [`add-background-knowledge-extraction`](../add-background-knowledge-extraction/proposal.md) | `add-knowledge-agent-tools`, `add-versioned-knowledge-sources` | No new issue filed |
+| 9 | [`integrate-hermes-knowledge-tools`](../integrate-hermes-knowledge-tools/proposal.md) | `add-knowledge-agent-tools`, `add-versioned-knowledge-sources` | Reuse #344 and #346; do not reopen completed foundations |
+| 10 | [`add-curated-review-authoring-ui`](../add-curated-review-authoring-ui/proposal.md) | `add-atomic-typed-knowledge-proposals`, `add-knowledge-agent-tools` | #372 |
+| 11 | [`verify-curated-hermes-release`](../verify-curated-hermes-release/proposal.md) | `adopt-pinned-schema-org`, `add-background-knowledge-extraction`, `integrate-hermes-knowledge-tools`, `add-curated-review-authoring-ui` | No new issue filed |
 
-Independent foundations can proceed in parallel. Dependent PRs must name their base and remain independently verifiable. Feature PRs receive their own issue and specification changes; this design PR does not claim to close implementation issues.
+Completed foundations are scoped agent credentials, revision history (#349), stable block identities (#370), identity destinations (#344), durable ordinary-memory retries (#346), scoped recall (#347), health (#351), and the capture implementation tracked by #345. Reuse and verify them rather than reopen them. The new adapter-neutral capture and immutable-source contract still requires its own integration; a closed capture issue does not establish that contract.
+
+The dependency graph permits policy and existing-foundation regression work first, then Schema.org adoption and activation of local types before typed Evidence integration. Source blob storage can be developed independently, but the complete source slice requires the accepted Evidence definition. Hermes integration can develop against the shared tools while extraction develops against the same service. The release gate depends on both working together. Review UI work depends on review and typed tools, not the extraction implementation.
+
+Each change may use several atomic PRs below 500 lines where practical. Dependencies are acceptance prerequisites, not a mandate for one long-lived stack. Foundation PRs must keep incomplete features disabled and ordinary workflows usable. No slice may claim full release readiness until the final verification change passes.
+
+### Contract coverage
+
+| Umbrella concern | Owning change |
+|---|---|
+| Trusted capabilities, folder inheritance, all read and mutation adapters | `enforce-curated-knowledge-policy` |
+| Stable block review, amendments, approval policy, stale anchors, direct-save history and retained proposals | `add-curated-proposal-review` with existing history and block foundations |
+| File formats, explicit roles, accepted snapshots, local constraints, external edit candidates, offline rebuild and portable export | `add-filesystem-knowledge-types` |
+| Pinned Schema.org release, term mappings, previews, bulk activation and reviewed upgrades | `adopt-pinned-schema-org` |
+| Original sources, source writers, revision locators, opt-in capture, event namespace and purge-safe Evidence | `add-versioned-knowledge-sources` |
+| Complete candidate validation, local references, idempotent amendments, atomic publication, relation integrity and reviewed migration | `add-atomic-typed-knowledge-proposals` |
+| Type discovery, accepted-only queries and traversal, source inspection, validation, tools, capability discovery and adapter parity | `add-knowledge-agent-tools` |
+| Durable extraction jobs, source eligibility, proposal-only credentials, conservative matching, revocation and health | `add-background-knowledge-extraction` |
+| Existing memory behavior, real registered tools, capability diagnostics, opt-in capture and source outbox delivery | `integrate-hermes-knowledge-tools` |
+| Existing editor, type guidance, evidence context, review and history | `add-curated-review-authoring-ui` |
+| Supported server/plugin/runtime pair, isolated real-server and Flutter checks, failure recovery and cleanup evidence | `verify-curated-hermes-release` |
 
 ## Hermes compatibility release gate
 
