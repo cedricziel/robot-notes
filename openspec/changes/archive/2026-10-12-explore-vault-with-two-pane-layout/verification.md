@@ -2,6 +2,8 @@
 
 An isolated reviewer checked the proposal against the implementation. The accepted blocker was vault switching before the pending-edit guard. Vault switching now checks departure before persisting configuration. A second read-only implementation audit found no remaining blockers after file deep-link reveal and cancellation fixes.
 
+The PR review also exposed missing child folders on compact cold-start folder links and loss of loaded tree pages during forced refresh. Both issues were reproduced with failing regressions, fixed, and verified by 98 focused Flutter tests.
+
 ## Checks
 
 - The full Flutter suite passed 1,063 tests. Subsequent targeted runs passed after test lint fixes and added upload-refresh and live-title assertions.
