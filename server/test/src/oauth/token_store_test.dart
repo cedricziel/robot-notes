@@ -191,6 +191,114 @@ void main() {
       expect(await store.lookupRefresh(rotated.refreshToken), isNotNull);
     });
 
+    test('recovery retains narrowed scopes and refuses widening', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+      final rotated = await store.rotateRefresh(
+        issued.refreshToken,
+        requestId: 'original-attempt',
+        clientId: 'client-1',
+        scopes: {'notes:read'},
+      );
+      final recovered = await store.rotateRefresh(
+        issued.refreshToken,
+        requestId: 'original-attempt',
+        clientId: 'client-1',
+      );
+      expect(recovered.refreshToken, rotated.refreshToken);
+      expect(recovered.scopes, {'notes:read'});
+      await expectLater(
+        store.rotateRefresh(
+          issued.refreshToken,
+          requestId: 'original-attempt',
+          clientId: 'client-1',
+          scopes: {'notes:read', 'notes:write'},
+        ),
+        throwsA(isA<ScopeWideningException>()),
+      );
+      expect(await store.lookupRefresh(rotated.refreshToken), isNotNull);
+    });
+
+    test('recovery cannot revive an explicitly revoked grant', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+      final rotated = await store.rotateRefresh(
+        issued.refreshToken,
+        requestId: 'original-attempt',
+        clientId: 'client-1',
+      );
+      await store.revokeGrant('grant-1');
+      await expectLater(
+        store.rotateRefresh(
+          issued.refreshToken,
+          requestId: 'original-attempt',
+          clientId: 'client-1',
+        ),
+        throwsA(isA<RefreshReuseException>()),
+      );
+      expect(await store.lookupRefresh(rotated.refreshToken), isNull);
+    });
+
+    test('a different retry identifier still revokes the grant', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+      final rotated = await store.rotateRefresh(
+        issued.refreshToken,
+        requestId: 'original-attempt',
+        clientId: 'client-1',
+      );
+      await expectLater(
+        store.rotateRefresh(
+          issued.refreshToken,
+          requestId: 'different-attempt',
+          clientId: 'client-1',
+        ),
+        throwsA(isA<RefreshReuseException>()),
+      );
+      expect(await store.lookupRefresh(rotated.refreshToken), isNull);
+      expect(await store.lookupAccess(rotated.accessToken), isNull);
+    });
+
+    test('recovery cannot revive a successor that has already rotated',
+        () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+      final rotated = await store.rotateRefresh(
+        issued.refreshToken,
+        requestId: 'original-attempt',
+        clientId: 'client-1',
+      );
+      final successor = await store.rotateRefresh(rotated.refreshToken);
+      await expectLater(
+        store.rotateRefresh(
+          issued.refreshToken,
+          requestId: 'original-attempt',
+          clientId: 'client-1',
+        ),
+        throwsA(isA<RefreshReuseException>()),
+      );
+      expect(await store.lookupRefresh(successor.refreshToken), isNull);
+    });
+
+    test('another client cannot recover a lost response', () async {
+      final store = _store(tmp);
+      final issued = await _issue(store);
+      final rotated = await store.rotateRefresh(
+        issued.refreshToken,
+        requestId: 'original-attempt',
+        clientId: 'client-1',
+      );
+      await expectLater(
+        store.rotateRefresh(
+          issued.refreshToken,
+          requestId: 'original-attempt',
+          clientId: 'client-2',
+        ),
+        throwsA(isA<RefreshReuseException>()),
+      );
+      expect(await store.lookupRefresh(rotated.refreshToken), isNull);
+    });
+
     test('a second rotation of the same token throws reuse', () async {
       final store = _store(tmp);
       final issued = await _issue(store);

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:server/src/clock.dart';
@@ -187,6 +188,7 @@ class TokenStore {
     required String grantId,
     Set<String> vaultIds = const {'default'},
     bool withRefresh = true,
+    String? replacementRefresh,
   }) async {
     // Grant revocation is terminal: a grant that already has a revoked
     // record on disk must never gain a fresh, live token, even if this
@@ -212,7 +214,8 @@ class TokenStore {
     await _write(access);
     String? rawRefresh;
     if (withRefresh) {
-      rawRefresh = generateRandomToken(_random, kOAuthTokenBytes);
+      rawRefresh =
+          replacementRefresh ?? generateRandomToken(_random, kOAuthTokenBytes);
       final refresh = OAuthToken(
         tokenHash: hashSecret(rawRefresh),
         kind: OAuthTokenKind.refresh,
@@ -265,7 +268,14 @@ class TokenStore {
   /// refresh token, or expired. Throws [RefreshReuseException] — after
   /// revoking every token of the grant — when [raw] was already rotated
   /// or revoked, since presenting a dead refresh token is a sign of theft.
-  Future<IssuedTokens> rotateRefresh(String? raw, {Set<String>? scopes}) async {
+  /// Matching [requestId] and [clientId] recover a lost response while the
+  /// replacement refresh token remains live, returning a fresh access token.
+  Future<IssuedTokens> rotateRefresh(
+    String? raw, {
+    Set<String>? scopes,
+    String? requestId,
+    String? clientId,
+  }) async {
     if (raw == null) throw const TokenNotFoundException();
     final hash = hashSecret(raw);
     final file = _fileFor(hash);
@@ -297,6 +307,48 @@ class TokenStore {
         if (record.kind != OAuthTokenKind.refresh) {
           throw const TokenNotFoundException();
         }
+        // Recover lost responses without persisting raw credentials.
+        final replacementRefresh = requestId == null
+            ? null
+            : base64Url
+                .encode(
+                  Hmac(sha256, utf8.encode(raw))
+                      .convert(
+                        utf8.encode('robot-notes-refresh-v1:$requestId'),
+                      )
+                      .bytes,
+                )
+                .replaceAll('=', '');
+        if (record.isRotated &&
+            !record.isRevoked &&
+            requestId != null &&
+            record.refreshRequestHash == hashSecret(requestId) &&
+            record.clientId == clientId) {
+          final successor = await lookupRefresh(replacementRefresh);
+          if (successor != null) {
+            if (scopes != null &&
+                (scopes.length != successor.scopes.length ||
+                    !successor.scopes.containsAll(scopes))) {
+              throw const ScopeWideningException();
+            }
+            final access = await _issueLocked(
+              clientId: successor.clientId,
+              actor: successor.actor,
+              vaultIds: successor.vaultIds,
+              scopes: successor.scopes,
+              resource: successor.resource,
+              grantId: successor.grantId,
+              withRefresh: false,
+            );
+            return IssuedTokens(
+              accessToken: access.accessToken,
+              refreshToken: replacementRefresh,
+              expiresIn: access.expiresIn,
+              scopes: access.scopes,
+              actor: access.actor,
+            );
+          }
+        }
         if (record.isRevoked || record.isRotated) {
           final now = _clock.nowUtc();
           await _write(record.revokedCopy(now));
@@ -314,15 +366,23 @@ class TokenStore {
         if (!record.scopes.containsAll(requestedScopes)) {
           throw const ScopeWideningException();
         }
-        await _write(record.rotatedCopy(_clock.nowUtc()));
-        return _issueLocked(
+        await _write(
+          record.rotatedCopy(
+            _clock.nowUtc(),
+            requestHash: requestId == null ? null : hashSecret(requestId),
+          ),
+        );
+        final issued = await _issueLocked(
           clientId: record.clientId,
           actor: record.actor,
           vaultIds: record.vaultIds,
           scopes: requestedScopes,
           resource: record.resource,
           grantId: record.grantId,
+          replacementRefresh: replacementRefresh,
         );
+
+        return issued;
       });
     } finally {
       if (reusedGrantId != null) {

@@ -924,3 +924,19 @@ If the lock's setting or the device's capability cannot be read at startup, the 
 - **GIVEN** the app lock is on
 - **WHEN** the user disconnects from the server
 - **THEN** the lock SHALL be off, and the setup screen SHALL NOT ask for authentication
+
+### Requirement: OIDC refresh responses remain recoverable
+
+The app SHALL send a stable, independently generated, high-entropy `refresh_request_id` persisted with its credential pair when refreshing its OIDC session. A lost response or interrupted persistence SHALL leave the identifier unchanged for the next attempt. The app SHALL persist a recovery identifier before refreshing a legacy session that lacks one. The app SHALL generate a new identifier for each replacement credential pair. The app SHALL persist the complete credential pair and identifier in one secure-storage entry and SHALL read existing installations' legacy credential entries until a replacement session has been saved.
+
+#### Scenario: Retry after a lost response
+
+- **GIVEN** the app did not receive a successful token refresh response
+- **WHEN** the app restarts and retries with its persisted credentials
+- **THEN** the refresh request SHALL contain the same request identifier
+
+#### Scenario: Interrupted credential persistence
+
+- **GIVEN** a complete session is saved in secure storage
+- **WHEN** saving replacement credentials fails
+- **THEN** the persisted session SHALL retain the complete previous credential pair

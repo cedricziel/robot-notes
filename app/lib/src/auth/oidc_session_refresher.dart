@@ -54,6 +54,8 @@ class OidcSessionRefresher {
               'grant_type': 'refresh_token',
               'refresh_token': config.oauthRefreshToken!,
               'client_id': config.oauthClientId!,
+              if (config.oauthRefreshRequestId != null)
+                'refresh_request_id': config.oauthRefreshRequestId!,
             },
           )
           .timeout(const Duration(seconds: 30));
@@ -83,6 +85,7 @@ class OidcSessionRefresher {
         vaultId: config.vaultId,
         oauthClientId: config.oauthClientId,
         oauthRefreshToken: refreshToken,
+        oauthRefreshRequestId: generateRefreshRequestId(),
       );
     } on http.ClientException {
       throw const OidcRefreshException(

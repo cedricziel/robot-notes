@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -112,6 +114,7 @@ class SecureConfigStore implements ConfigStore {
   SecureConfigStore({FlutterSecureStorage? storage})
     : _storage = storage ?? const FlutterSecureStorage();
 
+  static const _keySession = 'robot_notes.session';
   static const _keyBaseUrl = 'robot_notes.base_url';
   static const _keyApiKey = 'robot_notes.api_key';
   static const _keyActor = 'robot_notes.actor';
@@ -130,42 +133,47 @@ class SecureConfigStore implements ConfigStore {
 
   @override
   Future<AppConfig?> read() async {
+    final session = await _storage.read(key: _keySession);
+    if (session != null) {
+      return _migrateRecoveryIdentifier(
+        AppConfig.fromJson(
+          Map<String, String>.from(jsonDecode(session) as Map<String, dynamic>),
+        ),
+      );
+    }
     final baseUrl = await _storage.read(key: _keyBaseUrl);
     final apiKey = await _storage.read(key: _keyApiKey);
     final actor = await _storage.read(key: _keyActor);
     if (baseUrl == null || apiKey == null || actor == null) {
       return null;
     }
-    return AppConfig(
-      baseUrl: baseUrl,
-      apiKey: apiKey,
-      actor: actor,
-      vaultId: await _storage.read(key: 'robot_notes.vault_id') ?? 'default',
-      oauthClientId: await _storage.read(key: _keyOauthClientId),
-      oauthRefreshToken: await _storage.read(key: _keyOauthRefreshToken),
+    return _migrateRecoveryIdentifier(
+      AppConfig(
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        actor: actor,
+        vaultId: await _storage.read(key: 'robot_notes.vault_id') ?? 'default',
+        oauthClientId: await _storage.read(key: _keyOauthClientId),
+        oauthRefreshToken: await _storage.read(key: _keyOauthRefreshToken),
+      ),
     );
   }
 
-  @override
-  Future<void> write(AppConfig config) async {
-    await _storage.write(key: _keyBaseUrl, value: config.baseUrl);
-    await _storage.write(key: _keyApiKey, value: config.apiKey);
-    await _storage.write(key: _keyActor, value: config.actor);
-    await _storage.write(key: 'robot_notes.vault_id', value: config.vaultId);
-    if (config.oauthClientId != null) {
-      await _storage.write(key: _keyOauthClientId, value: config.oauthClientId);
-    } else {
-      await _storage.delete(key: _keyOauthClientId);
+  Future<AppConfig> _migrateRecoveryIdentifier(AppConfig config) async {
+    if (!config.isOidcSession || config.oauthRefreshRequestId != null) {
+      return config;
     }
-    if (config.oauthRefreshToken != null) {
-      await _storage.write(
-        key: _keyOauthRefreshToken,
-        value: config.oauthRefreshToken,
-      );
-    } else {
-      await _storage.delete(key: _keyOauthRefreshToken);
-    }
+    final migrated = AppConfig.fromJson({
+      ...config.toJson(),
+      'oauth_refresh_request_id': generateRefreshRequestId(),
+    });
+    await write(migrated);
+    return migrated;
   }
+
+  @override
+  Future<void> write(AppConfig config) =>
+      _storage.write(key: _keySession, value: jsonEncode(config.toJson()));
 
   @override
   Future<void> clear() async {
@@ -175,6 +183,7 @@ class SecureConfigStore implements ConfigStore {
     await _storage.delete(key: 'robot_notes.vault_id');
     await _storage.delete(key: _keyOauthClientId);
     await _storage.delete(key: _keyOauthRefreshToken);
+    await _storage.delete(key: _keySession);
   }
 
   @override
