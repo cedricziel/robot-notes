@@ -230,8 +230,9 @@ class MetaIndex {
   /// throws [InvalidCursorException].
   ///
   /// [pathPrefix], when non-null, narrows the result to notes whose
-  /// `path` equals [pathPrefix] or is nested under it (`path ==
-  /// pathPrefix || path.startsWith('$pathPrefix/')`), applied *before*
+  /// `path` equals [pathPrefix] or, when [includeSubfolders] is true, is
+  /// nested under it. An empty prefix includes all paths recursively.
+  /// The folder filter is applied *before*
   /// pagination — a personal vault's note count doesn't warrant a
   /// second sorted index per folder, so this is a linear pre-filter over
   /// the same sorted candidate list [sort] would otherwise page over
@@ -254,6 +255,7 @@ class MetaIndex {
     int limit = kDefaultPageSize,
     String sort = kSortId,
     String? pathPrefix,
+    bool includeSubfolders = true,
     String? tag,
     String? title,
     Set<String>? allowedIds,
@@ -265,6 +267,7 @@ class MetaIndex {
           after: after,
           limit: effectiveLimit,
           pathPrefix: pathPrefix,
+          includeSubfolders: includeSubfolders,
           tag: tag,
           title: title,
           allowedIds: allowedIds,
@@ -274,6 +277,7 @@ class MetaIndex {
           after: after,
           limit: effectiveLimit,
           pathPrefix: pathPrefix,
+          includeSubfolders: includeSubfolders,
           tag: tag,
           title: title,
           allowedIds: allowedIds,
@@ -283,10 +287,15 @@ class MetaIndex {
     }
   }
 
-  bool _matchesPathPrefix(NoteSummary summary, String? pathPrefix) {
+  bool _matchesPathPrefix(
+    NoteSummary summary,
+    String? pathPrefix,
+    bool includeSubfolders,
+  ) {
     if (pathPrefix == null) return true;
     return summary.path == pathPrefix ||
-        summary.path.startsWith('$pathPrefix/');
+        (includeSubfolders &&
+            (pathPrefix.isEmpty || summary.path.startsWith('$pathPrefix/')));
   }
 
   bool _matchesTag(NoteSummary summary, String? tag) {
@@ -303,10 +312,11 @@ class MetaIndex {
   bool _matchesFilters(
     NoteSummary summary,
     String? pathPrefix,
+    bool includeSubfolders,
     String? tag,
     String? title,
   ) {
-    return _matchesPathPrefix(summary, pathPrefix) &&
+    return _matchesPathPrefix(summary, pathPrefix, includeSubfolders) &&
         _matchesTag(summary, tag) &&
         _matchesTitle(summary, title);
   }
@@ -315,6 +325,7 @@ class MetaIndex {
     required String? after,
     required int limit,
     String? pathPrefix,
+    bool includeSubfolders = true,
     String? tag,
     String? title,
     Set<String>? allowedIds,
@@ -325,7 +336,13 @@ class MetaIndex {
             : [
                 for (final id in _sortedIds)
                   if ((allowedIds == null || allowedIds.contains(id)) &&
-                      _matchesFilters(_byId[id]!, pathPrefix, tag, title))
+                      _matchesFilters(
+                        _byId[id]!,
+                        pathPrefix,
+                        includeSubfolders,
+                        tag,
+                        title,
+                      ))
                     id,
               ];
     int startIdx;
@@ -349,6 +366,7 @@ class MetaIndex {
     required String? after,
     required int limit,
     String? pathPrefix,
+    bool includeSubfolders = true,
     String? tag,
     String? title,
     Set<String>? allowedIds,
@@ -359,7 +377,13 @@ class MetaIndex {
             : [
                 for (final id in _sortedByUpdated)
                   if ((allowedIds == null || allowedIds.contains(id)) &&
-                      _matchesFilters(_byId[id]!, pathPrefix, tag, title))
+                      _matchesFilters(
+                        _byId[id]!,
+                        pathPrefix,
+                        includeSubfolders,
+                        tag,
+                        title,
+                      ))
                     id,
               ];
     int startIdx;

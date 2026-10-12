@@ -292,6 +292,37 @@ void main() {
   });
 
   group('MetaIndex.page pathPrefix filter', () {
+    for (final sort in [kSortId, kSortUpdatedDesc]) {
+      test('exact folder with tag and authorization paginates for $sort', () {
+        final idx = MetaIndex()
+          ..upsert(_summary('A', path: 'Folder/Child', tags: {'urgent'}))
+          ..upsert(_summary('B', path: 'Folder', tags: {'urgent'}))
+          ..upsert(_summary('C', path: 'Folder', tags: {'later'}))
+          ..upsert(_summary('D', path: 'Folder', tags: {'urgent'}))
+          ..upsert(_summary('E', path: 'Folder', tags: {'urgent'}));
+        final first = idx.page(
+          sort: sort,
+          limit: 1,
+          pathPrefix: 'Folder',
+          includeSubfolders: false,
+          tag: 'urgent',
+          allowedIds: {'A', 'B', 'C', 'D'},
+        );
+        final second = idx.page(
+          sort: sort,
+          limit: 1,
+          after: first.nextCursor,
+          pathPrefix: 'Folder',
+          includeSubfolders: false,
+          tag: 'urgent',
+          allowedIds: {'A', 'B', 'C', 'D'},
+        );
+        expect(first.items.single.id, sort == kSortId ? 'B' : 'D');
+        expect(second.items.single.id, sort == kSortId ? 'D' : 'B');
+        expect(second.nextCursor, isNull);
+      });
+    }
+
     test('null pathPrefix returns everything (default sort)', () {
       final idx = MetaIndex()
         ..upsert(_summary('A'))

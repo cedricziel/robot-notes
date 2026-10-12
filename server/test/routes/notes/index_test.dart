@@ -109,6 +109,78 @@ void main() {
   });
 
   group('GET /notes', () {
+    for (final scope in ['', 'Folder']) {
+      knowledge_fixture
+          .authorizedTest('exact folder $scope excludes descendants', () async {
+        final storage = _storage(tmp);
+        await storage.create(title: 'direct', content: '', path: scope);
+        await storage.create(
+          title: 'nested',
+          content: '',
+          path: scope.isEmpty ? 'Child' : '$scope/Child',
+        );
+        final index = MetaIndex();
+        await index.scan(storage);
+        final res = await route.onRequest(
+          _ctx(
+            method: HttpMethod.get,
+            storage: storage,
+            metaIndex: index,
+            uri: Uri(
+              path: '/notes',
+              queryParameters: {
+                'path': scope,
+                'include_subfolders': 'false',
+              },
+            ),
+          ),
+        );
+        final body = await res.json() as Map<String, dynamic>;
+        expect(
+          (body['items'] as List)
+              .cast<Map<String, dynamic>>()
+              .map((item) => item['title']),
+          ['direct'],
+        );
+      });
+    }
+    knowledge_fixture.authorizedTest('folder listing defaults to recursive',
+        () async {
+      final storage = _storage(tmp);
+      await storage.create(title: 'direct', content: '', path: 'Folder');
+      await storage.create(title: 'nested', content: '', path: 'Folder/Child');
+      final index = MetaIndex();
+      await index.scan(storage);
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          storage: storage,
+          metaIndex: index,
+          uri: Uri.parse('/notes?path=Folder'),
+        ),
+      );
+      final body = await res.json() as Map<String, dynamic>;
+      expect(body['items'], hasLength(2));
+    });
+    for (final value in ['yes', '1', 'False', '']) {
+      knowledge_fixture.authorizedTest('rejects include_subfolders=$value',
+          () async {
+        final storage = _storage(tmp);
+        final res = await route.onRequest(
+          _ctx(
+            method: HttpMethod.get,
+            storage: storage,
+            metaIndex: MetaIndex(),
+            uri: Uri(
+              path: '/notes',
+              queryParameters: {'include_subfolders': value},
+            ),
+          ),
+        );
+        expect(res.statusCode, 400);
+      });
+    }
+
     knowledge_fixture.authorizedTest(
         'returns paginated metadata with default limit 50', () async {
       final storage = _storage(tmp);
