@@ -1060,9 +1060,6 @@ class Storage {
         });
       });
 
-  Future<bool> _retainsHistory(StoredNote note) async =>
-      note.extra['history'] == true || _noteHistory(note.id).existsSync();
-
   String _serializeNote(StoredNote note) => serializeFrontmatter(
         Frontmatter(metadata: _buildMetadataMap(note), body: note.content),
       );
