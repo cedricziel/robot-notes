@@ -26,6 +26,41 @@ Map<String, Object?> note(String id, String path) => {
 http.Response response(Object body) => http.Response(jsonEncode(body), 200);
 void main() {
   test(
+    'forced refresh preserves loaded note pages and their changed labels',
+    () async {
+      var title = 'Original';
+      final api = RobotNotesClient(
+        config: config,
+        httpClient: MockClient((request) async {
+          if (request.url.path == '/notes/files') {
+            return response({'items': <Object?>[]});
+          }
+          final more = request.url.queryParameters.containsKey('after');
+          return response({
+            'items': [
+              {...note(more ? 'B' : 'A', 'Projects'), if (more) 'title': title},
+            ],
+            'limit': 1,
+            'next_cursor': more ? null : 'A',
+          });
+        }),
+      );
+      final tree = FolderTreeController(api: api);
+      addTearDown(tree.dispose);
+      await tree.expand('Projects');
+      await tree.loadMore('Projects');
+      title = 'Updated';
+      await tree.loadFolder('Projects', force: true);
+      expect(tree.value.contents['Projects']!.notes.map((n) => n.id), [
+        'A',
+        'B',
+      ]);
+      expect(tree.value.contents['Projects']!.notes.last.title, 'Updated');
+      expect(tree.value.contents['Projects']!.nextCursor, isNull);
+    },
+  );
+
+  test(
     'live title updates refresh labels in an already loaded folder',
     () async {
       var title = 'Original';

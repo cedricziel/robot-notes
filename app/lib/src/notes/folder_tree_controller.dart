@@ -270,17 +270,37 @@ class FolderTreeController extends ValueNotifier<FolderTreeState> {
         if (!append) api.listFiles(path),
       ]);
       if (_disposed || _requests[path] != request) return;
-      final page = results.first as NotePage;
-      if (page.items.any((n) => n.path != path)) {
-        throw StateError(
-          'Server does not support direct folder browsing. Update the server.',
+      var page = results.first as NotePage;
+      final fetched = <NoteMeta>[];
+      final cursors = <String>{};
+      while (true) {
+        if (page.items.any((n) => n.path != path)) {
+          throw StateError(
+            'Server does not support direct folder browsing. Update the server.',
+          );
+        }
+        fetched.addAll(page.items);
+        final cursor = page.nextCursor;
+        if (append ||
+            fetched.length >= previous.notes.length ||
+            cursor == null) {
+          break;
+        }
+        if (!cursors.add(cursor)) {
+          throw StateError('Server repeated a folder cursor.');
+        }
+        page = await api.listNotes(
+          path: path,
+          includeSubfolders: false,
+          after: cursor,
         );
+        if (_disposed || _requests[path] != request) return;
       }
       final notes =
           {
               for (final n in [
                 ...(append ? previous.notes : <NoteMeta>[]),
-                ...page.items,
+                ...fetched,
               ])
                 n.id: n,
             }.values.toList()
