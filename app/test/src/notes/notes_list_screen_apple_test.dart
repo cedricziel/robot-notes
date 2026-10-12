@@ -127,10 +127,7 @@ void main() {
       expect(calls.where((c) => c == 'GET /notes'), hasLength(1));
 
       // Overscroll far past the trigger and let go.
-      await tester.drag(
-        find.byKey(const Key('notes.list')),
-        const Offset(0, 300),
-      );
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 300));
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
@@ -230,7 +227,7 @@ void main() {
     await _pumpPhoneList(tester, platform: TargetPlatform.iOS);
 
     final scroll = tester.widget<CustomScrollView>(
-      find.byKey(const Key('notes.list')),
+      find.byType(CustomScrollView),
     );
     expect(scroll.controller, isNull);
   });

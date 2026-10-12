@@ -42,6 +42,61 @@ Future<void> _pumpSidebar(
 }
 
 void main() {
+  testWidgets('active note beyond the viewport is scrolled into view', (
+    tester,
+  ) async {
+    final api = RobotNotesClient(
+      config: _config,
+      httpClient: MockClient((_) async => http.Response('{}', 200)),
+    );
+    final controller = FolderTreeController(api: api);
+    addTearDown(controller.dispose);
+    controller.value = FolderTreeState(
+      roots: const [
+        FolderTreeNode(path: 'Projects', name: 'Projects', noteCount: 100),
+      ],
+      expandedPaths: const {'Projects'},
+      contents: {
+        '': const FolderContents(loaded: true),
+        'Projects': FolderContents(
+          loaded: true,
+          notes: List.generate(
+            100,
+            (i) => NoteMeta(
+              id: '$i',
+              title: 'Note $i',
+              path: 'Projects',
+              version: 1,
+              createdAt: DateTime.utc(2026),
+              updatedAt: DateTime.utc(2026),
+            ),
+          ),
+        ),
+      },
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FolderTreeSidebar(
+            controller: controller,
+            onSelect: (_) {},
+            onCreateFolder: () {},
+            selectedNoteId: '99',
+            documentOpen: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final row = find.byKey(const Key('sidebar.note.99'));
+    expect(row, findsOneWidget);
+    expect(tester.getTopLeft(row).dy, greaterThanOrEqualTo(0));
+    expect(
+      tester.getBottomLeft(row).dy,
+      lessThanOrEqualTo(tester.view.physicalSize.height),
+    );
+  });
+
   group('FolderTreeSidebar', () {
     testWidgets(
       'renders folders from GET /notes/tree as an expandable tree with '
@@ -71,13 +126,48 @@ void main() {
         expect(find.text('Alpha'), findsNothing);
         expect(find.text('Beta'), findsNothing);
 
-        await tester.tap(find.text('Projects'));
+        await tester.tap(find.byKey(const Key('sidebar.expand.Projects')));
         await tester.pumpAndSettle();
 
         expect(find.text('Alpha'), findsOneWidget);
         expect(find.text('Beta'), findsOneWidget);
         expect(find.text('3'), findsOneWidget);
         expect(find.text('1'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'folder name selects without expanding and chevron leaves selection alone',
+      (tester) async {
+        final api = RobotNotesClient(
+          config: _config,
+          httpClient: MockClient(
+            (request) async => http.Response(
+              jsonEncode({
+                'folders': [
+                  {'path': 'Projects/Alpha', 'note_count': 1},
+                ],
+              }),
+              200,
+            ),
+          ),
+        );
+        final controller = FolderTreeController(api: api);
+        addTearDown(controller.dispose);
+        String? selected;
+        await _pumpSidebar(
+          tester,
+          controller: controller,
+          onSelect: (p) => selected = p,
+        );
+        await tester.tap(find.text('Projects'));
+        await tester.pumpAndSettle();
+        expect(selected, 'Projects');
+        expect(find.text('Alpha'), findsNothing);
+        await tester.tap(find.byKey(const Key('sidebar.expand.Projects')));
+        await tester.pumpAndSettle();
+        expect(find.text('Alpha'), findsOneWidget);
+        expect(selected, 'Projects');
       },
     );
 
@@ -126,7 +216,7 @@ void main() {
         controller: controller,
         onSelect: (p) => selected = p,
       );
-      await tester.tap(find.text('Projects'));
+      await tester.tap(find.byKey(const Key('sidebar.expand.Projects')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Alpha'));
       await tester.pumpAndSettle();

@@ -26,8 +26,7 @@ export '../format/note_time.dart'
 ///   folder sidebar.
 ///
 /// Normally derived from the screen's own constraints (wide at
-/// [WindowSizeClass.medium] and up); the three-pane shell pins it so the
-/// list pane keeps wide chrome even though it is narrower than a phone.
+/// [WindowSizeClass.medium] and up).
 enum NotesListLayout { narrow, wide }
 
 /// Notes list view. Backed by [NotesListController]; the controller is
@@ -97,8 +96,7 @@ class NotesListScreen extends StatefulWidget {
   /// it from this widget's own constraints via [Breakpoints].
   final NotesListLayout? layout;
 
-  /// The note currently open beside the list (three-pane shell); its row
-  /// renders selected. `null` highlights nothing.
+  /// The note whose list row renders selected.
   final String? selectedNoteId;
 
   /// Whether standalone compact chrome should include the action strip and
@@ -127,7 +125,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() => _fetchStarted = true);
-      widget.controller.refresh();
+      if (!widget.controller.hasLoaded) widget.controller.refresh();
     });
   }
 
@@ -459,7 +457,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
             onNotification: _onScrollNotification,
             child: _RefreshableScrollView(
               onRefresh: widget.controller.refresh,
-              scrollKey: showEmpty ? null : const Key('notes.list'),
+              scrollKey: showEmpty
+                  ? null
+                  : PageStorageKey(
+                      'notes.list.${state.selectedPath}.${state.selectedTag}',
+                    ),
               slivers: [
                 if (showEmpty)
                   SliverFillRemaining(

@@ -28,6 +28,30 @@ class DelayedStore extends InMemoryConfigStore {
 }
 
 void main() {
+  test(
+    'vault switch preserves configuration when departure is declined',
+    () async {
+      final holder = ConfigHolder.seeded(
+        const AppConfig(
+          baseUrl: 'https://notes.example',
+          apiKey: 'key',
+          actor: 'tester',
+        ),
+      );
+      addTearDown(holder.dispose);
+      final owner = Object();
+      holder.navigation.register(
+        owner,
+        Uri.parse('/notes/A'),
+        () async => false,
+      );
+      final originalKey = holder.sessionKey;
+      expect(await holder.selectVault('work'), isFalse);
+      expect(holder.config!.vaultId, 'default');
+      expect(holder.sessionKey, originalKey);
+    },
+  );
+
   const oauth = AppConfig(
     baseUrl: 'https://notes.example',
     apiKey: 'old',

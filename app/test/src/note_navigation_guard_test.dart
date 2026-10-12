@@ -32,7 +32,14 @@ Map<String, Object?> _note(
   'updated_at': '2025-01-01T00:00:00Z',
 };
 void main() {
-  for (final scenario in ['failure', 'success', 'resize']) {
+  for (final scenario in [
+    'failure',
+    'success',
+    'resize',
+    'folder',
+    'file',
+    'vault',
+  ]) {
     final succeeds = scenario == 'success';
     final resize = scenario == 'resize';
     testWidgets(
@@ -92,8 +99,10 @@ void main() {
         final tree = FolderTreeController(api: api);
         final databases = DatabasesController(api: api);
         final connection = ValueNotifier(ConnectionStatus.connected);
+        final holder = ConfigHolder.seeded(_config);
+        addTearDown(holder.dispose);
         final router = buildAppRouter(
-          configHolder: ConfigHolder.seeded(_config),
+          configHolder: holder,
           initialLocation: '/notes/01A',
         );
         addTearDown(() async {
@@ -136,7 +145,7 @@ void main() {
             .controller;
         operations.clear();
         if (resize) {
-          for (final width in [1024.0, 1400.0]) {
+          for (final width in [839.0, 840.0, 839.0, 840.0, 1400.0]) {
             tester.view.physicalSize = Size(width, 900);
             await tester.pump();
             await tester.pump(const Duration(milliseconds: 150));
@@ -158,7 +167,20 @@ void main() {
           await tester.pumpAndSettle();
           return;
         }
-        router.go('/notes/01B');
+        if (scenario == 'vault') {
+          final changing = holder.selectVault('work');
+          await tester.pumpAndSettle();
+          expect(await changing, isFalse);
+          expect(holder.config!.vaultId, 'default');
+        } else {
+          router.go(
+            scenario == 'folder'
+                ? '/?folder=Projects'
+                : scenario == 'file'
+                ? '/file?path=test.pdf'
+                : '/notes/01B',
+          );
+        }
         await tester.pumpAndSettle();
         expect(
           router.routeInformationProvider.value.uri.path,

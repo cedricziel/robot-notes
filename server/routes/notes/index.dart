@@ -45,6 +45,19 @@ Response _list(RequestContext context) {
   final rawLimit = query['limit'];
   final sort = query['sort'] ?? kSortId;
   final pathPrefix = query['path'];
+  final rawIncludeSubfolders = query['include_subfolders'];
+  if (rawIncludeSubfolders != null &&
+      rawIncludeSubfolders != 'true' &&
+      rawIncludeSubfolders != 'false') {
+    return Response.json(
+      statusCode: HttpStatus.badRequest,
+      body: const {
+        'error': 'bad_request',
+        'message': 'include_subfolders must be true or false',
+      },
+    );
+  }
+  final includeSubfolders = rawIncludeSubfolders != 'false';
   final tag = query['tag'];
   final title = query['title'];
 
@@ -81,6 +94,7 @@ Response _list(RequestContext context) {
       limit: effectiveLimit,
       sort: sort,
       pathPrefix: pathPrefix,
+      includeSubfolders: includeSubfolders,
       tag: tag,
       title: title,
       allowedIds: context.read<KnowledgeReadService>().allowedIds,

@@ -10,9 +10,8 @@ import 'package:flutter/widgets.dart';
 ///   windows. Toolbar actions, inline folder sidebar, side-by-side
 ///   editor/preview, search as a centered palette.
 /// - [expanded]: tablets and typical desktop windows. Same chrome as
-///   [medium]; a wider reading column.
-/// - [large]: wide desktop windows. Three-pane shell (folders | notes |
-///   note) instead of pushing a note over the list.
+///   [medium]; persistent vault navigation beside the main destination.
+/// - [large]: wide desktop windows with more room for document content.
 enum WindowSizeClass {
   compact,
   medium,
@@ -33,12 +32,7 @@ abstract final class Breakpoints {
   /// Lower bound (inclusive) of [WindowSizeClass.expanded].
   static const double expanded = 840;
 
-  /// Lower bound (inclusive) of [WindowSizeClass.large]. With the
-  /// three-pane shell's default folder sidebar ([PaneSizes.sidebarDefault],
-  /// 260) and list pane ([PaneSizes.listPane], 380), this leaves the note
-  /// pane at least 560 wide: enough for prose at a comfortable line length
-  /// even before the pane reaches the [PaneSizes.readingColumn] cap, which
-  /// only applies once the window is wider still.
+  /// Lower bound (inclusive) of [WindowSizeClass.large].
   static const double large = 1200;
 
   static WindowSizeClass classify(double width) {
@@ -58,15 +52,11 @@ abstract final class Breakpoints {
       classify(constraints.maxWidth);
 }
 
-/// Shared pane sizes for the wide layouts, so the folder sidebar is the
-/// same width whether the notes list or the three-pane shell renders it.
+/// Shared bounds for navigation and document content.
 abstract final class PaneSizes {
   static const double sidebarDefault = 260;
   static const double sidebarMin = 200;
   static const double sidebarMax = 420;
-
-  /// Width of the notes-list pane in the three-pane shell.
-  static const double listPane = 380;
 
   /// Comfortable line length for reading and writing prose.
   static const double readingColumn = 760;

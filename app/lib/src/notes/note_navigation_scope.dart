@@ -19,6 +19,17 @@ class NoteNavigationRegistry {
     _leave = null;
   }
 
+  Future<bool> leave() async {
+    final leave = _leave;
+    if (leave == null) return true;
+    final pending = _pending ??= leave();
+    try {
+      return await pending;
+    } finally {
+      if (identical(_pending, pending)) _pending = null;
+    }
+  }
+
   Future<String?> redirect(Uri destination) async {
     final location = _location;
     final leave = _leave;
