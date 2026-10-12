@@ -18,25 +18,25 @@ class FolderTreeNode {
     required this.name,
     required this.noteCount,
     this.children = const <FolderTreeNode>[],
+    this.fileCount = 0,
   });
 
   final String path;
   final String name;
   final int noteCount;
+  final int fileCount;
   final List<FolderTreeNode> children;
 }
 
-/// Builds a nested [FolderTreeNode] forest from the flat folder list
-/// `GET /notes/tree` returns. The server only reports folders that
-/// directly contain at least one note, so an intermediate folder with no
-/// notes of its own (e.g. `Projects` when only `Projects/Alpha` has notes)
-/// does not appear in [folders] — this function synthesizes it (with
-/// `noteCount: 0`) purely so `Alpha` has somewhere to nest.
+/// Builds folder hierarchy, including intermediate path segments.
 ///
 /// The root folder (`path: ''`) is not part of the nested tree — it has no
 /// name of its own to render as a node — and is surfaced separately via
 /// [FolderTreeState.rootNoteCount].
 List<FolderTreeNode> buildFolderTree(List<TreeFolder> folders) {
+  final fileCounts = {
+    for (final folder in folders) folder.path: folder.fileCount,
+  };
   final counts = <String, int>{
     for (final f in folders)
       if (f.path.isNotEmpty) f.path: f.noteCount,
@@ -71,11 +71,12 @@ List<FolderTreeNode> buildFolderTree(List<TreeFolder> folders) {
   for (final path in sorted) {
     final children = List<FolderTreeNode>.of(
       childrenByPath[path] ?? const <FolderTreeNode>[],
-    )..sort((a, b) => a.name.compareTo(b.name));
+    )..sort((a, b) => compareTreeLabels(a.name, a.path, b.name, b.path));
     final node = FolderTreeNode(
       path: path,
       name: path.split('/').last,
       noteCount: counts[path] ?? 0,
+      fileCount: fileCounts[path] ?? 0,
       children: List<FolderTreeNode>.unmodifiable(children),
     );
     final slash = path.lastIndexOf('/');
@@ -86,35 +87,58 @@ List<FolderTreeNode> buildFolderTree(List<TreeFolder> folders) {
       (childrenByPath[parent] ??= <FolderTreeNode>[]).add(node);
     }
   }
-  roots.sort((a, b) => a.name.compareTo(b.name));
+  roots.sort((a, b) => compareTreeLabels(a.name, a.path, b.name, b.path));
   return roots;
 }
 
-/// Snapshot of [FolderTreeController] state.
+int compareTreeLabels(String a, String aId, String b, String bId) {
+  final label = a.toLowerCase().compareTo(b.toLowerCase());
+  return label == 0 ? aId.compareTo(bId) : label;
+}
+
+@immutable
+class FolderContents {
+  const FolderContents({
+    this.notes = const [],
+    this.files = const [],
+    this.nextCursor,
+    this.isLoading = false,
+    this.loaded = false,
+    this.error,
+  });
+  final List<NoteMeta> notes;
+  final List<VaultFile> files;
+  final String? nextCursor;
+  final bool isLoading;
+  final bool loaded;
+  final Object? error;
+}
+
 @immutable
 class FolderTreeState {
   const FolderTreeState({
-    this.roots = const <FolderTreeNode>[],
+    this.roots = const [],
     this.rootNoteCount,
     this.isLoading = false,
     this.error,
+    this.expandedPaths = const {},
+    this.contents = const {},
   });
-
   static const empty = FolderTreeState();
-
   final List<FolderTreeNode> roots;
-
-  /// Note count for the vault root (`path: ''`), or `null` if the server
-  /// did not report any root-level notes.
   final int? rootNoteCount;
   final bool isLoading;
   final Object? error;
+  final Set<String> expandedPaths;
+  final Map<String, FolderContents> contents;
 
   FolderTreeState copyWith({
     List<FolderTreeNode>? roots,
     Object? rootNoteCount = _sentinel,
     bool? isLoading,
     Object? error = _sentinel,
+    Set<String>? expandedPaths,
+    Map<String, FolderContents>? contents,
   }) => FolderTreeState(
     roots: roots ?? this.roots,
     rootNoteCount: identical(rootNoteCount, _sentinel)
@@ -122,70 +146,234 @@ class FolderTreeState {
         : rootNoteCount as int?,
     isLoading: isLoading ?? this.isLoading,
     error: identical(error, _sentinel) ? this.error : error,
+    expandedPaths: expandedPaths ?? this.expandedPaths,
+    contents: contents ?? this.contents,
   );
 }
 
-const Object _sentinel = Object();
+const _sentinel = Object();
 
-/// Drives the folder tree sidebar. Pulls `GET /notes/tree` and re-fetches
-/// whenever a live `changed` event could change which folders have notes
-/// in them (`moved`, `created`, `deleted` — `updated` never moves a note,
-/// so it is not a reason to re-fetch).
 class FolderTreeController extends ValueNotifier<FolderTreeState> {
-  FolderTreeController({required this._api, Stream<RealtimeEvent>? events})
+  FolderTreeController({required this.api, Stream<RealtimeEvent>? events})
     : super(FolderTreeState.empty) {
-    if (events != null) {
-      _sub = events.listen(_onEvent);
+    _sub = events?.listen(_onEvent);
+  }
+  final RobotNotesClient api;
+  StreamSubscription<RealtimeEvent>? _sub;
+  bool _disposed = false;
+  int _hierarchyRequest = 0;
+  final Map<String, int> _requests = {};
+  final Map<String, Future<void>> _pending = {};
+  int _revealRequest = 0;
+
+  Future<void> refresh({bool refreshContents = true}) async {
+    if (_disposed) return;
+    final request = ++_hierarchyRequest;
+    value = value.copyWith(isLoading: true, error: null);
+    try {
+      final tree = await api.getTree();
+      if (_disposed || request != _hierarchyRequest) return;
+      value = value.copyWith(
+        roots: buildFolderTree(tree.folders),
+        rootNoteCount: tree.folders
+            .where((f) => f.path.isEmpty)
+            .firstOrNull
+            ?.noteCount,
+        isLoading: false,
+      );
+      if (refreshContents) {
+        await Future.wait([
+          for (final path in value.contents.keys.toList())
+            loadFolder(path, force: true),
+        ]);
+      }
+    } catch (e) {
+      if (!_disposed && request == _hierarchyRequest) {
+        value = value.copyWith(isLoading: false, error: e);
+      }
     }
   }
 
-  RobotNotesClient get api => _api;
+  Future<void> expand(String path) {
+    if (_disposed) return Future.value();
+    value = value.copyWith(expandedPaths: {...value.expandedPaths, path});
+    return loadFolder(path);
+  }
 
-  final RobotNotesClient _api;
-  StreamSubscription<RealtimeEvent>? _sub;
-  bool _disposed = false;
-
-  Future<void> refresh() async {
+  void collapse(String path) {
     if (_disposed) return;
-    value = value.copyWith(isLoading: true, error: null);
+    value = value.copyWith(
+      expandedPaths: {...value.expandedPaths}..remove(path),
+    );
+  }
+
+  Future<void> toggle(String path) async {
+    if (value.expandedPaths.contains(path)) {
+      collapse(path);
+    } else {
+      await expand(path);
+    }
+  }
+
+  void _setContents(String path, FolderContents contents) {
+    if (!_disposed) {
+      value = value.copyWith(contents: {...value.contents, path: contents});
+    }
+  }
+
+  Future<void> loadFolder(String path, {bool force = false}) {
+    if (_disposed) return Future.value();
+    if (!force) {
+      if (_pending[path] != null) return _pending[path]!;
+      if (value.contents[path]?.loaded == true) return Future.value();
+    }
+    final future = _load(path, append: false);
+    _pending[path] = future;
+    future.whenComplete(() {
+      if (identical(_pending[path], future)) _pending.remove(path);
+    });
+    return future;
+  }
+
+  Future<void> loadMore(String path) {
+    final contents = value.contents[path];
+    if (_disposed ||
+        contents == null ||
+        contents.isLoading ||
+        contents.nextCursor == null) {
+      return Future.value();
+    }
+    return _load(path, append: true);
+  }
+
+  Future<void> _load(String path, {required bool append}) async {
+    final previous = value.contents[path] ?? const FolderContents();
+    final request = (_requests[path] ?? 0) + 1;
+    _requests[path] = request;
+    _setContents(
+      path,
+      FolderContents(
+        notes: previous.notes,
+        files: previous.files,
+        nextCursor: previous.nextCursor,
+        loaded: previous.loaded,
+        isLoading: true,
+      ),
+    );
     try {
-      final tree = await _api.getTree();
-      if (_disposed) return;
-      int? rootCount;
-      for (final f in tree.folders) {
-        if (f.path.isEmpty) {
-          rootCount = f.noteCount;
-          break;
-        }
+      final results = await Future.wait<Object>([
+        api.listNotes(
+          path: path,
+          includeSubfolders: false,
+          after: append ? previous.nextCursor : null,
+        ),
+        if (!append) api.listFiles(path),
+      ]);
+      if (_disposed || _requests[path] != request) return;
+      final page = results.first as NotePage;
+      if (page.items.any((n) => n.path != path)) {
+        throw StateError(
+          'Server does not support direct folder browsing. Update the server.',
+        );
       }
-      value = FolderTreeState(
-        roots: buildFolderTree(tree.folders),
-        rootNoteCount: rootCount,
-        isLoading: false,
+      final notes =
+          {
+              for (final n in [
+                ...(append ? previous.notes : <NoteMeta>[]),
+                ...page.items,
+              ])
+                n.id: n,
+            }.values.toList()
+            ..sort((a, b) => compareTreeLabels(a.title, a.id, b.title, b.id));
+      _setContents(
+        path,
+        FolderContents(
+          notes: notes,
+          files: append ? previous.files : results[1] as List<VaultFile>,
+          nextCursor: page.nextCursor,
+          loaded: true,
+        ),
       );
     } catch (e) {
-      if (_disposed) return;
-      value = value.copyWith(isLoading: false, error: e);
+      if (_disposed || _requests[path] != request) return;
+      _setContents(
+        path,
+        FolderContents(
+          notes: previous.notes,
+          files: previous.files,
+          nextCursor: previous.nextCursor,
+          loaded: previous.loaded,
+          error: e,
+        ),
+      );
+    }
+  }
+
+  List<FolderTreeNode> childrenOf(String path) {
+    if (path.isEmpty) return value.roots;
+    List<FolderTreeNode>? find(List<FolderTreeNode> nodes) {
+      for (final node in nodes) {
+        if (node.path == path) return node.children;
+        final found = find(node.children);
+        if (found != null) return found;
+      }
+      return null;
+    }
+
+    return find(value.roots) ?? const [];
+  }
+
+  void cancelReveal() {
+    ++_revealRequest;
+  }
+
+  Future<void> revealNote(String id, String path) async {
+    final request = ++_revealRequest;
+    await _revealAncestors(path, request);
+    if (_disposed || request != _revealRequest) return;
+    await expand(path);
+    final cursors = <String>{};
+    while (!_disposed && request == _revealRequest) {
+      final contents = value.contents[path];
+      if (contents == null ||
+          contents.error != null ||
+          contents.notes.any((n) => n.id == id)) {
+        return;
+      }
+      final cursor = contents.nextCursor;
+      if (cursor == null || !cursors.add(cursor)) return;
+      await loadMore(path);
+    }
+  }
+
+  Future<void> revealFile(String path) =>
+      _revealAncestors(path, ++_revealRequest);
+  Future<void> _revealAncestors(String path, int request) async {
+    final parts = path.split('/');
+    var current = '';
+    for (final part in parts) {
+      if (_disposed || request != _revealRequest) return;
+      current = current.isEmpty ? part : '$current/$part';
+      await expand(current);
     }
   }
 
   void _onEvent(RealtimeEvent event) {
-    if (event is! RealtimeMessage) return;
-    final msg = event.message;
-    if (msg is! ChangedEvent) return;
-    switch (msg.action) {
-      case ChangeAction.moved:
-      case ChangeAction.created:
-      case ChangeAction.deleted:
-        unawaited(refresh());
-      case ChangeAction.updated:
-        break;
+    if (event is! RealtimeMessage || event.message is! ChangedEvent) return;
+    final msg = event.message as ChangedEvent;
+    if (msg.action == ChangeAction.updated) {
+      for (final path in value.contents.keys.toList()) {
+        unawaited(loadFolder(path, force: true));
+      }
+    } else {
+      unawaited(refresh());
     }
   }
 
   @override
   void dispose() {
     _disposed = true;
+    ++_revealRequest;
     _sub?.cancel();
     super.dispose();
   }
