@@ -33,7 +33,7 @@ The gate SHALL exercise lost responses, restart, duplicate prevention, read-only
 
 ### Requirement: Release evidence identifies tested artifacts
 
-Evidence SHALL record server and plugin revisions, Hermes runtime and contract versions, commands and cleanup.
+Evidence SHALL record server, plugin, and Flutter app revisions, Hermes runtime and contract versions, commands and cleanup.
 
 #### Scenario: Release evidence identifies tested artifacts
 

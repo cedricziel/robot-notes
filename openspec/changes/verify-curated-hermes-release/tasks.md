@@ -22,7 +22,7 @@
 - [ ] 2.15 Edit one typed draft and inspect validation diagnostics.
 - [ ] 2.16 Review and accept one group using the test reviewer.
 - [ ] 2.17 Reload app and verify accepted content persisted.
-- [ ] 2.18 Record supported revisions and runtime results.
+- [ ] 2.18 Record supported server, plugin, and Flutter app revisions, runtime versions, and results.
 - [ ] 2.19 Update project-local verify guidance with repeatable commands.
 - [ ] 2.20 Clean up processes and state and commit verification tooling.
 - [ ] 2.21 Exercise actual pinned Schema.org adoption against the isolated real server.
