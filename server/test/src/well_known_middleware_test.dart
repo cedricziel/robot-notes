@@ -62,7 +62,7 @@ void main() {
       expect(body['bearer_methods_supported'], ['header']);
       expect(
         body['scopes_supported'],
-        [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes],
+        [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes, kScopeVaultsManage],
       );
       expect(body['resource_name'], 'robot-notes');
     });
@@ -118,7 +118,7 @@ void main() {
       );
       expect(
         body['scopes_supported'],
-        [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes],
+        [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes, kScopeVaultsManage],
       );
       expect(body.containsKey('robotnotes_oidc_login_supported'), isFalse);
     });

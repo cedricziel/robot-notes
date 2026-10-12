@@ -147,6 +147,23 @@ void main() {
   });
 
   group('GET /oauth/authorize', () {
+    test('vault management cannot mint a code without explicit approval',
+        () async {
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.post,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          formBody: _formEncode({
+            ...validQuery(scope: 'vaults:manage'),
+            'api_key': _apiKey,
+          }),
+        ),
+      );
+      expect(res.statusCode, HttpStatus.badRequest);
+      expect(res.headers['location'], isNull);
+    });
+
     test('accepts every advertised scope for the MCP resource', () async {
       final metadata = authorizationServerMetadata('http://localhost');
       final scopes = metadata['scopes_supported']! as List<String>;
@@ -422,7 +439,7 @@ void main() {
       expect(body, contains('Desk Assistant'));
     });
 
-    test('vault management is rejected for the MCP resource', () async {
+    test('MCP vault management requires explicit consent', () async {
       final res = await route.onRequest(
         _ctx(
           method: HttpMethod.get,
@@ -432,11 +449,8 @@ void main() {
               validQuery(scope: 'notes:read notes:write vaults:manage'),
         ),
       );
-      expect(res.statusCode, 302);
-      expect(
-        Uri.parse(res.headers['location']!).queryParameters['error'],
-        'invalid_scope',
-      );
+      expect(res.statusCode, HttpStatus.ok);
+      expect(await res.body(), contains('name="manage_vaults_consent"'));
     });
 
     test('unknown scope redirects with invalid_scope', () async {

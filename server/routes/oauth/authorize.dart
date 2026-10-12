@@ -116,9 +116,12 @@ Future<Response> _submitConsent(
     );
   }
 
-  final vaultIds = selectedVaults(context, form);
+  final vaultIds = selectedVaults(context, form, scopes: valid.scopes);
   if (vaultIds == null) {
-    return oauthErrorPage('Select at least one valid vault.');
+    return oauthErrorPage(
+      'Select at least one valid vault and explicitly approve '
+      'any requested vault management.',
+    );
   }
 
   final actorRaw = (form['actor'] ?? '').trim();

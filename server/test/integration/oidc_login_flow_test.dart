@@ -103,6 +103,7 @@ void main() {
       queryParameters: {
         ...authorizeUri.queryParameters,
         'vault_default': 'yes',
+        'manage_vaults_consent': 'yes',
       },
     );
     final loginReq = http.Request('GET', signInUri)..followRedirects = false;

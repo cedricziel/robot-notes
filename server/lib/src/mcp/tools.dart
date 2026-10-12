@@ -18,6 +18,7 @@ import 'package:server/src/meta_index.dart' as meta_index
     show InvalidCursorException;
 import 'package:server/src/meta_index.dart' hide InvalidCursorException;
 import 'package:server/src/note_write_service.dart';
+import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/proposals/proposal_mcp.dart';
 import 'package:server/src/search_index.dart';
 import 'package:server/src/storage.dart';
@@ -146,7 +147,7 @@ class McpInvalidParamsException implements Exception {
   String toString() => 'McpInvalidParamsException: $message';
 }
 
-/// Registry of vault discovery and the nineteen content tools over `/mcp`.
+/// Registry of vault management and content tools over `/mcp`.
 ///
 /// Built once per server from [AppDeps] via [McpToolRegistry.forDeps];
 /// tests may also build one directly from a hand-picked [List] of
@@ -157,7 +158,7 @@ class McpToolRegistry {
       : _tools = List.unmodifiable(tools),
         _byName = {for (final tool in tools) tool.name: tool};
 
-  /// Builds the nineteen note tools wired to [deps]'s services.
+  /// Builds vault and content tools wired to [deps]'s services.
   factory McpToolRegistry.forDeps(AppDeps deps) {
     final catalog = McpToolRegistry._singleVault(deps);
     final vaults = deps.vaults;
@@ -174,12 +175,64 @@ class McpToolRegistry {
         },
         annotations: const {'title': 'List vaults', 'readOnlyHint': true},
         requiresWrite: false,
+        requiredAnyScopes: const {
+          kScopeNotesRead,
+          kScopeNotesWrite,
+          kScopeVaultsManage,
+        },
         handler: (args, principal) async => toolOk({
           'vaults': [
             for (final vault in vaults.list())
               if (principal.canAccessVault(vault['id']!)) vault,
           ],
         }),
+      ),
+      McpTool(
+        name: 'create_vault',
+        description: 'Create a vault. Requires vaults:manage consent.',
+        inputSchema: const {
+          'type': 'object',
+          'properties': {
+            'name': {'type': 'string'},
+          },
+          'required': ['name'],
+        },
+        annotations: const {'title': 'Create vault', 'readOnlyHint': false},
+        requiresWrite: true,
+        requiredScope: kScopeVaultsManage,
+        handler: (args, principal) async {
+          final name = args['name']! as String;
+          if (name.trim().isEmpty || name.length > 200) {
+            return toolFail('invalid_name');
+          }
+          return toolOk(await vaults.create(name.trim()));
+        },
+      ),
+      McpTool(
+        name: 'rename_vault',
+        description: 'Rename a vault without moving its content. '
+            'Requires vaults:manage consent.',
+        inputSchema: const {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string'},
+            'name': {'type': 'string'},
+          },
+          'required': ['id', 'name'],
+        },
+        annotations: const {'title': 'Rename vault', 'readOnlyHint': false},
+        requiresWrite: true,
+        requiredScope: kScopeVaultsManage,
+        handler: (args, principal) async {
+          final id = args['id']! as String;
+          if (!vaults.contains(id)) return toolFail('vault_not_found');
+          final name = args['name']! as String;
+          if (name.trim().isEmpty || name.length > 200) {
+            return toolFail('invalid_name');
+          }
+          await vaults.rename(id, name.trim());
+          return toolOk({'id': id, 'name': name.trim()});
+        },
       ),
       for (final tool in catalog.tools)
         McpTool(
@@ -347,13 +400,11 @@ class McpToolRegistry {
 
     final requiredScope = tool.requiredScope ??
         (tool.requiresWrite ? kScopeNotesWrite : kScopeNotesRead);
-    final canDiscoverVaults =
-        name == 'list_vaults' && principal.scopes.contains(kScopeNotesWrite);
     final required = tool.requiredAnyScopes;
     final hasScope = required == null
         ? principal.hasScope(requiredScope)
         : required.any(principal.hasScope);
-    if (!hasScope && !canDiscoverVaults) {
+    if (!hasScope) {
       return toolFail(kErrorInsufficientScope);
     }
 

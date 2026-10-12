@@ -31,7 +31,7 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 ### Requirement: Protected resource metadata is published
 
-`GET /.well-known/oauth-protected-resource` and `GET /.well-known/oauth-protected-resource/mcp` SHALL respond 200 without authentication with a JSON document containing `resource: "<base>/mcp"`, `authorization_servers: ["<base>"]`, `bearer_methods_supported: ["header"]`, `scopes_supported: ["notes:read", "notes:write"]`, and `resource_name: "robot-notes"`.
+`GET /.well-known/oauth-protected-resource` and `GET /.well-known/oauth-protected-resource/mcp` SHALL respond 200 without authentication with a JSON document containing `resource: "<base>/mcp"`, `authorization_servers: ["<base>"]`, `bearer_methods_supported: ["header"]`, `scopes_supported: ["notes:read", "notes:write", "knowledge:propose", "knowledge:review", "knowledge:edit", "knowledge:policy", "knowledge:purge", "vaults:manage"]`, and `resource_name: "robot-notes"`.
 
 #### Scenario: Metadata without auth
 
@@ -45,7 +45,7 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 ### Requirement: Authorization server metadata is published
 
-`GET /.well-known/oauth-authorization-server` SHALL respond 200 without authentication with a JSON document containing `issuer: "<base>"`, `authorization_endpoint: "<base>/oauth/authorize"`, `token_endpoint: "<base>/oauth/token"`, `registration_endpoint: "<base>/oauth/register"`, `revocation_endpoint: "<base>/oauth/revoke"`, `response_types_supported: ["code"]`, `grant_types_supported: ["authorization_code", "refresh_token"]`, `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"]`, and `scopes_supported: ["notes:read", "notes:write"]`.
+`GET /.well-known/oauth-authorization-server` SHALL respond 200 without authentication with a JSON document containing `issuer: "<base>"`, `authorization_endpoint: "<base>/oauth/authorize"`, `token_endpoint: "<base>/oauth/token"`, `registration_endpoint: "<base>/oauth/register"`, `revocation_endpoint: "<base>/oauth/revoke"`, `response_types_supported: ["code"]`, `grant_types_supported: ["authorization_code", "refresh_token"]`, `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"]`, and `scopes_supported: ["notes:read", "notes:write", "knowledge:propose", "knowledge:review", "knowledge:edit", "knowledge:policy", "knowledge:purge", "vaults:manage"]`.
 
 #### Scenario: Metadata document
 
@@ -56,8 +56,15 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 - **WHEN** a client requests every scope advertised by authorization-server discovery with `resource: "<base>/mcp"`
 - **THEN** authorization SHALL render the consent page without an `invalid_scope` error
-- **AND** both discovery documents SHALL advertise the same MCP scopes and SHALL exclude `vaults:manage`
+- **AND** both discovery documents SHALL advertise the same MCP scopes, including `vaults:manage`
 - **AND** an explicit `vaults:manage` request for the base REST resource SHALL remain supported
+
+#### Scenario: Vault management requires separate approval
+
+- **WHEN** a client requests `vaults:manage` for either resource
+- **THEN** the consent page SHALL show an unchecked approval checkbox explaining creation, renaming, and access to all current and future vaults
+- **AND** API-key consent and OIDC login SHALL reject requests without that approval
+- **AND** omitted scopes SHALL continue to default to note scopes without vault management
 
 ### Requirement: Dynamic Client Registration mints public or confidential clients
 

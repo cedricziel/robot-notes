@@ -1,8 +1,17 @@
 import 'package:dart_frog/dart_frog.dart';
+import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/vault_registry.dart';
 
 /// Never treats a missing choice as permission for all vaults.
-Set<String>? selectedVaults(RequestContext context, Map<String, String> form) {
+Set<String>? selectedVaults(
+  RequestContext context,
+  Map<String, String> form, {
+  required Set<String> scopes,
+}) {
+  if (scopes.contains(kScopeVaultsManage) &&
+      form['manage_vaults_consent'] != 'yes') {
+    return null;
+  }
   final ids = {
     for (final e in form.entries)
       if (e.key.startsWith('vault_') && e.value == 'yes') e.key.substring(6),

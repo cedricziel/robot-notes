@@ -91,6 +91,8 @@ Future<OAuthGrant> completeOAuthFlow({
       'api_key': apiKey,
       'actor': actor,
       if (scope != null) 'scope': scope,
+      if (scope?.split(' ').contains('vaults:manage') ?? false)
+        'manage_vaults_consent': 'yes',
     };
   final consentStreamed = await http.Client().send(consentRequest);
   final consentRes = await http.Response.fromStream(consentStreamed);

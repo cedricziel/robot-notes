@@ -45,12 +45,12 @@ bool requiresOperatorKnowledgeConsent(Iterable<String> scopes) => scopes.any(
 const List<String> kOAuthMcpScopes = [
   ...kOAuthNoteScopes,
   ...kOAuthKnowledgeScopes,
+  kScopeVaultsManage,
 ];
 
 /// Scopes accepted by the authorization server, including REST administration.
 const List<String> kOAuthScopes = [
   ...kOAuthMcpScopes,
-  kScopeVaultsManage,
 ];
 
 /// Builds the RFC 9728 protected-resource metadata document for the given

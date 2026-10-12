@@ -141,6 +141,132 @@ void main() {
     );
   });
 
+  test(
+      'MCP vault management grants create and rename current and future vaults',
+      () async {
+    final existing = await createVault('Existing');
+    final grant = await completeOAuthFlow(
+      baseUrl: app.baseUrl,
+      apiKey: app.config.apiKey,
+      scope: 'vaults:manage',
+    );
+    final listed = await mcp(grant.accessToken, 'list_vaults');
+    expect(jsonEncode(listed), contains(existing));
+    final created =
+        await mcp(grant.accessToken, 'create_vault', {'name': 'New'});
+    expect(created['isError'], isNot(true));
+    final id = (created['structuredContent'] as Map<String, dynamic>)['id'];
+    final renamed = await mcp(
+      grant.accessToken,
+      'rename_vault',
+      {'id': id, 'name': 'Renamed'},
+    );
+    expect(renamed['isError'], isNot(true));
+    expect(
+      app.deps.vaults!.list(),
+      contains(equals({'id': id, 'name': 'Renamed'})),
+    );
+    final read = await mcp(grant.accessToken, 'list_notes', {'vault_id': id});
+    expect(
+      (read['structuredContent'] as Map<String, dynamic>)['error'],
+      'insufficient_scope',
+    );
+  });
+
+  test('note scopes cannot create or rename vaults', () async {
+    final grant = await completeOAuthFlow(
+      baseUrl: app.baseUrl,
+      apiKey: app.config.apiKey,
+    );
+    final created =
+        await mcp(grant.accessToken, 'create_vault', {'name': 'Denied'});
+    expect(
+      (created['structuredContent'] as Map<String, dynamic>)['error'],
+      'insufficient_scope',
+    );
+    final renamed = await mcp(
+      grant.accessToken,
+      'rename_vault',
+      {'id': 'default', 'name': 'Denied'},
+    );
+    expect(
+      (renamed['structuredContent'] as Map<String, dynamic>)['error'],
+      'insufficient_scope',
+    );
+    expect(app.deps.vaults!.list(), [
+      {'id': 'default', 'name': 'Default'},
+    ]);
+  });
+
+  test('MCP vault management survives refresh and permits future vault access',
+      () async {
+    final grant = await completeOAuthFlow(
+      baseUrl: app.baseUrl,
+      apiKey: app.config.apiKey,
+      scope: 'notes:read vaults:manage',
+    );
+    final refreshed = await http.post(
+      Uri.parse('${app.baseUrl}/oauth/token'),
+      body: {
+        'grant_type': 'refresh_token',
+        'client_id': grant.clientId,
+        'refresh_token': grant.refreshToken,
+      },
+    );
+    expect(refreshed.statusCode, 200);
+    final token = (jsonDecode(refreshed.body)
+        as Map<String, dynamic>)['access_token'] as String;
+    final future = await createVault('Future');
+    final read = await mcp(token, 'list_notes', {'vault_id': future});
+    expect(read['isError'], isNot(true));
+    final renamed = await mcp(
+      token,
+      'rename_vault',
+      {'id': future, 'name': 'After refresh'},
+    );
+    expect(renamed['isError'], isNot(true));
+    final write = await mcp(
+      token,
+      'create_note',
+      {'vault_id': future, 'title': 'Denied'},
+    );
+    expect(
+      (write['structuredContent'] as Map<String, dynamic>)['error'],
+      'insufficient_scope',
+    );
+  });
+
+  test('MCP vault management rejects invalid names and unknown vaults',
+      () async {
+    final invalid =
+        await mcp(app.config.apiKey, 'create_vault', {'name': '  '});
+    expect(
+      (invalid['structuredContent'] as Map<String, dynamic>)['error'],
+      'invalid_name',
+    );
+    final unknown = await mcp(
+      app.config.apiKey,
+      'rename_vault',
+      {'id': 'missing', 'name': 'New'},
+    );
+    expect(
+      (unknown['structuredContent'] as Map<String, dynamic>)['error'],
+      'vault_not_found',
+    );
+    final rename = await mcp(
+      app.config.apiKey,
+      'rename_vault',
+      {'id': 'default', 'name': 'x' * 201},
+    );
+    expect(
+      (rename['structuredContent'] as Map<String, dynamic>)['error'],
+      'invalid_name',
+    );
+    expect(app.deps.vaults!.list(), [
+      {'id': 'default', 'name': 'Default'},
+    ]);
+  });
+
   test('MCP consent and refresh retain exact vault selection', () async {
     final allowed = await createVault('Allowed');
     final secondAllowed = await createVault('Also allowed');

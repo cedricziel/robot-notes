@@ -320,3 +320,19 @@ When the server serves the Flutter web bundle at `/`, requests to `/mcp`, `/oaut
 
 - **WHEN** the server runs with a web directory configured and a client sends `POST /mcp` with a valid key
 - **THEN** the response SHALL be a JSON-RPC response, not `index.html`
+
+### Requirement: MCP vault management requires its own scope
+
+The MCP catalog SHALL expose `create_vault` with required `name` and `rename_vault` with required `id` and `name`. Both tools SHALL require `vaults:manage` or the static operator key. Names SHALL be non-empty after trimming and at most 200 characters before trimming. Renaming SHALL preserve the vault ID and content. Unknown rename targets SHALL return `vault_not_found`.
+
+#### Scenario: Note permissions cannot manage vaults
+
+- **WHEN** a connection without `vaults:manage` calls either management tool
+- **THEN** the tool SHALL return `insufficient_scope` without changing the vault catalog
+
+#### Scenario: Management grants survive refresh
+
+- **WHEN** an explicitly approved MCP management grant is refreshed
+- **THEN** the connection SHALL retain vault creation, renaming, and access to all current and future vaults
+- **AND** `list_vaults` SHALL accept a management-only grant
+- **AND** note reads and writes SHALL still require their respective note scopes
