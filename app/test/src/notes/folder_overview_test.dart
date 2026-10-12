@@ -67,6 +67,25 @@ Future<void> _open(
 
 void main() {
   testWidgets(
+    'fresh folder overview loads child folders without opening a drawer',
+    (tester) async {
+      final controller = _controller((request) async {
+        if (request.url.path == '/notes/tree') {
+          return _json({
+            'folders': [
+              {'path': 'Projects/Alpha/Child', 'note_count': 1},
+            ],
+          });
+        }
+        return _json({'items': <Object?>[], 'limit': 50});
+      });
+      await _open(tester, controller);
+      expect(find.text('Child'), findsOneWidget);
+      expect(find.text('This folder is empty.'), findsNothing);
+    },
+  );
+
+  testWidgets(
     'overview shows direct children and activates folders, notes and files',
     (tester) async {
       final requestedFolders = <String>[];

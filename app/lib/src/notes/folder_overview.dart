@@ -47,7 +47,12 @@ class _FolderOverviewState extends State<FolderOverview> {
 
   void _load() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(widget.controller.loadFolder(widget.path));
+      if (!mounted) return;
+      final tree = widget.controller;
+      if (tree.value.roots.isEmpty && !tree.value.isLoading) {
+        unawaited(tree.refresh(refreshContents: false));
+      }
+      unawaited(tree.loadFolder(widget.path));
     });
   }
 
@@ -128,7 +133,8 @@ class _FolderOverviewState extends State<FolderOverview> {
                 ),
               ),
             for (final entry in entries) VaultTreeRow(entry: entry),
-            if (folders.isEmpty &&
+            if (!state.isLoading &&
+                folders.isEmpty &&
                 entries.isEmpty &&
                 state.contents[widget.path]?.loaded == true)
               const Padding(
