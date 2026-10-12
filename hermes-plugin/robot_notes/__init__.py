@@ -452,6 +452,8 @@ class RobotNotesProvider(MemoryProvider):
             existing = self._client.find_note_by_title(prepared["title"], path=prepared["path"])
             current = read_note_for_write(self._client, existing["id"]) if existing else None
             if current:
+                if current["title"] != prepared["title"] or current["path"] != prepared["path"]:
+                    raise ClientError("Prepared destination moved", kind=ErrorKind.PATH_CONFLICT)
                 if current.get("content", "") == prepared["content"]:
                     return {**operation, "prepared": {"schema": 2, "noop": True}}
                 raise ClientError("Prepared destination changed", kind=ErrorKind.PATH_CONFLICT)

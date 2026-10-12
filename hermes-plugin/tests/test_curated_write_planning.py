@@ -240,3 +240,22 @@ def test_queued_proposal_retry_preserves_generated_key_after_restart(tmp_path):
         prepare=lambda operation: pytest.fail("Prepared proposal was not persisted"),
     )
     assert client.submissions[1] == client.submissions[0]
+
+
+@pytest.mark.parametrize("changed", [{"title": "Moved"}, {"path": "OtherIdentity"}])
+def test_equal_body_creation_ack_is_rejected_after_lookup_target_moves(changed):
+    client = Client(curated=False, unavailable=True)
+    prepared = prepare_write(
+        client, current=None, title="Memory", path="Hermes", desired="desired", refs=[]
+    )
+    client.find_note_by_title = lambda title, path: {
+        "id": "note",
+        "title": "Memory",
+        "path": "Hermes",
+    }
+    client.note.update(
+        {"title": "Memory", "path": "Hermes", "content": "desired", **changed}
+    )
+    with pytest.raises(ClientError) as error:
+        deliver_write(client, prepared)
+    assert error.value.path_conflict

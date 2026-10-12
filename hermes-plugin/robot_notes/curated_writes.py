@@ -198,6 +198,10 @@ def deliver_write(client, prepared: dict) -> dict:
     existing = client.find_note_by_title(prepared["title"], path=prepared["path"])
     if existing:
         current = read_note_for_write(client, existing["id"])
+        if current["title"] != prepared["title"] or current["path"] != prepared["path"]:
+            raise ClientError(
+                "Prepared destination moved", kind=ErrorKind.PATH_CONFLICT
+            )
         if current.get("content") == prepared["content"]:
             return {
                 "accepted": True,

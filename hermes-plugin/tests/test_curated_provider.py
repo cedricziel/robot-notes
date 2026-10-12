@@ -100,3 +100,45 @@ def test_replayed_denied_proposal_is_not_reported_as_pending_or_accepted():
     provider.on_memory_write("replace", "memory", "new", {"previous_content": "old"})
     assert provider.memory_health()["mirror"]["state"] == "denied"
     assert client.note["content"] == "old"
+
+
+def test_legacy_no_id_creation_move_does_not_drain_the_original_queue(tmp_path):
+    from robot_notes.client import ClientError
+    from robot_notes.outbox import Outbox
+
+    client = Client(curated=False, unavailable=True)
+    provider = provider_with(client)
+    client.find_note_by_title = lambda title, path: {
+        "id": "note",
+        "title": "Memory",
+        "path": "Hermes",
+    }
+    client.note.update(title="Moved", path="OtherIdentity", content="desired")
+    operation = {
+        "kind": "mirror",
+        "action": "add",
+        "content": "desired",
+        "metadata": {},
+        "prepared": {"title": "Memory", "path": "Hermes", "content": "desired"},
+    }
+    queue = Outbox(tmp_path / "queue.sqlite")
+    queue.enqueue(operation)
+    errors = []
+
+    def classify(error):
+        errors.append(error)
+        return "path_conflict", False
+
+    assert (
+        queue.deliver_one(
+            provider._deliver_automatic,
+            classify,
+            provider._prepare_automatic,
+            provider._upgrade_automatic,
+        )
+        is False
+    )
+    assert isinstance(errors[0], ClientError)
+    assert errors[0].path_conflict
+    assert queue.status()["pending"] == 1
+    assert queue.status()["blocked"] is True
