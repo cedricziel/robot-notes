@@ -26,6 +26,52 @@ Map<String, Object?> note(String id, String path) => {
 http.Response response(Object body) => http.Response(jsonEncode(body), 200);
 void main() {
   test(
+    'live title updates refresh labels in an already loaded folder',
+    () async {
+      var title = 'Original';
+      final api = RobotNotesClient(
+        config: config,
+        httpClient: MockClient((request) async {
+          if (request.url.path == '/notes/files') {
+            return response({'items': <Object?>[]});
+          }
+          return response({
+            'items': [
+              {...note('A', 'Projects'), 'title': title},
+            ],
+            'limit': 50,
+          });
+        }),
+      );
+      final events = StreamController<RealtimeEvent>.broadcast();
+      addTearDown(events.close);
+      final tree = FolderTreeController(api: api, events: events.stream);
+      addTearDown(tree.dispose);
+      await tree.expand('Projects');
+      final renamed = Completer<void>();
+      tree.addListener(() {
+        if (!renamed.isCompleted &&
+            tree.value.contents['Projects']!.notes.single.title == 'Renamed') {
+          renamed.complete();
+        }
+      });
+      title = 'Renamed';
+      events.add(
+        const RealtimeMessage(
+          ChangedEvent(
+            noteId: 'A',
+            version: 2,
+            by: 'other',
+            action: ChangeAction.updated,
+          ),
+        ),
+      );
+      await renamed.future;
+      expect(tree.value.contents['Projects']!.notes.single.title, 'Renamed');
+    },
+  );
+
+  test(
     'live moves refresh hierarchy and both loaded folders without duplicates',
     () async {
       var folder = 'Old';
