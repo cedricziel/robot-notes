@@ -204,5 +204,28 @@ body content
       expect(reparsed.metadata['custom_field'], 'hello');
       expect(reparsed.body, fm.body);
     });
+
+    test('nested metadata preserves empty collections, keys, and exact text',
+        () {
+      const original = Frontmatter(
+        metadata: {
+          'knowledge': {
+            'properties': <String, Object?>{},
+            'relations': <Object?>[],
+            'true': 'A😀B\nSecond line\twith whitespace',
+            'schema:label': 'Quoted "value"',
+            'items': [
+              <Object?>[],
+              <String, Object?>{},
+              {'empty': <Object?>[], 'map': <String, Object?>{}},
+            ],
+          },
+        },
+        body: 'Unchanged source text.\n',
+      );
+      final parsed = parseFrontmatter(serializeFrontmatter(original));
+      expect(parsed.metadata, original.metadata);
+      expect(parsed.body, original.body);
+    });
   });
 }

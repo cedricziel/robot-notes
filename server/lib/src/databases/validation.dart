@@ -8,6 +8,7 @@ import 'package:shared/shared.dart';
 /// property value on any typed write, per the `databases` spec's "Property
 /// definitions have a key, a type, and type-specific options" requirement.
 const Set<String> kReservedPropertyKeys = {
+  'knowledge',
   'id',
   'title',
   'path',

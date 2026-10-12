@@ -396,6 +396,12 @@ void main() {
     test('reserved keys are rejected', () {
       final covering = [_def()];
       expect(validateProperties(covering, {'version': 5}), isNotEmpty);
+      expect(
+        validateProperties(covering, {
+          'knowledge': {'role': 'knowledge'},
+        }),
+        isNotEmpty,
+      );
       expect(validateProperties(covering, {'type': 'database'}), isNotEmpty);
     });
 
