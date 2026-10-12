@@ -227,11 +227,31 @@ class RobotNotesProvider(MemoryProvider):
         config = self._load_config()
         memory_note, user_note = config.memory_note, config.user_note
         scope_hint = f"Memory organization mode: {config.memory_scope}. Folder scope does not grant server access. "
+        knowledge_reminder = ""
+        if self._can_write():
+            proposal_tools = (
+                "Use robotnotes_remember for new topics and robotnotes_append for additions, with curated_intent: true. "
+                if config.native_tools else
+                "Use available robot-notes MCP proposal operations; set curated_intent: true where supported. "
+            )
+            knowledge_reminder = (
+                "Before your final response after completing a task, proactively review durable findings: "
+                "confirmed facts, decisions with rationale, reusable procedures, and corrections. "
+                "Search and read existing knowledge first. Skip temporary details, speculation, duplicates, "
+                "and unchanged knowledge; submit nothing when no useful finding remains. "
+                f"{proposal_tools}"
+                "Keep proposals focused and include supporting sources and only available evidence_refs. "
+                "Corrections require an exact replacement through a supported proposal or memory correction "
+                "operation; do not append contradictory claims. Report unavailable correction operations. "
+                "Leave proposals pending human review and report accepted=false accurately. "
+                "If proposal operations are unavailable or denied, report that without falling back to accepted writes. "
+            )
         if not self._load_config().native_tools:
             return (
                 "A shared robot-notes workspace is connected for automatic memory recall. "
                 f"Selected vault: {self._config.vault_id}. Automatic memory hooks use this vault. "
                 f"{scope_hint}"
+                f"{knowledge_reminder}"
                 "Native note tools are disabled. Use the separately configured robot-notes "
                 "MCP tools, if available, for explicit note and database operations. "
                 "Search or list before creating; append to existing notes when appropriate. "
@@ -249,6 +269,7 @@ class RobotNotesProvider(MemoryProvider):
             "shared between humans and agents in this workspace, so writes here are "
             f"visible to others too. Selected vault: {self._config.vault_id if self._config else 'default'}. "
             f"{scope_hint}"
+            f"{knowledge_reminder}"
             "All recall, tools, transcripts, and memory mirrors use this vault. Tools:\n"
             "- robotnotes_search(query, path?, limit?): keyword full-text search, not a "
             "wildcard — there is no query that means \"every note\".\n"

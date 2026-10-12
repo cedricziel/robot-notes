@@ -333,6 +333,18 @@ purge.
 
 ## Corrections and institutional proposals
 
+The provider's system prompt asks primary agents to review durable findings before
+their final response after completing a task. Agents search existing knowledge,
+skip temporary or duplicate details, and submit focused proposals with supporting
+sources for human review. This reminder is present even when the bundled skill is
+not loaded. With native tools disabled, it directs agents to available MCP proposal
+operations. Restricted provider contexts receive no proactive-write reminder.
+
+Hermes exposes static provider prompt injection, but its memory-provider interface
+has no task-completion or before-final callback. The reminder guides agent behavior;
+it does not guarantee a proposal or run background extraction. Session-end handling
+continues to save a readable transcript.
+
 The pinned Hermes bridge supplies `metadata.previous_content` from the successful
 committed tool result. This exact entry takes precedence over `old_text`. Immediate
 and queued mirrors replace or remove the full multiline entry, preserve unrelated
