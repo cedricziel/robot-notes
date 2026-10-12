@@ -53,6 +53,27 @@ def test_system_prompt_block_mentions_shared_workspace(provider):
     assert "robot-notes" in provider.system_prompt_block()
 
 
+@pytest.mark.parametrize("native_tools", [True, False])
+@pytest.mark.parametrize("agent_context", ["primary", "subagent", "cron", "flush"])
+def test_task_knowledge_reminder_respects_context_and_tool_availability(tmp_path, monkeypatch, native_tools, agent_context):
+    monkeypatch.setenv("ROBOT_NOTES_API_KEY", "secret-key")
+    (tmp_path / "robot_notes.json").write_text(json.dumps({
+        "base_url": "https://notes.example.com", "native_tools": native_tools,
+    }))
+    provider = RobotNotesProvider()
+    provider.initialize("session-1", hermes_home=str(tmp_path), agent_context=agent_context)
+    try:
+        block = provider.system_prompt_block()
+        assert ("Before your final response after completing a task" in block) == (agent_context == "primary")
+        if agent_context == "primary":
+            assert "curated_intent: true" in block
+            assert "human review" in block
+        if not native_tools:
+            assert "robotnotes_" not in block
+    finally:
+        provider.shutdown()
+
+
 def test_system_prompt_block_mentions_every_tool_by_name(provider):
     block = provider.system_prompt_block()
     for tool_name in {schema["name"] for schema in provider.get_tool_schemas()}:

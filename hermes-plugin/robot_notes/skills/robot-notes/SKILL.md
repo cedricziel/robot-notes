@@ -62,6 +62,33 @@ optional `evidence_refs` for exact supplied source coordinates. Never describe
 `accepted: false` as remembered, appended, or forgotten accepted knowledge. Ordinary
 writes explicitly report unknown source; unverified lineage is not approval.
 
+## Propose durable knowledge after completing tasks
+
+After completing a task in a primary agent context, check for durable knowledge
+worth retaining without waiting for a separate reminder. Look for confirmed facts,
+decisions with their rationale, reusable procedures, and corrections to existing
+knowledge. Skip temporary task details, speculation, duplicates, and unchanged
+knowledge. If nothing useful remains, submit no proposal.
+
+1. Search existing knowledge before writing. Read close matches to decide whether
+   the finding adds new knowledge or corrects an existing claim.
+2. Keep each proposal focused on one fact, decision, procedure, or correction.
+   Include the supporting source and only source coordinates actually available
+   to you in `evidence_refs`.
+3. For a new topic, use `robotnotes_remember`. For an addition to an existing
+   topic, use `robotnotes_append`. Set `curated_intent: true` so the write becomes
+   a proposal even outside a curated folder.
+4. For a correction, propose an exact replacement through an available proposal
+   operation or the supported memory correction workflow. Do not append a
+   contradictory claim. If no correction operation is available, report the
+   needed correction for review.
+5. Report submitted proposals as pending review when `accepted: false`. Never
+   approve your own proposals or describe pending text as accepted knowledge.
+
+Respect the provider's write restrictions. Subagent, cron, and flush contexts do
+not submit these writes. If proposal submission fails, report the failure rather
+than falling back to an ordinary accepted write.
+
 ## Tool catalog
 
 | Tool                  | Purpose                                                                          |

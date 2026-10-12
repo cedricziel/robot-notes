@@ -68,6 +68,14 @@ def test_initialize_all_configures_the_provider(manager_and_provider):
     assert provider.is_available() is True
 
 
+def test_manager_injects_task_knowledge_reminder_without_loading_skill(manager_and_provider):
+    manager, _ = manager_and_provider
+    prompt = manager.build_system_prompt()
+    assert "Before your final response after completing a task" in prompt
+    assert "curated_intent: true" in prompt
+    assert "human review" in prompt
+
+
 @respx.mock
 def test_prefetch_all_returns_provider_context(manager_and_provider):
     manager, _ = manager_and_provider
