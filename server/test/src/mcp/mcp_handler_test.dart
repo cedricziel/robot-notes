@@ -112,15 +112,38 @@ void main() {
   });
 
   group('tools/list', () {
-    test('returns the note and permission tools with declared schemas',
-        () async {
+    test('returns note and review tools with declared schemas', () async {
       final response = await handler.handle(_req('tools/list'), fullAccess);
       final result = response!['result']! as Map<String, Object?>;
       final tools = result['tools']! as List<Object?>;
-      expect(tools, hasLength(21));
       final byName = {
         for (final t in tools.cast<Map<String, Object?>>()) t['name']: t,
       };
+      expect(byName, hasLength(tools.length));
+      expect(
+        byName.keys,
+        containsAll(
+          [
+            'get_note_blocks',
+            'list_note_proposals',
+            'get_note_proposal',
+            'propose_note_update',
+            'propose_note_create',
+            'amend_note_proposal',
+            'comment_note_proposal',
+            'review_note_proposal',
+            'get_note_comments',
+            'add_note_comment',
+          ],
+        ),
+      );
+      final reviewSchema = byName['review_note_proposal']!['inputSchema']!
+          as Map<String, Object?>;
+      expect(
+        reviewSchema['required'],
+        ['id', 'proposal_id', 'decision', 'record_revision'],
+      );
+
       final updateSchema =
           byName['update_note']!['inputSchema']! as Map<String, Object?>;
       expect(updateSchema['required'], ['id', 'version']);
