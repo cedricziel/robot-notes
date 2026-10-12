@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app/src/api/api_client.dart';
@@ -56,6 +57,158 @@ Map<String, Object?> _databaseJson({
 
 void main() {
   group('RobotNotesClient', () {
+    test('requests exact folder metadata including root', () async {
+      final client = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          expect(request.url.queryParameters['path'], '');
+          expect(request.url.queryParameters['include_subfolders'], 'false');
+          return http.Response(
+            jsonEncode({'items': <Object?>[], 'limit': 50}),
+            200,
+          );
+        }),
+      );
+      await client.listNotes(path: '', includeSubfolders: false);
+    });
+    test('retains file counts while accepting older tree responses', () async {
+      final client = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'folders': [
+                {'path': 'Files', 'note_count': 0, 'file_count': 2},
+                {'path': '', 'note_count': 1},
+              ],
+            }),
+            200,
+          ),
+        ),
+      );
+      final tree = await client.getTree();
+      expect(tree.folders.first.fileCount, 2);
+      expect(tree.folders.last.fileCount, 0);
+    });
+    test('lists direct file metadata with a stable relative path', () async {
+      final client = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient((request) async {
+          expect(request.url.queryParameters['path'], 'Folder & files');
+          return http.Response(
+            jsonEncode({
+              'items': [
+                {
+                  'path': 'Folder & files',
+                  'filename': 'image #1.png',
+                  'size': 42,
+                  'content_type': 'image/png',
+                  'updated_at': _now,
+                },
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+      final file = (await client.listFiles('Folder & files')).single;
+      expect(file.relativePath, 'Folder & files/image #1.png');
+      expect(file.size, 42);
+      expect(file.contentType, 'image/png');
+      expect(file.updatedAt, DateTime.parse(_now));
+    });
+    test(
+      'fetches file bytes with encoded segments and authentication',
+      () async {
+        final client = RobotNotesClient(
+          config: _config,
+          httpClient: MockClient((request) async {
+            expect(request.url.pathSegments, [
+              'notes',
+              'files',
+              'Folder & files',
+              'image #1.png',
+            ]);
+            expect(request.headers['Authorization'], 'Bearer test-key');
+            return http.Response.bytes([0, 1, 255], 200);
+          }),
+        );
+        expect(await client.getFile('Folder & files/image #1.png'), [
+          0,
+          1,
+          255,
+        ]);
+      },
+    );
+    for (final path in [
+      '',
+      '/file.png',
+      '../file.png',
+      'folder/../file.png',
+      'folder//file.png',
+      r'folder\file.png',
+    ]) {
+      test('rejects unsafe file path $path before requesting', () async {
+        final client = RobotNotesClient(
+          config: _config,
+          httpClient: MockClient(
+            (request) async => throw StateError('unexpected request'),
+          ),
+        );
+        await expectLater(client.getFile(path), throwsArgumentError);
+      });
+    }
+    test('bounded preview rejects bytes beyond its maximum', () async {
+      final client = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(
+          (request) async => http.Response.bytes([1, 2, 3], 200),
+        ),
+      );
+      await expectLater(
+        client.getFile('image.png', maxBytes: 2),
+        throwsA(isA<PayloadTooLargeException>()),
+      );
+    });
+    test(
+      'preview cancels an unknown-length stream at the byte limit',
+      () async {
+        var cancelled = false;
+        final stream = StreamController<List<int>>(
+          onCancel: () {
+            cancelled = true;
+          },
+        );
+        addTearDown(stream.close);
+        stream.add([1, 2]);
+        stream.add([3, 4]);
+        final client = RobotNotesClient(
+          config: _config,
+          httpClient: MockClient.streaming(
+            (request, body) async => http.StreamedResponse(stream.stream, 200),
+          ),
+        );
+        await expectLater(
+          client.getFile('image.png', maxBytes: 3),
+          throwsA(isA<PayloadTooLargeException>()),
+        );
+        expect(cancelled, isTrue);
+      },
+    );
+
+    test('file fetch preserves typed HTTP errors', () async {
+      final client = RobotNotesClient(
+        config: _config,
+        httpClient: MockClient(
+          (request) async => http.Response('{"error":"not_found"}', 404),
+        ),
+      );
+      await expectLater(
+        client.getFile('missing.png'),
+        throwsA(isA<NotFoundException>()),
+      );
+    });
+
     test('every request carries Authorization and X-Actor headers', () async {
       final seen = <Map<String, String>>[];
       final mock = MockClient((request) async {

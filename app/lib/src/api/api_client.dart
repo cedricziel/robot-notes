@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -18,30 +20,60 @@ class NotePage {
   final String? nextCursor;
 }
 
-/// One folder from `GET /notes/tree`: a folder that directly contains at
-/// least one note, plus how many. Intermediate folders with no notes of
-/// their own are not part of the server response — callers that want them
-/// (e.g. to render a full tree) derive them from the flat [path]s.
+/// Folder metadata from `GET /notes/tree`, including empty folders.
 @immutable
 class TreeFolder {
-  const TreeFolder({required this.path, required this.noteCount});
+  const TreeFolder({
+    required this.path,
+    required this.noteCount,
+    this.fileCount = 0,
+  });
 
   final String path;
   final int noteCount;
+  final int fileCount;
 
   factory TreeFolder.fromJson(Map<String, dynamic> json) => TreeFolder(
     path: json['path'] as String,
     noteCount: json['note_count'] as int,
+    fileCount: json['file_count'] as int? ?? 0,
   );
 }
 
-/// `GET /notes/tree` response: the flat list of folders that directly
-/// contain notes.
+/// Flat folder metadata from `GET /notes/tree`.
 @immutable
 class NotesTree {
   const NotesTree({required this.folders});
 
   final List<TreeFolder> folders;
+}
+
+/// Direct file metadata returned by `GET /notes/files`.
+@immutable
+class VaultFile {
+  const VaultFile({
+    required this.path,
+    required this.filename,
+    required this.size,
+    required this.contentType,
+    required this.updatedAt,
+  });
+
+  final String path;
+  final String filename;
+  final int size;
+  final String contentType;
+  final DateTime updatedAt;
+
+  String get relativePath => path.isEmpty ? filename : '$path/$filename';
+
+  factory VaultFile.fromJson(Map<String, dynamic> json) => VaultFile(
+    path: json['path'] as String,
+    filename: json['filename'] as String,
+    size: json['size'] as int,
+    contentType: json['content_type'] as String,
+    updatedAt: DateTime.parse(json['updated_at'] as String).toUtc(),
+  );
 }
 
 /// `POST /notes/files` response: where an uploaded file ended up and how
@@ -207,6 +239,7 @@ class RobotNotesClient {
     int? limit,
     String? sort,
     String? path,
+    bool includeSubfolders = true,
     String? tag,
   }) async {
     final query = <String, String>{
@@ -214,6 +247,7 @@ class RobotNotesClient {
       if (limit != null) 'limit': '$limit',
       'sort': ?sort,
       'path': ?path,
+      if (!includeSubfolders) 'include_subfolders': 'false',
       'tag': ?tag,
     };
     final res = await _http.get(_uri('/notes', query), headers: _baseHeaders);
@@ -229,7 +263,71 @@ class RobotNotesClient {
     );
   }
 
-  /// `GET /notes/tree` — folders that directly contain at least one note.
+  /// Lists files directly within [path]. The empty path selects vault root.
+  Future<List<VaultFile>> listFiles(String path) async {
+    final res = await _http.get(
+      _uri('/notes/files', {'path': path}),
+      headers: _baseHeaders,
+    );
+    return (_ok(res)['items'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(VaultFile.fromJson)
+        .toList(growable: false);
+  }
+
+  /// Fetches authenticated bytes for a vault-relative file path.
+  /// Throws [ArgumentError] for unsafe paths or invalid [maxBytes], and
+  /// [PayloadTooLargeException] if the response exceeds [maxBytes].
+  Future<Uint8List> getFile(String relativePath, {int? maxBytes}) async {
+    final segments = relativePath.split('/');
+    if (relativePath.isEmpty ||
+        relativePath.contains('\\') ||
+        segments.any(
+          (segment) => segment.isEmpty || segment == '.' || segment == '..',
+        ) ||
+        RegExp(r'^[A-Za-z]:').hasMatch(relativePath)) {
+      throw ArgumentError.value(
+        relativePath,
+        'relativePath',
+        'must be a vault-relative file path',
+      );
+    }
+    if (maxBytes != null && maxBytes <= 0) {
+      throw ArgumentError.value(maxBytes, 'maxBytes', 'must be positive');
+    }
+    final encodedPath = segments.map(Uri.encodeComponent).join('/');
+    final request = http.Request('GET', _uri('/notes/files/$encodedPath'))
+      ..headers.addAll(_baseHeaders);
+    final res = await _http.send(request);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw _errorFor(await http.Response.fromStream(res));
+    }
+    final iterator = StreamIterator<List<int>>(res.stream);
+    final bytes = BytesBuilder(copy: false);
+    try {
+      if (maxBytes != null &&
+          res.contentLength != null &&
+          res.contentLength! > maxBytes) {
+        throw const PayloadTooLargeException(
+          message: 'File exceeds preview byte limit',
+        );
+      }
+      while (await iterator.moveNext()) {
+        final chunk = iterator.current;
+        if (maxBytes != null && bytes.length + chunk.length > maxBytes) {
+          throw const PayloadTooLargeException(
+            message: 'File exceeds preview byte limit',
+          );
+        }
+        bytes.add(chunk);
+      }
+      return bytes.takeBytes();
+    } finally {
+      await iterator.cancel();
+    }
+  }
+
+  /// Fetches folder counts, including files and empty-folder markers.
   Future<NotesTree> getTree() async {
     final res = await _http.get(_uri('/notes/tree'), headers: _baseHeaders);
     final body = _ok(res);
