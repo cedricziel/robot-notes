@@ -128,4 +128,19 @@ def test_empty_replacement_does_not_remove_the_previous_entry():
 
 
 def test_add_preserves_legacy_deduplication_of_outer_entry_whitespace():
-    assert plan_memory_edit('likes coffee ', 'add', 'likes coffee').state == 'unchanged'
+    assert plan_memory_edit("likes coffee ", "add", "likes coffee").state == "unchanged"
+
+
+@pytest.mark.parametrize("padded", ["  likes coffee  ", "\nlikes coffee\n"])
+def test_host_normalized_add_can_be_corrected_and_removed(padded):
+    added = plan_memory_edit("", "add", padded)
+    assert added.content == "likes coffee"
+    replaced = plan_memory_edit(
+        added.content, "replace", "  likes tea  ", {"previous_content": "likes coffee"}
+    )
+    assert replaced.content == "likes tea"
+    removed = plan_memory_edit(
+        replaced.content, "remove", "", {"previous_content": "likes tea"}
+    )
+    assert removed.content == ""
+    assert removed.state == "changed"

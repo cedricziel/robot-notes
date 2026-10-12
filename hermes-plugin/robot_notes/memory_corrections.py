@@ -37,12 +37,16 @@ def plan_memory_edit(
     matches and overlapping spans require review instead of a guessed mutation.
     """
     metadata = metadata or {}
+    if action in {"add", "replace"}:
+        content = content.strip()
     if action not in {"add", "replace", "remove"}:
         return MemoryEditPlan(None, "needs_review", "unsupported_action")
     if action == "replace" and not content.strip():
         return MemoryEditPlan(None, "needs_review", "empty_replacement")
     if action == "add":
-        if not content.strip() or re.search(r"(?m)^[^\S\n]*" + re.escape(content.strip()) + r"[^\S\n]*(?=\n|$)", current):
+        if not content.strip() or re.search(
+            r"(?m)^[^\S\n]*" + re.escape(content.strip()) + r"[^\S\n]*(?=\n|$)", current
+        ):
             return MemoryEditPlan(None, "unchanged")
         separator = "" if not current or current.endswith("\n") else "\n"
         return MemoryEditPlan(current + separator + content, "changed")
