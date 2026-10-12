@@ -25,6 +25,16 @@ ConsentPageParams _params({
 
 void main() {
   group('renderConsentPage', () {
+    test('vault management approval is separate and unchecked', () {
+      final html = renderConsentPage(_params(scopes: {'vaults:manage'}));
+      expect(
+        html,
+        contains('name="manage_vaults_consent" value="yes" required>'),
+      );
+      expect(html, contains('access all current and future vaults'));
+      expect(html, isNot(contains('checked')));
+    });
+
     test('elevated knowledge scopes require operator approval with OIDC', () {
       final html = renderConsentPage(
         _params(scopes: const {'notes:read', 'knowledge:review'}),

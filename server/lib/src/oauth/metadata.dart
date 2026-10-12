@@ -41,11 +41,16 @@ bool requiresOperatorKnowledgeConsent(Iterable<String> scopes) => scopes.any(
       }.contains,
     );
 
-/// Scopes supported by the authorization server.
-const List<String> kOAuthScopes = [
+/// Scopes advertised for MCP connections.
+const List<String> kOAuthMcpScopes = [
   ...kOAuthNoteScopes,
   ...kOAuthKnowledgeScopes,
   kScopeVaultsManage,
+];
+
+/// Scopes accepted by the authorization server, including REST administration.
+const List<String> kOAuthScopes = [
+  ...kOAuthMcpScopes,
 ];
 
 /// Builds the RFC 9728 protected-resource metadata document for the given
@@ -55,7 +60,7 @@ Map<String, Object?> protectedResourceMetadata(String base) => {
       'resource': mcpResourceUrl(base),
       'authorization_servers': [base],
       'bearer_methods_supported': ['header'],
-      'scopes_supported': [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes],
+      'scopes_supported': kOAuthMcpScopes,
       'resource_name': 'robot-notes',
     };
 
@@ -80,6 +85,6 @@ Map<String, Object?> authorizationServerMetadata(
         'client_secret_post',
         'client_secret_basic',
       ],
-      'scopes_supported': kOAuthScopes,
+      'scopes_supported': kOAuthMcpScopes,
       if (oidcConfigured) 'robotnotes_oidc_login_supported': true,
     };

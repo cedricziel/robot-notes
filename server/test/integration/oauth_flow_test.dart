@@ -83,6 +83,7 @@ void main() {
           ...fields,
           'api_key': app.config.apiKey,
           'vault_default': 'yes',
+          'manage_vaults_consent': 'yes',
         };
       final consent = await http.Response.fromStream(
         await client.send(consentRequest),

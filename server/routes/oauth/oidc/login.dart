@@ -62,9 +62,16 @@ Response _startLogin(
       state: valid.state,
     );
   }
-  final vaultIds = selectedVaults(context, context.request.uri.queryParameters);
+  final vaultIds = selectedVaults(
+    context,
+    context.request.uri.queryParameters,
+    scopes: valid.scopes,
+  );
   if (vaultIds == null) {
-    return oauthErrorPage('Select at least one valid vault.');
+    return oauthErrorPage(
+      'Select at least one valid vault and explicitly approve '
+      'any requested vault management.',
+    );
   }
   final discovery = context.read<OidcDiscoveryDocument?>();
   if (discovery == null) {

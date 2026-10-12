@@ -1544,6 +1544,8 @@ void main() {
         'get_note_comments',
         'add_note_comment',
         'list_vaults',
+        'create_vault',
+        'rename_vault',
         'list_notes',
         'get_note',
         'get_note_permissions',

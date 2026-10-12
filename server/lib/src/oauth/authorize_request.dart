@@ -207,14 +207,6 @@ Future<AuthorizeValidation> validateAuthorizeRequest(
     );
   }
 
-  if (resource == mcpResource && requestedScopes.contains(kScopeVaultsManage)) {
-    return AuthorizeRedirectError(
-      redirectUri: redirectUri,
-      error: 'invalid_scope',
-      state: state,
-    );
-  }
-
   return AuthorizeValid(
     client: client,
     redirectUri: redirectUri,

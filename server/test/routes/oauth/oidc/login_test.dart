@@ -109,6 +109,18 @@ void main() {
         'state': 'original-client-state',
       };
 
+  test('OIDC vault management requires explicit approval before login',
+      () async {
+    final response = await route.onRequest(
+      _ctx(
+        queryParameters: validQuery()..['scope'] = 'vaults:manage',
+        clientStore: clientStore,
+      ),
+    );
+    expect(response.statusCode, HttpStatus.badRequest);
+    expect(response.headers['location'], isNull);
+  });
+
   for (final scope in [
     'knowledge:review',
     'knowledge:edit',
