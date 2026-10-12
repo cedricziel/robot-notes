@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.22](https://github.com/cedricziel/robot-notes/compare/v0.2.21...v0.2.22) (2026-10-12)
+
+
+### Features
+
+* **mcp:** allow explicitly consented vault management ([#394](https://github.com/cedricziel/robot-notes/issues/394)) ([e2673c1](https://github.com/cedricziel/robot-notes/commit/e2673c107dfb929fbc43ea23c7b0bc3a318b0d1c))
+
+
+### Bug Fixes
+
+* **auth:** recover OIDC sessions after lost refresh responses ([#396](https://github.com/cedricziel/robot-notes/issues/396)) ([49cad01](https://github.com/cedricziel/robot-notes/commit/49cad01e0e90fadd40cb883be40a6ddf5f2eccbd))
+
 ## [0.2.21](https://github.com/cedricziel/robot-notes/compare/v0.2.20...v0.2.21) (2026-10-12)
 
 
