@@ -233,17 +233,31 @@ The server SHALL derive one absolute public base URL (`<base>`, scheme plus host
 
 ### Requirement: Refresh tokens rotate and detect reuse
 
-For `grant_type=refresh_token` the server SHALL require `refresh_token` and client authentication as above. A refresh token SHALL be valid for 30 days from issue. A valid refresh SHALL issue a new access token and a new refresh token, invalidate the presented refresh token, and respond with the same JSON shape as the code exchange. `scope` MAY narrow but SHALL NOT widen the grant's scope set; widening SHALL yield 400 `{ "error": "invalid_scope" }`. Presenting an unknown, expired, revoked, or already-rotated refresh token SHALL yield 400 `{ "error": "invalid_grant" }`; an already-rotated token SHALL additionally revoke every token in that grant.
+For `grant_type=refresh_token` the server SHALL require `refresh_token` and client authentication as above. A refresh token SHALL be valid for 30 days from issue. A valid refresh SHALL issue a new access token and a new refresh token, invalidate the presented refresh token, and respond with the same JSON shape as the code exchange. `scope` MAY narrow but SHALL NOT widen the grant's scope set; widening SHALL yield 400 `{ "error": "invalid_scope" }`. Presenting an unknown, expired, revoked, or already-rotated refresh token SHALL yield 400 `{ "error": "invalid_grant" }`; an already-rotated token SHALL additionally revoke every token in that grant unless it qualifies for response recovery below.
+
+A client MAY supply a high-entropy `refresh_request_id` that remains stable until the replacement credentials are persisted. When a rotated token is presented by the same authenticated client with the original request identifier, and its replacement refresh token remains unexpired, unrevoked, and unrotated, the server SHALL return that replacement refresh token with a fresh access token. Recovery SHALL survive server restarts and access-token expiry. An explicit scope on recovery SHALL match the replacement token's scopes; otherwise the response SHALL be 400 `invalid_scope`. Only a hash of the request identifier SHALL be persisted. Recovery SHALL NOT revive revoked grants or superseded refresh tokens.
 
 #### Scenario: Refresh rotates
 
 - **WHEN** a client posts a valid `refresh_token`
-- **THEN** the response SHALL contain a new `access_token` and a `refresh_token` different from the presented one, and the presented refresh token SHALL be rejected on a subsequent refresh
+- **THEN** the response SHALL contain a new `access_token` and a `refresh_token` different from the presented one, and the presented refresh token SHALL be rejected on a subsequent refresh without the original recovery identifier
 
 #### Scenario: Rotated token reuse revokes the family
 
-- **WHEN** a client refreshes twice with the same original refresh token
+- **WHEN** a client refreshes twice with the same original refresh token without a matching recovery identifier
 - **THEN** the second call SHALL respond 400 `invalid_grant` and the access token issued by the first refresh SHALL be rejected at `/mcp`
+
+#### Scenario: Recover a lost refresh response after access expiry
+
+- **GIVEN** the server rotated a refresh token, but the client did not receive or persist the response
+- **WHEN** the same client retries with the original refresh token and request identifier after the access token expires and the server restarts
+- **THEN** the response SHALL be 200 with the original replacement refresh token and a valid new access token
+
+#### Scenario: Recovery cannot revive superseded credentials
+
+- **GIVEN** the replacement refresh token has itself been rotated
+- **WHEN** the client retries the original refresh token with the original request identifier
+- **THEN** the response SHALL be 400 `invalid_grant` and the grant SHALL be revoked
 
 #### Scenario: Scope cannot widen
 

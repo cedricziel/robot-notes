@@ -163,6 +163,8 @@ Future<Response> _refresh(
     final issued = await tokenStore.rotateRefresh(
       refreshToken,
       scopes: requestedScopes,
+      requestId: form['refresh_request_id'],
+      clientId: client.clientId,
     );
     return _tokenResponse(issued);
   } on TokenNotFoundException {

@@ -53,6 +53,32 @@ void main() {
       await tester.pump();
     });
 
+    test(
+      'lost responses keep the retry identifier stable across reloads',
+      () async {
+        final requests = <String?>[];
+        final refresher = OidcSessionRefresher(
+          clientFactory: () => MockClient((request) async {
+            requests.add(
+              Uri.splitQueryString(request.body)['refresh_request_id'],
+            );
+            throw http.ClientException('response lost');
+          }),
+        );
+        await expectLater(
+          refresher.refresh(session),
+          throwsA(isA<OidcRefreshException>()),
+        );
+        await expectLater(
+          refresher.refresh(AppConfig.fromJson(session.toJson())),
+          throwsA(isA<OidcRefreshException>()),
+        );
+        expect(requests.first, matches(RegExp(r'^[a-f0-9]{64}$')));
+        expect(requests.last, requests.first);
+        expect(requests.first, isNot(session.apiKey));
+      },
+    );
+
     test('posts the refresh grant and returns the rotated session', () async {
       final mock = MockClient((request) async {
         expect(request.url.path, '/oauth/token');

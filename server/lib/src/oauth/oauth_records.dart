@@ -255,6 +255,7 @@ class OAuthToken {
     this.revokedAt,
     this.vaultIds = const {'default'},
     this.rotatedAt,
+    this.refreshRequestHash,
   });
 
   /// Parses a token record from its on-disk JSON form.
@@ -273,6 +274,7 @@ class OAuthToken {
         expiresAt: _parseUtc(json['expires_at']),
         revokedAt: _parseUtcOrNull(json['revoked_at']),
         rotatedAt: _parseUtcOrNull(json['rotated_at']),
+        refreshRequestHash: json['refresh_request_hash'] as String?,
       );
 
   /// SHA-256 hex digest of the raw token; also the file stem.
@@ -312,6 +314,9 @@ class OAuthToken {
   /// `null` for access tokens.
   final DateTime? rotatedAt;
 
+  /// Hashed retry identifier authorizing recovery of a lost refresh response.
+  final String? refreshRequestHash;
+
   /// Whether [now] falls past [expiresAt].
   bool isExpired(DateTime now) => !now.isBefore(expiresAt);
 
@@ -335,10 +340,11 @@ class OAuthToken {
         expiresAt: expiresAt,
         revokedAt: revokedAt ?? when,
         rotatedAt: rotatedAt,
+        refreshRequestHash: refreshRequestHash,
       );
 
   /// Returns a copy with [rotatedAt] applied.
-  OAuthToken rotatedCopy(DateTime when) => OAuthToken(
+  OAuthToken rotatedCopy(DateTime when, {String? requestHash}) => OAuthToken(
         tokenHash: tokenHash,
         kind: kind,
         clientId: clientId,
@@ -351,6 +357,7 @@ class OAuthToken {
         expiresAt: expiresAt,
         revokedAt: revokedAt,
         rotatedAt: when,
+        refreshRequestHash: requestHash,
       );
 
   /// JSON serialization (matches the on-disk file format).
@@ -367,5 +374,7 @@ class OAuthToken {
         'expires_at': expiresAt.toUtc().toIso8601String(),
         'revoked_at': revokedAt?.toUtc().toIso8601String(),
         'rotated_at': rotatedAt?.toUtc().toIso8601String(),
+        if (refreshRequestHash != null)
+          'refresh_request_hash': refreshRequestHash,
       };
 }

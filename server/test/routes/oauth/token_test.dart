@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_frog/dart_frog.dart';
@@ -153,6 +154,55 @@ void main() {
         actor: 'desk-assistant',
         grantId: grantId,
       );
+
+  test('lost refresh response recovers after access expiry and server restart',
+      () async {
+    final client = await registerPublic();
+    final issued = await tokenStore.issue(
+      clientId: client.client.clientId,
+      actor: 'ipad-user',
+      scopes: {'notes:read'},
+      resource: _resource,
+      grantId: 'ipad-grant',
+    );
+    final form = _formEncode({
+      'grant_type': 'refresh_token',
+      'client_id': client.client.clientId,
+      'refresh_token': issued.refreshToken!,
+      'refresh_request_id': 'persisted-retry-secret',
+    });
+    final first = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: tokenStore,
+        formBody: form,
+      ),
+    );
+    final firstBody = jsonDecode(await first.body()) as Map<String, dynamic>;
+    clock.advance(const Duration(hours: 2));
+    final restarted =
+        TokenStore(dir: Directory('${tmp.path}/tokens'), clock: clock);
+    final retry = await route.onRequest(
+      _ctx(
+        clientStore: clientStore,
+        codeStore: codeStore,
+        tokenStore: restarted,
+        formBody: form,
+      ),
+    );
+    expect(retry.statusCode, 200);
+    final retryBody = jsonDecode(await retry.body()) as Map<String, dynamic>;
+    expect(retryBody['refresh_token'], firstBody['refresh_token']);
+    expect(
+      await restarted.lookupAccess(retryBody['access_token'] as String),
+      isNotNull,
+    );
+    expect(
+      await restarted.lookupRefresh(retryBody['refresh_token'] as String),
+      isNotNull,
+    );
+  });
 
   group('grant_type=authorization_code', () {
     test('successful exchange', () async {
