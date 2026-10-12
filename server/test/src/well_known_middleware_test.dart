@@ -118,7 +118,7 @@ void main() {
       );
       expect(
         body['scopes_supported'],
-        [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes, kScopeVaultsManage],
+        [...kOAuthNoteScopes, ...kOAuthKnowledgeScopes],
       );
       expect(body.containsKey('robotnotes_oidc_login_supported'), isFalse);
     });

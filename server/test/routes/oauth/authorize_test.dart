@@ -8,6 +8,7 @@ import 'package:server/src/config.dart';
 import 'package:server/src/oauth/client_store.dart';
 import 'package:server/src/oauth/code_store.dart';
 import 'package:server/src/oauth/consent_throttle.dart';
+import 'package:server/src/oauth/metadata.dart';
 import 'package:server/src/vault_registry.dart';
 import 'package:shared/shared.dart';
 import 'package:test/test.dart';
@@ -146,6 +147,25 @@ void main() {
   });
 
   group('GET /oauth/authorize', () {
+    test('accepts every advertised scope for the MCP resource', () async {
+      final metadata = authorizationServerMetadata('http://localhost');
+      final scopes = metadata['scopes_supported']! as List<String>;
+      final res = await route.onRequest(
+        _ctx(
+          method: HttpMethod.get,
+          clientStore: clientStore,
+          codeStore: codeStore,
+          queryParameters: validQuery(
+            scope: scopes.join(' '),
+            resource: 'http://localhost/mcp',
+          ),
+        ),
+      );
+
+      expect(res.statusCode, HttpStatus.ok);
+      expect(await res.body(), contains('Desk Assistant'));
+    });
+
     test('renders the consent page for a valid request', () async {
       final res = await route.onRequest(
         _ctx(
