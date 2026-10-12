@@ -54,10 +54,10 @@ def test_failed_automatic_write_is_visible_and_recovery_is_independent(tmp_path,
     route.mock(return_value=httpx.Response(200, json={"items": []}))
     respx.post("https://notes.example.com/notes").mock(return_value=httpx.Response(201, json={"id": "01NEW"}))
     provider.on_session_end([{"role": "user", "content": "secret transcript"}])
-    assert provider.memory_health()["transcript"] == {"state": "succeeded"}
+    assert provider.memory_health()["transcript"] == {"state": "succeeded", "source_unknown": True}
     assert provider.memory_health()["mirror"]["state"] == "failed"
     provider.on_memory_write("add", "memory", "secret memory")
-    assert provider.memory_health()["mirror"] == {"state": "succeeded"}
+    assert provider.memory_health()["mirror"] == {"state": "succeeded", "source_unknown": True}
 
 
 @respx.mock
@@ -150,3 +150,11 @@ def test_health_inspection_needs_no_server_request(tmp_path, monkeypatch):
     assert result["mirror"] == {"state": "not_attempted"}
     assert result["recall"] == {"state": "not_attempted"}
     assert len(respx.calls) == 0
+
+
+def test_health_never_copies_a_non_boolean_source_flag_into_content_free_status():
+    from robot_notes.health import MemoryHealth
+    health = MemoryHealth()
+    generation = health.begin('mirror')
+    health.finish('mirror', generation, 'pending_review', source_unknown='private source text')
+    assert 'private source text' not in json.dumps(health.snapshot())

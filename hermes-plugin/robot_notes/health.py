@@ -15,10 +15,11 @@ class MemoryHealth:
             self._states[operation] = {"state": "in_progress"}
             return self._generations[operation]
 
-    def finish(self, operation: str, generation: int, state: str, reason: str | None = None) -> None:
+    def finish(self, operation: str, generation: int, state: str, reason: str | None = None, *, source_unknown: bool | None = None) -> None:
         with self._lock:
             if generation == self._generations[operation]:
-                self._states[operation] = {"state": state, **({"reason": reason} if reason else {})}
+                self._states[operation] = {"state": state, **({"reason": reason} if reason else {}),
+                                           **({"source_unknown": source_unknown} if type(source_unknown) is bool else {})}
 
     def snapshot(self) -> dict:
         with self._lock:

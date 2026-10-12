@@ -80,6 +80,7 @@ def _signature_shape(fn: Any) -> list:
     return_annotation = sig.return_annotation
     if isinstance(return_annotation, str):
         return_annotation = "".join(return_annotation.split())
+        return_annotation = return_annotation.replace("List[", "list[").replace("Dict[", "dict[")
     shape.append(("return", return_annotation))
     return shape
 

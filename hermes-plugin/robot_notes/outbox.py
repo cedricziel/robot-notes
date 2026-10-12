@@ -74,7 +74,7 @@ class Outbox:
                 db.execute('INSERT INTO pending_keys VALUES (?, ?)', (idempotency_key, inserted.lastrowid))
             db.commit()
 
-    def deliver_one(self, deliver: Callable[[dict], None], classify=None, prepare=None) -> bool:
+    def deliver_one(self, deliver: Callable[[dict], None], classify=None, prepare=None, upgrade=None) -> bool:
         """Deliver one operation; a separate process-safe lock permits concurrent enqueue."""
         with closing(sqlite3.connect(self.delivery_path, timeout=0)) as worker:
             try:
@@ -92,8 +92,10 @@ class Outbox:
                     return False
                 operation = json.loads(row[1])
                 try:
-                    if prepare and "prepared" not in operation:
-                        operation = prepare(operation)
+                    unprepared = prepare and "prepared" not in operation
+                    candidate = prepare(operation) if unprepared else (upgrade(operation) if upgrade else operation)
+                    if unprepared or candidate != operation:
+                        operation = candidate
                         payload = json.dumps(operation, ensure_ascii=False, separators=(',', ':'))
                         db.execute('BEGIN IMMEDIATE')
                         size = db.execute('SELECT COALESCE(SUM(LENGTH(CAST(payload AS BLOB))), 0) FROM operations WHERE id != ?', (row[0],)).fetchone()[0]

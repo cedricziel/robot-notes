@@ -13,7 +13,7 @@ in one session by default.
 
 At the original inventory date, the server registered 19 MCP tools and the
 provider exposed six native note tools. The current provider also has local
-health inspection and exact evidence inspection, for eight native tools. Seven database tools and six other tools are missing for
+health inspection, exact evidence inspection, and readonly proposal list/detail inspection, for ten native tools. Seven database tools and six other tools are missing for
 literal MCP parity. There are also REST-only workspace capabilities.
 
 ## Existing tools: retain and extend
@@ -23,6 +23,8 @@ literal MCP parity. There are also REST-only workspace capabilities.
 | `robotnotes_search` | `search_notes` | Add `tag`; retain query/path/limit; describe server-configured hybrid search accurately. |
 | `robotnotes_list` | `list_notes` | Add `tag`, `title`, and `sort` (`id`, `updated_desc`); preserve cursor pagination. |
 | `robotnotes_note` | `get_note` | Already returns the raw note response, including properties/type when supplied by the server; document that it can read rows and definitions. |
+| `robotnotes_proposals` | `list_note_proposals` | Readonly metadata list with explicit terminal audit inclusion. |
+| `robotnotes_proposal` | `get_note_proposal` | Readonly candidate, comment, revision and state inspection; pending data never enters automatic recall. |
 | `robotnotes_remember` | `create_note` | Add optional `properties`; teach agents to use create-row for database membership and schema validation. Keep search-before-create guidance. |
 | `robotnotes_append` | `append_to_note` | Retain atomic append and the old-server fallback; test property preservation. |
 | `robotnotes_forget` | `delete_note` | Rows and definitions are notes. Deletion requires server credential authorization and is not restricted by the creating actor. |
@@ -135,7 +137,7 @@ it is unsuitable for writable scheduled workflows unless that policy is changed.
 Only one external Hermes memory provider can be active. Using robot-notes purely
 as MCP tools leaves that provider slot available for another backend. Native
 lifecycle integration can coexist with MCP operations using `native_tools: false`
-in `robot_notes.json`; all eight native schemas are hidden and direct dispatch is
+in `robot_notes.json`; all ten native schemas are hidden and direct dispatch is
 rejected while the lifecycle hooks remain active.
 
 ## Delivery options and order
