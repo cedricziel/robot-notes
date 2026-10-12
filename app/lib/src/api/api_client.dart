@@ -704,6 +704,7 @@ class RobotNotesClient {
               'proposal_',
               'policy_',
               'comment_',
+              'comments_',
               'record_',
             ].any(code.startsWith)) {
           return KnowledgeConflictException(
