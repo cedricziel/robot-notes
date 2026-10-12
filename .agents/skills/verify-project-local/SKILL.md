@@ -13,9 +13,15 @@ Run from the repository root. Resolve workspace dependencies and build the curre
 
 Use a clean child environment with only the required runtime variables such as `PATH`, `HOME`, and `TERM`, plus explicit `ROBOT_NOTES_API_KEY`, `ROBOT_NOTES_DATA_DIR`, `ROBOT_NOTES_PORT`, `ROBOT_NOTES_PUBLIC_URL`, and an absolute `ROBOT_NOTES_WEB_DIR` pointing to `app/build/web`. Do not inherit production authentication, embedding, or telemetry settings. Keep the process handle and temporary directory path for cleanup. Confirm `/healthz` succeeds before opening the app; a dev-server startup banner alone does not prove the service is listening.
 
+When parallel workers are editing server sources, use a standalone snapshot instead of the development watcher. Run `dart_frog build` from `server`, change the generated `build/bin/server.dart` address to `InternetAddress.loopbackIPv4`, and run `dart build/bin/server.dart` with the isolated environment and `PORT` set to the chosen HTTP port. This avoids hot reload calling the server configuration initializer twice. Rebuild the snapshot after relevant server changes before claiming final integration coverage.
+
 Open that URL in a fresh agent-owned browser tab. Use the real setup flow with the disposable key and a test display name to connect. HTTP is permitted only for exact loopback hosts; remote URLs still require HTTPS. Do not use a production server or existing user notes/configuration. Native apps can also connect to this instance; use a simulator or isolated test app profile rather than replacing the user's saved desktop connection.
 
 Seed a small note/folder through the local API if helpful (`POST /notes` with bearer key, JSON title/path/content, X-Actor). Then perform a real app write: open or create a note, edit and save it, reload/reopen, and confirm the persisted content through the server API. Exercise affected navigation, search, settings, or other controls. Confirm live connectivity rather than merely rendering the landing screen.
+
+Run Flutter widget tests from `app/` (for example, `cd app && flutter test test/src/notes/note_screen_test.dart`). Running them from the workspace root can omit the app package’s shader assets and produce misleading missing-asset failures.
+
+For Flutter web forms, use fresh DOM labels and Playwright locators when accessibility-index actions fail on shadow roots. Confirm saved values through the server API; changing visible input text alone does not prove the Flutter controller received the change. If a fill changes only the displayed text, focus the field, select all, and enter text through keyboard events before saving.
 
 ## Responsive and platform checks
 

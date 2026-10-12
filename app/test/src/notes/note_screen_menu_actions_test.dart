@@ -42,6 +42,16 @@ RobotNotesClient _api(List<String> calls) => RobotNotesClient(
   config: _config,
   httpClient: MockClient((request) async {
     calls.add('${request.method} ${request.url.path}');
+    if (request.method == 'GET' &&
+        request.url.path == '/notes/01H/permissions') {
+      return http.Response(
+        jsonEncode({
+          'curated': false,
+          'allowed_actions': ['read', 'edit'],
+        }),
+        200,
+      );
+    }
     if (request.method == 'GET' && request.url.path == '/notes/01H') {
       return http.Response(jsonEncode(_noteJson()), 200);
     }

@@ -14,6 +14,7 @@ import '../desktop/app_menu_actions.dart';
 import '../desktop/app_menu_bar.dart';
 import '../format/note_time.dart';
 import '../layout/breakpoints.dart';
+import '../knowledge/knowledge_review_screen.dart';
 import '../realtime/ws_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/adaptive.dart';
@@ -213,7 +214,44 @@ class _NoteScreenState extends State<NoteScreen> {
     _linkAutocomplete.close();
   }
 
+  Map<String, dynamic>? _knowledgePermissions;
+
   Future<void> _edit() async {
+    final note = widget.controller.value.note;
+    if (note != null) {
+      try {
+        final permissions = await widget.controller.api.getKnowledgePermissions(
+          note.id,
+        );
+        if (!mounted) return;
+        if (permissions['curated'] == true &&
+            !(permissions['allowed_actions'] as List? ?? []).contains('edit')) {
+          await Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) => KnowledgeReviewScreen(
+                api: widget.controller.api,
+                note: note,
+                onAcceptedChange: widget.controller.reload,
+              ),
+            ),
+          );
+          return;
+        }
+      } on NotFoundException {
+        // Older servers expose ordinary notes without knowledge policies.
+      } on ApiException catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                error.message ?? 'Editing permission could not be checked.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+    }
     await widget.controller.enterEditMode();
     _announceOutcome(failed: 'Could not start editing');
   }
@@ -285,6 +323,17 @@ class _NoteScreenState extends State<NoteScreen> {
   Future<void> _open() async {
     if (!mounted) return;
     await widget.controller.open();
+    final note = widget.controller.value.note;
+    if (mounted && note != null) {
+      try {
+        final permissions = await widget.controller.api.getKnowledgePermissions(
+          note.id,
+        );
+        if (mounted) setState(() => _knowledgePermissions = permissions);
+      } on ApiException {
+        // Fresh permissions are checked again before entering the editor.
+      }
+    }
     if (!mounted ||
         widget.controller.value.mode != NoteMode.viewing ||
         widget.controller.value.note == null) {
@@ -616,6 +665,12 @@ class _NoteScreenState extends State<NoteScreen> {
     final theme = Theme.of(context);
     final roomy = Breakpoints.of(context) >= WindowSizeClass.medium;
     final viewing = state.mode == NoteMode.viewing && note != null;
+    final editLabel =
+        _knowledgePermissions?['curated'] == true &&
+            !(_knowledgePermissions?['allowed_actions'] as List? ?? [])
+                .contains('edit')
+        ? 'Propose update'
+        : 'Edit';
     final (
       IconData leadingIcon,
       String leadingTooltip,
@@ -654,6 +709,20 @@ class _NoteScreenState extends State<NoteScreen> {
             ),
           ),
           actions: [
+            if (viewing)
+              IconButton(
+                tooltip: 'Review knowledge',
+                icon: const Icon(Icons.fact_check_outlined),
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) => KnowledgeReviewScreen(
+                      api: widget.controller.api,
+                      note: note,
+                      onAcceptedChange: widget.controller.reload,
+                    ),
+                  ),
+                ),
+              ),
             if (state.viewers.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -669,19 +738,19 @@ class _NoteScreenState extends State<NoteScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   child: Tooltip(
-                    message: 'Edit',
+                    message: editLabel,
                     child: OutlinedButton.icon(
                       key: const Key('note.edit'),
                       onPressed: _edit,
                       icon: const Icon(Icons.edit_outlined, size: 16),
-                      label: const Text('Edit'),
+                      label: Text(editLabel),
                     ),
                   ),
                 )
               else
                 IconButton(
                   key: const Key('note.edit'),
-                  tooltip: 'Edit',
+                  tooltip: editLabel,
                   icon: const Icon(Icons.edit_outlined),
                   onPressed: _edit,
                 ),

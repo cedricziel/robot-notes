@@ -74,3 +74,13 @@ class PayloadTooLargeException extends ApiException {
 class ApiServerException extends ApiException {
   const ApiServerException({required super.statusCode, super.message});
 }
+
+class ForbiddenException extends ApiException {
+  const ForbiddenException({super.message}) : super(statusCode: 403);
+}
+
+class KnowledgeConflictException extends ApiException {
+  const KnowledgeConflictException({required this.details, super.message})
+    : super(statusCode: 409);
+  final Map<String, dynamic> details;
+}

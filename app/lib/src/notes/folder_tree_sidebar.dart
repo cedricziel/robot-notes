@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:shared/shared.dart';
 
 import '../widgets/adaptive.dart';
+import '../knowledge/knowledge_proposals_screen.dart';
 import 'folder_tree_controller.dart';
 
 /// Sidebar (or drawer, on narrow screens) presenting the vault as an
@@ -106,6 +107,22 @@ class _FolderTreeSidebarState extends State<FolderTreeSidebar> {
                       title: 'All notes',
                       selected: widget.selectedPath == null,
                       onTap: () => widget.onSelect(null),
+                    ),
+                    _SidebarRow(
+                      tileKey: const Key('sidebar.proposals'),
+                      icon: Icons.fact_check_outlined,
+                      title: 'Knowledge proposals',
+                      selected: false,
+                      onTap: () {
+                        Scaffold.maybeOf(context)?.closeDrawer();
+                        Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => KnowledgeProposalsScreen(
+                              api: widget.controller.api,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                     if (state.rootNoteCount != null)
                       _SidebarRow(

@@ -50,6 +50,15 @@ Map<String, Object?> _lockJson({
   String expiresAt = '2025-01-01T00:01:00.000Z',
 }) => <String, Object?>{'holder': holder, 'expires_at': expiresAt};
 
+MockClient _noteMockClient(
+  Future<http.Response> Function(http.Request) handler,
+) => MockClient((request) async {
+  if (request.url.path.endsWith('/permissions')) {
+    return http.Response('{"error":"not_found"}', 404);
+  }
+  return handler(request);
+});
+
 const _titleField = Key('note.editor.title');
 const _contentField = Key('note.editor.content');
 const _conflictTitleField = Key('note.conflict.title');
@@ -83,7 +92,7 @@ Future<NoteController> _pumpEditor(
   bool startEditing = false,
   bool sourceMode = true,
 }) async {
-  final mock = MockClient((request) async {
+  final mock = _noteMockClient((request) async {
     if (request.method == 'GET' && request.url.path == '/notes/01H') {
       return http.Response(jsonEncode(_noteJson()), 200);
     }
@@ -206,7 +215,7 @@ Future<void> _pumpViewer(
   NotePresentation presentation = NotePresentation.page,
 }) async {
   var lockAttempts = 0;
-  final mock = MockClient((request) async {
+  final mock = _noteMockClient((request) async {
     if (request.method == 'GET' && request.url.path == '/notes/01H/backlinks') {
       return http.Response(
         jsonEncode(<String, Object?>{'items': backlinksItems ?? <Object?>[]}),
@@ -643,7 +652,7 @@ void main() {
       (tester) async {
         var propertiesPatched = 0;
         http.Request? lastPut;
-        final mock = MockClient((request) async {
+        final mock = _noteMockClient((request) async {
           if (request.method == 'GET' && request.url.path == '/notes/01H') {
             return http.Response(
               jsonEncode(<String, Object?>{
@@ -731,7 +740,7 @@ void main() {
     testWidgets(
       'a resolvable embed renders in Blocks and preserves its source',
       (tester) async {
-        final mock = MockClient((request) async {
+        final mock = _noteMockClient((request) async {
           if (request.method == 'GET' && request.url.path == '/notes/01H') {
             return http.Response(
               jsonEncode(_noteJson(content: '![[Projects]]')),
@@ -992,7 +1001,7 @@ void main() {
   });
 
   testWidgets('tapping close in viewing mode calls onClose', (tester) async {
-    final mock = MockClient((request) async {
+    final mock = _noteMockClient((request) async {
       if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
         return http.Response(
           jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
@@ -1033,7 +1042,7 @@ void main() {
     /// [onPut] answers `PUT /notes/01H` when supplied; otherwise the mock
     /// returns 500 for it.
     NoteController controller({http.Response Function(http.Request)? onPut}) {
-      final mock = MockClient((request) async {
+      final mock = _noteMockClient((request) async {
         final path = request.url.path;
         if (request.method == 'GET' && path == '/notes/01H') {
           return http.Response(jsonEncode(_noteJson()), 200);
@@ -1320,7 +1329,7 @@ void main() {
       tester,
     ) async {
       var putCalls = 0;
-      final mock = MockClient((request) async {
+      final mock = _noteMockClient((request) async {
         if (request.method == 'PUT') putCalls += 1;
         if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
           return http.Response(
@@ -1369,7 +1378,7 @@ void main() {
 
       var putsForA = 0;
       var putsForB = 0;
-      final mock = MockClient((request) async {
+      final mock = _noteMockClient((request) async {
         final path = request.url.path;
         if (request.method == 'GET' &&
             (path == '/notes/01A' || path == '/notes/01B')) {
@@ -1526,7 +1535,7 @@ void main() {
 
       testWidgets('shows "Saving…" while a save is in flight', (tester) async {
         final saveGate = Completer<http.Response>();
-        final mock = MockClient((request) async {
+        final mock = _noteMockClient((request) async {
           if (request.method == 'GET' && request.url.path == '/notes/01H') {
             return http.Response(jsonEncode(_noteJson()), 200);
           }
@@ -1614,7 +1623,7 @@ void main() {
     testWidgets('a failed load replaces the spinner with the server message', (
       tester,
     ) async {
-      final mock = MockClient((request) async {
+      final mock = _noteMockClient((request) async {
         return http.Response(jsonEncode({'message': 'down'}), 500);
       });
       final ctrl = NoteController(
@@ -1715,7 +1724,7 @@ void main() {
   testWidgets('presence indicator shows names for three or fewer viewers', (
     tester,
   ) async {
-    final mock = MockClient((request) async {
+    final mock = _noteMockClient((request) async {
       if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
         return http.Response(
           jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
@@ -1769,7 +1778,7 @@ void main() {
     tester,
   ) async {
     final handle = tester.ensureSemantics();
-    final mock = MockClient((request) async {
+    final mock = _noteMockClient((request) async {
       if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
         return http.Response(
           jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
@@ -1805,7 +1814,7 @@ void main() {
   testWidgets(
     'presence indicator shows a count with a tooltip beyond three viewers',
     (tester) async {
-      final mock = MockClient((request) async {
+      final mock = _noteMockClient((request) async {
         if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
           return http.Response(
             jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
@@ -1866,7 +1875,7 @@ void main() {
   testWidgets('lock event from another holder shows an info banner', (
     tester,
   ) async {
-    final mock = MockClient((request) async {
+    final mock = _noteMockClient((request) async {
       if (request.method == 'POST' && request.url.path.endsWith('/lock')) {
         return http.Response(
           jsonEncode({'error': 'locked', 'lock': _lockJson(holder: 'alice')}),
@@ -1911,7 +1920,7 @@ void main() {
   testWidgets('losing the lock mid-edit shows a warning strip', (tester) async {
     final events = StreamController<RealtimeEvent>.broadcast();
     addTearDown(events.close);
-    final mock = MockClient((request) async {
+    final mock = _noteMockClient((request) async {
       if (request.method == 'POST' && request.url.path == '/notes/01H/lock') {
         return http.Response(jsonEncode(_lockJson()), 200);
       }
@@ -1973,7 +1982,7 @@ void main() {
       bool reducedMotion = false,
     }) async {
       final calls = <String>[];
-      final mock = MockClient((request) async {
+      final mock = _noteMockClient((request) async {
         calls.add('${request.method} ${request.url.path}');
         if (request.method == 'GET' && request.url.path == '/notes/01H') {
           return http.Response(jsonEncode(_noteJson()), 200);
@@ -2336,7 +2345,7 @@ void main() {
     ) async {
       final calls = <String>[];
       var gets = 0;
-      final mock = MockClient((request) async {
+      final mock = _noteMockClient((request) async {
         calls.add('${request.method} ${request.url.path}');
         if (request.method == 'GET' && request.url.path == '/notes/01H') {
           final i = gets < responses.length ? gets : responses.length - 1;
@@ -2447,7 +2456,7 @@ void main() {
       bool reducedMotion = false,
     }) async {
       final calls = <String>[];
-      final mock = MockClient((request) async {
+      final mock = _noteMockClient((request) async {
         calls.add('${request.method} ${request.url.path}');
         if (request.method == 'GET' && request.url.path == '/notes/01H') {
           return http.Response(jsonEncode(_noteJson()), 200);
