@@ -381,6 +381,9 @@ class ProposalService {
 
   Future<KnowledgeTarget> _recordTarget(ProposalRecord record) async {
     final candidate = record.current.candidate;
+    if (candidate['kind'] == 'typed_knowledge') {
+      throw NoteNotFoundException(record.noteId);
+    }
     if (candidate['new_note'] == true && record.state != 'accepted') {
       return KnowledgeTarget.folder(candidate['path'] as String);
     }
@@ -588,6 +591,7 @@ class ProposalService {
         }
         final items = <Map<String, dynamic>>[];
         for (final record in await storage.proposalRecords(noteId: noteId)) {
+          if (record.current.candidate['kind'] == 'typed_knowledge') continue;
           if ((state != null && record.state != state) ||
               (state == null &&
                   !includeTerminal &&
