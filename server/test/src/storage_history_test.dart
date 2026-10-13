@@ -14,6 +14,32 @@ void main() {
   });
   tearDown(() => dir.deleteSync(recursive: true));
 
+  test('latest accepted revision skips old contents and retains tombstones',
+      () async {
+    final note = await storage.create(
+      title: 'Latest',
+      content: 'first',
+      properties: {'history': true},
+    );
+    await storage.update(
+      id: note.id,
+      title: 'Latest',
+      content: 'next',
+      ifMatch: 1,
+    );
+    final history = Directory(
+      '${storage.contentDir.path}.history/${base64Url.encode(utf8.encode(note.id))}',
+    );
+    await File('${history.path}/1.json')
+        .writeAsString('unreadable old content');
+    final latest = await storage.latestRevision(note.id);
+    expect(latest!['version'], 2);
+    expect(latest['markdown'], contains('next'));
+    await storage.delete(note.id);
+    expect((await storage.latestRevision(note.id))!['deleted'], isTrue);
+    expect(await storage.latestRevision('missing'), isNull);
+  });
+
   test('index acknowledgement keeps another pending note revision dirty',
       () async {
     final first = await storage.create(

@@ -689,9 +689,9 @@ class KnowledgeExtractionWorker {
       jobs.finish(
         id,
         owner,
-        const {'scope_disabled', 'worker_stopped'}.contains(error.code)
+        error.code == 'scope_disabled'
             ? 'cancelled'
-            : retry
+            : error.code == 'worker_stopped' || retry
                 ? 'retry_wait'
                 : 'blocked',
         diagnostic: error.code,
@@ -714,8 +714,8 @@ class KnowledgeExtractionWorker {
     _closing = true;
     _timer?.cancel();
     _timer = null;
-    extractor.close();
     await _running;
+    extractor.close();
     sources.onObservation = null;
     sources.onScopeChanged = null;
     sources.onPurge = null;
