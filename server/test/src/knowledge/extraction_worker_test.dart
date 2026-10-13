@@ -18,6 +18,7 @@ import 'type_definition_test.dart' show definition;
 
 class FixtureExtractor implements KnowledgeExtractor {
   Future<void> Function()? beforeReturn;
+  List<Map<String, Object?>> Function(KnowledgeExtractionInput)? findings;
   int calls = 0;
   @override
   String get fingerprint => 'fixture-v1';
@@ -27,20 +28,21 @@ class FixtureExtractor implements KnowledgeExtractor {
   ) async {
     calls++;
     await beforeReturn?.call();
-    return [
-      {
-        'dispositions': ['new'],
-        'reason': 'Durable fixture claim',
-        'title': 'Scoped credentials',
-        'statement': input.text,
-        'source_quote': input.text,
-        'locator': {
-          'kind': 'text_range',
-          'start': input.start,
-          'end': input.end,
-        },
-      }
-    ];
+    return findings?.call(input) ??
+        [
+          {
+            'dispositions': ['new'],
+            'reason': 'Durable fixture claim',
+            'title': 'Scoped credentials',
+            'statement': input.text,
+            'source_quote': input.text,
+            'locator': {
+              'kind': 'text_range',
+              'start': input.start,
+              'end': input.end,
+            },
+          }
+        ];
   }
 
   @override
@@ -150,13 +152,14 @@ void main() {
     String event,
     String kind, {
     String conversation = 'conversation-1',
+    String text = 'Agent credentials require scoped permissions.',
   }) =>
       withKnowledgePrincipal(const KnowledgePrincipal.operator(), () async {
         await sources.ingest(
           adapter: 'hermes',
           eventId: event,
           scopeId: 'scope',
-          bytes: utf8.encode('Agent credentials require scoped permissions.'),
+          bytes: utf8.encode(text),
           mediaType: 'text/plain',
           automatic: true,
           observationKind: kind,
@@ -356,5 +359,53 @@ void main() {
     await worker.runOnce();
     expect(jobs.summaries().single['state'], 'cancelled');
     expect(await storage.proposalRecords(), isEmpty);
+  });
+
+  test('distinct entities sharing properties are not collapsed as duplicates',
+      () async {
+    await withKnowledgePrincipal(const KnowledgePrincipal.operator(), () async {
+      await proposals.types.accept(
+        {
+          'project.md': serializeFrontmatter(
+            Frontmatter(
+              metadata: {
+                'knowledge': definition(
+                  'urn:robot-notes:type:Project',
+                  properties: {
+                    'summary': {'value_type': 'text', 'required': true},
+                  },
+                ),
+              },
+              body: 'Projects',
+            ),
+          ),
+        },
+        expectedGeneration: 1,
+      );
+    });
+    extractor.findings = (input) => [
+          for (final title in ['Project Alpha', 'Project Beta'])
+            {
+              'dispositions': ['new'],
+              'reason': 'Distinct sourced project identity',
+              'title': title,
+              'type_id': 'urn:robot-notes:type:Project',
+              'statement': input.text,
+              'properties': {'summary': 'Shared tooling'},
+              'source_quote': input.text,
+              'locator': {
+                'kind': 'text_range',
+                'start': input.start,
+                'end': input.end,
+              },
+            },
+        ];
+    await observe(
+      'projects',
+      'session_end',
+      text: 'Project Alpha and Project Beta have the summary Shared tooling.',
+    );
+    await worker.runOnce();
+    expect(await storage.proposalRecords(), hasLength(2));
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:server/src/frontmatter.dart';
@@ -246,6 +247,142 @@ void main() {
         KnowledgePrincipal.agent(
           credentialId: 'reader',
           scopes: {'notes:read', 'knowledge:propose'},
+        ),
+        () => proposals.inspect(noteId, proposalId),
+      ),
+      throwsA(isA<KnowledgeAccessDeniedException>()),
+    );
+  });
+
+  test('typed updates cannot adopt unreviewed canonical content implicitly',
+      () async {
+    await withKnowledgePrincipal(const KnowledgePrincipal.operator(), () async {
+      final draft = await proposals.propose(operations, idempotencyKey: 'base');
+      await proposals.accept(draft.noteId, draft.id, expectedRecordRevision: 1);
+      final note = await storage.read((await storage.list()).first.id);
+      final file = File(
+        '${storage.contentDir.path}/${note.path}/${note.title}.md',
+      );
+      final accepted = parseFrontmatter(await file.readAsString());
+      await file.writeAsString(
+        serializeFrontmatter(
+          Frontmatter(
+            metadata: accepted.metadata,
+            body: 'Unreviewed external assertion.',
+          ),
+        ),
+      );
+      await expectLater(
+        proposals.propose(
+          [
+            {
+              'kind': 'update',
+              'id': note.id,
+              'expected_revision': note.version,
+              'properties': {'name': 'Updated name'},
+            },
+          ],
+          idempotencyKey: 'external',
+        ),
+        throwsA(isA<Exception>()),
+      );
+      expect(await storage.proposalRecords(), hasLength(1));
+    });
+  });
+
+  test('pending evidence excerpts retain the originating source scope',
+      () async {
+    late String noteId;
+    late String proposalId;
+    await withKnowledgePrincipal(const KnowledgePrincipal.operator(), () async {
+      await types.accept(
+        {
+          'evidence.md': serializeFrontmatter(
+            Frontmatter(
+              metadata: {
+                'knowledge': definition('urn:robot-notes:type:Evidence'),
+              },
+              body: 'Evidence',
+            ),
+          ),
+        },
+        expectedGeneration: 1,
+      );
+      await sources.configureScope(
+        'private',
+        captureAdapters: {'upload'},
+        principals: {'operator'},
+      );
+      final source = await sources.ingest(
+        adapter: 'upload',
+        eventId: 'private-source',
+        scopeId: 'private',
+        bytes: utf8.encode('Sensitive internal fact.'),
+        mediaType: 'text/plain',
+      );
+      final draft = await proposals.propose(
+        [
+          {
+            'kind': 'create',
+            'local_ref': 'evidence',
+            'title': 'Pending private excerpt',
+            'content': 'Sensitive internal fact.',
+            'types': [
+              {'id': 'urn:robot-notes:type:Evidence', 'version': 1},
+            ],
+            'evidence': {
+              'source_id': source.id,
+              'source_revision': source.revision,
+              'locator': {'kind': 'whole_document'},
+            },
+          },
+        ],
+        idempotencyKey: 'private-evidence',
+      );
+      noteId = draft.noteId;
+      proposalId = draft.id;
+    });
+    await expectLater(
+      withKnowledgePrincipal(
+        KnowledgePrincipal.agent(
+          credentialId: 'reader',
+          scopes: {'notes:read'},
+        ),
+        () => proposals.inspect(noteId, proposalId),
+      ),
+      throwsA(isA<KnowledgeAccessDeniedException>()),
+    );
+  });
+  test('private comparison context remains private before human publication',
+      () async {
+    late String noteId;
+    late String proposalId;
+    await withKnowledgePrincipal(const KnowledgePrincipal.operator(), () async {
+      final context = await storage.create(
+        title: 'Private context',
+        content: 'Private hints.',
+        path: 'private',
+      );
+      await authorization.putFolderPolicy(
+        const KnowledgePrincipal.operator(),
+        'private',
+        KnowledgePolicyPatch(access: {KnowledgeAction.read: {}}),
+      );
+      final draft = await proposals.propose(
+        operations,
+        idempotencyKey: 'context',
+        contextPaths: {
+          context.id: ['private'],
+        },
+      );
+      noteId = draft.noteId;
+      proposalId = draft.id;
+    });
+    await expectLater(
+      withKnowledgePrincipal(
+        KnowledgePrincipal.agent(
+          credentialId: 'reader',
+          scopes: {'notes:read'},
         ),
         () => proposals.inspect(noteId, proposalId),
       ),

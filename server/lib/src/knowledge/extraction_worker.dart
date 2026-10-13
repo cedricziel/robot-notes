@@ -197,6 +197,10 @@ class KnowledgeExtractionWorker {
           }
           try {
             final inspected = await proposals.inspect(record.noteId, record.id);
+            await withKnowledgePrincipal(
+              _worker,
+              () => proposals.inspect(record.noteId, record.id),
+            );
             result.add({
               'proposal_id': record.id,
               'state': record.state,
@@ -213,9 +217,27 @@ class KnowledgeExtractionWorker {
   Future<List<Map<String, Object?>>> _accepted(KnowledgePrincipal origin) =>
       withKnowledgePrincipal(
         origin,
-        () async =>
-            ((await queries.query({'limit': 200}))['items']! as List<Object?>)
-                .cast<Map<String, Object?>>(),
+        () async {
+          final entries =
+              ((await queries.query({'limit': 200}))['items']! as List<Object?>)
+                  .cast<Map<String, Object?>>();
+          final result = <Map<String, Object?>>[];
+          for (final entry in entries) {
+            final note = await proposals.storage.read(entry['id']! as String);
+            try {
+              proposals.authorization.requireHistoricalRead(
+                _worker,
+                note.id,
+                entry['path']! as String,
+                note.path,
+              );
+              result.add(entry);
+            } on KnowledgeAccessDeniedException {
+              continue;
+            }
+          }
+          return result;
+        },
       );
 
   bool _groundedValues(Object? value, String passage) {
@@ -332,10 +354,13 @@ class KnowledgeExtractionWorker {
       properties['statement'] = statement;
     }
     final targetId = finding['target_id'] as String?;
+    final title = finding['title'] as String? ?? '';
     bool unchanged(Map<String, Object?> entry) {
       final assigned = entry['types'] as List<Object?>? ?? const [];
       final existing = entry['properties'] as Map<String, Object?>? ?? const {};
       return assigned.any((type) => (type! as Map)['id'] == typeId) &&
+          (entry['title'] as String? ?? '').trim().toLowerCase() ==
+              title.trim().toLowerCase() &&
           properties.isNotEmpty &&
           properties.entries.every(
             (entry) =>
@@ -366,11 +391,15 @@ class KnowledgeExtractionWorker {
     if (targetId != null && targets.length != 1) {
       throw const KnowledgeExtractionFailure('target_unavailable');
     }
-    final title = finding['title'] as String? ?? '';
     if (title.trim().isEmpty || title.length > 256 || statement.length > 4096) {
       throw const KnowledgeExtractionFailure('candidate_limit');
     }
-    final fingerprint = _hash([typeId, targetId, properties]);
+    final fingerprint = _hash([
+      typeId,
+      targetId,
+      title.trim().toLowerCase(),
+      properties,
+    ]);
     final namespace = _hash([
       source.scopeId,
       source.principalId,
@@ -385,10 +414,11 @@ class KnowledgeExtractionWorker {
         'reason': 'Unchanged finding already proposed.',
       };
     }
-    final relations = Map<String, Object?>.from(
-      finding['relations'] as Map<String, Object?>? ?? {},
-    );
     final previous = targets.isEmpty ? null : targets.single;
+    final relations = <String, Object?>{
+      ...?previous?['relations'] as Map<String, Object?>?,
+      ...?finding['relations'] as Map<String, Object?>?,
+    };
     if (const {
       'urn:robot-notes:type:Claim',
       'urn:robot-notes:type:Decision',
@@ -443,6 +473,17 @@ class KnowledgeExtractionWorker {
       'namespace': namespace,
       'fingerprint': fingerprint,
       'reason': finding['reason'],
+      'context_paths': {
+        for (final entry in accepted) entry['id']! as String: [entry['path']],
+        for (final proposal in ongoing)
+          ...?((proposal['candidate']! as Map<String, Object?>)['read_paths']
+              as Map<String, Object?>?),
+      },
+      'context_scopes': {
+        for (final proposal in ongoing)
+          ...?((proposal['candidate']! as Map<String, Object?>)['read_scopes']
+              as List<Object?>?),
+      }.toList(),
       'metadata': {
         'dispositions': dispositions,
         'reason': finding['reason'],
@@ -582,6 +623,14 @@ class KnowledgeExtractionWorker {
                 idempotencyKey: 'extraction:$id:$sourceIndex:'
                     '${checkpoint['offset']}:$index',
                 metadata: candidate['metadata']! as Map<String, Object?>,
+                contextPaths: {
+                  for (final entry
+                      in (candidate['context_paths']! as Map<String, Object?>)
+                          .entries)
+                    entry.key: (entry.value! as List<Object?>).cast<String>(),
+                },
+                contextScopes: (candidate['context_scopes']! as List<Object?>)
+                    .cast<String>(),
               );
               final receipt = {
                 'proposal_id': proposal.id,
