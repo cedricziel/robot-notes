@@ -7,6 +7,7 @@ import 'package:server/src/databases/definition.dart';
 import 'package:server/src/databases/query.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/databases/validation.dart';
+import 'package:server/src/knowledge/adapters.dart';
 import 'package:server/src/knowledge_identity.dart';
 import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/knowledge_reads.dart';
@@ -278,6 +279,7 @@ class McpToolRegistry {
   }) =>
       McpToolRegistry([
         ...proposalMcpTools(deps.proposals),
+        if (deps.knowledgeEnabled) ...knowledgeMcpTools(deps.knowledge),
         ...[
           _getNotePermissionsTool(deps.noteWriteService),
           _listNotesTool(deps.metaIndex, deps.knowledgeReads),

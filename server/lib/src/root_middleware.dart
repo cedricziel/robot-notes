@@ -9,6 +9,7 @@ import 'package:server/src/config.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/evidence_store.dart';
 import 'package:server/src/invite_store.dart';
+import 'package:server/src/knowledge/runtime.dart';
 import 'package:server/src/knowledge_middleware.dart';
 import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/knowledge_reads.dart';
@@ -80,6 +81,7 @@ Handler applyRootMiddleware(
       .use(provider<KnowledgePolicyStore>((_) => deps.authorization.store))
       .use(provider<NoteWriteService>((_) => deps.noteWriteService))
       .use(provider<DatabaseRegistry>((_) => deps.registry))
+      .use(provider<KnowledgeRuntime>((_) => deps.knowledge))
       .use(provider<Storage>((_) => deps.storage))
       .use(provider<ProposalService>((_) => deps.proposals))
       .use(provider<EvidenceStore>((_) => deps.evidenceStore))

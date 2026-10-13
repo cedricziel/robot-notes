@@ -10,6 +10,8 @@ import 'package:server/src/databases/registry.dart';
 import 'package:server/src/embeddings/embedding_provider_factory.dart';
 import 'package:server/src/evidence_store.dart';
 import 'package:server/src/invite_store.dart';
+import 'package:server/src/knowledge/extraction_model.dart';
+import 'package:server/src/knowledge/runtime.dart';
 import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/knowledge_reads.dart';
 import 'package:server/src/legacy_migration.dart';
@@ -77,6 +79,8 @@ class AppDeps {
     FileStore? fileStore,
     UploadSessionStore? uploadSessions,
     int maxUploadSizeBytes = Config.defaultMaxUploadSizeBytes,
+    bool knowledgeEnabled = false,
+    KnowledgeExtractionConfig? extractionConfig,
   }) {
     final resolvedLinkIndex = linkIndex ?? LinkIndex();
     final resolvedRegistry = registry ?? DatabaseRegistry();
@@ -122,6 +126,8 @@ class AppDeps {
     final authorizedUploads = resolvedUploads
       ..authorization = resolvedAuthorization;
     final deps = AppDeps._(
+      knowledgeEnabled: knowledgeEnabled,
+      extractionConfig: extractionConfig,
       evidenceStore: evidenceStore ??
           EvidenceStore(
             file: File('${storage.contentDir.parent.path}/evidence.db'),
@@ -167,6 +173,7 @@ class AppDeps {
 
   AppDeps._({
     required this.evidenceStore,
+    required this.knowledgeEnabled,
     required this.storage,
     required this.authorization,
     required this.metaIndex,
@@ -187,6 +194,7 @@ class AppDeps {
     required this.fileStore,
     required this.uploadSessions,
     required this.maxUploadSizeBytes,
+    this.extractionConfig,
     this.oidcDiscovery,
     this.oidcJwks,
     PendingLoginStore? pendingLoginStore,
@@ -355,13 +363,50 @@ class AppDeps {
       fileStore: fileStore,
       uploadSessions: uploadSessions,
       maxUploadSizeBytes: config.maxUploadSizeBytes,
+      knowledgeEnabled: config.knowledgeEnabled,
+      extractionConfig: config.extraction,
     );
     if (initializeVaults) {
       deps.vaults = VaultRegistry(root: deps, config: config);
       await deps.vaults!.load();
+      if (deps.knowledgeEnabled) deps.knowledge.start();
     }
     return deps;
   }
+
+  /// Explicit activation of the new services; existing deployments default off.
+  final bool knowledgeEnabled;
+
+  /// Optional independent extraction provider settings.
+  final KnowledgeExtractionConfig? extractionConfig;
+  KnowledgeRuntime? _knowledge;
+
+  /// Lazily binds selected-vault knowledge services without altering disabled
+  /// flows.
+  KnowledgeRuntime get knowledge => _knowledge ??= KnowledgeRuntime(
+        enabled: knowledgeEnabled,
+        storage: storage,
+        authorization: authorization,
+        writes: noteWriteService,
+        extractionConfig: extractionConfig,
+        clock: clock,
+        resolveOrigin: (id) async {
+          final principal = id == 'operator'
+              ? const KnowledgePrincipal.operator()
+              : id.startsWith('agent:')
+                  ? KnowledgePrincipal.agent(
+                      credentialId: id.substring(6),
+                      scopes: {},
+                    )
+                  : id.startsWith('oauth:')
+                      ? KnowledgePrincipal.oauth(
+                          grantId: id.substring(6),
+                          scopes: {},
+                        )
+                      : const KnowledgePrincipal.unidentified();
+          return uploadSessions.revalidatePrincipal?.call(principal);
+        },
+      );
 
   /// Server-wide vault catalog; absent for single-vault test bundles.
   VaultRegistry? vaults;
@@ -512,6 +557,7 @@ class AppDeps {
   /// production server keeps a single [AppDeps] for its full lifetime.
   Future<void> close() async {
     await vaults?.close();
+    await _knowledge?.close();
     await _lockSub?.cancel();
     _lockSub = null;
     await broadcaster.close();
