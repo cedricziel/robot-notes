@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.2.23](https://github.com/cedricziel/robot-notes/compare/v0.2.22...v0.2.23) (2026-10-13)
+
+
+### Features
+
+* **hermes:** capture scoped turn and session sources durably ([#413](https://github.com/cedricziel/robot-notes/issues/413)) ([81bca6a](https://github.com/cedricziel/robot-notes/commit/81bca6a12f687c18c04da79fe57bca7c3a7c8590))
+* **hermes:** prompt durable knowledge proposals after tasks ([#399](https://github.com/cedricziel/robot-notes/issues/399)) ([e9fd95d](https://github.com/cedricziel/robot-notes/commit/e9fd95d1ad6d2515628317e7f01ea149596d4169))
+* **knowledge:** add durable extraction jobs and model adapter ([#410](https://github.com/cedricziel/robot-notes/issues/410)) ([ecb5ba4](https://github.com/cedricziel/robot-notes/commit/ecb5ba444554e0b939be779593e13528232c4192))
+* **knowledge:** define initial local knowledge types ([#402](https://github.com/cedricziel/robot-notes/issues/402)) ([5db3dfe](https://github.com/cedricziel/robot-notes/commit/5db3dfef867c6f9bd1626e4a119e539583327067))
+* **knowledge:** expose gated shared REST and MCP operations ([#412](https://github.com/cedricziel/robot-notes/issues/412)) ([83778c0](https://github.com/cedricziel/robot-notes/commit/83778c04a5967817e54969ad7bcf06cfe23ffe2f))
+* **knowledge:** extract sourced proposals with a durable worker ([#411](https://github.com/cedricziel/robot-notes/issues/411)) ([1ef9559](https://github.com/cedricziel/robot-notes/commit/1ef955931117c7dbd4ad9a245b2abaa063265576))
+* **knowledge:** publish reviewed typed proposal groups atomically ([#407](https://github.com/cedricziel/robot-notes/issues/407)) ([522f660](https://github.com/cedricziel/robot-notes/commit/522f660de3c9271cf0882f222f570ca2019021f7))
+* **knowledge:** query and traverse accepted typed entries ([#408](https://github.com/cedricziel/robot-notes/issues/408)) ([22e5b8f](https://github.com/cedricziel/robot-notes/commit/22e5b8f7f46a91de525bd491d2667b9c55d73b9b))
+* **knowledge:** retain accepted type snapshots ([#403](https://github.com/cedricziel/robot-notes/issues/403)) ([0fbd58a](https://github.com/cedricziel/robot-notes/commit/0fbd58a0027aa6b10690c852f98be244fc258c56))
+* **knowledge:** retain scoped immutable source revisions ([#406](https://github.com/cedricziel/robot-notes/issues/406)) ([5fb1d95](https://github.com/cedricziel/robot-notes/commit/5fb1d95248bb6a6e5742a722915b31bfc89c89a2))
+* **knowledge:** review type definition candidates ([#404](https://github.com/cedricziel/robot-notes/issues/404)) ([e9b0470](https://github.com/cedricziel/robot-notes/commit/e9b04704d94fcef70f3431dd04f68b57ced38c50))
+* **knowledge:** stage pinned Schema.org adoption ([#405](https://github.com/cedricziel/robot-notes/issues/405)) ([984e6e9](https://github.com/cedricziel/robot-notes/commit/984e6e9fe9be266c426f1366ef5bc89dbedee764))
+* **knowledge:** validate pinned type definitions ([#401](https://github.com/cedricziel/robot-notes/issues/401)) ([bbb593e](https://github.com/cedricziel/robot-notes/commit/bbb593efb069a7d69d24c4c52811e080f4965685))
+* **workspace:** browse the vault in a two-pane desktop layout ([#397](https://github.com/cedricziel/robot-notes/issues/397)) ([475ee27](https://github.com/cedricziel/robot-notes/commit/475ee27c7e59852e9a8cf5c427195a3a44bb6166))
+
+
+### Bug Fixes
+
+* **knowledge:** preserve extraction work during shutdown ([#416](https://github.com/cedricziel/robot-notes/issues/416)) ([221e220](https://github.com/cedricziel/robot-notes/commit/221e2206596ba3552f25f3f240fe2d693264b243))
+* **knowledge:** preserve structured frontmatter metadata ([#400](https://github.com/cedricziel/robot-notes/issues/400)) ([644dfa5](https://github.com/cedricziel/robot-notes/commit/644dfa511f26aa7637813371d8b7dbaf2e0f317d))
+* **server:** preserve WebSocket protocol close codes ([#417](https://github.com/cedricziel/robot-notes/issues/417)) ([26eadb9](https://github.com/cedricziel/robot-notes/commit/26eadb9f7099484ffabba4551e6e80ae9e3dde66))
+
+
+### Documentation
+
+* **knowledge:** explain extraction workflow and operator configuration ([#415](https://github.com/cedricziel/robot-notes/issues/415)) ([759cf02](https://github.com/cedricziel/robot-notes/commit/759cf023b03e2a674c767d4e615e8ff155cdac2c))
+
 ## [0.2.22](https://github.com/cedricziel/robot-notes/compare/v0.2.21...v0.2.22) (2026-10-12)
 
 
