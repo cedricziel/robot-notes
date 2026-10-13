@@ -321,14 +321,37 @@ class KnowledgeExtractionWorker {
         Map<String, Object?>.from(finding['locator']! as Map<String, Object?>);
     if (locator['kind'] != 'text_range' ||
         locator['start'] is! int ||
-        locator['end'] is! int ||
-        (locator['start']! as int) < start ||
-        (locator['end']! as int) > end) {
+        locator['end'] is! int) {
       throw const KnowledgeExtractionFailure('locator_unverified');
     }
-    final passage = await sources.passage(source.id, source.revision, locator);
-    if (finding['source_quote'] != passage || passage.isEmpty) {
+    final quote = finding['source_quote'];
+    if (quote is! String || quote.isEmpty) {
       throw const KnowledgeExtractionFailure('quote_unverified');
+    }
+    var passage = '';
+    final suppliedStart = locator['start']! as int;
+    final suppliedEnd = locator['end']! as int;
+    if (suppliedStart >= start &&
+        suppliedEnd <= end &&
+        suppliedStart < suppliedEnd) {
+      passage = await sources.passage(source.id, source.revision, locator);
+    }
+    if (passage != quote) {
+      final chunk = await sources.passage(source.id, source.revision, {
+        'kind': 'text_range',
+        'start': start,
+        'end': end,
+      });
+      final offset = chunk.indexOf(quote);
+      if (offset < 0 || chunk.indexOf(quote, offset + 1) >= 0) {
+        throw const KnowledgeExtractionFailure('quote_unverified');
+      }
+      locator['start'] = start + chunk.substring(0, offset).runes.length;
+      locator['end'] = (locator['start']! as int) + quote.runes.length;
+      passage = await sources.passage(source.id, source.revision, locator);
+      if (passage != quote) {
+        throw const KnowledgeExtractionFailure('quote_unverified');
+      }
     }
     if (!await _independentSupport(source, passage)) {
       throw const KnowledgeExtractionFailure('generated_answer_only');

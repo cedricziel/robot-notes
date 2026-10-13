@@ -192,3 +192,34 @@ Implementation SHALL satisfy the applicable file, permission, review, retention,
 
 - **WHEN** this slice passes its focused checks before all dependent release checks pass
 - **THEN** incomplete curated functionality SHALL remain disabled and existing ordinary workflows SHALL remain available
+
+### Requirement: Model output and source citations are verified
+
+The adapter SHALL reject malformed finding containers as `model_output`.
+Classification SHALL use string dispositions and a separate reason; properties
+and named relations SHALL be objects. Source citations SHALL match immutable
+original text without normalization.
+
+#### Scenario: Unique exact quote with inaccurate model offsets
+
+- **WHEN** integer model offsets do not match a nonempty exact quote that occurs
+  once within the current source chunk
+- **THEN** the worker SHALL derive Unicode scalar offsets from that chunk and
+  verify the immutable passage before proposing
+
+#### Scenario: Repeated exact quote with valid explicit offsets
+
+- **WHEN** an exact quote occurs more than once but supplied offsets identify an
+  exact passage within the current chunk
+- **THEN** the worker SHALL retain those verified offsets
+
+#### Scenario: Missing or ambiguous quote cannot be recovered
+
+- **WHEN** supplied offsets fail verification and the quote is absent or occurs
+  more than once within the current chunk
+- **THEN** extraction SHALL remain blocked without a proposal or accepted write
+
+#### Scenario: No material requires no candidate payload
+
+- **WHEN** a finding contains only `no_material` and a reason
+- **THEN** the adapter SHALL accept that classification without candidate fields

@@ -215,6 +215,57 @@ void main() {
     expect(await storage.proposalRecords(), hasLength(1));
   });
 
+  Map<String, Object?> quotedFinding(String quote, int start, int end) => {
+        'dispositions': ['new'],
+        'reason': 'Durable sourced claim',
+        'title': 'Scoped credentials',
+        'statement': quote,
+        'source_quote': quote,
+        'locator': {'kind': 'text_range', 'start': start, 'end': end},
+      };
+
+  test('unique exact quote repairs model offsets after Unicode emoji',
+      () async {
+    extractor.findings = (_) => [quotedFinding('Scoped permissions.', 3, 22)];
+    await observe(
+      'unicode-offset',
+      'session_end',
+      text: '😀 Scoped permissions.',
+    );
+    await worker.runOnce();
+    expect(jobs.summaries().single['state'], 'completed');
+    final record = (await storage.proposalRecords()).single;
+    final operations = record.current.candidate['operations']! as List<Object?>;
+    final evidence = operations.first! as Map<String, Object?>;
+    final citation = evidence['evidence']! as Map<String, Object?>;
+    expect(citation['locator'], {'kind': 'text_range', 'start': 2, 'end': 21});
+    expect(await storage.list(), isEmpty);
+  });
+
+  test('valid explicit locator disambiguates repeated exact quotes', () async {
+    extractor.findings = (_) => [quotedFinding('Fact.', 6, 11)];
+    await observe('repeated-valid', 'session_end', text: 'Fact. Fact.');
+    await worker.runOnce();
+    expect(jobs.summaries().single['state'], 'completed');
+    expect(await storage.proposalRecords(), hasLength(1));
+  });
+
+  test('invalid locator cannot guess between repeated exact quotes', () async {
+    extractor.findings = (_) => [quotedFinding('Fact.', 1, 6)];
+    await observe('repeated-invalid', 'session_end', text: 'Fact. Fact.');
+    await worker.runOnce();
+    expect(jobs.summaries().single['state'], 'blocked');
+    expect(await storage.proposalRecords(), isEmpty);
+  });
+
+  test('quote absent from original source remains blocked', () async {
+    extractor.findings = (_) => [quotedFinding('Absent.', 0, 5)];
+    await observe('absent-quote', 'session_end', text: 'Fact.');
+    await worker.runOnce();
+    expect(jobs.summaries().single['state'], 'blocked');
+    expect(await storage.proposalRecords(), isEmpty);
+  });
+
   test(
       'worker submits atomic Evidence and Claim without '
       'publishing accepted text', () async {

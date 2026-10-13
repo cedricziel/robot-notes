@@ -80,7 +80,7 @@ class KnowledgeExtractionConfig {
             'max_attempts': maxAttempts,
             'timeout_ms': timeout.inMilliseconds,
             'token_limit_parameter': tokenLimitParameter,
-            'prompt_version': 1,
+            'prompt_version': 2,
           }),
         ),
       )
@@ -171,7 +171,13 @@ The first three may combine; no_material is exclusive. Preserve disagreements an
 Organize around concepts and entities. Match names and aliases conservatively; do not force ambiguous entity merges.
 Use exact source quotations and original Unicode scalar offsets. Every number, date, and quotation must occur in its supporting passage.
 Distinguish assertions from inferences. Generated assistant answers alone are not independent evidence.
-Return a JSON object with a findings array. Each finding has dispositions, reason, title, type_id, properties, relations, statement, source_quote, locator, inference, and optional target_id and related_targets.
+Return bare JSON with a findings array, without Markdown fences or other text. Each finding has dispositions, reason, title, type_id, properties, relations, statement, source_quote, locator, inference, and optional target_id and related_targets.
+dispositions is an array of strings, never objects; reason is a separate string. properties and relations are objects.
+relations maps relation names to arrays of {"id":"supplied accepted ID"}; omit relations or use {} when none apply.
+Never invent target IDs, required property values, or dates. Omit target_id and related_targets unless those IDs occur in supplied accepted context.
+When a richer type requires fields that the source does not support, use Claim with its sourced statement instead.
+The worker creates Evidence and supporting links. Do not return nested evidence or invent Evidence IDs.
+Shape example only: {"findings":[{"dispositions":["new"],"reason":"Durable sourced fact","title":"Fact","type_id":"urn:robot-notes:type:Claim","properties":{},"relations":{},"statement":"Exact fact.","source_quote":"Exact fact.","locator":{"kind":"text_range","start":0,"end":11},"inference":false}]}.
 Use only supplied pinned local types and accepted target IDs. locator uses kind text_range, inclusive start and exclusive end in original-source scalar coordinates.
 For Claim, statement is nonempty. For updates or disputes, target_id must name an accepted entry supplied in context. Preserve the previous claim in the explanation.
 Never approve or directly publish. Return an empty findings array when nothing durable remains.''';
@@ -286,6 +292,62 @@ Never approve or directly publish. Return an empty findings array when nothing d
           (document['findings'] as List<dynamic>).cast<Map<String, Object?>>();
       if (findings.length > config.maxCandidates) {
         throw const KnowledgeExtractionFailure('candidate_limit');
+      }
+      for (final finding in findings) {
+        final dispositions = finding['dispositions'];
+        if (dispositions is! List<Object?> ||
+            dispositions.any((value) => value is! String) ||
+            finding['reason'] is! String) {
+          throw const KnowledgeExtractionFailure('model_output');
+        }
+        for (final key in ['properties', 'relations', 'locator']) {
+          if (finding.containsKey(key) &&
+              finding[key] is! Map<String, Object?>) {
+            throw const KnowledgeExtractionFailure('model_output');
+          }
+        }
+        for (final key in [
+          'title',
+          'statement',
+          'type_id',
+          'source_quote',
+          'target_id',
+        ]) {
+          if (finding.containsKey(key) && finding[key] is! String) {
+            throw const KnowledgeExtractionFailure('model_output');
+          }
+        }
+        if (finding.containsKey('inference') && finding['inference'] is! bool) {
+          throw const KnowledgeExtractionFailure('model_output');
+        }
+        final locator = finding['locator'] as Map<String, Object?>?;
+        if (!dispositions.contains('no_material') &&
+            (locator == null ||
+                locator['kind'] != 'text_range' ||
+                locator['start'] is! int ||
+                locator['end'] is! int ||
+                finding['source_quote'] is! String)) {
+          throw const KnowledgeExtractionFailure('model_output');
+        }
+        final relations = finding['relations'] as Map<String, Object?>?;
+        if (relations != null &&
+            relations.values.any(
+              (targets) =>
+                  targets is! List<Object?> ||
+                  targets.any(
+                    (target) =>
+                        target is! Map<String, Object?> ||
+                        target['id'] is! String,
+                  ),
+            )) {
+          throw const KnowledgeExtractionFailure('model_output');
+        }
+        if (finding.containsKey('related_targets') &&
+            (finding['related_targets'] is! List<Object?> ||
+                (finding['related_targets']! as List<Object?>)
+                    .any((id) => id is! String))) {
+          throw const KnowledgeExtractionFailure('model_output');
+        }
       }
       return findings;
     } on KnowledgeExtractionFailure {
