@@ -314,6 +314,8 @@ class KnowledgeSourceStore {
           media,
           observedAt?.toUtc().toIso8601String(),
           scopeId,
+          observationKind,
+          conversationId,
         ]);
         final retained =
             _db.select('SELECT * FROM deliveries WHERE key = ?', [key]);

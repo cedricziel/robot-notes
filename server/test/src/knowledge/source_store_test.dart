@@ -177,4 +177,32 @@ void main() {
       expect(await sources.list(), isEmpty);
     });
   });
+
+  test('a delivery retry cannot change its boundary or conversation', () async {
+    await withKnowledgePrincipal(const KnowledgePrincipal.operator(), () async {
+      Future<KnowledgeSourceRevision> deliver(
+        String kind,
+        String conversation,
+      ) =>
+          sources.ingest(
+            adapter: 'hermes',
+            eventId: 'same-event',
+            scopeId: 'scope-1',
+            bytes: utf8.encode('Original source.'),
+            mediaType: 'text/plain',
+            automatic: true,
+            observationKind: kind,
+            conversationId: conversation,
+          );
+      await deliver('completed_turn', 'conversation-1');
+      await expectLater(
+        deliver('session_end', 'conversation-1'),
+        throwsA(isA<SourceDeliveryConflict>()),
+      );
+      await expectLater(
+        deliver('completed_turn', 'conversation-2'),
+        throwsA(isA<SourceDeliveryConflict>()),
+      );
+    });
+  });
 }

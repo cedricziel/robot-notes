@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import 'package:server/src/clock.dart';
+import 'package:server/src/frontmatter.dart';
 import 'package:server/src/knowledge/canonical_json.dart';
 import 'package:server/src/knowledge/source_store.dart';
 import 'package:server/src/knowledge/type_definition.dart';
@@ -120,13 +121,72 @@ class TypedKnowledgeProposals {
     return value;
   }
 
-  Future<StoredNote> _read(String id) async {
+  Future<StoredNote?> _acceptedSnapshot(String id) async {
+    final history = await storage.revisions(id);
+    if (history.isEmpty || history.last['deleted'] == true) return null;
+    final frame = parseFrontmatter(history.last['markdown']! as String);
+    final metadata = frame.metadata;
+    return StoredNote(
+      id: id,
+      title: metadata['title']! as String,
+      path: metadata['path']! as String,
+      version: metadata['version']! as int,
+      createdAt: DateTime.parse(metadata['created_at']! as String),
+      updatedAt: DateTime.parse(metadata['updated_at']! as String),
+      content: frame.body,
+      extra: Map<String, Object?>.from(metadata)
+        ..removeWhere(
+          (key, _) => const {
+            'id',
+            'title',
+            'path',
+            'version',
+            'created_at',
+            'updated_at',
+          }.contains(key),
+        ),
+    );
+  }
+
+  String _acceptedState(StoredNote note, {bool includeContent = true}) =>
+      canonicalKnowledgeJson({
+        'id': note.id,
+        'title': note.title,
+        'path': note.path,
+        'version': note.version,
+        'created_at': note.createdAt.toIso8601String(),
+        'updated_at': note.updatedAt.toIso8601String(),
+        'properties': note.extra,
+        if (includeContent) 'content': note.content,
+      });
+
+  Future<StoredNote> _read(String id, {bool acceptedOnly = false}) async {
     final note = await storage.read(id);
     authorization.require(
       currentKnowledgePrincipal,
       KnowledgeAction.read,
       KnowledgeTarget.note(note.id, note.path),
     );
+    if (acceptedOnly) {
+      final accepted = await _acceptedSnapshot(id);
+      if (accepted == null &&
+          (note.extra['knowledge'] is! Map<String, Object?> ||
+              (note.extra['knowledge']! as Map<String, Object?>)['role'] !=
+                  'knowledge')) {
+        return note;
+      }
+      if (accepted == null ||
+          _acceptedState(note) != _acceptedState(accepted)) {
+        throw const ProposalRecordConflictException('accepted_source_changed');
+      }
+      authorization.requireHistoricalRead(
+        currentKnowledgePrincipal,
+        id,
+        accepted.path,
+        note.path,
+      );
+      return accepted;
+    }
     return note;
   }
 
@@ -136,6 +196,7 @@ class TypedKnowledgeProposals {
         List<Map<String, Object?>> diagnostics,
         Map<String, String> bases,
         Map<String, List<String>> readPaths,
+        List<String> readScopes,
       })> _build(
     List<Object?> operations,
     Map<String, String> reserved, {
@@ -150,6 +211,7 @@ class TypedKnowledgeProposals {
     final diagnostics = <Map<String, Object?>>[];
     final bases = <String, String>{};
     final readPaths = <String, List<String>>{};
+    final readScopes = <String>{};
     final ids = <String>{};
     final now = _clock.nowUtc();
     for (final indexed in operations.indexed) {
@@ -182,7 +244,7 @@ class TypedKnowledgeProposals {
         }
         id = reserved[ref]!;
       } else if (kind == 'update') {
-        previous = await _read(operation['id']! as String);
+        previous = await _read(operation['id']! as String, acceptedOnly: true);
         id = previous.id;
         if (operation['expected_revision'] != previous.version) {
           throw const ProposalRecordConflictException(
@@ -304,7 +366,7 @@ class TypedKnowledgeProposals {
       final targets = <String, List<KnowledgeTypeReference>>{};
       for (final values in relations.values) {
         for (final id in _array(values).cast<String>()) {
-          final target = group[id] ?? await _read(id);
+          final target = group[id] ?? await _read(id, acceptedOnly: true);
           final targetKnowledge = _object(target.extra['knowledge']);
           if (targetKnowledge['role'] != 'knowledge') {
             throw const FormatException('Relation target is not knowledge');
@@ -358,6 +420,14 @@ class TypedKnowledgeProposals {
               evidence['source_revision']! as String,
               _object(evidence['locator']),
             );
+            readScopes.add(
+              sources
+                  .descriptor(
+                    evidence['source_id']! as String,
+                    evidence['source_revision']! as String,
+                  )
+                  .scopeId,
+            );
           } on Object {
             diagnostics.add({
               'operation': indexed.$1,
@@ -376,6 +446,7 @@ class TypedKnowledgeProposals {
       diagnostics: diagnostics,
       bases: bases,
       readPaths: readPaths,
+      readScopes: readScopes.toList(),
     );
   }
 
@@ -384,6 +455,16 @@ class TypedKnowledgeProposals {
     String id, {
     required bool reviewed,
   }) async {
+    final accepted = await _acceptedSnapshot(id);
+    if (accepted?.extra['knowledge'] is Map<String, Object?> &&
+        (accepted!.extra['knowledge']! as Map<String, Object?>)['role'] ==
+            'knowledge') {
+      final current = await storage.read(id);
+      if (_acceptedState(current, includeContent: !reviewed) !=
+          _acceptedState(accepted, includeContent: !reviewed)) {
+        throw const ProposalRecordConflictException('accepted_source_changed');
+      }
+    }
     if (next != null) {
       final knowledge = next.extra['knowledge'];
       if (knowledge is Map<String, Object?> &&
@@ -436,7 +517,8 @@ class TypedKnowledgeProposals {
   Future<void> _integrity(List<StoredNote> next, {String? deleted}) async {
     final all = <String, StoredNote>{};
     for (final summary in await storage.list()) {
-      all[summary.id] = await storage.read(summary.id);
+      final accepted = await _acceptedSnapshot(summary.id);
+      if (accepted != null) all[summary.id] = accepted;
     }
     if (deleted != null) all.remove(deleted);
     all.addAll({for (final note in next) note.id: note});
@@ -560,6 +642,8 @@ class TypedKnowledgeProposals {
     List<Object?> operations, {
     required String idempotencyKey,
     Map<String, Object?> metadata = const {},
+    Map<String, List<String>> contextPaths = const {},
+    List<String> contextScopes = const [],
   }) =>
       authorization.store.withMutationLock(() async {
         if (idempotencyKey.trim().isEmpty) {
@@ -569,7 +653,11 @@ class TypedKnowledgeProposals {
             .convert(
               utf8.encode(
                 canonicalKnowledgeJson(
-                  metadata.isEmpty ? operations : [operations, metadata],
+                  contextPaths.isEmpty && contextScopes.isEmpty
+                      ? metadata.isEmpty
+                          ? operations
+                          : [operations, metadata]
+                      : [operations, metadata, contextPaths, contextScopes],
                 ),
               ),
             )
@@ -593,6 +681,23 @@ class TypedKnowledgeProposals {
         }
         final reserved = _reserve(operations);
         final built = await _build(operations, reserved);
+        final readPaths = {
+          for (final entry in built.readPaths.entries)
+            entry.key: entry.value.toSet(),
+        };
+        for (final entry in contextPaths.entries) {
+          for (final path in entry.value) {
+            authorization.require(
+              currentKnowledgePrincipal,
+              KnowledgeAction.read,
+              KnowledgeTarget.note(entry.key, path),
+            );
+            readPaths.putIfAbsent(entry.key, () => {}).add(path);
+          }
+        }
+        for (final scope in contextScopes) {
+          sources.scopeSettings(scope);
+        }
         final policy = {
           for (final note in built.notes)
             note.id: authorization.store
@@ -611,7 +716,11 @@ class TypedKnowledgeProposals {
             'reserved': reserved,
             'diagnostics': built.diagnostics,
             'bases': built.bases,
-            'read_paths': built.readPaths,
+            'read_paths': {
+              for (final entry in readPaths.entries)
+                entry.key: entry.value.toList(),
+            },
+            'read_scopes': {...built.readScopes, ...contextScopes}.toList(),
             'policy': policy,
             'retry_key': idempotencyKey,
             'request_digest': digest,
@@ -633,6 +742,11 @@ class TypedKnowledgeProposals {
       throw const FormatException('Not a typed knowledge proposal');
     }
     for (final version in record.versions) {
+      for (final scope
+          in (version.candidate['read_scopes'] as List<dynamic>?) ??
+              const <dynamic>[]) {
+        sources.scopeSettings(scope as String);
+      }
       final paths = version.candidate['read_paths'] as Map<String, dynamic>?;
       if (paths != null) {
         for (final entry in paths.entries) {
@@ -646,7 +760,19 @@ class TypedKnowledgeProposals {
           try {
             await _read(entry.key);
           } on NoteNotFoundException {
-            continue;
+            final history = await storage.revisions(entry.key);
+            if (history.isNotEmpty) {
+              final frame =
+                  parseFrontmatter(history.last['markdown']! as String);
+              authorization.require(
+                currentKnowledgePrincipal,
+                KnowledgeAction.read,
+                KnowledgeTarget.note(
+                  entry.key,
+                  frame.metadata['path']! as String,
+                ),
+              );
+            }
           }
         }
         continue;
@@ -744,6 +870,7 @@ class TypedKnowledgeProposals {
             'diagnostics': built.diagnostics,
             'bases': built.bases,
             'read_paths': built.readPaths,
+            'read_scopes': built.readScopes,
             'policy': policy,
             'amendment_key': idempotencyKey,
             'request_digest': digest,
