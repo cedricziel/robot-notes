@@ -52,6 +52,134 @@ void main() {
     model.close();
     client.close();
   });
+  for (final malformed in <Map<String, Object?>>[
+    {
+      'dispositions': [
+        {'kind': 'new'},
+      ],
+      'reason': 'Claim',
+    },
+    {
+      'dispositions': ['new'],
+      'reason': 'Claim',
+      'properties': [],
+    },
+    {
+      'dispositions': ['new'],
+      'reason': 'Claim',
+      'relations': [],
+    },
+    {
+      'dispositions': ['new'],
+      'reason': 'Claim',
+      'locator': 'range',
+    },
+    {
+      'dispositions': ['new'],
+      'reason': 'Claim',
+      'source_quote': 4,
+    },
+  ]) {
+    test('malformed finding container $malformed fails with model_output',
+        () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'content': jsonEncode({
+                    'findings': [malformed],
+                  }),
+                },
+              }
+            ],
+          }),
+          200,
+        ),
+      );
+      final model = OpenAiCompatibleKnowledgeExtractor(
+        KnowledgeExtractionConfig(
+          endpoint: Uri.parse('https://fixture.invalid/v1'),
+          model: 'fixture',
+          apiKey: 'fixture-key',
+        ),
+        client: client,
+      );
+      addTearDown(model.close);
+      await expectLater(
+        model.extract(
+          const KnowledgeExtractionInput(
+            text: 'Fact.',
+            start: 0,
+            end: 5,
+            accepted: [],
+            pending: [],
+            types: [],
+          ),
+        ),
+        throwsA(
+          isA<KnowledgeExtractionFailure>().having(
+            (error) => error.code,
+            'code',
+            'model_output',
+          ),
+        ),
+      );
+    });
+  }
+
+  test('no_material findings need only classification and reason', () async {
+    final client = MockClient(
+      (_) async => http.Response(
+        jsonEncode({
+          'choices': [
+            {
+              'message': {
+                'content': jsonEncode({
+                  'findings': [
+                    {
+                      'dispositions': ['no_material'],
+                      'reason': 'Nothing new',
+                    },
+                  ],
+                }),
+              },
+            }
+          ],
+        }),
+        200,
+      ),
+    );
+    final model = OpenAiCompatibleKnowledgeExtractor(
+      KnowledgeExtractionConfig(
+        endpoint: Uri.parse('https://fixture.invalid/v1'),
+        model: 'fixture',
+        apiKey: 'fixture-key',
+      ),
+      client: client,
+    );
+    addTearDown(model.close);
+    expect(
+      await model.extract(
+        const KnowledgeExtractionInput(
+          text: 'Fact.',
+          start: 0,
+          end: 5,
+          accepted: [],
+          pending: [],
+          types: [],
+        ),
+      ),
+      [
+        {
+          'dispositions': ['no_material'],
+          'reason': 'Nothing new',
+        }
+      ],
+    );
+  });
+
   test('credentials do not change configuration identity', () {
     final first = KnowledgeExtractionConfig(
       endpoint: Uri.parse('http://localhost:8000/v1'),

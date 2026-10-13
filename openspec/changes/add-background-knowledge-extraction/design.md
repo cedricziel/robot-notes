@@ -104,3 +104,15 @@ Land foundations with new behavior disabled. Preserve existing data and index en
 ## Verification
 
 Exercise this slice's scenarios with deterministic failure and authorization cases where applicable. Record relevant formatting, lint, tests, and strict OpenSpec validation. For app or Hermes flows use isolated real-server verification with disposable data and test principals. Integrated feature activation requires `verify-curated-hermes-release`; this slice does not independently claim full release readiness.
+
+### Model output and citation verification
+
+The provider prompt defines bare JSON with string dispositions, a separate reason,
+and object properties and named relation arrays. The adapter rejects malformed
+containers as `model_output`. Source offsets are hints: valid exact passage ranges
+are retained. If integer offsets mismatch, the worker can derive a range only
+when the exact nonempty quote occurs once within the current source chunk. It
+counts original Unicode scalars and verifies the immutable passage again. Missing
+or ambiguous quotes remain blocked; no quote normalization or cross-chunk search
+is allowed. Required type fields and target IDs must be grounded in supplied
+context; a sourced Claim can represent a fact when a richer type cannot.
