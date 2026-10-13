@@ -66,6 +66,7 @@ class ProposalReviewPanelState extends State<ProposalReviewPanel> {
       );
       String? acceptedContent;
       final acceptedBlocks = <String, String>{};
+      final acceptedRevisions = <String, Object?>{};
       if (proposal['new_note'] != true &&
           !const {'accepted', 'denied'}.contains(proposal['state'])) {
         final note = await widget.api.getNote(_noteId);
@@ -106,6 +107,7 @@ class ProposalReviewPanelState extends State<ProposalReviewPanel> {
             );
           }
           acceptedBlocks[block['id'] as String] = text;
+          acceptedRevisions[block['id'] as String] = block['revision'];
         }
         for (final operation
             in (proposal['operations'] as List? ?? [])
@@ -115,6 +117,19 @@ class ProposalReviewPanelState extends State<ProposalReviewPanel> {
             throw const ApiServerException(
               statusCode: 409,
               message: 'The accepted target is unavailable. Refresh before reviewing.',
+            );
+          }
+          final staleBlock =
+              blockId is String &&
+              operation['expected_revision'] is int &&
+              operation['expected_revision'] != acceptedRevisions[blockId];
+          final staleNote =
+              operation['type'] == 'delete_note' &&
+              proposal['base_version'] != note.version;
+          if (staleBlock || staleNote) {
+            throw const ApiServerException(
+              statusCode: 409,
+              message: 'The accepted target changed. Update the proposal before reviewing.',
             );
           }
         }

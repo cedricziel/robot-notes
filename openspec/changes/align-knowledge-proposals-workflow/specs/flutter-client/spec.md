@@ -31,3 +31,8 @@ The client SHALL provide permitted comments and decisions within the selected re
 #### Scenario: Accepted targets cannot be verified
 - **WHEN** accepted content and block metadata do not match
 - **THEN** the client SHALL show a retryable error and SHALL NOT enable review decisions
+
+#### Scenario: Proposal targets an older accepted revision
+- **WHEN** a block operation's expected revision differs from its accepted block revision, or a note deletion's proposal base version differs from the accepted note version
+- **THEN** the client SHALL explain that the proposal needs an update and SHALL NOT enable review decisions
+- **AND** an unrelated note version change SHALL NOT prevent review of a block operation whose expected block revision still matches

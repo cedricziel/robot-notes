@@ -160,6 +160,7 @@ void main() {
           if (path.endsWith('/proposals/p')) {
             body = {
               ...summary,
+              'base_version': 1,
               'record_revision': 1,
               'allowed_actions': ['read', 'approve'],
               'operations': [
@@ -167,7 +168,6 @@ void main() {
                   'type': type,
                   if (type != 'delete_note') 'block_id': 'b',
                   if (type != 'delete_note') 'expected_revision': 1,
-                  if (type == 'delete_note') 'expected_version': 1,
                   if (type == 'replace') 'text': 'Proposed replacement',
                 },
               ],

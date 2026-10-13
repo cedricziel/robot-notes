@@ -16,6 +16,8 @@ class _ReviewServer {
   bool conflict = false;
   bool invalidBlocks = false;
   bool missingTarget = false;
+  int baseVersion = 2;
+  List<Map<String, dynamic>>? operations;
   List<String> actions = ['read', 'comment', 'approve', 'request_changes'];
   final List<Map<String, dynamic>> comments = [];
   Map<String, dynamic>? submission;
@@ -60,7 +62,7 @@ class _ReviewServer {
             'id': 'n',
             'title': 'Team knowledge',
             'content': 'Accepted text',
-            'version': 1,
+            'version': 2,
             'created_at': '2026-10-13T00:00:00Z',
             'updated_at': '2026-10-13T00:00:00Z',
           }),
@@ -70,12 +72,20 @@ class _ReviewServer {
       if (request.url.path.endsWith('/blocks')) {
         return http.Response(
           jsonEncode({
-            'version': 1,
+            'version': 2,
             'offset_encoding': 'utf-16',
             'content_hash': invalidBlocks
                 ? 'wrong'
                 : sha256.convert(utf8.encode('Accepted text')).toString(),
-            'blocks': <Object?>[],
+            'blocks': [
+              {
+                'id': 'b',
+                'revision': 2,
+                'start': 0,
+                'end': 13,
+                'hash': sha256.convert(utf8.encode('Accepted text')).toString(),
+              },
+            ],
           }),
           200,
         );
@@ -83,11 +93,13 @@ class _ReviewServer {
       return http.Response(
         jsonEncode({
           ...summary,
-          'new_note': !invalidBlocks && !missingTarget,
+          'new_note': !invalidBlocks && !missingTarget && operations == null,
+          'base_version': baseVersion,
           'record_revision': revision,
           'allowed_actions': actions,
           'draft': {'content': 'Proposed text'},
           'comments': comments,
+          if (operations != null) 'operations': operations,
           if (missingTarget)
             'operations': [
               {'type': 'replace', 'block_id': 'missing', 'text': 'Replacement'},
@@ -123,6 +135,69 @@ class _ReviewServer {
 }
 
 void main() {
+  testWidgets('stale block revision prevents approval despite valid hashes', (
+    tester,
+  ) async {
+    final server = _ReviewServer()
+      ..operations = [
+        {
+          'type': 'replace',
+          'block_id': 'b',
+          'expected_revision': 1,
+          'text': 'Replacement',
+        },
+      ];
+    await tester.pumpWidget(server.build());
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'The accepted target changed. Update the proposal before reviewing.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Approve'), findsNothing);
+  });
+
+  testWidgets(
+    'note deletion compares proposal base version with accepted note',
+    (tester) async {
+      final server = _ReviewServer()
+        ..baseVersion = 1
+        ..operations = [
+          {'type': 'delete_note'},
+        ];
+      await tester.pumpWidget(server.build());
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'The accepted target changed. Update the proposal before reviewing.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Approve'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'matching block revision permits review after an unrelated note update',
+    (tester) async {
+      final server = _ReviewServer()
+        ..baseVersion = 1
+        ..operations = [
+          {
+            'type': 'replace',
+            'block_id': 'b',
+            'expected_revision': 2,
+            'text': 'Replacement',
+          },
+        ];
+      await tester.pumpWidget(server.build());
+      await tester.pumpAndSettle();
+      expect(find.text('Accepted text'), findsOneWidget);
+      expect(find.text('Approve'), findsOneWidget);
+    },
+  );
+
   testWidgets('posting a comment refreshes discussion in the same review', (
     tester,
   ) async {
