@@ -122,9 +122,9 @@ class TypedKnowledgeProposals {
   }
 
   Future<StoredNote?> _acceptedSnapshot(String id) async {
-    final history = await storage.revisions(id);
-    if (history.isEmpty || history.last['deleted'] == true) return null;
-    final frame = parseFrontmatter(history.last['markdown']! as String);
+    final revision = await storage.latestRevision(id);
+    if (revision == null || revision['deleted'] == true) return null;
+    final frame = parseFrontmatter(revision['markdown']! as String);
     final metadata = frame.metadata;
     return StoredNote(
       id: id,

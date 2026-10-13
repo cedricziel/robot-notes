@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -14,12 +15,14 @@ import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/storage.dart';
 import 'package:test/test.dart';
 
+import 'extraction_jobs_test.dart' show MovingClock;
 import 'type_definition_test.dart' show definition;
 
 class FixtureExtractor implements KnowledgeExtractor {
   Future<void> Function()? beforeReturn;
   List<Map<String, Object?>> Function(KnowledgeExtractionInput)? findings;
   int calls = 0;
+  bool closed = false;
   @override
   String get fingerprint => 'fixture-v1';
   @override
@@ -46,7 +49,9 @@ class FixtureExtractor implements KnowledgeExtractor {
   }
 
   @override
-  void close() {}
+  void close() {
+    closed = true;
+  }
 }
 
 void main() {
@@ -58,6 +63,7 @@ void main() {
   late FixtureExtractor extractor;
   late TypedKnowledgeProposals proposals;
   late bool originActive;
+  late MovingClock clock;
   setUp(() async {
     originActive = true;
     directory = await Directory.systemTemp.createTemp('extraction-worker-');
@@ -72,7 +78,11 @@ void main() {
       directory: Directory('${directory.path}/sources'),
       authorization: authorization,
     );
-    jobs = KnowledgeExtractionJobs(file: File('${directory.path}/jobs.db'));
+    clock = MovingClock();
+    jobs = KnowledgeExtractionJobs(
+      file: File('${directory.path}/jobs.db'),
+      clock: clock,
+    );
     proposals = TypedKnowledgeProposals(
       storage: storage,
       types: types,
@@ -166,6 +176,44 @@ void main() {
           conversationId: conversation,
         );
       });
+
+  test('shutdown drains model and replays interrupted work after restart',
+      () async {
+    final entered = Completer<void>();
+    final released = Completer<void>();
+    extractor.beforeReturn = () async {
+      entered.complete();
+      await released.future;
+    };
+    await observe('shutdown', 'session_end');
+    final attempt = worker.runOnce();
+    await entered.future;
+    final closing = worker.close();
+    final closedWhileRunning = extractor.closed;
+    released.complete();
+    await attempt;
+    await closing;
+    expect(closedWhileRunning, isFalse);
+    expect(extractor.closed, isTrue);
+    expect(jobs.summaries().single['state'], 'retry_wait');
+    expect(await storage.proposalRecords(), isEmpty);
+    final previous = worker;
+    extractor = FixtureExtractor();
+    worker = KnowledgeExtractionWorker(
+      jobs: jobs,
+      sources: sources,
+      types: previous.types,
+      proposals: proposals,
+      queries: previous.queries,
+      extractor: extractor,
+      config: previous.config,
+      resolveOrigin: previous.resolveOrigin,
+    );
+    clock.now = clock.now.add(const Duration(minutes: 1));
+    await worker.runOnce();
+    expect(jobs.summaries().single['state'], 'completed');
+    expect(await storage.proposalRecords(), hasLength(1));
+  });
 
   test(
       'worker submits atomic Evidence and Claim without '

@@ -1432,6 +1432,28 @@ class Storage {
     return result;
   }
 
+  /// Reads the newest accepted revision, including deletion tombstones,
+  /// without loading older contents. Returns null when history is absent.
+  Future<Map<String, dynamic>?> latestRevision(String id) async {
+    await _ensureIndexed();
+    final directory = _noteHistory(id);
+    if (!directory.existsSync()) return null;
+    File? latest;
+    var version = -1;
+    await for (final entry in directory.list()) {
+      if (entry is! File) continue;
+      final match = RegExp(r'[\\/]([0-9]+)\.json$').firstMatch(entry.path);
+      if (match == null) continue;
+      final candidate = int.parse(match[1]!);
+      if (candidate > version) {
+        version = candidate;
+        latest = entry;
+      }
+    }
+    if (latest == null) return null;
+    return jsonDecode(await latest.readAsString()) as Map<String, dynamic>;
+  }
+
   /// Reads accepted block metadata without creating or changing identities.
   /// Omitting [version] verifies the current canonical body against its map.
   /// Throws [BlockMapUnavailableException] for legacy or stale metadata.
