@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.24](https://github.com/cedricziel/robot-notes/compare/v0.2.23...v0.2.24) (2026-10-13)
+
+
+### Features
+
+* **app:** unify the knowledge proposal review workflow ([#418](https://github.com/cedricziel/robot-notes/issues/418)) ([c57ade6](https://github.com/cedricziel/robot-notes/commit/c57ade68f0cea7ee6ae2176efe83ae1a47e51324))
+
+
+### Bug Fixes
+
+* **app:** bound and retry OIDC token requests on fresh connections ([#419](https://github.com/cedricziel/robot-notes/issues/419)) ([a960b0e](https://github.com/cedricziel/robot-notes/commit/a960b0e1590ee332be475d82d62eec20927086ab))
+* **hermes:** expose and preserve source capture settings ([#421](https://github.com/cedricziel/robot-notes/issues/421)) ([a5d7f04](https://github.com/cedricziel/robot-notes/commit/a5d7f04185abb22a6f1aecc34a33b0539e5a4f2e))
+* **knowledge:** ground model findings in exact source quotes ([#422](https://github.com/cedricziel/robot-notes/issues/422)) ([051c544](https://github.com/cedricziel/robot-notes/commit/051c5445f274c5da18b0f6c1f39f4d4812ab8b98))
+
 ## [0.2.23](https://github.com/cedricziel/robot-notes/compare/v0.2.22...v0.2.23) (2026-10-13)
 
 
