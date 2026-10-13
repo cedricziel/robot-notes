@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'otel_build_config.dart';
+import 'otel_http_client.dart';
 
 /// Fetches the connected server's runtime OTel export config from
 /// `{baseUrl}/otel-config` (see `server/routes/otel-config.dart`).
@@ -13,11 +14,15 @@ import 'otel_build_config.dart';
 /// throws — any network failure, non-200 response, or malformed body
 /// resolves to a disabled [OtelBuildConfig] so a telemetry hiccup can never
 /// break the app.
+///
+/// The default client is a [tracingHttpClient] (issue #419: a bare client
+/// shows up as the service map's `unnamed http` edge); tests inject their
+/// own client anyway.
 Future<OtelBuildConfig> fetchRemoteOtelConfig(
   String baseUrl, {
   http.Client? httpClient,
 }) async {
-  final client = httpClient ?? http.Client();
+  final client = httpClient ?? tracingHttpClient();
   try {
     final response = await client.get(Uri.parse('$baseUrl/otel-config'));
     if (response.statusCode != 200) return const OtelBuildConfig();

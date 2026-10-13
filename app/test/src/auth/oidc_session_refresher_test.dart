@@ -48,12 +48,93 @@ void main() {
         ),
       );
 
-      await tester.pump(const Duration(seconds: 30));
+      // Two attempts (issue #419 retry): each bounded by requestTimeout.
+      await tester.pump(OidcSessionRefresher.requestTimeout);
+      await tester.pump(OidcSessionRefresher.requestTimeout);
       await result;
       expect(client.closed, isTrue);
       response.complete(http.Response('{}', 200));
       await tester.pump();
     });
+
+    test('retries a retryable failure on a fresh connection', () async {
+      // The first client's connection is dead (issue #419: stale
+      // keep-alive); the retry must build a FRESH client and succeed.
+      final clientsUsed = <CloseTrackingClient>[];
+      var calls = 0;
+      CloseTrackingClient makeClient() {
+        calls++;
+        final client = CloseTrackingClient(
+          (_) => calls == 1
+              ? throw http.ClientException('connection closed')
+              : Future.value(
+                  http.Response(
+                    jsonEncode({
+                      'access_token': 'new-access',
+                      'refresh_token': 'new-refresh',
+                    }),
+                    200,
+                  ),
+                ),
+        );
+        clientsUsed.add(client);
+        return client;
+      }
+
+      final refresher = OidcSessionRefresher(clientFactory: makeClient);
+      final refreshed = await refresher.refresh(session);
+
+      expect(refreshed.apiKey, 'new-access');
+      expect(calls, OidcSessionRefresher.maxAttempts);
+      expect(clientsUsed.length, 2);
+      expect(identical(clientsUsed[0], clientsUsed[1]), isFalse);
+      expect(clientsUsed[0].closed, isTrue);
+      expect(clientsUsed[1].closed, isTrue);
+    });
+
+    test('does NOT retry a non-retryable failure', () async {
+      var calls = 0;
+      final refresher = OidcSessionRefresher(
+        clientFactory: () {
+          calls++;
+          return MockClient(
+            (_) async =>
+                http.Response(jsonEncode({'error': 'invalid_grant'}), 400),
+          );
+        },
+      );
+      await expectLater(
+        refresher.refresh(session),
+        throwsA(isA<OidcRefreshException>()),
+      );
+      expect(calls, 1);
+    });
+
+    test(
+      'gives up after maxAttempts on a persistently dead connection',
+      () async {
+        var calls = 0;
+        final refresher = OidcSessionRefresher(
+          clientFactory: () {
+            calls++;
+            return MockClient(
+              (_) => Future.error(http.ClientException('response lost')),
+            );
+          },
+        );
+        await expectLater(
+          refresher.refresh(session),
+          throwsA(
+            isA<OidcRefreshException>().having(
+              (error) => error.retryable,
+              'retryable',
+              isTrue,
+            ),
+          ),
+        );
+        expect(calls, OidcSessionRefresher.maxAttempts);
+      },
+    );
 
     test(
       'lost responses keep the retry identifier stable across reloads',

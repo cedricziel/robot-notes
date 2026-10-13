@@ -64,13 +64,9 @@ void main() {
       expect(holder.config, config);
       expect(holder.sessionExpired, isFalse);
 
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pump();
-      expect(refreshes, 2);
-      expect(holder.config, config);
-      expect(holder.sessionExpired, isFalse);
-
+      // The failed refresh consumed two client calls (attempt 1 stalled,
+      // attempt 2 hit the network failure — issue #419 fresh-connection
+      // retry), so the next resume's refresh is call 3 and it recovers.
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,7 @@ import '../config/config_store.dart';
 import '../otel/otel_http_client.dart';
 import 'loopback_redirect.dart';
 import 'oauth_client.dart';
+import 'oidc_session_refresher.dart' show OidcSessionRefresher;
 import 'web_oauth_callback.dart';
 
 /// The app's own custom URL scheme, registered as its OAuth redirect on
@@ -302,17 +304,22 @@ class OidcSignInController extends ValueNotifier<OidcSignInState> {
   }) async {
     final client = _clientFactory();
     try {
-      final response = await client.post(
-        Uri.parse('$baseUrl/oauth/token'),
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: {
-          'grant_type': 'authorization_code',
-          'code': code,
-          'redirect_uri': redirectUri,
-          'code_verifier': codeVerifier,
-          'client_id': clientId,
-        },
-      );
+      final response = await client
+          .post(
+            Uri.parse('$baseUrl/oauth/token'),
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: {
+              'grant_type': 'authorization_code',
+              'code': code,
+              'redirect_uri': redirectUri,
+              'code_verifier': codeVerifier,
+              'client_id': clientId,
+            },
+          )
+          // Bounded like the session refresher (issue #419): a token
+          // exchange must never hang on a stale connection while the
+          // user stares at a sign-in spinner.
+          .timeout(OidcSessionRefresher.requestTimeout);
       if (response.statusCode != 200) {
         throw _OidcExchangeException(
           'Token exchange failed with HTTP ${response.statusCode}.',
@@ -340,6 +347,8 @@ class OidcSignInController extends ValueNotifier<OidcSignInState> {
         oauthRefreshToken: refreshToken,
         oauthRefreshRequestId: generateRefreshRequestId(),
       );
+    } on TimeoutException {
+      throw const _OidcExchangeException('Token exchange timed out.');
     } finally {
       client.close();
     }
