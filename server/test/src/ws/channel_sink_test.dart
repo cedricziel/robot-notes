@@ -1,51 +1,47 @@
-import 'package:dart_frog_web_socket/dart_frog_web_socket.dart';
+import 'dart:io';
+
 import 'package:mocktail/mocktail.dart';
 import 'package:server/src/ws/channel_sink.dart';
 import 'package:test/test.dart';
 
-class _MockChannel extends Mock implements WebSocketChannel {}
-
-class _MockSink extends Mock implements WebSocketSink {}
+class _MockSocket extends Mock implements WebSocket {}
 
 void main() {
-  late _MockChannel channel;
-  late _MockSink wsSink;
+  late _MockSocket socket;
 
   setUp(() {
-    channel = _MockChannel();
-    wsSink = _MockSink();
-    when(() => channel.sink).thenReturn(wsSink);
-    when(() => wsSink.add(any<dynamic>())).thenReturn(null);
+    socket = _MockSocket();
+    when(() => socket.add(any<dynamic>())).thenReturn(null);
     when(
-      () => wsSink.close(any<int?>(), any<String?>()),
+      () => socket.close(any<int?>(), any<String?>()),
     ).thenAnswer((_) async {});
   });
 
   group('ChannelWsSink', () {
-    test('send forwards text frames to the underlying channel sink', () {
-      ChannelWsSink(channel).send('hello');
-      verify(() => wsSink.add('hello')).called(1);
+    test('send forwards text frames to the underlying socket', () {
+      ChannelWsSink(socket).send('hello');
+      verify(() => socket.add('hello')).called(1);
     });
 
     test('close marks the sink closed and forwards the close code/reason', () {
-      final sink = ChannelWsSink(channel)..close(4001, 'auth_failed');
+      final sink = ChannelWsSink(socket)..close(4001, 'auth_failed');
       expect(sink.isClosed, isTrue);
-      verify(() => wsSink.close(4001, 'auth_failed')).called(1);
+      verify(() => socket.close(4001, 'auth_failed')).called(1);
     });
 
     test('send after close is a no-op', () {
-      ChannelWsSink(channel)
+      ChannelWsSink(socket)
         ..close(1000, 'bye')
         ..send('ignored');
-      verifyNever(() => wsSink.add('ignored'));
+      verifyNever(() => socket.add('ignored'));
     });
 
     test('close after close is a no-op', () {
-      ChannelWsSink(channel)
+      ChannelWsSink(socket)
         ..close(1000, 'a')
         ..close(1000, 'b');
-      verify(() => wsSink.close(1000, 'a')).called(1);
-      verifyNever(() => wsSink.close(1000, 'b'));
+      verify(() => socket.close(1000, 'a')).called(1);
+      verifyNever(() => socket.close(1000, 'b'));
     });
   });
 }

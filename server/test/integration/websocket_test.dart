@@ -22,6 +22,42 @@ void main() {
     await app.close();
   });
 
+  test('binary frames close the connection with 1003 unsupported_data',
+      () async {
+    final channel = IOWebSocketChannel.connect(Uri.parse(app.wsUrl));
+    await channel.ready;
+    addTearDown(() => channel.sink.close());
+    final messages = channel.stream.toList();
+
+    channel.sink.add([1, 2, 3]);
+    expect(await messages.timeout(const Duration(seconds: 5)), isEmpty);
+    expect(channel.closeCode, 1003);
+    expect(channel.closeReason, 'unsupported_data');
+  });
+
+  test('broadcaster shutdown closes an authenticated connection with 1008',
+      () async {
+    final channel = IOWebSocketChannel.connect(Uri.parse(app.wsUrl));
+    await channel.ready;
+    addTearDown(() => channel.sink.close());
+    final messages = StreamIterator<dynamic>(channel.stream);
+    addTearDown(messages.cancel);
+    channel.sink.add(jsonEncode(AuthMsg(key: app.config.apiKey).toJson()));
+    expect(await messages.moveNext(), isTrue);
+    expect(
+      (jsonDecode(messages.current as String) as Map<String, dynamic>)['type'],
+      'auth_ok',
+    );
+
+    await app.deps.broadcaster.close();
+    expect(
+      await messages.moveNext().timeout(const Duration(seconds: 5)),
+      isFalse,
+    );
+    expect(channel.closeCode, 1008);
+    expect(channel.closeReason, 'broadcaster_closed');
+  });
+
   test("two clients see each other's presence and changes", () async {
     // 1. Alice creates a note over HTTP so we have a known noteId.
     final createRes = await http.post(
