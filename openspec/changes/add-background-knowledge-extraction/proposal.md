@@ -5,6 +5,8 @@ The merged curated knowledge contract requires this focused implementation slice
 ## What Changes
 
 - Implement a durable server scheduler and worker for explicitly enabled source scopes. Pin source, originating identity, extractor configuration and type versions. Recheck access and eligibility, resolve entities conservatively and submit proposals through the shared service without acceptance authority.
+- Support configurable `session_end`, `completed_turn`, and `both` triggers for conversation sources. Extraction remains opt-in, with `session_end` as the default trigger when enabled.
+- Use the bundled skill’s read → compare → classify → propose workflow. Classify findings as new, update, disputed, or no material, retain exact source references, suppress repeated candidates, and leave extracted text pending human review.
 
 ## Capabilities
 
