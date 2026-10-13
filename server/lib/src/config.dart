@@ -1,6 +1,7 @@
 import 'package:args/args.dart';
 import 'package:meta/meta.dart';
 import 'package:server/src/embeddings/ollama_embedding_provider.dart';
+import 'package:server/src/knowledge/extraction_model.dart';
 
 /// Thrown by [Config.fromArgs] when the inputs cannot be resolved into a
 /// valid runtime configuration.
@@ -61,6 +62,8 @@ class Config {
     this.embeddingProvider,
     this.ollamaBaseUrl = defaultOllamaBaseUrl,
     this.ollamaEmbeddingModel = defaultOllamaEmbeddingModel,
+    this.knowledgeEnabled = false,
+    this.extraction,
   });
 
   /// Resolves a [Config] from CLI [args] and the supplied environment.
@@ -186,6 +189,106 @@ class Config {
       _validateOllamaEmbeddingModel(ollamaEmbeddingModel);
     }
 
+    final rawKnowledge =
+        env['ROBOT_NOTES_KNOWLEDGE_ENABLED']?.trim().toLowerCase();
+    if (!parsed.wasParsed('knowledge-enabled') &&
+        rawKnowledge != null &&
+        !const {'true', 'false'}.contains(rawKnowledge)) {
+      throw ConfigError('ROBOT_NOTES_KNOWLEDGE_ENABLED must be true or false');
+    }
+    final knowledgeEnabled = parsed.wasParsed('knowledge-enabled')
+        ? parsed['knowledge-enabled'] as bool
+        : rawKnowledge == 'true';
+    final extractionEndpoint = _coalesce(
+      parsed['extraction-endpoint'] as String?,
+      env['ROBOT_NOTES_EXTRACTION_ENDPOINT'],
+    );
+    final extractionModel = _coalesce(
+      parsed['extraction-model'] as String?,
+      env['ROBOT_NOTES_EXTRACTION_MODEL'],
+    );
+    final extractionKey = _coalesce(
+      parsed['extraction-api-key'] as String?,
+      env['ROBOT_NOTES_EXTRACTION_API_KEY'],
+    );
+    final tokenParameter = _coalesce(
+          parsed['extraction-token-parameter'] as String?,
+          env['ROBOT_NOTES_EXTRACTION_TOKEN_PARAMETER'],
+        ) ??
+        'max_completion_tokens';
+    int extractionLimit(
+      String option,
+      String environment,
+      int fallback,
+      int minimum,
+      int maximum,
+    ) {
+      final raw = _coalesce(parsed[option] as String?, env[environment]);
+      final value = raw == null ? fallback : int.tryParse(raw);
+      if (value == null || value < minimum || value > maximum) {
+        throw ConfigError('$option must be between $minimum and $maximum');
+      }
+      return value;
+    }
+
+    KnowledgeExtractionConfig? extraction;
+    if (extractionEndpoint != null ||
+        extractionModel != null ||
+        extractionKey != null) {
+      if (extractionEndpoint == null ||
+          extractionModel == null ||
+          extractionKey == null) {
+        throw ConfigError('Extraction requires endpoint, model, and API key');
+      }
+      try {
+        extraction = KnowledgeExtractionConfig(
+          endpoint: Uri.parse(extractionEndpoint),
+          model: extractionModel,
+          apiKey: extractionKey,
+          tokenLimitParameter: tokenParameter,
+          maxInputScalars: extractionLimit(
+            'extraction-max-input',
+            'ROBOT_NOTES_EXTRACTION_MAX_INPUT',
+            16000,
+            256,
+            65536,
+          ),
+          maxCandidates: extractionLimit(
+            'extraction-max-candidates',
+            'ROBOT_NOTES_EXTRACTION_MAX_CANDIDATES',
+            10,
+            1,
+            50,
+          ),
+          maxChunks: extractionLimit(
+            'extraction-max-chunks',
+            'ROBOT_NOTES_EXTRACTION_MAX_CHUNKS',
+            16,
+            1,
+            1024,
+          ),
+          maxAttempts: extractionLimit(
+            'extraction-max-attempts',
+            'ROBOT_NOTES_EXTRACTION_MAX_ATTEMPTS',
+            3,
+            1,
+            10,
+          ),
+          timeout: Duration(
+            seconds: extractionLimit(
+              'extraction-timeout-seconds',
+              'ROBOT_NOTES_EXTRACTION_TIMEOUT_SECONDS',
+              45,
+              1,
+              300,
+            ),
+          ),
+        );
+      } on FormatException {
+        throw ConfigError('Invalid extraction endpoint or limits');
+      }
+    }
+
     return Config(
       apiKey: apiKey,
       dataDir: dataDir,
@@ -201,8 +304,16 @@ class Config {
       embeddingProvider: embeddingProvider,
       ollamaBaseUrl: ollamaBaseUrl,
       ollamaEmbeddingModel: ollamaEmbeddingModel,
+      knowledgeEnabled: knowledgeEnabled,
+      extraction: extraction,
     );
   }
+
+  /// Explicit activation of the versioned knowledge and extraction services.
+  final bool knowledgeEnabled;
+
+  /// Optional separately configured OpenAI-compatible extraction destination.
+  final KnowledgeExtractionConfig? extraction;
 
   /// Default note/storage root when neither flag nor env supplies one.
   static const String defaultDataDir = './data';
@@ -297,6 +408,47 @@ class Config {
 
   /// Builds an [ArgParser] mirroring the documented CLI surface.
   static ArgParser buildParser() => ArgParser()
+    ..addFlag(
+      'knowledge-enabled',
+      help: 'Enable versioned knowledge services; capture remains opt-in.',
+    )
+    ..addOption(
+      'extraction-max-input',
+      help: 'Maximum source scalars per extraction request.',
+    )
+    ..addOption(
+      'extraction-max-candidates',
+      help: 'Maximum findings per request.',
+    )
+    ..addOption(
+      'extraction-max-chunks',
+      help: 'Maximum requests per source job.',
+    )
+    ..addOption(
+      'extraction-max-attempts',
+      help: 'Maximum transient extraction attempts.',
+    )
+    ..addOption(
+      'extraction-timeout-seconds',
+      help: 'Extraction request timeout.',
+    )
+    ..addOption(
+      'extraction-endpoint',
+      help: 'OpenAI-compatible extraction API base URL.',
+    )
+    ..addOption(
+      'extraction-model',
+      help: 'Explicit extraction model identifier.',
+    )
+    ..addOption(
+      'extraction-api-key',
+      help: 'Extraction provider bearer secret.',
+    )
+    ..addOption(
+      'extraction-token-parameter',
+      allowed: ['max_tokens', 'max_completion_tokens'],
+      help: 'Provider completion-token limit parameter.',
+    )
     ..addOption('api-key', help: 'Bearer API key required on every request.')
     ..addOption(
       'data-dir',

@@ -97,12 +97,15 @@ class VaultRegistry {
             embeddingProvider: config.embeddingProvider,
             ollamaBaseUrl: config.ollamaBaseUrl,
             ollamaEmbeddingModel: config.ollamaEmbeddingModel,
+            knowledgeEnabled: config.knowledgeEnabled,
+            extraction: config.extraction,
           ),
           clock: root.clock,
           initializeVaults: false,
           vaultId: id,
         );
         deps.bindCredentialAuthority(root);
+        if (deps.knowledgeEnabled) deps.knowledge.start();
         return deps;
       } on Object {
         unawaited(_opened.remove(id));

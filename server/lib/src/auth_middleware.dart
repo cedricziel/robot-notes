@@ -2,6 +2,7 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:meta/meta.dart';
 import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/constant_time.dart';
+import 'package:server/src/knowledge/operation_scopes.dart';
 import 'package:server/src/oauth/token_store.dart';
 import 'package:server/src/public_url.dart';
 import 'package:server/src/rest_principal.dart';
@@ -117,6 +118,11 @@ final RegExp _databaseQueryPath = RegExp(r'^/databases/[^/]+/query$');
 /// follow from its method.
 Set<String> _requiredScopes(Request request) {
   final path = request.uri.path;
+  if (path == '/knowledge/capabilities') return {'notes:read'};
+  if (path.startsWith('/knowledge/sources/')) return {'notes:read'};
+  if (path.startsWith('/knowledge/operations/')) {
+    return {knowledgeOperationScope(path.split('/').last)};
+  }
   if (path.startsWith('/knowledge/')) return {'knowledge:policy'};
   if (request.method == HttpMethod.delete &&
       (RegExp(r'^/notes/[^/]+/history$').hasMatch(path) ||

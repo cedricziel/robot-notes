@@ -1,6 +1,7 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:server/src/databases/registry.dart';
 import 'package:server/src/evidence_store.dart';
+import 'package:server/src/knowledge/runtime.dart';
 import 'package:server/src/knowledge_http.dart';
 import 'package:server/src/knowledge_policy.dart';
 import 'package:server/src/knowledge_reads.dart';
@@ -63,6 +64,7 @@ Middleware vaultSelection(VaultRegistry vaults) =>
                 .provide<KnowledgeReadService>(() => deps.knowledgeReads)
                 .provide<NoteAuthorizationService>(() => deps.authorization)
                 .provide<KnowledgePolicyStore>(() => deps.authorization.store)
+                .provide<KnowledgeRuntime>(() => deps.knowledge)
                 .provide<Storage>(() => deps.storage)
                 .provide<ProposalService>(() => deps.proposals)
                 .provide<EvidenceStore>(() => deps.evidenceStore)

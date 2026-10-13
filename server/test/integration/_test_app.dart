@@ -12,6 +12,7 @@ import 'package:dart_otel_api/dart_otel_api.dart';
 import 'package:server/src/app_deps.dart';
 import 'package:server/src/clock.dart';
 import 'package:server/src/config.dart';
+import 'package:server/src/knowledge/extraction_model.dart';
 import 'package:server/src/mcp/mcp_chain.dart';
 import 'package:server/src/oidc/discovery.dart';
 import 'package:server/src/oidc/token_exchange.dart';
@@ -32,8 +33,14 @@ import '../../routes/invites/[token]/index.dart' as invites_token_route;
 import '../../routes/invites/[token]/onboarding.txt.dart'
     as invites_token_onboarding_route;
 import '../../routes/invites/index.dart' as invites_index_route;
+import '../../routes/knowledge/capabilities.dart'
+    as knowledge_capabilities_route;
+import '../../routes/knowledge/operations/[operation].dart'
+    as knowledge_operation_route;
 import '../../routes/knowledge/policies.dart' as knowledge_policies_route;
 import '../../routes/knowledge/principals.dart' as knowledge_principals_route;
+import '../../routes/knowledge/sources/[source_id]/[revision].dart'
+    as knowledge_source_bytes_route;
 import '../../routes/mcp/index.dart' as mcp_route;
 import '../../routes/notes/[id]/append.dart' as notes_append_route;
 import '../../routes/notes/[id]/backlinks.dart' as notes_backlinks_route;
@@ -111,6 +118,15 @@ Future<HttpServer> startTestServer({
   );
 
   final root = Router()
+    ..all('/knowledge/capabilities', knowledge_capabilities_route.onRequest)
+    ..all(
+      '/knowledge/sources/<sourceId>/<revision>',
+      knowledge_source_bytes_route.onRequest,
+    )
+    ..all(
+      '/knowledge/operations/<operation>',
+      knowledge_operation_route.onRequest,
+    )
     ..all('/knowledge/policies', knowledge_policies_route.onRequest)
     ..all('/knowledge/principals', knowledge_principals_route.onRequest)
     ..all('/notes/permissions', prospective_permissions_route.onRequest)
@@ -246,6 +262,8 @@ class TestApp {
   /// provider instead of making real network calls.
   static Future<TestApp> start({
     String apiKey = 'integration-key',
+    bool knowledgeEnabled = false,
+    KnowledgeExtractionConfig? extractionConfig,
     int lockTtlSeconds = 60,
     Clock? clock,
     String? webDir,
@@ -262,6 +280,8 @@ class TestApp {
       lockTtlSeconds: lockTtlSeconds,
       oidc: oidcConfig,
       webDir: webDir,
+      knowledgeEnabled: knowledgeEnabled,
+      extraction: extractionConfig,
     );
     final deps = await AppDeps.bootstrap(
       config,
