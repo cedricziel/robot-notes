@@ -70,20 +70,50 @@ decisions with their rationale, reusable procedures, and corrections to existing
 knowledge. Skip temporary task details, speculation, duplicates, and unchanged
 knowledge. If nothing useful remains, submit no proposal.
 
-1. Search existing knowledge before writing. Read close matches to decide whether
-   the finding adds new knowledge or corrects an existing claim.
-2. Keep each proposal focused on one fact, decision, procedure, or correction.
-   Include the supporting source and only source coordinates actually available
-   to you in `evidence_refs`.
-3. For a new topic, use `robotnotes_remember`. For an addition to an existing
-   topic, use `robotnotes_append`. Set `curated_intent: true` so the write becomes
-   a proposal even outside a curated folder.
-4. For a correction, propose an exact replacement through an available proposal
-   operation or the supported memory correction workflow. Do not append a
-   contradictory claim. If no correction operation is available, report the
-   needed correction for review.
-5. Report submitted proposals as pending review when `accepted: false`. Never
-   approve your own proposals or describe pending text as accepted knowledge.
+Follow read → compare → classify → propose for each finding:
+
+1. Read the supporting source and locate the passages that support the finding.
+   Verify numbers, dates, and quotations before including them. Distinguish source
+   assertions from your inferences. Preserve source material unchanged.
+2. Compare the finding with existing knowledge. Search by concepts, entity names,
+   and aliases, then read close matches. Inspect authorized ongoing proposals to
+   avoid proposing the same change twice. Pending text is not evidence of truth.
+   Check related notes for claims affected by a correction or new source.
+3. Classify the finding using the dispositions below. Record the disposition and
+   reason in the proposal content or submission summary. New, update, and disputed
+   may apply together. No material is exclusive.
+4. Propose a focused change with supporting sources and only source coordinates
+   actually available to you in `evidence_refs`. Organize new notes around a
+   durable concept or entity, rather than the conversation that produced them.
+
+| Disposition | Action |
+| --- | --- |
+| New | Use `robotnotes_remember` for a distinct concept not already covered. |
+| Update | Use `robotnotes_append` for a compatible addition to an existing note. Use a supported replacement operation for a correction. |
+| Disputed | Explain the conflicting claims and cite their sources. Propose a reviewable correction or conflict annotation through a supported proposal operation. |
+| No material | Submit nothing when the finding is temporary, unsupported, duplicated, or unchanged. |
+
+Set `curated_intent: true` on remember and append calls, including outside curated
+folders. Corrections require an exact replacement through an available proposal
+operation or the supported memory correction workflow. Do not append contradictory
+claims as established knowledge or silently resolve a disagreement. Preserve prior
+claim lineage and identify related notes needing review. If a required operation
+is unavailable, report the needed change rather than inventing a tool.
+
+Report submitted proposals as pending review when `accepted: false`. Never approve
+your own proposals or describe pending text as accepted knowledge. Questions alone
+do not establish new facts; a useful synthesis still needs supporting evidence.
+
+The conversational agent follows this skill. When separately enabled, the server
+worker follows the same workflow on retained source observations and submits its
+own proposals. The server does not execute this skill. Neither turn nor session
+hooks identify task completion; the task-completion check above is an agent
+instruction.
+
+This workflow adapts the source-grounded, incremental knowledge principles in
+[Karpathy's LLM Wiki blueprint](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
+and the [community LLM-wiki skill](https://github.com/Astro-Han/karpathy-llm-wiki/blob/main/SKILL.md)
+to Robot Notes proposal operations and human review.
 
 Respect the provider's write restrictions. Subagent, cron, and flush contexts do
 not submit these writes. If proposal submission fails, report the failure rather
