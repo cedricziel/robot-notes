@@ -205,8 +205,9 @@ OAuth sign-in or refresh expired access tokens automatically.
 ## Data sent to the server
 
 Optional background extraction uses a separate source capture outbox. Set
-`source_capture: true` and `source_scope_id` in `robot_notes.json` after a human
-configures that scope on the server. The primary conversation captures turn and
+`source_capture: true` and `source_scope_id` through Hermes setup, its memory
+provider dashboard, or `robot_notes.json` after a human configures that scope on
+the server. The primary conversation captures turn and
 session observations; server scope settings select `completed_turn`, `session_end`,
 or `both` for extraction. Capture and server extraction are disabled by default.
 See [background extraction configuration](../../docs/background-knowledge-extraction.md)

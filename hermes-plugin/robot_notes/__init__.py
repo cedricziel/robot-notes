@@ -836,11 +836,7 @@ class RobotNotesProvider(MemoryProvider):
     # -- Setup wizard -------------------------------------------------------
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
-        """Kept minimal per the memory-provider-plugin guide: every field here is
-        prompted during `hermes memory setup`. `actor` is optional (defaults to
-        "hermes") and rarely needs changing, so it is documented in
-        robot_notes.json's reference table in the README instead of prompted for
-        here; set it by hand in robot_notes.json when the default is not right."""
+        """Declares connection and optional capture fields for Hermes setup."""
         return [
             {"key": "base_url", "description": "robot-notes server base URL", "required": True, "type": "text"},
             {
@@ -851,6 +847,14 @@ class RobotNotesProvider(MemoryProvider):
                 "env_var": "ROBOT_NOTES_API_KEY",
             },
             {"key": "vault_id", "description": "Vault ID (blank uses default)", "required": False, "type": "text"},
+            {
+                "key": "source_capture", "description": "Capture original conversation sources for human-reviewed extraction",
+                "required": False, "type": "boolean", "default": False,
+            },
+            {
+                "key": "source_scope_id", "description": "Server-configured source scope ID (required when capture is enabled)",
+                "required": False, "type": "text",
+            },
         ]
 
     def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
@@ -858,6 +862,8 @@ class RobotNotesProvider(MemoryProvider):
         RobotNotesConfig.create(
             base_url=str(values.get("base_url", "")),
             actor=str(values.get("actor") or existing.actor),
+            source_capture=values.get("source_capture", existing.source_capture),
+            source_scope_id=values.get("source_scope_id", existing.source_scope_id),
             evidence_archive=values.get("evidence_archive", existing.evidence_archive),
             evidence_retention_days=values.get("evidence_retention_days", existing.evidence_retention_days),
             native_tools=values.get("native_tools", existing.native_tools),
