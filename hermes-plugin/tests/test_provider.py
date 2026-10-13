@@ -932,7 +932,7 @@ def test_on_memory_write_replace_without_identifiable_old_requires_review(provid
 def test_get_config_schema_declares_fields():
     schema = RobotNotesProvider().get_config_schema()
     keys = {field["key"] for field in schema}
-    assert keys == {"base_url", "api_key", "vault_id"}
+    assert keys == {"base_url", "api_key", "vault_id", "source_capture", "source_scope_id"}
     api_key_field = next(f for f in schema if f["key"] == "api_key")
     assert api_key_field["secret"] is True
 
@@ -1425,3 +1425,42 @@ def test_setup_preserves_scoped_recall_and_archive_configuration(tmp_path):
     assert restored.recall_expand_chars == 1000
     assert restored.evidence_archive is True
     assert restored.evidence_retention_days == 19
+
+
+def test_setup_preserves_source_capture_on_unrelated_save(tmp_path):
+    RobotNotesConfig.create(
+        base_url="https://old.example", source_capture=True, source_scope_id="scope"
+    ).save(str(tmp_path))
+    RobotNotesProvider().save_config({"base_url": "https://new.example"}, str(tmp_path))
+    restored = RobotNotesConfig.load(str(tmp_path))
+    assert restored.source_capture is True
+    assert restored.source_scope_id == "scope"
+
+
+def test_setup_can_enable_and_disable_source_capture(tmp_path):
+    provider = RobotNotesProvider()
+    provider.save_config({
+        "base_url": "https://notes.example", "source_capture": True,
+        "source_scope_id": "scope",
+    }, str(tmp_path))
+    assert RobotNotesConfig.load(str(tmp_path)).source_capture is True
+    provider.save_config({
+        "base_url": "https://notes.example", "source_capture": False,
+    }, str(tmp_path))
+    assert RobotNotesConfig.load(str(tmp_path)).source_capture is False
+
+
+def test_setup_source_capture_requires_scope(tmp_path):
+    with pytest.raises(ValueError, match="source_scope_id"):
+        RobotNotesProvider().save_config({
+            "base_url": "https://notes.example", "source_capture": True,
+        }, str(tmp_path))
+
+
+def test_source_capture_setup_schema_uses_dashboard_boolean():
+    fields = {field["key"]: field for field in RobotNotesProvider().get_config_schema()}
+    assert fields["source_capture"]["type"] == "boolean"
+    assert fields["source_capture"]["default"] is False
+    assert not fields["source_capture"].get("secret", False)
+    assert fields["source_scope_id"]["type"] == "text"
+    assert not fields["source_scope_id"].get("secret", False)

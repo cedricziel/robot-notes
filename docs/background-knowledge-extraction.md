@@ -51,6 +51,10 @@ In `$HERMES_HOME/robot_notes.json`, configure:
 }
 ```
 
+Hermes setup and its memory-provider dashboard expose `source_capture` and
+`source_scope_id`. Capture defaults to off; enabling it requires a configured
+scope ID. Saving other provider settings preserves the existing capture settings.
+
 Hermes queues observations from `sync_turn()` and `on_session_end()` in a bounded
 local SQLite outbox. Only the primary conversation captures sources. The server
 decides which observations qualify for extraction using the scope settings.
