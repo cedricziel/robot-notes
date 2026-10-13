@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:dart_frog/dart_frog.dart';
-import 'package:dart_frog_web_socket/dart_frog_web_socket.dart';
 import 'package:dart_otel_api/dart_otel_api.dart';
 import 'package:server/src/agent_credentials.dart';
 import 'package:server/src/config.dart';
@@ -14,6 +13,7 @@ import 'package:server/src/ws/broadcaster.dart';
 import 'package:server/src/ws/channel_sink.dart';
 import 'package:server/src/ws/connection.dart';
 import 'package:server/src/ws/presence.dart';
+import 'package:server/src/ws/server_handler.dart';
 import 'package:ulid/ulid.dart';
 
 /// `GET /ws` — upgrades to a WebSocket and runs the v1 robot-notes protocol.
@@ -40,9 +40,9 @@ FutureOr<Response> onRequest(RequestContext context) {
           ? upgradeSpanContext
           : null;
 
-  final handler = webSocketHandler((channel, _) {
+  final handler = serverWebSocketHandler((socket) {
     final id = Ulid().toString();
-    final sink = ChannelWsSink(channel);
+    final sink = ChannelWsSink(socket);
     final conn = WsConnection(
       id: id,
       vaultId: context.request.headers['x-vault-id'] ??
@@ -66,7 +66,7 @@ FutureOr<Response> onRequest(RequestContext context) {
     // `subscribe` sent immediately after `auth` can never be evaluated
     // before the auth message it depends on has finished.
     late final StreamSubscription<dynamic> sub;
-    sub = channel.stream.listen(
+    sub = socket.listen(
       (data) {
         sub.pause();
         unawaited(
@@ -81,5 +81,5 @@ FutureOr<Response> onRequest(RequestContext context) {
     );
   });
 
-  return handler(context);
+  return fromShelfHandler(handler)(context);
 }
