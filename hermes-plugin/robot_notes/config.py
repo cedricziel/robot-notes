@@ -27,6 +27,8 @@ class RobotNotesConfig:
     base_url: str = ""
     actor: str = DEFAULT_ACTOR
     api_key: str = ""
+    source_capture: bool = False
+    source_scope_id: str = ""
     evidence_archive: bool = False
     evidence_retention_days: int = 30
     native_tools: bool = True
@@ -78,11 +80,16 @@ class RobotNotesConfig:
         memory_scope: str = "shared", user_id: str = "", agent_id: str = "",
         shared_memory_path: str = "",
         evidence_archive: bool = False, evidence_retention_days: int = 30,
+        source_capture: bool = False, source_scope_id: str = "",
         recall_path: Optional[str] = None, recall_max_bytes: int = 0, recall_expand_chars: int = 0,
     ) -> "RobotNotesConfig":
         """The one place ``base_url`` is normalized (trailing slash stripped) and
         ``actor`` and ``vault_id`` defaulted — every constructor path (``load()``, the setup wizard's
         ``save_config()``) should go through this rather than repeating either rule."""
+        if type(source_capture) is not bool:
+            raise ValueError("source_capture must be a JSON boolean")
+        if not isinstance(source_scope_id, str) or (source_capture and not source_scope_id.strip()):
+            raise ValueError("source_capture requires a configured source_scope_id")
         if not isinstance(evidence_archive, bool):
             raise ValueError("evidence_archive must be a JSON boolean")
         if type(evidence_retention_days) is not int or not 1 <= evidence_retention_days <= 3650:
@@ -117,6 +124,7 @@ class RobotNotesConfig:
         if recall_expand_chars and not recall_max_bytes:
             raise ValueError("recall_expand_chars requires recall_max_bytes")
         return cls(
+            source_capture=source_capture, source_scope_id=source_scope_id,
             evidence_archive=evidence_archive, evidence_retention_days=evidence_retention_days,
             base_url=base_url.rstrip("/"), actor=actor or DEFAULT_ACTOR,
             api_key=api_key, native_tools=native_tools, durable_writes=durable_writes, vault_id=vault_id.strip() or DEFAULT_VAULT_ID,
@@ -140,6 +148,8 @@ class RobotNotesConfig:
             actor=str(data.get("actor") or ""),
             api_key=get_secret(API_KEY_ENV_VAR, ""),
             durable_writes=data.get("durable_writes", False),
+            source_capture=data.get("source_capture", False),
+            source_scope_id=data.get("source_scope_id", ""),
             evidence_archive=data.get("evidence_archive", False),
             evidence_retention_days=data.get("evidence_retention_days", 30),
             native_tools=data.get("native_tools", True),
@@ -158,6 +168,8 @@ class RobotNotesConfig:
         home.mkdir(parents=True, exist_ok=True)
         path = home / CONFIG_FILENAME
         payload = {"base_url": self.base_url, "actor": self.actor, "vault_id": self.vault_id}
+        if self.source_capture:
+            payload.update(source_capture=True, source_scope_id=self.source_scope_id)
         if self.durable_writes:
             payload["durable_writes"] = True
         if self.memory_scope != "shared":

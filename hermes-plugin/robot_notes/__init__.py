@@ -28,6 +28,7 @@ from .evidence import EvidenceArchive
 from .health import MemoryHealth
 from .outbox import Outbox, QueueFull
 from .recall import RecallCache, RecallStatus, is_trivial_prompt
+from .source_capture import SourceCapture
 from .recall_evidence import evidence_context, narrow_paths
 from .tools import TOOL_HANDLERS, TOOL_SCHEMAS
 from .transcript import build_transcript
@@ -123,6 +124,7 @@ class RobotNotesProvider(MemoryProvider):
         # older Hermes build) must keep writing, so only an explicit non-primary
         # value in initialize() below turns this off.
         self._write_enabled: bool = True
+        self._source_capture = None
         self._hermes_home: str = ""
         self._platform: str = ""
         self._agent_identity: str = ""
@@ -179,6 +181,9 @@ class RobotNotesProvider(MemoryProvider):
         self._health = MemoryHealth()
         if old_client:
             old_client.close()
+        if self._source_capture:
+            self._source_capture.stop()
+        self._source_capture = None
         self._outbox = None
         self._config = RobotNotesConfig.load(kwargs.get("hermes_home"))
         self._session_id = session_id
@@ -203,12 +208,19 @@ class RobotNotesProvider(MemoryProvider):
             self._delivery_enabled = True
             self._start_delivery()
 
+        if self._config.source_capture and self._config.is_complete and self._can_write():
+            self._source_capture = SourceCapture(self._config, Path(self._hermes_home or _default_hermes_home()))
+            self._source_capture.start()
+
         if self._config.evidence_archive and self._config.is_complete and self._can_write():
             home = Path(self._hermes_home or _default_hermes_home())
             self._evidence_archive = EvidenceArchive(self._config, home)
             self._evidence_outbox = self._evidence_archive.outbox
 
     def shutdown(self) -> None:
+        if self._source_capture:
+            self._source_capture.stop()
+        self._source_capture = None
         if self._evidence_archive:
             self._evidence_archive.stop()
         if self._evidence_thread:
@@ -350,9 +362,14 @@ class RobotNotesProvider(MemoryProvider):
             queue = self._outbox.status() if self._outbox else "disabled"
         except (OSError, sqlite3.Error):
             queue = {"state": "unavailable", "reason": "queue_error"}
-        return {**self._health.snapshot(), "writes_enabled": self._can_write(), "retry_queue": queue}
+        state = {**self._health.snapshot(), "writes_enabled": self._can_write(), "retry_queue": queue}
+        if self._source_capture:
+            state["source_capture"] = self._source_capture.status()
+        return state
 
     def on_turn_start(self, turn_number: int, message: str, **kwargs) -> None:
+        if self._source_capture:
+            self._source_capture.start()
         self._start_delivery()
         self._start_evidence_delivery()
 
@@ -687,6 +704,14 @@ class RobotNotesProvider(MemoryProvider):
         messages: Optional[List[Dict[str, Any]]] = None,
         turn_author: Optional[Dict[str, Any]] = None,
     ) -> None:
+        if self._source_capture and self._can_write():
+            source_messages = messages if messages is not None else [
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": assistant_content},
+            ]
+            supplied_turn = (turn_author or {}).get("turn_id")
+            event_id = f"{session_id or self._session_id}:turn:{supplied_turn}" if supplied_turn else ""
+            self._source_capture.enqueue(session_id or self._session_id, "completed_turn", source_messages, event_id=event_id)
         if not self._evidence_archive or not self._can_write():
             return
         capture = "raw_messages" if messages is not None else "text_fallback"
@@ -730,6 +755,8 @@ class RobotNotesProvider(MemoryProvider):
         return reference
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
+        if self._source_capture and self._can_write():
+            self._source_capture.enqueue(self._session_id, "session_end", messages)
         if not self._client or not self._can_write():
             return
         title = self._session_id or "unknown-session"

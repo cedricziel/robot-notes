@@ -3,6 +3,7 @@ the existing /notes and /search endpoints, no MCP framing involved."""
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -274,6 +275,30 @@ class RobotNotesClient:
             "snapshot": snapshot, "lineage": body["lineage"],
             "created_at": body["created_at"], "expires_at": body["expires_at"],
         }
+
+    def knowledge_capabilities(self) -> Dict[str, Any]:
+        body = self._response_object(self._request("GET", "/knowledge/capabilities"))
+        if type(body.get("knowledge_contract_version")) is not int or body["knowledge_contract_version"] != 1:
+            raise ClientError("Unsupported knowledge contract", code="unsupported_capability")
+        if body.get("enabled") is not True or body.get("source_capture") is not True:
+            raise ClientError("Knowledge source capture is unavailable", code="unsupported_capability")
+        if not isinstance(body.get("principal_id"), str) or not body["principal_id"]:
+            raise ClientError("Knowledge principal identity is unavailable", code="unsupported_capability")
+        if body.get("vault_id") != self._http.headers["X-Vault-Id"]:
+            raise ClientError("Knowledge vault identity changed", code="unsupported_capability")
+        return body
+
+    def ingest_source(self, operation: Dict[str, Any], *, expected_principal_id: Optional[str] = None) -> Dict[str, Any]:
+        body = self._response_object(self._request("POST", "/knowledge/operations/ingest_source", json=operation))
+        source = body.get("source")
+        if not isinstance(source, dict) or not all(isinstance(source.get(key), str) and source[key] for key in ("id", "revision", "principal_id", "scope_id")):
+            raise ClientError("Invalid source acknowledgement", code="invalid_source_ack")
+        if source["scope_id"] != operation["scope_id"]:
+            raise ClientError("Source acknowledgement scope changed", code="invalid_source_ack")
+        digest = hashlib.sha256(base64.b64decode(operation["content_base64"])).hexdigest()
+        if source.get("sha256") != digest or (expected_principal_id and source["principal_id"] != expected_principal_id):
+            raise ClientError("Source acknowledgement identity or digest changed", code="invalid_source_ack")
+        return source
 
     def put_evidence(self, digest: str, *, payload: str, retention_days: int,
                      lineage: Dict[str, Any]) -> Dict[str, Any]:
