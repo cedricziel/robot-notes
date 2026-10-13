@@ -1,8 +1,11 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoIcons;
 
 import '../api/api_client.dart';
-import '../api/api_exceptions.dart';
-import 'knowledge_review_screen.dart';
+import '../widgets/adaptive.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/error_strip.dart';
+import 'proposal_review_panel.dart';
 import 'proposal_review_dialog.dart';
 
 class KnowledgeProposalsScreen extends StatefulWidget {
@@ -20,6 +23,9 @@ class _KnowledgeProposalsScreenState extends State<KnowledgeProposalsScreen> {
   bool _busy = false;
   String? _error;
   int _generation = 0;
+  Map<String, dynamic>? _selected;
+  GlobalKey<ProposalReviewPanelState> _reviewKey = GlobalKey();
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -31,7 +37,6 @@ class _KnowledgeProposalsScreenState extends State<KnowledgeProposalsScreen> {
     final generation = ++_generation;
     setState(() {
       _busy = true;
-      _items = [];
       _error = null;
     });
     try {
@@ -42,152 +47,247 @@ class _KnowledgeProposalsScreenState extends State<KnowledgeProposalsScreen> {
             .whereType<Map<String, dynamic>>()
             .toList(),
       );
-    } on ApiException catch (error) {
+    } catch (error) {
       if (mounted && generation == _generation) {
-        setState(() => _error = error.message ?? 'Proposals are unavailable.');
+        setState(
+          () => _error = describeError(
+            error,
+            fallback: 'Proposals are unavailable.',
+          ),
+        );
       }
     } finally {
       if (mounted && generation == _generation) setState(() => _busy = false);
     }
   }
 
-  Future<void> _mutate(Future<void> Function() action) async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await action();
-      await _load();
-    } on KnowledgeConflictException {
-      await _load();
-      if (mounted) {
-        setState(
-          () => _error =
-              'This proposal changed. Inspect it again before deciding.',
-        );
-      }
-    } on ApiException catch (error) {
-      if (mounted) {
-        setState(
-          () => _error = error.message ?? 'The action could not be completed.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
+  void _select(Map<String, dynamic> proposal) {
+    if (_submitting ||
+        _selected?['note_id'] == proposal['note_id'] &&
+            _selected?['proposal_id'] == proposal['proposal_id']) {
+      return;
     }
+    setState(() {
+      _selected = proposal;
+      _reviewKey = GlobalKey();
+    });
   }
 
-  Future<void> _inspect(Map<String, dynamic> summary) async {
-    try {
-      final id = summary['note_id'] as String;
-      final proposalId = summary['proposal_id'] as String;
-      final proposal = await widget.api.getKnowledgeProposal(id, proposalId);
-      if (!mounted) return;
-      setState(() => summary['state'] = proposal['state']);
-      if (proposal['new_note'] != true &&
-          !const {'accepted', 'denied'}.contains(proposal['state'])) {
-        final note = await widget.api.getNote(id);
-        if (!mounted) return;
-        await Navigator.of(context).push<void>(
-          MaterialPageRoute(
-            builder: (_) => KnowledgeReviewScreen(
-              api: widget.api,
-              note: note,
-              onAcceptedChange: _load,
-            ),
-          ),
-        );
-        if (mounted) await _load();
-        return;
-      }
-      await showProposalReview(
-        context: context,
-        proposal: proposal,
-        onComment: (body) => _mutate(() async {
-          await widget.api.commentKnowledge(
-            '/notes/$id/proposals/$proposalId/comments',
-            {'record_revision': proposal['record_revision'], 'body': body},
-          );
-        }),
-        onDecision: (decision, comment) => _mutate(() async {
-          await widget.api.decideKnowledgeProposal(
-            id,
-            proposalId,
-            decision: decision,
-            recordRevision: proposal['record_revision'] as int,
-            comment: comment,
-          );
-        }),
-      );
-    } on ApiException catch (error) {
-      if (mounted) {
-        setState(
-          () => _error = error.message ?? 'The proposal could not be opened.',
-        );
-      }
-    }
+  Future<void> _changed(bool decided) async {
+    await _load();
+    if (!mounted) return;
+    if (decided && _state == null) setState(() => _selected = null);
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Knowledge proposals'),
-      actions: [
-        DropdownButton<String>(
-          value: _state ?? 'active',
-          items: const [
-            DropdownMenuItem(value: 'active', child: Text('Active')),
-            DropdownMenuItem(value: 'accepted', child: Text('Accepted')),
-            DropdownMenuItem(value: 'denied', child: Text('Denied')),
-          ],
-          onChanged: _busy
-              ? null
-              : (value) {
-                  setState(() => _state = value == 'active' ? null : value);
-                  _load();
-                },
-        ),
-        IconButton(
-          tooltip: 'Refresh',
-          onPressed: _busy ? null : _load,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: Column(
-      children: [
-        if (_busy) const LinearProgressIndicator(),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(_error!, key: const Key('knowledge.proposals.error')),
-          ),
-        Expanded(
-          child: ListView(
-            children: [
-              if (_items.isEmpty && !_busy && _error == null)
-                ListTile(
-                  title: Text(
-                    _state == null
-                        ? 'No active proposals'
-                        : 'No $_state proposals',
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final wide = constraints.maxWidth >= 1000;
+      final reviewing = _selected != null;
+      final apple = useCupertino(context);
+      final filterLabel = switch (_state) {
+        'accepted' => 'Accepted',
+        'denied' => 'Denied',
+        _ => 'Active',
+      };
+      final review = reviewing
+          ? ProposalReviewPanel(
+              key: _reviewKey,
+              api: widget.api,
+              summary: _selected!,
+              onChanged: _changed,
+              onBusyChanged: (busy) {
+                if (mounted) setState(() => _submitting = busy);
+              },
+            )
+          : const EmptyState(
+              icon: Icons.fact_check_outlined,
+              title: 'Select a proposal',
+              message: 'Review proposed changes and their supporting evidence.',
+            );
+      return PopScope(
+        canPop: !_submitting && (!reviewing || wide),
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && !_submitting) setState(() => _selected = null);
+        },
+        child: Scaffold(
+          appBar: AppBar(
+            leading: reviewing && !wide
+                ? IconButton(
+                    tooltip: 'Back to proposals',
+                    icon: Icon(adaptiveBackIcon(context)),
+                    onPressed: _submitting
+                        ? null
+                        : () => setState(() => _selected = null),
+                  )
+                : null,
+            title: Text(
+              reviewing && !wide ? 'Review proposal' : 'Knowledge proposals',
+            ),
+            actions: [
+              if (!reviewing || wide)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: AdaptiveMenu(
+                    tooltip: 'Filter proposals',
+                    enabled: !_busy && !_submitting,
+                    entries: [
+                      for (final state in [null, 'accepted', 'denied'])
+                        AdaptiveMenuEntry(
+                          label: state == null
+                              ? 'Active'
+                              : state == 'accepted'
+                              ? 'Accepted'
+                              : 'Denied',
+                          selected: _state == state,
+                          onSelected: () {
+                            setState(() {
+                              _state = state;
+                              _selected = null;
+                              _items = [];
+                            });
+                            _load();
+                          },
+                        ),
+                    ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(filterLabel),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.expand_more, size: 18),
+                      ],
+                    ),
                   ),
                 ),
-              for (final proposal in _items)
-                ListTile(
-                  title: Text('${proposal['title'] ?? 'Knowledge update'}'),
-                  subtitle: Text(
-                    '${proposal['new_note'] == true ? 'New knowledge · ' : ''}${proposal['path'] ?? ''}\n${proposal['author_label'] ?? 'Unknown author'} · ${proposalStateLabel(proposal['state'])}',
-                  ),
-                  isThreeLine: true,
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: _busy ? null : () => _inspect(proposal),
+              IconButton(
+                tooltip: 'Refresh',
+                onPressed: _busy || _submitting
+                    ? null
+                    : () {
+                        _load();
+                        _reviewKey.currentState?.refresh();
+                      },
+                icon: Icon(
+                  apple ? CupertinoIcons.arrow_clockwise : Icons.refresh,
                 ),
+              ),
+              const SizedBox(width: 8),
             ],
           ),
+          body: wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(width: 340, child: _inbox(context)),
+                    const VerticalDivider(width: 1),
+                    Expanded(child: review),
+                  ],
+                )
+              : reviewing
+              ? review
+              : _inbox(context),
         ),
-      ],
-    ),
+      );
+    },
   );
+
+  Widget _inbox(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_busy) const LinearProgressIndicator(minHeight: 2),
+          if (_error != null)
+            ErrorStrip(
+              key: const Key('knowledge.proposals.error'),
+              message: _error!,
+              onRetry: _busy ? null : _load,
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              '${_items.length} ${_items.length == 1 ? 'proposal' : 'proposals'}',
+              style: theme.textTheme.labelMedium,
+            ),
+          ),
+          Expanded(
+            child: _items.isEmpty
+                ? _busy
+                      ? const Center(
+                          child: CircularProgressIndicator.adaptive(),
+                        )
+                      : _error != null
+                      ? const SizedBox.shrink()
+                      : EmptyState(
+                          icon: useCupertino(context)
+                              ? CupertinoIcons.tray
+                              : Icons.inbox_outlined,
+                          title: _state == null
+                              ? 'No active proposals'
+                              : 'No $_state proposals',
+                          message: _state == null
+                              ? 'New knowledge updates will appear here for review.'
+                              : 'Proposals you ${_state == 'accepted' ? 'accept' : 'deny'} will appear here.',
+                        )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+                    itemCount: _items.length,
+                    itemBuilder: (context, index) {
+                      final proposal = _items[index];
+                      final selected =
+                          _selected?['note_id'] == proposal['note_id'] &&
+                          _selected?['proposal_id'] == proposal['proposal_id'];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: ListTile(
+                          key: ValueKey(
+                            'proposal.${proposal['note_id']}.${proposal['proposal_id']}',
+                          ),
+                          selected: selected,
+                          selectedTileColor: theme.colorScheme.primaryContainer,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          title: Text(
+                            '${proposal['title'] ?? 'Knowledge update'}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${proposal['new_note'] == true ? 'New knowledge · ' : ''}${proposal['path'] ?? ''}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  '${proposal['author_label'] ?? 'Unknown author'}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  proposalStateLabel(proposal['state']),
+                                  style: theme.textTheme.labelSmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          trailing: const Icon(Icons.chevron_right, size: 18),
+                          onTap: _submitting ? null : () => _select(proposal),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
 }
