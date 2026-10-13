@@ -187,12 +187,70 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Existing knowledge'));
       await tester.pumpAndSettle();
-      if (find.text('Knowledge review').evaluate().isNotEmpty) {
-        await tester.tap(find.text('Agent'));
-        await tester.pumpAndSettle();
-      }
       expect(find.text(original), findsOneWidget);
       expect(find.text('Approve'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
     });
   }
+  testWidgets('inline comment survives resizing and a failed decision', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final client = RobotNotesClient(
+      config: const AppConfig(
+        baseUrl: 'https://notes.example',
+        apiKey: 'human',
+        actor: 'Reviewer',
+      ),
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/decisions')) {
+          return http.Response(
+            '{"error":"unavailable","message":"Try again later"}',
+            503,
+          );
+        }
+        final proposal = {
+          'note_id': 'reserved',
+          'proposal_id': 'p',
+          'new_note': true,
+          'title': 'Proposed knowledge',
+          'state': 'pending',
+          'record_revision': 4,
+          'author_label': 'Agent',
+          'draft': {'content': 'A proposed claim'},
+          'allowed_actions': ['read', 'comment', 'request_changes', 'approve'],
+        };
+        return http.Response(
+          jsonEncode(
+            request.url.path == '/notes/proposals'
+                ? {
+                    'items': [proposal],
+                  }
+                : proposal,
+          ),
+          200,
+        );
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(home: KnowledgeProposalsScreen(api: client)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Proposed knowledge'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Please verify the source');
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    expect(find.text('A proposed claim'), findsOneWidget);
+    expect(find.text('Please verify the source'), findsOneWidget);
+    await tester.ensureVisible(find.text('Request changes'));
+    await tester.tap(find.text('Request changes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Try again later'), findsOneWidget);
+    expect(find.text('Please verify the source'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+  });
 }
