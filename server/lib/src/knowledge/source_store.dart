@@ -6,6 +6,7 @@ import 'package:server/src/clock.dart';
 import 'package:server/src/frontmatter.dart';
 import 'package:server/src/knowledge_identity.dart';
 import 'package:server/src/knowledge_policy.dart';
+import 'package:server/src/oauth/store_support.dart' show KeyedMutex;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:ulid/ulid.dart';
 
@@ -163,6 +164,14 @@ class KnowledgeSourceStore {
     );
   }
 
+  /// Serializes source-store writers (ingest) among themselves WITHOUT
+  /// taking the shared policy mutation lock (issue #427): ingest previously
+  /// held that single vault-wide mutex for its whole body, so a slow
+  /// ingest queued every `POST /notes` behind it (p95 11.7s) and vice
+  /// versa. Delivery dedup stays correct — that state lives entirely in
+  /// this store's own SQLite database.
+  final KeyedMutex _sourceMutex = KeyedMutex();
+
   /// Configures stable capture scope access; capture remains disabled by
   /// default.
   Future<void> configureScope(
@@ -281,123 +290,130 @@ class KnowledgeSourceStore {
     String? sourceId,
     String observationKind = 'import',
     String? conversationId,
-  }) =>
-      authorization.store.withMutationLock(() async {
-        _require(KnowledgeAction.propose, scopeId);
-        final scope = _scope(scopeId);
-        if (automatic &&
-            !(scope['capture_adapters'] as List<dynamic>).contains(adapter)) {
-          throw const KnowledgeAccessDeniedException(KnowledgeAction.propose);
+  }) async {
+    // Serialization is per source store, NOT the vault-wide policy mutation
+    // lock (issue #427): the two write paths were mutually blocking. The
+    // [onObservation] callbacks are deliberately invoked AFTER the lock is
+    // released — they schedule extraction work (which itself may take the
+    // policy lock) and must never run under this mutex.
+    final (source, observed) = await _sourceMutex.run('sources', () async {
+      _require(KnowledgeAction.propose, scopeId);
+      final scope = _scope(scopeId);
+      if (automatic &&
+          !(scope['capture_adapters'] as List<dynamic>).contains(adapter)) {
+        throw const KnowledgeAccessDeniedException(KnowledgeAction.propose);
+      }
+      if (adapter.trim().isEmpty ||
+          eventId.trim().isEmpty ||
+          bytes.length > maxBytes) {
+        throw const FormatException(
+          'Invalid or oversized source observation',
+        );
+      }
+      if (!const {'import', 'completed_turn', 'session_end'}
+          .contains(observationKind)) {
+        throw const FormatException('Invalid observation kind');
+      }
+      final media = _media(mediaType);
+      final byteDigest = sha256.convert(bytes).toString();
+      final revision = _hash([byteDigest, media]);
+      final key = _hash([
+        authorization.vaultId,
+        currentKnowledgePrincipal.id,
+        adapter,
+        eventId,
+      ]);
+      final digest = _hash([
+        byteDigest,
+        media,
+        observedAt?.toUtc().toIso8601String(),
+        scopeId,
+        observationKind,
+        conversationId,
+      ]);
+      final retained =
+          _db.select('SELECT * FROM deliveries WHERE key = ?', [key]);
+      if (retained.isNotEmpty) {
+        final row = retained.single;
+        if (row['digest'] != digest ||
+            (sourceId != null && sourceId != row['source_id'])) {
+          throw SourceDeliveryConflict();
         }
-        if (adapter.trim().isEmpty ||
-            eventId.trim().isEmpty ||
-            bytes.length > maxBytes) {
-          throw const FormatException(
-            'Invalid or oversized source observation',
-          );
-        }
-        if (!const {'import', 'completed_turn', 'session_end'}
-            .contains(observationKind)) {
-          throw const FormatException('Invalid observation kind');
-        }
-        final media = _media(mediaType);
-        final byteDigest = sha256.convert(bytes).toString();
-        final revision = _hash([byteDigest, media]);
-        final key = _hash([
-          authorization.vaultId,
-          currentKnowledgePrincipal.id,
-          adapter,
-          eventId,
-        ]);
-        final digest = _hash([
-          byteDigest,
-          media,
-          observedAt?.toUtc().toIso8601String(),
-          scopeId,
-          observationKind,
-          conversationId,
-        ]);
-        final retained =
-            _db.select('SELECT * FROM deliveries WHERE key = ?', [key]);
-        if (retained.isNotEmpty) {
-          final row = retained.single;
-          if (row['digest'] != digest ||
-              (sourceId != null && sourceId != row['source_id'])) {
-            throw SourceDeliveryConflict();
-          }
-          if (row['consumed'] == 1) throw SourceUnavailable();
-          final source = _descriptor(
-            row['source_id'] as String,
-            row['revision'] as String,
-          );
-          await _writeDescriptor(source);
-          await onObservation?.call(source);
-          return source;
-        }
-        final id = sourceId ?? key;
-        if (sourceId != null) {
-          final existing = _db.select(
-            'SELECT descriptor FROM revisions WHERE source_id = ? '
-            'AND purged = 0 LIMIT 1',
-            [sourceId],
-          );
-          if (existing.isEmpty) throw SourceUnavailable();
-          final source = KnowledgeSourceRevision.fromJson(
-            jsonDecode(existing.single['descriptor'] as String)
-                as Map<String, dynamic>,
-          );
-          _require(KnowledgeAction.propose, source.scopeId);
-          if (source.scopeId != scopeId) throw SourceDeliveryConflict();
-        }
-        final descriptor = KnowledgeSourceRevision.fromJson({
-          'id': id,
-          'revision': revision,
-          'sha256': byteDigest,
-          'scope_id': scopeId,
-          'media_type': media,
-          'adapter': adapter,
-          'principal_id': currentKnowledgePrincipal.id,
-          'captured_at': clock.nowUtc().toIso8601String(),
-          'observation_kind': observationKind,
-          'conversation_id': conversationId,
-          'scope_revision': scope['revision'] ?? 0,
-          'extraction_eligible': scope['extraction_enabled'] == true &&
-              (observationKind == 'import' ||
-                  scope['trigger'] == 'both' ||
-                  scope['trigger'] == observationKind),
-        });
-        final blob = _blob(id, revision);
-        await blob.parent.create(recursive: true);
-        if (blob.existsSync()) {
-          if (sha256.convert(await blob.readAsBytes()).toString() !=
-              byteDigest) {
-            throw const FormatException('Source blob digest mismatch');
-          }
-        } else {
-          await blob.writeAsBytes(bytes, flush: true);
-        }
-        _db.execute('BEGIN IMMEDIATE');
-        try {
-          _db
-            ..execute(
-              'INSERT OR IGNORE INTO revisions(source_id, revision, '
-              'descriptor) VALUES (?, ?, ?)',
-              [id, revision, jsonEncode(descriptor.toJson())],
-            )
-            ..execute(
-              'INSERT INTO deliveries(key, digest, source_id, '
-              'revision) VALUES (?, ?, ?, ?)',
-              [key, digest, id, revision],
-            )
-            ..execute('COMMIT');
-        } catch (_) {
-          _db.execute('ROLLBACK');
-          rethrow;
-        }
-        await _writeDescriptor(descriptor);
-        await onObservation?.call(descriptor);
-        return descriptor;
+        if (row['consumed'] == 1) throw SourceUnavailable();
+        final source = _descriptor(
+          row['source_id'] as String,
+          row['revision'] as String,
+        );
+        await _writeDescriptor(source);
+        return (source, <KnowledgeSourceRevision>[source]);
+      }
+      final id = sourceId ?? key;
+      if (sourceId != null) {
+        final existing = _db.select(
+          'SELECT descriptor FROM revisions WHERE source_id = ? '
+          'AND purged = 0 LIMIT 1',
+          [sourceId],
+        );
+        if (existing.isEmpty) throw SourceUnavailable();
+        final source = KnowledgeSourceRevision.fromJson(
+          jsonDecode(existing.single['descriptor'] as String)
+              as Map<String, dynamic>,
+        );
+        _require(KnowledgeAction.propose, source.scopeId);
+        if (source.scopeId != scopeId) throw SourceDeliveryConflict();
+      }
+      final descriptor = KnowledgeSourceRevision.fromJson({
+        'id': id,
+        'revision': revision,
+        'sha256': byteDigest,
+        'scope_id': scopeId,
+        'media_type': media,
+        'adapter': adapter,
+        'principal_id': currentKnowledgePrincipal.id,
+        'captured_at': clock.nowUtc().toIso8601String(),
+        'observation_kind': observationKind,
+        'conversation_id': conversationId,
+        'scope_revision': scope['revision'] ?? 0,
+        'extraction_eligible': scope['extraction_enabled'] == true &&
+            (observationKind == 'import' ||
+                scope['trigger'] == 'both' ||
+                scope['trigger'] == observationKind),
       });
+      final blob = _blob(id, revision);
+      await blob.parent.create(recursive: true);
+      if (blob.existsSync()) {
+        if (sha256.convert(await blob.readAsBytes()).toString() != byteDigest) {
+          throw const FormatException('Source blob digest mismatch');
+        }
+      } else {
+        await blob.writeAsBytes(bytes, flush: true);
+      }
+      _db.execute('BEGIN IMMEDIATE');
+      try {
+        _db
+          ..execute(
+            'INSERT OR IGNORE INTO revisions(source_id, revision, '
+            'descriptor) VALUES (?, ?, ?)',
+            [id, revision, jsonEncode(descriptor.toJson())],
+          )
+          ..execute(
+            'INSERT INTO deliveries(key, digest, source_id, '
+            'revision) VALUES (?, ?, ?, ?)',
+            [key, digest, id, revision],
+          )
+          ..execute('COMMIT');
+      } catch (_) {
+        _db.execute('ROLLBACK');
+        rethrow;
+      }
+      await _writeDescriptor(descriptor);
+      return (descriptor, <KnowledgeSourceRevision>[descriptor]);
+    });
+    for (final observedSource in observed) {
+      await onObservation?.call(observedSource);
+    }
+    return source;
+  }
 
   KnowledgeSourceRevision _descriptor(String id, String revision) {
     final rows = _db.select(

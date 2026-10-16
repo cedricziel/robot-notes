@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -204,5 +205,35 @@ void main() {
         throwsA(isA<SourceDeliveryConflict>()),
       );
     });
+  });
+
+  test('ingest does not block on the policy mutation lock (issue #427)',
+      () async {
+    final lockHeld = Completer<void>();
+    final releaseLock = Completer<void>();
+    final store = sources.authorization.store;
+    // Hold the vault-wide policy mutation lock the way an in-flight note
+    // write would.
+    final holder = store.withMutationLock(() async {
+      lockHeld.complete();
+      await releaseLock.future;
+    });
+    await lockHeld.future;
+
+    // Ingest must complete while the policy lock is still held — before
+    // issue #427's fix it queued behind it (POST /notes p95 11.7s).
+    await withKnowledgePrincipal(
+      const KnowledgePrincipal.operator(),
+      () => sources.ingest(
+        adapter: 'hermes',
+        eventId: 'independent-of-policy-lock',
+        scopeId: 'scope-1',
+        bytes: utf8.encode('decoupled content'),
+        mediaType: 'text/plain',
+      ),
+    );
+
+    releaseLock.complete();
+    await holder;
   });
 }
