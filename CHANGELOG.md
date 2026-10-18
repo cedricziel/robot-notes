@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.25](https://github.com/cedricziel/robot-notes/compare/v0.2.24...v0.2.25) (2026-10-18)
+
+
+### Performance
+
+* **knowledge:** stop serializing source ingest with note writes ([#427](https://github.com/cedricziel/robot-notes/issues/427)) ([1a14678](https://github.com/cedricziel/robot-notes/commit/1a14678359453b446ebbe1576c5492131c669abe))
+
 ## [0.2.24](https://github.com/cedricziel/robot-notes/compare/v0.2.23...v0.2.24) (2026-10-13)
 
 
