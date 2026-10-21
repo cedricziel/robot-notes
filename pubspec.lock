@@ -486,10 +486,10 @@ packages:
     dependency: transitive
     description:
       name: flutter_otel
-      sha256: c4756c3d02a314c4f2f97d4b8d379a04e16a1437a032fd9f573f3186c72f5161
+      sha256: dd6ea9a701c3168da811559fa8ba645769e7a4969b74d56adbe33abc3a66834d
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.1.7"
   flutter_otel_native:
     dependency: transitive
     description:
@@ -1232,10 +1232,10 @@ packages:
     dependency: transitive
     description:
       name: shelf
-      sha256: e7dd780a7ffb623c57850b33f43309312fc863fb6aa3d276a754bb299839ef12
+      sha256: e75e9cf311d7fd712048038cc17c25199c38536c20330d53e7db058b543d5a48
       url: "https://pub.dev"
     source: hosted
-    version: "1.4.2"
+    version: "1.4.3"
   shelf_hotreload:
     dependency: transitive
     description:

@@ -27,7 +27,7 @@ dependencies:
   adaptive_super_editor:
     path: ../packages/adaptive_super_editor
   markdown: ^7.3.1
-  flutter_otel: ^0.1.0
+  flutter_otel: ^0.1.7
   dart_otel_api: ^0.1.0
   dart_otel_instrumentation_http: ^0.1.1
   flutter_otel_native: ^0.1.0
