@@ -212,10 +212,10 @@ packages:
     dependency: transitive
     description:
       name: crypto
-      sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf
+      sha256: e3626ae6270383c9e3a549f34c9e4cd26c09ae6a9adaab2bf4737a00340efdc4
       url: "https://pub.dev"
     source: hosted
-    version: "3.0.7"
+    version: "3.0.8"
   csslib:
     dependency: transitive
     description:
@@ -268,18 +268,18 @@ packages:
     dependency: transitive
     description:
       name: dart_otel_api
-      sha256: "8de058ce18eafae08d8b1d5bfb94b3f349790bc2f8d045354a932ccee7fc4066"
+      sha256: d5fce123cb6a49e63aa9c4f87caa171aaded855831d212f4df5121c735ea57f5
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.1.2"
   dart_otel_exporter_otlp_http:
     dependency: transitive
     description:
       name: dart_otel_exporter_otlp_http
-      sha256: "52c9241e699a53d2273786c833011269708e986f56a99f2170e623430e0ae982"
+      sha256: "31c95b6202c822f68604ad1dc6b0352dbca53afb556beb773680ef3f1a69219a"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.1.1"
   dart_otel_instrumentation_http:
     dependency: transitive
     description:
@@ -292,10 +292,10 @@ packages:
     dependency: transitive
     description:
       name: dart_otel_sdk
-      sha256: "8c9dd99d67dfcce448706000dc9d8c43437a3f13c85e45b3a31f9b9f62e57be4"
+      sha256: dcf0df0886174052fbd623de4ba7f6690fa0ec8e5e7c1211481e64bf97e3b9e8
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.2"
+    version: "0.1.5"
   dart_pre_commit:
     dependency: "direct dev"
     description:
@@ -396,18 +396,18 @@ packages:
     dependency: transitive
     description:
       name: file_picker
-      sha256: "98c0b156b6380ba55bc767a14e2e6b3feb246e713ad40092424596fa79005bea"
+      sha256: e67f1bcbef00f8b28f3b6ce09a1f0d2d9de37cf1e1e7e73b70df7a20d3eee8be
       url: "https://pub.dev"
     source: hosted
-    version: "13.1.0"
+    version: "13.3.0"
   file_picker_darwin:
     dependency: transitive
     description:
       name: file_picker_darwin
-      sha256: "51aef9f4c80449c736e7cc02198675fda73689f0bd45a84da642cfeab0250d46"
+      sha256: "13e731433fb3e59c1aff5a1197e41c5c5f930fad16342d101579086271a70d7b"
       url: "https://pub.dev"
     source: hosted
-    version: "2.1.2"
+    version: "2.4.0"
   file_picker_linux:
     dependency: transitive
     description:
@@ -420,10 +420,10 @@ packages:
     dependency: transitive
     description:
       name: file_picker_platform_interface
-      sha256: bbdc085a6f168e63f147e9ce8988f79fa0800a58e7f25a48f762c60837107ba5
+      sha256: "336e7168306834a2b68e6168ed768e00d3fabeac23154d5793e277ca9f97cf20"
       url: "https://pub.dev"
     source: hosted
-    version: "4.0.0"
+    version: "4.2.0"
   file_picker_web:
     dependency: transitive
     description:
@@ -486,10 +486,10 @@ packages:
     dependency: transitive
     description:
       name: flutter_otel
-      sha256: c4756c3d02a314c4f2f97d4b8d379a04e16a1437a032fd9f573f3186c72f5161
+      sha256: "62f1353cc037a93979170d1df21721d6d8e45600542a29af42c7091260610e6a"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.0"
+    version: "0.1.9"
   flutter_otel_native:
     dependency: transitive
     description:
@@ -1232,10 +1232,10 @@ packages:
     dependency: transitive
     description:
       name: shelf
-      sha256: e7dd780a7ffb623c57850b33f43309312fc863fb6aa3d276a754bb299839ef12
+      sha256: e75e9cf311d7fd712048038cc17c25199c38536c20330d53e7db058b543d5a48
       url: "https://pub.dev"
     source: hosted
-    version: "1.4.2"
+    version: "1.4.3"
   shelf_hotreload:
     dependency: transitive
     description:
@@ -1565,10 +1565,10 @@ packages:
     dependency: transitive
     description:
       name: web
-      sha256: "868d88a33d8a87b18ffc05f9f030ba328ffefba92d6c127917a2ba740f9cfe4a"
+      sha256: e119e82ac4795c7925103b7cf3768191f33941b99e7ccffbd6c645201d9f606b
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.1"
+    version: "1.1.2"
   web_socket:
     dependency: transitive
     description:
