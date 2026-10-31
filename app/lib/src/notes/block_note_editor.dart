@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:adaptive_super_editor/adaptive_super_editor.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
+import 'package:flutter/rendering.dart' show RendererBinding;
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart' as legacy;
 import 'package:material_ui/material_ui.dart';
@@ -27,6 +30,7 @@ class BlockNoteEditor extends StatefulWidget {
     this.sourceBuilder,
     this.opaqueBuilder,
     this.searchLinkTitles,
+    this.pointerChrome,
     super.key,
   });
 
@@ -46,6 +50,12 @@ class BlockNoteEditor extends StatefulWidget {
   final Widget Function(BuildContext, String rawSource)? opaqueBuilder;
   final Future<List<String>> Function(String query)? searchLinkTitles;
 
+  /// Whether blocks get a drag handle and an actions menu beside them that
+  /// appear on hover (pointer devices), or no per-block chrome at all with
+  /// block actions in the toolbar instead (touch devices). Null follows
+  /// whether a mouse or trackpad is connected, and updates when that changes.
+  final bool? pointerChrome;
+
   @override
   State<BlockNoteEditor> createState() => _BlockNoteEditorState();
 }
@@ -55,6 +65,9 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
   late final MutableDocumentComposer _composer;
   late final Editor _editor;
   final _focus = FocusNode(debugLabel: 'Block document');
+
+  /// The block under a hovering mouse, for [_HoverChrome].
+  final _hoveredNode = ValueNotifier<String?>(null);
   final _layoutKey = GlobalKey();
   late TextEditingController _source;
   late String _published;
@@ -123,7 +136,19 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
     _published = widget.markdown;
     _draft.document.addListener(_documentChanged);
     _composer.selectionNotifier.addListener(_selectionChanged);
+    RendererBinding.instance.mouseTracker.addListener(_pointerChanged);
     _configureLinks();
+  }
+
+  /// See [BlockNoteEditor.pointerChrome].
+  bool get _pointer =>
+      widget.pointerChrome ??
+      RendererBinding.instance.mouseTracker.mouseIsConnected;
+  bool? _lastPointer;
+
+  void _pointerChanged() {
+    if (!mounted || widget.pointerChrome != null) return;
+    if (_lastPointer != _pointer) setState(() {});
   }
 
   void _configureLinks() {
@@ -171,10 +196,12 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
     _pasteGeneration++;
     _draft.document.removeListener(_documentChanged);
     _composer.selectionNotifier.removeListener(_selectionChanged);
+    RendererBinding.instance.mouseTracker.removeListener(_pointerChanged);
     _links?.removeListener(_linksChanged);
     _links?.dispose();
     if (widget.sourceController == null) _source.dispose();
     _focus.dispose();
+    _hoveredNode.dispose();
     _editor.dispose();
     _composer.dispose();
     super.dispose();
@@ -729,83 +756,97 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
       );
     }
     if (widget.readOnly) {
+      child = AbsorbPointer(absorbing: node is TaskNode, child: child);
+      if (!_pointer) return child;
+      // Keep text where it sits while editing, so switching modes on a
+      // pointer device doesn't shift it sideways.
       return Padding(
         padding: const EdgeInsets.only(
           left: PaneSizes.blockGutter,
           right: PaneSizes.blockActions,
         ),
-        child: AbsorbPointer(absorbing: node is TaskNode, child: child),
+        child: child,
       );
     }
+    // Touch: no handles or per-block menus, so text gets the full width and
+    // blocks keep their own spacing. Block actions live in the toolbar.
+    if (!_pointer) return child;
     final index = _draft.document.getNodeIndexById(id);
     return DragTarget<String>(
       onWillAcceptWithDetails: (details) => details.data != id,
       onAcceptWithDetails: (details) => _move(details.data, index),
-      builder: (context, candidates, rejected) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: PaneSizes.blockGutter,
-            child: Draggable<String>(
-              data: id,
-              feedback: Material(
-                elevation: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(
-                    node is TextNode ? node.text.toPlainText() : 'Block',
-                  ),
-                ),
-              ),
-              child: Padding(
-                padding: EdgeInsets.only(
-                  top: (firstLineCenter - 9).clamp(0, double.infinity),
-                ),
-                child: const Icon(Icons.drag_indicator, size: 18),
-              ),
+      builder: (context, candidates, rejected) => _HoverChrome(
+        nodeId: id,
+        selection: _composer.selectionNotifier,
+        hoveredNode: _hoveredNode,
+        handle: Draggable<String>(
+          data: id,
+          feedback: Material(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(node is TextNode ? node.text.toPlainText() : 'Block'),
             ),
           ),
-          Expanded(child: child),
-          SizedBox(
-            width: PaneSizes.blockActions,
-            child: AdaptiveMoreMenu(
-              tooltip: 'Block actions',
-              entries: [
-                AdaptiveMenuEntry(
-                  label: 'Insert block after',
-                  onSelected: () => unawaited(_chooseBlock(id, insert: true)),
-                ),
-                if (node is TextNode)
-                  AdaptiveMenuEntry(
-                    label: 'Convert block',
-                    onSelected: () => unawaited(_chooseBlock(id)),
-                  ),
-                if (node is OpaqueMarkdownNode)
-                  AdaptiveMenuEntry(
-                    label: 'Edit Markdown source',
-                    onSelected: () => _switchMode(true, nodeId: id),
-                  ),
-                if (index > 0)
-                  AdaptiveMenuEntry(
-                    label: 'Move up',
-                    onSelected: () => _move(id, index - 1),
-                  ),
-                if (index < _draft.document.nodeCount - 1)
-                  AdaptiveMenuEntry(
-                    label: 'Move down',
-                    onSelected: () => _move(id, index + 1),
-                  ),
-                AdaptiveMenuEntry(
-                  label: 'Delete block',
-                  destructive: true,
-                  onSelected: () => _delete(id),
-                ),
-              ],
+          child: Padding(
+            padding: EdgeInsets.only(
+              top: (firstLineCenter - 9).clamp(0, double.infinity),
             ),
+            child: const Icon(Icons.drag_indicator, size: 18),
           ),
-        ],
+        ),
+        actions: Padding(
+          padding: EdgeInsets.only(
+            top: (firstLineCenter - 12).clamp(0, double.infinity),
+          ),
+          child: AdaptiveMoreMenu(
+            tooltip: 'Block actions',
+            compact: true,
+            entries: _blockMenuEntries(id),
+          ),
+        ),
+        child: child,
       ),
     );
+  }
+
+  /// Actions for one block, shared by the hover menu beside each block
+  /// (pointer) and the toolbar menu for the block under the caret (touch).
+  List<AdaptiveMenuEntry> _blockMenuEntries(String id) {
+    final node = _draft.document.getNodeById(id);
+    if (node == null) return const [];
+    final index = _draft.document.getNodeIndexById(id);
+    return [
+      AdaptiveMenuEntry(
+        label: 'Insert block after',
+        onSelected: () => unawaited(_chooseBlock(id, insert: true)),
+      ),
+      if (node is TextNode)
+        AdaptiveMenuEntry(
+          label: 'Convert block',
+          onSelected: () => unawaited(_chooseBlock(id)),
+        ),
+      if (node is OpaqueMarkdownNode)
+        AdaptiveMenuEntry(
+          label: 'Edit Markdown source',
+          onSelected: () => _switchMode(true, nodeId: id),
+        ),
+      if (index > 0)
+        AdaptiveMenuEntry(
+          label: 'Move up',
+          onSelected: () => _move(id, index - 1),
+        ),
+      if (index < _draft.document.nodeCount - 1)
+        AdaptiveMenuEntry(
+          label: 'Move down',
+          onSelected: () => _move(id, index + 1),
+        ),
+      AdaptiveMenuEntry(
+        label: 'Delete block',
+        destructive: true,
+        onSelected: () => _delete(id),
+      ),
+    ];
   }
 
   Widget _opaque(String source) =>
@@ -859,6 +900,7 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final pointer = _lastPointer = _pointer;
     final markdownStyles = AppTheme.markdown(context);
     final builders = [
       _OpaqueBuilder(_draft.document, _opaque, _blockFrame),
@@ -922,9 +964,35 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
                 icon: const Icon(Icons.redo),
                 onPressed: _editor.redo,
               ),
+              if (!pointer)
+                ValueListenableBuilder<DocumentSelection?>(
+                  valueListenable: _composer.selectionNotifier,
+                  builder: (context, selection, _) {
+                    final entries = selection == null
+                        ? const <AdaptiveMenuEntry>[]
+                        : _blockMenuEntries(selection.extent.nodeId);
+                    return AdaptiveMoreMenu(
+                      key: const ValueKey('block-toolbar-actions'),
+                      tooltip: 'Block actions',
+                      enabled: entries.isNotEmpty,
+                      entries: entries,
+                    );
+                  },
+                ),
             ],
           ]),
-          if (!_sourceMode && widget.header != null) widget.header!,
+          if (!_sourceMode && widget.header != null)
+            Padding(
+              padding: EdgeInsets.only(
+                left:
+                    PaneSizes.editorPadding +
+                    (pointer ? PaneSizes.blockGutter : 0),
+                right:
+                    PaneSizes.editorPadding +
+                    (pointer ? PaneSizes.blockActions : 0),
+              ),
+              child: widget.header,
+            ),
           Expanded(
             child: _sourceMode
                 ? widget.sourceBuilder?.call(
@@ -946,43 +1014,47 @@ class _BlockNoteEditorState extends State<BlockNoteEditor> {
                           border: InputBorder.none,
                         ),
                       )
-                : Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: PaneSizes.editorPadding,
-                    ),
-                    child: AdaptiveSuperEditor(
-                      editor: _editor,
-                      onPaste: _pasteFromClipboard,
-                      document: _draft.document,
-                      composer: _composer,
-                      focusNode: _focus,
-                      documentLayoutKey: _layoutKey,
-                      readOnly: widget.readOnly,
-                      componentBuilders: builders,
-                      label: 'Note content',
-                      stylesheet: defaultStylesheet.copyWith(
-                        addRulesAfter: [
-                          StyleRule(BlockSelector.all, (_, node) {
-                            final type = node.getMetadataValue('blockType');
-                            final style = switch (type) {
-                              header1Attribution => markdownStyles.h1,
-                              header2Attribution => markdownStyles.h2,
-                              header3Attribution => markdownStyles.h3,
-                              header4Attribution => markdownStyles.h4,
-                              header5Attribution => markdownStyles.h5,
-                              header6Attribution => markdownStyles.h6,
-                              blockquoteAttribution =>
-                                markdownStyles.blockquote,
-                              codeAttribution => markdownStyles.code,
-                              _ => markdownStyles.p,
-                            };
-                            return {Styles.textStyle: style};
-                          }),
-                        ],
+                : MouseRegion(
+                    opaque: false,
+                    onExit: (_) => _hoveredNode.value = null,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: PaneSizes.editorPadding,
                       ),
-                      selectionPolicies: const SuperEditorSelectionPolicies(
-                        clearSelectionWhenEditorLosesFocus: false,
-                        clearSelectionWhenImeConnectionCloses: false,
+                      child: AdaptiveSuperEditor(
+                        editor: _editor,
+                        onPaste: _pasteFromClipboard,
+                        document: _draft.document,
+                        composer: _composer,
+                        focusNode: _focus,
+                        documentLayoutKey: _layoutKey,
+                        readOnly: widget.readOnly,
+                        componentBuilders: builders,
+                        label: 'Note content',
+                        stylesheet: defaultStylesheet.copyWith(
+                          addRulesAfter: [
+                            StyleRule(BlockSelector.all, (_, node) {
+                              final type = node.getMetadataValue('blockType');
+                              final style = switch (type) {
+                                header1Attribution => markdownStyles.h1,
+                                header2Attribution => markdownStyles.h2,
+                                header3Attribution => markdownStyles.h3,
+                                header4Attribution => markdownStyles.h4,
+                                header5Attribution => markdownStyles.h5,
+                                header6Attribution => markdownStyles.h6,
+                                blockquoteAttribution =>
+                                  markdownStyles.blockquote,
+                                codeAttribution => markdownStyles.code,
+                                _ => markdownStyles.p,
+                              };
+                              return {Styles.textStyle: style};
+                            }),
+                          ],
+                        ),
+                        selectionPolicies: const SuperEditorSelectionPolicies(
+                          clearSelectionWhenEditorLosesFocus: false,
+                          clearSelectionWhenImeConnectionCloses: false,
+                        ),
                       ),
                     ),
                   ),
@@ -1278,5 +1350,84 @@ class _PasteInlineCommand extends EditCommand {
       }
       offset += lines[i].length + 1;
     }
+  }
+}
+
+/// A block's drag handle and actions menu on a pointer device: laid out in
+/// fixed gutters so text never shifts, but only visible while the block is
+/// hovered, holds the caret, or has keyboard focus in its menu.
+///
+/// Hover is tracked with a [Listener] feeding an editor-wide notifier rather
+/// than a [MouseRegion] per block: a MouseRegion inside a component stops
+/// SuperEditor's gestures from reaching the block's own buttons.
+class _HoverChrome extends StatefulWidget {
+  const _HoverChrome({
+    required this.nodeId,
+    required this.selection,
+    required this.hoveredNode,
+    required this.handle,
+    required this.actions,
+    required this.child,
+  });
+
+  final String nodeId;
+  final ValueListenable<DocumentSelection?> selection;
+  final ValueNotifier<String?> hoveredNode;
+  final Widget handle;
+  final Widget actions;
+  final Widget child;
+
+  @override
+  State<_HoverChrome> createState() => _HoverChromeState();
+}
+
+class _HoverChromeState extends State<_HoverChrome> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerHover: (event) {
+        if (event.kind != PointerDeviceKind.touch) {
+          widget.hoveredNode.value = widget.nodeId;
+        }
+      },
+      child: ListenableBuilder(
+        listenable: Listenable.merge([widget.selection, widget.hoveredNode]),
+        builder: (context, child) {
+          final visible =
+              _focused ||
+              widget.hoveredNode.value == widget.nodeId ||
+              widget.selection.value?.extent.nodeId == widget.nodeId;
+          Widget chrome(Widget part) => AnimatedOpacity(
+            opacity: visible ? 1 : 0,
+            duration: const Duration(milliseconds: 120),
+            child: part,
+          );
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: PaneSizes.blockGutter,
+                child: chrome(widget.handle),
+              ),
+              Expanded(child: child!),
+              SizedBox(
+                width: PaneSizes.blockActions,
+                child: Focus(
+                  canRequestFocus: false,
+                  skipTraversal: true,
+                  onFocusChange: (focused) =>
+                      setState(() => _focused = focused),
+                  child: chrome(widget.actions),
+                ),
+              ),
+            ],
+          );
+        },
+        child: widget.child,
+      ),
+    );
   }
 }

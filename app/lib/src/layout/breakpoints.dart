@@ -66,5 +66,5 @@ abstract final class PaneSizes {
 
   static const double editorPadding = 16;
   static const double blockGutter = 28;
-  static const double blockActions = 48;
+  static const double blockActions = 32;
 }

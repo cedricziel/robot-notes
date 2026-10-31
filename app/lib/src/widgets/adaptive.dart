@@ -139,6 +139,7 @@ class AdaptiveMenu extends StatefulWidget {
     this.tooltip,
     this.child,
     this.enabled = true,
+    this.compact = false,
     super.key,
   });
 
@@ -146,6 +147,10 @@ class AdaptiveMenu extends StatefulWidget {
   final String? tooltip;
   final Widget? child;
   final bool enabled;
+
+  /// A small 24px icon trigger for dense, pointer-driven layouts (such as
+  /// beside each editor block) instead of the 48px touch target.
+  final bool compact;
 
   @override
   State<AdaptiveMenu> createState() => _AdaptiveMenuState();
@@ -165,6 +170,16 @@ class _AdaptiveMenuState extends State<AdaptiveMenu> {
           focusNode: _focusNode,
           icon: Icon(adaptiveMoreIcon(context)),
           onPressed: onPressed,
+          iconSize: widget.compact ? 18 : null,
+          padding: widget.compact ? EdgeInsets.zero : null,
+          constraints: widget.compact
+              ? const BoxConstraints.tightFor(width: 24, height: 24)
+              : null,
+          style: widget.compact
+              ? const ButtonStyle(
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                )
+              : null,
         )
       : TextButton(
           focusNode: _focusNode,
@@ -273,6 +288,15 @@ class _AdaptiveMenuState extends State<AdaptiveMenu> {
       enabled: widget.enabled,
       onSelected: (entry) => entry.onSelected(),
       icon: widget.child == null ? Icon(adaptiveMoreIcon(context)) : null,
+      iconSize: widget.compact ? 18 : null,
+      padding: widget.compact ? EdgeInsets.zero : const EdgeInsets.all(8),
+      style: widget.compact
+          ? const ButtonStyle(
+              minimumSize: WidgetStatePropertyAll(Size(24, 24)),
+              fixedSize: WidgetStatePropertyAll(Size(24, 24)),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            )
+          : null,
       itemBuilder: (_) => [
         for (final entry in widget.entries)
           if (entry.selected != null)
@@ -334,12 +358,26 @@ class _AdaptiveMenuState extends State<AdaptiveMenu> {
 
 /// The note toolbar's platform menu with an adaptive More icon.
 class AdaptiveMoreMenu extends StatelessWidget {
-  const AdaptiveMoreMenu({required this.entries, this.tooltip, super.key});
+  const AdaptiveMoreMenu({
+    required this.entries,
+    this.tooltip,
+    this.enabled = true,
+    this.compact = false,
+    super.key,
+  });
 
   final List<AdaptiveMenuEntry> entries;
   final String? tooltip;
+  final bool enabled;
+
+  /// See [AdaptiveMenu.compact].
+  final bool compact;
 
   @override
-  Widget build(BuildContext context) =>
-      AdaptiveMenu(entries: entries, tooltip: tooltip);
+  Widget build(BuildContext context) => AdaptiveMenu(
+    entries: entries,
+    tooltip: tooltip,
+    enabled: enabled,
+    compact: compact,
+  );
 }

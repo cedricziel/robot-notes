@@ -244,6 +244,7 @@ class _Fixture {
             builder: (context, setState) {
               update = setState;
               return BlockNoteEditor(
+                pointerChrome: true,
                 markdown: markdown,
                 sourceMode: sourceMode,
                 sourceController: source,

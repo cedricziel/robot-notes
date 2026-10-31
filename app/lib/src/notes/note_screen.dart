@@ -1049,10 +1049,8 @@ class _NoteScreenState extends State<NoteScreen> {
                   readOnly: !editing || _transitionPending,
                   searchLinkTitles: widget.controller.searchLinkTitles,
                   header: Padding(
-                    padding: const EdgeInsets.only(
-                      left: PaneSizes.editorPadding + PaneSizes.blockGutter,
-                      right: PaneSizes.editorPadding + PaneSizes.blockActions,
-                    ),
+                    // The editor adds the side padding, matching its blocks.
+                    padding: EdgeInsets.zero,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -1925,8 +1923,12 @@ class _EditingStatus extends StatelessWidget {
       text = 'Saving…';
     } else if (state.isDirty) {
       text = 'Unsaved changes';
-    } else {
+    } else if (state.savedThisEdit) {
       text = 'Autosaved ${formatLockExpiry(state.note!.updatedAt)}';
+    } else {
+      // Nothing saved yet in this edit: the note's updatedAt belongs to
+      // whoever wrote it last, not to this user.
+      text = 'Editing';
     }
     return StatusStrip(
       key: const Key('note.editingStatus'),

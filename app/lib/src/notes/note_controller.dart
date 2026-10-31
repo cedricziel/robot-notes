@@ -58,6 +58,7 @@ class NoteState {
     this.backlinksLoading = false,
     this.properties = const <String, Object?>{},
     this.coveringDefinitions = const <DatabaseDefinition>[],
+    this.savedThisEdit = false,
   });
 
   static const initial = NoteState();
@@ -104,6 +105,12 @@ class NoteState {
   /// [reload]) resolves, or when no definitions loader was supplied.
   final List<DatabaseDefinition> coveringDefinitions;
 
+  /// True once a save went through since the editor lock was taken. Until
+  /// then [note]'s `updatedAt` is whoever wrote the note last (another user,
+  /// an agent), so the editing strip must not present it as this user's
+  /// autosave.
+  final bool savedThisEdit;
+
   /// True while the edit buffers differ from the loaded note.
   bool get isDirty {
     final note = this.note;
@@ -126,6 +133,7 @@ class NoteState {
     bool? backlinksLoading,
     Map<String, Object?>? properties,
     List<DatabaseDefinition>? coveringDefinitions,
+    bool? savedThisEdit,
   }) {
     return NoteState(
       mode: mode ?? this.mode,
@@ -149,6 +157,7 @@ class NoteState {
           : lockedByOtherBanner as String?,
       properties: properties ?? this.properties,
       coveringDefinitions: coveringDefinitions ?? this.coveringDefinitions,
+      savedThisEdit: savedThisEdit ?? this.savedThisEdit,
     );
   }
 }
@@ -443,6 +452,7 @@ class NoteController extends ValueNotifier<NoteState> {
       editContent: retainedBaseline == null ? note.content : value.editContent,
       conflictCurrent: conflict ? note : null,
       error: conflict ? VersionConflictException(current: note) : null,
+      savedThisEdit: false,
       lockedByOtherBanner: null,
       properties: note.properties,
     );
@@ -546,6 +556,7 @@ class NoteController extends ValueNotifier<NoteState> {
             : value.editContent,
         conflictCurrent: null,
         properties: updated.properties,
+        savedThisEdit: true,
       );
       acknowledged = true;
       if (value.mode == NoteMode.viewing) {
