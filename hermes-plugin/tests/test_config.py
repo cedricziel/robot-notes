@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from robot_notes import config as config_module
 from robot_notes.config import API_KEY_ENV_VAR, RobotNotesConfig
 
@@ -150,3 +152,22 @@ def test_vault_selection_round_trips_without_persisting_credential(tmp_path, mon
 def test_missing_or_blank_vault_defaults_to_default(tmp_path):
     assert RobotNotesConfig.load(str(tmp_path)).vault_id == "default"
     assert RobotNotesConfig.create(vault_id="   ").vault_id == "default"
+
+
+def test_upload_roots_default_empty():
+    assert RobotNotesConfig.create().upload_roots == ()
+
+
+def test_upload_roots_round_trip_only_when_set(tmp_path):
+    RobotNotesConfig.create(base_url="https://n").save(str(tmp_path))
+    assert "upload_roots" not in json.loads((tmp_path / "robot_notes.json").read_text())
+
+    RobotNotesConfig.create(base_url="https://n", upload_roots=["/srv/exports"]).save(str(tmp_path))
+
+    assert RobotNotesConfig.load(str(tmp_path)).upload_roots == ("/srv/exports",)
+
+
+@pytest.mark.parametrize("roots", ["/srv/exports", ["relative/dir"], [""], [7], ["~/exports"]])
+def test_upload_roots_rejects_non_absolute_entries(roots):
+    with pytest.raises(ValueError, match="upload_roots"):
+        RobotNotesConfig.create(upload_roots=roots)

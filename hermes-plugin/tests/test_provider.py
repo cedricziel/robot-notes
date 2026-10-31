@@ -1091,6 +1091,15 @@ def test_save_config_does_not_persist_api_key(tmp_path):
     assert saved == {"base_url": "https://notes.example.com", "actor": "hermes-bot", "vault_id": "default"}
 
 
+def test_save_config_preserves_upload_roots(tmp_path):
+    (tmp_path / "robot_notes.json").write_text(json.dumps({"upload_roots": ["/srv/exports"]}), encoding="utf-8")
+
+    RobotNotesProvider().save_config({"base_url": "https://notes.example.com"}, str(tmp_path))
+
+    saved = json.loads((tmp_path / "robot_notes.json").read_text(encoding="utf-8"))
+    assert saved["upload_roots"] == ["/srv/exports"]
+
+
 class _FakeCtxWithSkills:
     def __init__(self):
         self.provider = None

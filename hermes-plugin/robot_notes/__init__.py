@@ -876,6 +876,7 @@ class RobotNotesProvider(MemoryProvider):
             recall_path=values.get("recall_path", existing.recall_path),
             recall_max_bytes=values.get("recall_max_bytes", existing.recall_max_bytes),
             recall_expand_chars=values.get("recall_expand_chars", existing.recall_expand_chars),
+            upload_roots=values.get("upload_roots", existing.upload_roots),
         ).save(hermes_home)
 
 
