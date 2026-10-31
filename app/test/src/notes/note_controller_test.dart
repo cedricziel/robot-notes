@@ -374,6 +374,62 @@ void main() {
       },
     );
 
+    test(
+      'accepting the server version after a conflict is not shown as our save',
+      () async {
+        var puts = 0;
+        final mock = MockClient((request) async {
+          if (request.method == 'GET' && request.url.path == '/notes/01H') {
+            return http.Response(jsonEncode(_noteJson(version: 1)), 200);
+          }
+          if (request.method == 'POST' &&
+              request.url.path == '/notes/01H/lock') {
+            return http.Response(jsonEncode(_lockJson()), 200);
+          }
+          if (request.method == 'PUT' && request.url.path == '/notes/01H') {
+            puts++;
+            if (puts == 1) {
+              return http.Response(
+                jsonEncode(_noteJson(version: 2, content: 'first')),
+                200,
+              );
+            }
+            return http.Response(
+              jsonEncode(<String, Object?>{
+                'error': 'version_conflict',
+                'current': _noteJson(version: 7, content: 'theirs'),
+              }),
+              409,
+            );
+          }
+          return http.Response('unexpected', 500);
+        });
+        final api = RobotNotesClient(config: _config, httpClient: mock);
+        final ctrl = NoteController(
+          api: api,
+          noteId: '01H',
+          actor: 'cedric',
+          scheduler: (_) => Completer<void>().future,
+        );
+        addTearDown(ctrl.dispose);
+
+        await ctrl.open();
+        await ctrl.enterEditMode();
+        expect(ctrl.value.savedThisEdit, isFalse);
+        ctrl.setEditContent('first');
+        await ctrl.save();
+        expect(ctrl.value.savedThisEdit, isTrue);
+        ctrl.setEditContent('second');
+        await ctrl.save();
+        expect(ctrl.value.mode, NoteMode.conflict);
+
+        ctrl.resolveConflictAcceptServer();
+
+        expect(ctrl.value.note?.content, 'theirs');
+        expect(ctrl.value.savedThisEdit, isFalse);
+      },
+    );
+
     test('save 423 mid-edit forces read-only with holder banner', () async {
       final mock = MockClient((request) async {
         if (request.method == 'GET' && request.url.path == '/notes/01H') {

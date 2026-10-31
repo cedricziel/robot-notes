@@ -1607,6 +1607,16 @@ void main() {
         expect(find.text('Autosaved $saved'), findsOneWidget);
       });
 
+      testWidgets(
+        'shows "Editing", not "Autosaved", before anything is saved',
+        (tester) async {
+          await _pumpEditor(tester);
+
+          expect(find.text('Editing'), findsOneWidget);
+          expect(find.textContaining('Autosaved'), findsNothing);
+        },
+      );
+
       testWidgets('shows an avatar for who is editing', (tester) async {
         await _pumpEditor(tester);
 

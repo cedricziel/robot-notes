@@ -1,5 +1,6 @@
 import 'package:adaptive_super_editor/adaptive_super_editor.dart';
 import 'package:cupertino_ui/cupertino_ui.dart' as cupertino;
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart' as legacy;
 import 'package:flutter_test/flutter_test.dart';
@@ -17,7 +18,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: BlockNoteEditor(markdown: 'Draft', onChanged: changes.add),
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: 'Draft',
+            onChanged: changes.add,
+          ),
         ),
       ),
     );
@@ -51,6 +56,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BlockNoteEditor(
+            pointerChrome: true,
             markdown: 'Paragraph\n\n- [ ] Task',
             onChanged: (_) {},
           ),
@@ -95,6 +101,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BlockNoteEditor(
+              pointerChrome: true,
               markdown: 'Paragraph\n\n# Heading\n\n```dart\nprint(1);\n```\n\n| A |\n| - |\n| B |',
               onChanged: (_) {},
               opaqueBuilder: (_, source) => const SizedBox(height: 60),
@@ -152,7 +159,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: BlockNoteEditor(markdown: source, onChanged: changes.add),
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: source,
+            onChanged: changes.add,
+          ),
         ),
       ),
     );
@@ -178,11 +189,15 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: BlockNoteEditor(markdown: 'Last', onChanged: changes.add),
+            body: BlockNoteEditor(
+              pointerChrome: true,
+              markdown: 'Last',
+              onChanged: changes.add,
+            ),
           ),
         ),
       );
-      await tester.tap(find.byTooltip('Block actions').first);
+      await _hoverThenTap(tester, find.byTooltip('Block actions').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete block'));
       await tester.pumpAndSettle();
@@ -205,6 +220,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BlockNoteEditor(
+              pointerChrome: true,
               markdown: 'First\n\nSecond',
               onChanged: changes.add,
             ),
@@ -215,14 +231,14 @@ void main() {
         find.byType(AdaptiveSuperEditor),
       );
       final lastId = editor.document.last.id;
-      await tester.tap(find.byTooltip('Block actions').last);
+      await _hoverThenTap(tester, find.byTooltip('Block actions').last);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Convert block'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Heading 2'));
       await tester.pumpAndSettle();
       expect(changes.last, 'First\n\n## Second');
-      await tester.tap(find.byTooltip('Block actions').last);
+      await _hoverThenTap(tester, find.byTooltip('Block actions').last);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Move up'));
       await tester.pumpAndSettle();
@@ -238,7 +254,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: BlockNoteEditor(markdown: 'Before', onChanged: changes.add),
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: 'Before',
+            onChanged: changes.add,
+          ),
         ),
       ),
     );
@@ -274,6 +294,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BlockNoteEditor(
+            pointerChrome: true,
             markdown: '- [ ] Task',
             readOnly: true,
             onChanged: (_) => fail('mutated'),
@@ -300,6 +321,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BlockNoteEditor(
+              pointerChrome: true,
               markdown: 'FirstSecond',
               onChanged: changes.add,
             ),
@@ -337,7 +359,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: BlockNoteEditor(markdown: '- Item', onChanged: changes.add),
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: '- Item',
+            onChanged: changes.add,
+          ),
         ),
       ),
     );
@@ -370,6 +396,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BlockNoteEditor(
+            pointerChrome: true,
             markdown: '\x60\x60\x60dart\nline\n\x60\x60\x60',
             onChanged: changes.add,
           ),
@@ -405,6 +432,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BlockNoteEditor(
+              pointerChrome: true,
               markdown: 'First second',
               onChanged: changes.add,
             ),
@@ -452,7 +480,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: BlockNoteEditor(markdown: '', onChanged: changes.add),
+            body: BlockNoteEditor(
+              pointerChrome: true,
+              markdown: '',
+              onChanged: changes.add,
+            ),
           ),
         ),
       );
@@ -478,7 +510,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Convert block'), findsNothing);
       expect(changes.last, '/');
-      await tester.tap(find.byTooltip('Block actions').first);
+      await _hoverThenTap(tester, find.byTooltip('Block actions').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Convert block'));
       await tester.pumpAndSettle();
@@ -495,11 +527,15 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: BlockNoteEditor(markdown: 'Keep text', onChanged: changes.add),
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: 'Keep text',
+            onChanged: changes.add,
+          ),
         ),
       ),
     );
-    await tester.tap(find.byTooltip('Block actions').first);
+    await _hoverThenTap(tester, find.byTooltip('Block actions').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Convert block'));
     await tester.pumpAndSettle();
@@ -521,7 +557,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: BlockNoteEditor(markdown: '', onChanged: changes.add),
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: '',
+            onChanged: changes.add,
+          ),
         ),
       ),
     );
@@ -566,6 +606,7 @@ void main() {
               builder: (context, setState) {
                 rebuild = setState;
                 return BlockNoteEditor(
+                  pointerChrome: true,
                   markdown: markdown,
                   onChanged: (value) => markdown = value,
                 );
@@ -624,7 +665,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: BlockNoteEditor(markdown: '', onChanged: changes.add),
+            body: BlockNoteEditor(
+              pointerChrome: true,
+              markdown: '',
+              onChanged: changes.add,
+            ),
           ),
         ),
       );
@@ -659,7 +704,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: BlockNoteEditor(markdown: 'Existing', onChanged: changes.add),
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: 'Existing',
+            onChanged: changes.add,
+          ),
         ),
       ),
     );
@@ -680,11 +729,15 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: BlockNoteEditor(markdown: source, onChanged: (_) {}),
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: source,
+            onChanged: (_) {},
+          ),
         ),
       ),
     );
-    await tester.tap(find.byTooltip('Block actions').last);
+    await _hoverThenTap(tester, find.byTooltip('Block actions').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Edit Markdown source'));
     await tester.pumpAndSettle();
@@ -705,7 +758,11 @@ void main() {
       MaterialApp(
         theme: ThemeData(platform: TargetPlatform.android),
         home: Scaffold(
-          body: BlockNoteEditor(markdown: 'A title', onChanged: changes.add),
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: 'A title',
+            onChanged: changes.add,
+          ),
         ),
       ),
     );
@@ -747,6 +804,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BlockNoteEditor(
+            pointerChrome: true,
             markdown: '',
             onChanged: changes.add,
             searchLinkTitles: (_) async => ['Another note'],
@@ -792,7 +850,11 @@ void main() {
             disableAnimations: true,
           ),
           child: Scaffold(
-            body: BlockNoteEditor(markdown: 'Text', onChanged: (_) {}),
+            body: BlockNoteEditor(
+              pointerChrome: true,
+              markdown: 'Text',
+              onChanged: (_) {},
+            ),
           ),
         ),
       ),
@@ -813,6 +875,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BlockNoteEditor(
+              pointerChrome: true,
               markdown: '- [ ] Buy milk',
               onChanged: changes.add,
             ),
@@ -838,6 +901,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BlockNoteEditor(
+            pointerChrome: true,
             markdown: 'First\n\nSecond',
             onChanged: changes.add,
           ),
@@ -863,6 +927,8 @@ void main() {
     ]);
     scene.focusNode.requestFocus();
     await tester.pump();
+    final mouse = await _hover(tester, find.byIcon(Icons.drag_indicator).last);
+    addTearDown(mouse.removePointer);
     await tester.dragFrom(
       tester.getCenter(find.byIcon(Icons.drag_indicator).last),
       tester.getCenter(find.byIcon(Icons.drag_indicator).first) -
@@ -884,7 +950,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: BlockNoteEditor(markdown: 'word', onChanged: changes.add),
+            body: BlockNoteEditor(
+              pointerChrome: true,
+              markdown: 'word',
+              onChanged: changes.add,
+            ),
           ),
         ),
       );
@@ -934,6 +1004,7 @@ void main() {
             body: StatefulBuilder(
               builder: (context, setState) {
                 return BlockNoteEditor(
+                  pointerChrome: true,
                   markdown: markdown,
                   sourceMode: sourceMode,
                   onSourceModeChanged: (value) =>
@@ -994,6 +1065,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BlockNoteEditor(
+              pointerChrome: true,
               markdown: 'First\n\nSecond',
               onChanged: changes.add,
             ),
@@ -1041,6 +1113,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BlockNoteEditor(
+              pointerChrome: true,
               markdown: 'First\n\nSecond',
               onChanged: (_) {},
             ),
@@ -1089,6 +1162,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BlockNoteEditor(
+            pointerChrome: true,
             markdown: 'First\n\nSecond',
             onChanged: changes.add,
           ),
@@ -1129,6 +1203,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: BlockNoteEditor(
+              pointerChrome: true,
               markdown: '- [ ] Task',
               readOnly: true,
               onChanged: (_) => fail('mutated'),
@@ -1151,13 +1226,14 @@ void main() {
         theme: ThemeData(platform: TargetPlatform.iOS),
         home: Scaffold(
           body: BlockNoteEditor(
+            pointerChrome: true,
             markdown: 'First\n\nSecond',
             onChanged: changes.add,
           ),
         ),
       ),
     );
-    await tester.tap(find.byTooltip('Block actions').first);
+    await _hoverThenTap(tester, find.byTooltip('Block actions').first);
     await tester.pumpAndSettle();
     expect(find.byType(cupertino.CupertinoActionSheet), findsOneWidget);
     await tester.tap(find.text('Move down'));
@@ -1173,7 +1249,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: BlockNoteEditor(markdown: 'A word', onChanged: changes.add),
+            body: BlockNoteEditor(
+              pointerChrome: true,
+              markdown: 'A word',
+              onChanged: changes.add,
+            ),
           ),
         ),
       );
@@ -1209,6 +1289,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: BlockNoteEditor(
+            pointerChrome: true,
             markdown: '\x60\x60\x60\n\n\x60\x60\x60',
             onChanged: (_) {},
           ),
@@ -1234,6 +1315,112 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Convert block'), findsNothing);
   });
+
+  group('touch layout', () {
+    testWidgets('blocks get no handles, menus, or side gutters', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BlockNoteEditor(
+              pointerChrome: false,
+              markdown: '# Heading\n\n- One\n- Two',
+              onChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.drag_indicator), findsNothing);
+      // Only the toolbar's menu, none beside the blocks.
+      expect(find.byTooltip('Block actions'), findsOneWidget);
+      final editor = tester.getRect(find.byType(AdaptiveSuperEditor));
+      final heading = tester.getRect(find.byType(TextComponent).first);
+      expect(heading.left, closeTo(editor.left, 0.1));
+      expect(heading.right, closeTo(editor.right, 0.1));
+    });
+
+    testWidgets('toolbar block actions act on the block under the caret', (
+      tester,
+    ) async {
+      final changes = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BlockNoteEditor(
+              pointerChrome: false,
+              markdown: 'First\n\nSecond',
+              onChanged: changes.add,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final scene = tester.widget<AdaptiveSuperEditor>(
+        find.byType(AdaptiveSuperEditor),
+      );
+      final second = scene.document.getNodeAt(1)!;
+      scene.editor.execute([
+        ChangeSelectionRequest(
+          DocumentSelection.collapsed(
+            position: DocumentPosition(
+              nodeId: second.id,
+              nodePosition: const TextNodePosition(offset: 0),
+            ),
+          ),
+          SelectionChangeType.placeCaret,
+          SelectionReason.userInteraction,
+        ),
+      ]);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Block actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Move down'), findsNothing);
+      await tester.tap(find.text('Move up'));
+      await tester.pumpAndSettle();
+      expect(changes.last, 'Second\n\nFirst');
+    });
+  });
+
+  testWidgets('pointer chrome stays hidden until a block is hovered', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BlockNoteEditor(
+            pointerChrome: true,
+            markdown: 'First\n\nSecond',
+            onChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    double opacityOf(Finder icon) => tester
+        .widget<AnimatedOpacity>(
+          find.ancestor(of: icon, matching: find.byType(AnimatedOpacity)).first,
+        )
+        .opacity;
+    final handles = find.byIcon(Icons.drag_indicator);
+    expect(opacityOf(handles.first), 0);
+    expect(opacityOf(handles.last), 0);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: Offset.zero);
+    await mouse.moveTo(tester.getCenter(find.byType(TextComponent).last));
+    await tester.pumpAndSettle();
+    expect(opacityOf(handles.first), 0);
+    expect(opacityOf(handles.last), 1);
+    // Hidden chrome doesn't take taps.
+    await tester.tap(
+      find.byTooltip('Block actions').first,
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Delete block'), findsNothing);
+  });
 }
 
 Future<void> _showSource(WidgetTester tester) async {
@@ -1248,6 +1435,7 @@ Future<void> _showSource(WidgetTester tester) async {
     MaterialApp(
       home: Scaffold(
         body: BlockNoteEditor(
+          pointerChrome: true,
           key: widget.key,
           markdown: widget.markdown,
           onChanged: widget.onChanged,
@@ -1264,4 +1452,20 @@ Future<void> _showSource(WidgetTester tester) async {
     ),
   );
   await tester.pumpAndSettle();
+}
+
+/// Pointer-mode block chrome only takes taps while revealed, so hover a
+/// mouse over [finder] first, the way a pointer user reaches it.
+Future<TestGesture> _hover(WidgetTester tester, Finder finder) async {
+  final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+  await mouse.addPointer(location: tester.getCenter(finder));
+  await mouse.moveBy(const Offset(0, 1));
+  await tester.pumpAndSettle();
+  return mouse;
+}
+
+Future<void> _hoverThenTap(WidgetTester tester, Finder finder) async {
+  final mouse = await _hover(tester, finder);
+  await tester.tap(finder);
+  await mouse.removePointer();
 }
