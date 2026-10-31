@@ -82,6 +82,29 @@ class ProposalService {
   KnowledgeTarget _target(StoredNote note) =>
       KnowledgeTarget.note(note.id, note.path);
 
+  /// Reads the current accepted map. A note saved without history has none,
+  /// so a caller allowed to propose gets a baseline captured on demand
+  /// instead of `block_map_unavailable`. Stale maps are never replaced here.
+  Future<MarkdownBlockMap> _currentBlockMap(
+    StoredNote note, {
+    String? actor,
+  }) async {
+    try {
+      return await storage.readBlockMap(note.id);
+    } on BlockMapUnavailableException catch (error) {
+      if (error.stale ||
+          !authorization.allows(
+            currentKnowledgePrincipal,
+            KnowledgeAction.propose,
+            _target(note),
+          ) ||
+          !await storage.captureBlockMapBaseline(note.id, actor: actor)) {
+        rethrow;
+      }
+      return storage.readBlockMap(note.id);
+    }
+  }
+
   /// Submits precise changes without publishing accepted content.
   Future<ProposalRecord> submit(
     String id,
@@ -205,7 +228,7 @@ class ProposalService {
       for (final op in operations) ...op.supersedes,
     ];
     final resolved = await _resolve(allRefs);
-    final map = await storage.readBlockMap(note.id);
+    final map = await _currentBlockMap(note);
     final gaps = _compiler.captureGaps(note.content, map, operations);
     final compiled = _compiler.compile(
       note.content,
@@ -698,8 +721,9 @@ class ProposalService {
           String path;
           int wanted;
           var deleted = false;
+          StoredNote? source;
           if (version == null) {
-            final source = await storage.read(id);
+            source = await storage.read(id);
             content = source.content;
             path = source.path;
             wanted = source.version;
@@ -735,7 +759,9 @@ class ProposalService {
               currentPath,
             );
           }
-          final map = await storage.readBlockMap(id, version: version);
+          final map = source != null
+              ? await _currentBlockMap(source)
+              : await storage.readBlockMap(id, version: version);
           if (map.version != wanted || !map.matches(content)) {
             throw const BlockMapUnavailableException(stale: true);
           }
