@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.26](https://github.com/cedricziel/robot-notes/compare/v0.2.25...v0.2.26) (2026-10-31)
+
+
+### Bug Fixes
+
+* **server:** capture baseline block map for proposals on ordinary notes ([#437](https://github.com/cedricziel/robot-notes/issues/437)) ([aea10b0](https://github.com/cedricziel/robot-notes/commit/aea10b002b8cfca5bd4a2daef175b35444e0c30e))
+
 ## [0.2.25](https://github.com/cedricziel/robot-notes/compare/v0.2.24...v0.2.25) (2026-10-18)
 
 
