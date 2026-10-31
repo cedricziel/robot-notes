@@ -17,6 +17,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, Tuple
 
+# Advertised only when ``upload_roots`` is configured (see ``get_tool_schemas``).
+UPLOAD_TOOL_NAME = "robotnotes_upload_file"
+
 
 def _schema(name: str, description: str, properties: dict | None = None, required: tuple = ()) -> dict:
     return {
@@ -132,6 +135,19 @@ TOOL_SCHEMAS: Tuple[Dict[str, Any], ...] = (
          "evidence_refs": _p("Optional exact source reference objects for the deletion proposal.", "array", items={"type": "object"})},
         ("id",),
     ),
+    _schema(
+        UPLOAD_TOOL_NAME,
+        "Upload a file from this host into the vault, next to its notes. Pass the local "
+        "path, never file content. Only files under the configured upload roots can be "
+        "read. A filename already taken in that folder returns path_conflict; pick another "
+        "filename rather than retrying.",
+        {
+            "local_path": _p("Absolute path of the file on this host, under an upload root."),
+            "path": _p("Vault folder to file it under, e.g. 'Hermes/exports'. Defaults to the vault root."),
+            "filename": _p("Name in the vault. Defaults to the local file's name."),
+        },
+        ("local_path",),
+    ),
 )
 
 # Tool name -> RobotNotesProvider method name that implements it. handle_tool_call
@@ -148,4 +164,5 @@ TOOL_HANDLERS: Dict[str, str] = {
     "robotnotes_remember": "_tool_remember",
     "robotnotes_append": "_tool_append",
     "robotnotes_forget": "_tool_forget",
+    UPLOAD_TOOL_NAME: "_tool_upload_file",
 }

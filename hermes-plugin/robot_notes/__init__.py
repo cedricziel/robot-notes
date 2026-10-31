@@ -30,8 +30,9 @@ from .outbox import Outbox, QueueFull
 from .recall import RecallCache, RecallStatus, is_trivial_prompt
 from .source_capture import SourceCapture
 from .recall_evidence import evidence_context, narrow_paths
-from .tools import TOOL_HANDLERS, TOOL_SCHEMAS
+from .tools import TOOL_HANDLERS, TOOL_SCHEMAS, UPLOAD_TOOL_NAME
 from .transcript import build_transcript
+from .uploads import open_upload_source
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ _MARK_RE = re.compile(r"</?mark>")
 
 # Tool calls that write to the workspace; gated on _write_enabled. robotnotes_search,
 # robotnotes_list and robotnotes_note stay available in every agent context.
-WRITE_TOOL_NAMES = frozenset({"robotnotes_remember", "robotnotes_append", "robotnotes_forget"})
+WRITE_TOOL_NAMES = frozenset({"robotnotes_remember", "robotnotes_append", "robotnotes_forget", UPLOAD_TOOL_NAME})
 
 
 def _append_line(current: str, addition: str) -> str:
@@ -258,7 +259,7 @@ class RobotNotesProvider(MemoryProvider):
                 "Leave proposals pending human review and report accepted=false accurately. "
                 "If proposal operations are unavailable or denied, report that without falling back to accepted writes. "
             )
-        if not self._load_config().native_tools:
+        if not config.native_tools:
             return (
                 "A shared robot-notes workspace is connected for automatic memory recall. "
                 f"Selected vault: {self._config.vault_id}. Automatic memory hooks use this vault. "
@@ -276,6 +277,10 @@ class RobotNotesProvider(MemoryProvider):
                 "The provider's context write restrictions apply to its own hooks; "
                 "MCP authorization and tool visibility are configured separately."
             )
+        upload_line = (
+            "- robotnotes_upload_file(local_path, path?, filename?): file a local file from "
+            f"{', '.join(config.upload_roots)} into the vault.\n" if config.upload_roots else ""
+        )
         return (
             "A shared robot-notes workspace is connected as external memory — notes are "
             "shared between humans and agents in this workspace, so writes here are "
@@ -298,6 +303,7 @@ class RobotNotesProvider(MemoryProvider):
             "- robotnotes_append(id, content): add a line to a note that already "
             "exists, instead of duplicating it.\n"
             "- robotnotes_forget(id): remove an ordinary note or propose curated deletion.\n"
+            f"{upload_line}"
             "Curated and institutional writes return proposals; accepted=false means not accepted yet. Ordinary writes report source_unknown=true. "
             "Search before creating: call robotnotes_search or robotnotes_list before "
             "robotnotes_remember, and prefer robotnotes_append over a new note when one "
@@ -598,15 +604,20 @@ class RobotNotesProvider(MemoryProvider):
     # -- Explicit tools ---------------------------------------------------
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
-        if not self._load_config().native_tools:
+        config = self._load_config()
+        if not config.native_tools:
             return []
-        return [dict(schema) for schema in TOOL_SCHEMAS]
+        return [dict(schema) for schema in TOOL_SCHEMAS
+                if schema["name"] != UPLOAD_TOOL_NAME or config.upload_roots]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
-        if not self._load_config().native_tools:
+        config = self._load_config()
+        if not config.native_tools:
             return tool_error("Native robot-notes tools are disabled; use configured MCP tools.", code="tools_disabled")
         if not self._client:
             return tool_error("robot_notes provider is unavailable", code="unavailable")
+        if tool_name == UPLOAD_TOOL_NAME and not config.upload_roots:
+            return tool_error("File uploads are disabled; no upload_roots are configured.", code="uploads_disabled")
         if tool_name in WRITE_TOOL_NAMES and not self._can_write():
             return _write_disabled_error()
         handler_name = TOOL_HANDLERS.get(tool_name)
@@ -687,6 +698,13 @@ class RobotNotesProvider(MemoryProvider):
                 desired="", refs=self._native_refs(args), curated_intent=True, delete_note=True)
             return json.dumps(deliver_write(self._client, prepared))
         return json.dumps(ordinary_outcome(self._client.delete_note(args["id"])))
+
+    def _tool_upload_file(self, args: Dict[str, Any]) -> str:
+        local_path = args["local_path"]
+        with open_upload_source(local_path, self._load_config().upload_roots) as source:
+            return json.dumps(self._client.upload_file(
+                path=args.get("path", ""), filename=args.get("filename") or Path(local_path).name,
+                source=source))
 
     # -- Sparse writes: session summary + built-in memory mirror ----------
 
@@ -876,6 +894,7 @@ class RobotNotesProvider(MemoryProvider):
             recall_path=values.get("recall_path", existing.recall_path),
             recall_max_bytes=values.get("recall_max_bytes", existing.recall_max_bytes),
             recall_expand_chars=values.get("recall_expand_chars", existing.recall_expand_chars),
+            upload_roots=values.get("upload_roots", existing.upload_roots),
         ).save(hermes_home)
 
 

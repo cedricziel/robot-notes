@@ -6,9 +6,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import mimetypes
 import re
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, BinaryIO, Callable, Dict, List, Optional
 
 import httpx
 
@@ -125,6 +126,10 @@ _CONFLICT_CODE_KINDS: Dict[str, ErrorKind] = {
     "version_conflict": ErrorKind.VERSION_CONFLICT,
     "path_conflict": ErrorKind.PATH_CONFLICT,
 }
+
+
+# Uploads stream up to the server's max upload size, so they get far longer than a note write.
+_UPLOAD_TIMEOUT_SECONDS = 120.0
 
 
 class RobotNotesClient:
@@ -245,6 +250,19 @@ class RobotNotesClient:
             params["after"] = after
         response = self._request("GET", "/notes", params=params)
         return response.json()
+
+    def upload_file(self, *, path: str, filename: str, source: BinaryIO) -> Dict[str, Any]:
+        """Streams ``source`` into vault folder ``path`` via ``POST /notes/files`` and
+        returns the server's ``{path, filename, size, content_type}``."""
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        response = self._request("POST", "/notes/files", data={"path": path},
+                                 files={"file": (filename, source, content_type)},
+                                 timeout=_UPLOAD_TIMEOUT_SECONDS)
+        body = self._response_object(response)
+        if not (isinstance(body.get("path"), str) and isinstance(body.get("filename"), str)
+                and type(body.get("size")) is int and isinstance(body.get("content_type"), str)):
+            raise ClientError("Malformed upload response", code="invalid_response")
+        return {key: body[key] for key in ("path", "filename", "size", "content_type")}
 
     def get_evidence(self, digest: str) -> Dict[str, Any]:
         """Read a retained snapshot and verify its immutable payload identity."""

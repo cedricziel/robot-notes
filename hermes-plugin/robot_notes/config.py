@@ -8,7 +8,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from ._hermes_compat import get_secret
 
@@ -41,6 +41,7 @@ class RobotNotesConfig:
     recall_path: Optional[str] = None
     recall_max_bytes: int = 0
     recall_expand_chars: int = 0
+    upload_roots: tuple[str, ...] = ()
 
     @property
     def memory_note(self) -> dict:
@@ -82,6 +83,7 @@ class RobotNotesConfig:
         evidence_archive: bool = False, evidence_retention_days: int = 30,
         source_capture: bool = False, source_scope_id: str = "",
         recall_path: Optional[str] = None, recall_max_bytes: int = 0, recall_expand_chars: int = 0,
+        upload_roots: Sequence[str] = (),
     ) -> "RobotNotesConfig":
         """The one place ``base_url`` is normalized (trailing slash stripped) and
         ``actor`` and ``vault_id`` defaulted — every constructor path (``load()``, the setup wizard's
@@ -123,6 +125,10 @@ class RobotNotesConfig:
                 raise ValueError(f"{name} must be an integer between 0 and {maximum}")
         if recall_expand_chars and not recall_max_bytes:
             raise ValueError("recall_expand_chars requires recall_max_bytes")
+        if not isinstance(upload_roots, (list, tuple)) or not all(
+            isinstance(root, str) and os.path.isabs(root) for root in upload_roots
+        ):
+            raise ValueError("upload_roots must be a list of absolute directory paths")
         return cls(
             source_capture=source_capture, source_scope_id=source_scope_id,
             evidence_archive=evidence_archive, evidence_retention_days=evidence_retention_days,
@@ -131,6 +137,7 @@ class RobotNotesConfig:
             memory_scope=memory_scope, user_id=user_id, agent_id=agent_id,
             shared_memory_path=shared_memory_path, recall_path=recall_path,
             recall_max_bytes=recall_max_bytes, recall_expand_chars=recall_expand_chars,
+            upload_roots=tuple(upload_roots),
         )
 
     @classmethod
@@ -161,6 +168,7 @@ class RobotNotesConfig:
             recall_path=data.get("recall_path"),
             recall_max_bytes=data.get("recall_max_bytes", 0),
             recall_expand_chars=data.get("recall_expand_chars", 0),
+            upload_roots=data.get("upload_roots", ()),
         )
 
     def save(self, hermes_home: str) -> None:
@@ -186,6 +194,8 @@ class RobotNotesConfig:
             payload["recall_max_bytes"] = self.recall_max_bytes
         if self.recall_expand_chars:
             payload["recall_expand_chars"] = self.recall_expand_chars
+        if self.upload_roots:
+            payload["upload_roots"] = list(self.upload_roots)
         if not self.native_tools:
             payload["native_tools"] = False
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

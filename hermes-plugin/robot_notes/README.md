@@ -113,6 +113,7 @@ the API key:
 | ---------- | -------- | --------- | -------------------------------------------------------------------- |
 | `base_url` | Yes      | —         | robot-notes server base URL, e.g. `https://notes.example.com`      |
 | `native_tools` | No | `true` | Set to JSON `false` to keep automatic memory hooks while using MCP for explicit operations. Restart Hermes after changing it. |
+| `upload_roots` | No | `[]` | JSON list of absolute directory paths that `robotnotes_upload_file` may read from. Empty disables uploads. Not prompted by setup, which preserves an existing value. Restart Hermes after changing it. See [File uploads](#file-uploads). |
 | `vault_id` | No       | `default` | Stable vault ID, sent as `X-Vault-Id` on every request |
 | `actor`    | No       | `hermes`  | Actor name attributed to this agent's writes (sent as `X-Actor`); also scopes the per-session summary note under `conversations/<actor>/` |
 
@@ -141,7 +142,7 @@ Set `$HERMES_HOME/robot_notes.json` to:
 ```
 
 Keep `ROBOT_NOTES_API_KEY` configured for the provider's REST lifecycle hooks.
-`native_tools: false` hides all ten native schemas, rejects direct native tool
+`native_tools: false` hides every native schema, rejects direct native tool
 calls with `tools_disabled`, and removes native tool instructions from its
 prompt. It does not disable recall, transcripts, or mirroring, and it does not
 connect MCP automatically. Setup preserves this setting and your actor.
@@ -239,10 +240,13 @@ to any service other than the `base_url` configured above.
   `X-Actor` provides attribution, not ownership authorization. Deletion has
   retained history and evidence are separate, so use removal only when the task calls for it. `robotnotes_note`/`robotnotes_list` are read-only and only fetch
   data, they send no new content.
+- **File uploads** — `robotnotes_upload_file` streams the named local file to
+  `POST /notes/files`. File contents leave the host only on this explicit call,
+  and only for files under `upload_roots`.
 
 Recall (`prefetch`/`queue_prefetch`) and the read tools stay available in
 every `agent_context`; the writes above (session transcripts, memory mirror,
-`robotnotes_remember`/`robotnotes_forget`) are skipped for a subagent, cron,
+`robotnotes_remember`/`robotnotes_forget`/`robotnotes_upload_file`) are skipped for a subagent, cron,
 or flush context — see Write behavior below for the exact rule.
 
 ## Tools
@@ -262,6 +266,43 @@ model; the table below is a quick reference.
 | `robotnotes_remember` | `title`, `content`, `path?`, `curated_intent?`, `evidence_refs?`          | Store a durable fact as a *new* note; a duplicate title under `path` returns `path_conflict` — search then `robotnotes_append` instead |
 | `robotnotes_append`   | `id`, `content`, `curated_intent?`, `evidence_refs?`                      | Append content to an existing note on a new line, instead of duplicating it — via the server's `POST /notes/{id}/append` (falls back to a client-side read-modify-write only against a server old enough to 404/405 that route) |
 | `robotnotes_forget`   | `id`, `curated_intent?`, `evidence_refs?`                                 | Remove an ordinary note or propose curated deletion                                                                   |
+| `robotnotes_upload_file` | `local_path`, `path?`, `filename?` | Upload a file from the Hermes host into the vault. Only listed when `upload_roots` is set; see [File uploads](#file-uploads) |
+
+### File uploads
+
+`robotnotes_upload_file` is off until `upload_roots` lists at least one absolute
+directory:
+
+```json
+{ "upload_roots": ["/home/hermes/exports"] }
+```
+
+With no roots, the schema and its prompt line are absent and a call returns
+`uploads_disabled`. Point roots at dedicated export folders, not `$HOME`.
+
+The model passes `local_path`, never file content. The provider opens the file
+on the Hermes host (not the user's device) and streams it to `POST /notes/files`
+with the bearer credential, with a 120 s timeout. The result is
+`{path, filename, size, content_type}`.
+
+The provider expands `~`, then requires an absolute path. It resolves symlinks
+and `..` and accepts only a regular file at or under a resolved root. Hermes'
+read denylist (`agent.file_safety`) also applies when available. Rejected paths
+make no request:
+
+- `upload_path_invalid`: relative, missing, or not a regular file.
+- `upload_path_denied`: outside every root, or blocked by the host denylist.
+- `upload_unsupported`: the host cannot open files relative to a directory
+  descriptor (for example Windows), so uploads stay off rather than risk
+  following a swapped-in symlink.
+
+Server errors pass through: `path_conflict` (409, an existing file is never
+overwritten or renamed, so choose another `filename`), `payload_too_large` (413,
+the server's max upload size decides), `canonical_note_upload_forbidden` (422,
+`.md` files cannot be uploaded as files), and permission denial.
+
+Uploads count as writes and return `read_only` in subagent, cron, and flush
+contexts.
 
 ## Skill
 
@@ -303,7 +344,7 @@ conversation turn:
     tail of the conversation and marks what was cut with an elision
     marker in between.
 - **Explicit tool calls** (`robotnotes_remember`, `robotnotes_append`,
-  `robotnotes_forget`) let the model manage notes directly — search before
+  `robotnotes_forget`, and `robotnotes_upload_file` when enabled) let the model manage notes directly — search before
   creating, and append rather than duplicate a note on the same topic.
 - **Built-in memory mirror**: writes to Hermes' own `MEMORY.md`/`USER.md`
   are mirrored one-directionally by default into the configured memory notes, defaulting to `Hermes/Memory` and
@@ -312,7 +353,7 @@ conversation turn:
 `initialize()` also honors the host's `agent_context` kwarg
 (`"primary"` | `"subagent"` | `"cron"` | `"flush"`): every write path above
 — session-end summaries, the memory mirror, and the `robotnotes_remember` /
-`robotnotes_append` / `robotnotes_forget` tools — is skipped whenever `agent_context` is
+`robotnotes_append` / `robotnotes_forget` / `robotnotes_upload_file` tools — is skipped whenever `agent_context` is
 `"subagent"`, `"cron"`, or `"flush"`, so a spawned subagent or a scheduled
 cron/flush tick never files its own conversation note or mutates shared
 memory. Reads (`robotnotes_search`, `robotnotes_list`, `robotnotes_note`,

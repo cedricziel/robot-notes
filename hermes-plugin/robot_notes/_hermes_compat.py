@@ -7,6 +7,7 @@ suite -- keeps working outside a hermes-agent checkout.
 - ``get_secret`` comes from ``agent.secret_scope`` (as ``get_secret_str``, which already
   has the ``(name, default="") -> str`` shape this plugin wants).
 - ``tool_error`` comes from ``tools.registry``.
+- ``get_read_block_error`` comes from ``agent.file_safety``.
 
 Each symbol falls back independently: e.g. a hermes-agent checkout old enough to lack
 one helper, or a partial checkout where only ``agent.memory_provider`` is on
@@ -32,6 +33,7 @@ __all__ = [
     "is_trivial_prompt",
     "get_secret",
     "tool_error",
+    "get_read_block_error",
 ]
 
 
@@ -106,3 +108,12 @@ except ImportError:
         so callers can pass structured fields (e.g. ``code=``, ``details=``) through either
         implementation the same way."""
         return json.dumps({"error": str(message), **extra})
+
+
+try:
+    from agent.file_safety import get_read_block_error  # type: ignore
+except ImportError:
+
+    def get_read_block_error(path: str) -> Optional[str]:  # type: ignore[no-redef]
+        """Fallback: no host denylist; callers must confine reads themselves."""
+        return None
