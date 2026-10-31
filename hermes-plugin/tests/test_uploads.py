@@ -59,11 +59,14 @@ def test_symlinked_root_still_matches_its_target(root, tmp_path):
         assert source.read() == b"%PDF"
 
 
-@pytest.mark.parametrize("local_path", ["report.pdf", "", "missing.pdf", "."])
-def test_relative_missing_or_directory_paths_are_invalid(root, local_path):
-    target = local_path if local_path in ("report.pdf", "") else str(root / local_path)
+@pytest.mark.parametrize("local_path", ["report.pdf", ""])
+def test_relative_paths_are_invalid(root, local_path):
+    assert _code(local_path, [str(root)]) == "upload_path_invalid"
 
-    assert _code(target, [str(root)]) == "upload_path_invalid"
+
+@pytest.mark.parametrize("name", ["missing.pdf", "."])
+def test_missing_or_directory_paths_are_invalid(root, name):
+    assert _code(root / name, [str(root)]) == "upload_path_invalid"
 
 
 def test_host_read_denylist_is_honored(root, monkeypatch):

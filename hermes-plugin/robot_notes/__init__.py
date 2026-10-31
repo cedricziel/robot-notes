@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 import sqlite3
 import threading
@@ -260,12 +259,7 @@ class RobotNotesProvider(MemoryProvider):
                 "Leave proposals pending human review and report accepted=false accurately. "
                 "If proposal operations are unavailable or denied, report that without falling back to accepted writes. "
             )
-        upload_line = (
-            "- robotnotes_upload_file(local_path, path?, filename?): upload a local file "
-            f"from under {', '.join(config.upload_roots)} into the vault; never pass file content.\n"
-            if config.upload_roots else ""
-        )
-        if not self._load_config().native_tools:
+        if not config.native_tools:
             return (
                 "A shared robot-notes workspace is connected for automatic memory recall. "
                 f"Selected vault: {self._config.vault_id}. Automatic memory hooks use this vault. "
@@ -283,6 +277,10 @@ class RobotNotesProvider(MemoryProvider):
                 "The provider's context write restrictions apply to its own hooks; "
                 "MCP authorization and tool visibility are configured separately."
             )
+        upload_line = (
+            "- robotnotes_upload_file(local_path, path?, filename?): file a local file from "
+            f"{', '.join(config.upload_roots)} into the vault.\n" if config.upload_roots else ""
+        )
         return (
             "A shared robot-notes workspace is connected as external memory — notes are "
             "shared between humans and agents in this workspace, so writes here are "
@@ -613,11 +611,12 @@ class RobotNotesProvider(MemoryProvider):
                 if schema["name"] != UPLOAD_TOOL_NAME or config.upload_roots]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
-        if not self._load_config().native_tools:
+        config = self._load_config()
+        if not config.native_tools:
             return tool_error("Native robot-notes tools are disabled; use configured MCP tools.", code="tools_disabled")
         if not self._client:
             return tool_error("robot_notes provider is unavailable", code="unavailable")
-        if tool_name == UPLOAD_TOOL_NAME and not self._load_config().upload_roots:
+        if tool_name == UPLOAD_TOOL_NAME and not config.upload_roots:
             return tool_error("File uploads are disabled; no upload_roots are configured.", code="uploads_disabled")
         if tool_name in WRITE_TOOL_NAMES and not self._can_write():
             return _write_disabled_error()
@@ -704,7 +703,7 @@ class RobotNotesProvider(MemoryProvider):
         local_path = args["local_path"]
         with open_upload_source(local_path, self._load_config().upload_roots) as source:
             return json.dumps(self._client.upload_file(
-                path=args.get("path", ""), filename=args.get("filename") or os.path.basename(local_path),
+                path=args.get("path", ""), filename=args.get("filename") or Path(local_path).name,
                 source=source))
 
     # -- Sparse writes: session summary + built-in memory mirror ----------

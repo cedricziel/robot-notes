@@ -26,8 +26,8 @@ def _denied(message: str) -> ClientError:
 
 
 def open_upload_source(local_path: str, roots: Sequence[str]) -> BinaryIO:
-    expanded = Path(os.path.expanduser(local_path or ""))
-    if not local_path or not expanded.is_absolute():
+    expanded = Path(local_path).expanduser()
+    if not expanded.is_absolute():
         raise _invalid("local_path must be an absolute path")
     try:
         resolved = expanded.resolve(strict=True)
