@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.27](https://github.com/cedricziel/robot-notes/compare/v0.2.26...v0.2.27) (2026-10-31)
+
+
+### Features
+
+* **hermes:** add opt-in robotnotes_upload_file tool ([#436](https://github.com/cedricziel/robot-notes/issues/436)) ([e2df648](https://github.com/cedricziel/robot-notes/commit/e2df6482c792af2615094c44302d383be2fd7a53))
+
+
+### Bug Fixes
+
+* **app:** declutter the block editor on touch and stop the false "Autosaved" status ([#439](https://github.com/cedricziel/robot-notes/issues/439)) ([abd12f6](https://github.com/cedricziel/robot-notes/commit/abd12f6b77ba524c79c7ca7e06c2ab084c0a8ef9))
+
 ## [0.2.26](https://github.com/cedricziel/robot-notes/compare/v0.2.25...v0.2.26) (2026-10-31)
 
 
