@@ -197,7 +197,7 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.byTooltip('Block actions').first);
+      await _hoverThenTap(tester, find.byTooltip('Block actions').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete block'));
       await tester.pumpAndSettle();
@@ -231,14 +231,14 @@ void main() {
         find.byType(AdaptiveSuperEditor),
       );
       final lastId = editor.document.last.id;
-      await tester.tap(find.byTooltip('Block actions').last);
+      await _hoverThenTap(tester, find.byTooltip('Block actions').last);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Convert block'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Heading 2'));
       await tester.pumpAndSettle();
       expect(changes.last, 'First\n\n## Second');
-      await tester.tap(find.byTooltip('Block actions').last);
+      await _hoverThenTap(tester, find.byTooltip('Block actions').last);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Move up'));
       await tester.pumpAndSettle();
@@ -510,7 +510,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Convert block'), findsNothing);
       expect(changes.last, '/');
-      await tester.tap(find.byTooltip('Block actions').first);
+      await _hoverThenTap(tester, find.byTooltip('Block actions').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Convert block'));
       await tester.pumpAndSettle();
@@ -535,7 +535,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byTooltip('Block actions').first);
+    await _hoverThenTap(tester, find.byTooltip('Block actions').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Convert block'));
     await tester.pumpAndSettle();
@@ -737,7 +737,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byTooltip('Block actions').last);
+    await _hoverThenTap(tester, find.byTooltip('Block actions').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Edit Markdown source'));
     await tester.pumpAndSettle();
@@ -927,6 +927,8 @@ void main() {
     ]);
     scene.focusNode.requestFocus();
     await tester.pump();
+    final mouse = await _hover(tester, find.byIcon(Icons.drag_indicator).last);
+    addTearDown(mouse.removePointer);
     await tester.dragFrom(
       tester.getCenter(find.byIcon(Icons.drag_indicator).last),
       tester.getCenter(find.byIcon(Icons.drag_indicator).first) -
@@ -1231,7 +1233,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byTooltip('Block actions').first);
+    await _hoverThenTap(tester, find.byTooltip('Block actions').first);
     await tester.pumpAndSettle();
     expect(find.byType(cupertino.CupertinoActionSheet), findsOneWidget);
     await tester.tap(find.text('Move down'));
@@ -1411,6 +1413,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(opacityOf(handles.first), 0);
     expect(opacityOf(handles.last), 1);
+    // Hidden chrome doesn't take taps.
+    await tester.tap(
+      find.byTooltip('Block actions').first,
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Delete block'), findsNothing);
   });
 }
 
@@ -1443,4 +1452,20 @@ Future<void> _showSource(WidgetTester tester) async {
     ),
   );
   await tester.pumpAndSettle();
+}
+
+/// Pointer-mode block chrome only takes taps while revealed, so hover a
+/// mouse over [finder] first, the way a pointer user reaches it.
+Future<TestGesture> _hover(WidgetTester tester, Finder finder) async {
+  final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+  await mouse.addPointer(location: tester.getCenter(finder));
+  await mouse.moveBy(const Offset(0, 1));
+  await tester.pumpAndSettle();
+  return mouse;
+}
+
+Future<void> _hoverThenTap(WidgetTester tester, Finder finder) async {
+  final mouse = await _hover(tester, finder);
+  await tester.tap(finder);
+  await mouse.removePointer();
 }

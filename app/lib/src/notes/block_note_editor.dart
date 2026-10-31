@@ -1400,10 +1400,17 @@ class _HoverChromeState extends State<_HoverChrome> {
               _focused ||
               widget.hoveredNode.value == widget.nodeId ||
               widget.selection.value?.extent.nodeId == widget.nodeId;
-          Widget chrome(Widget part) => AnimatedOpacity(
-            opacity: visible ? 1 : 0,
-            duration: const Duration(milliseconds: 120),
-            child: part,
+          // Hidden chrome must not catch taps (e.g. a touch on a
+          // touchscreen laptop landing in an unhovered block's gutter).
+          // IgnorePointer leaves keyboard focus, and so the focus reveal,
+          // untouched.
+          Widget chrome(Widget part) => IgnorePointer(
+            ignoring: !visible,
+            child: AnimatedOpacity(
+              opacity: visible ? 1 : 0,
+              duration: const Duration(milliseconds: 120),
+              child: part,
+            ),
           );
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,

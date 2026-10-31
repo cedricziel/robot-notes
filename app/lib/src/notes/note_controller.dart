@@ -602,6 +602,8 @@ class NoteController extends ValueNotifier<NoteState> {
       editContent: current.content,
       conflictCurrent: null,
       error: null,
+      // The server's version is someone else's write, not this user's save.
+      savedThisEdit: false,
     );
   }
 
