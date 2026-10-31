@@ -29,7 +29,7 @@ The provider holds a real HTTP client and the bytes are local, which is exactly 
 3. Require the resolved path to equal or lie under one resolved root, and to be a regular file.
 4. Apply Hermes' `agent.file_safety.get_read_block_error` when importable (via `_hermes_compat`); the fallback is a no-op because roots already confine reads.
 
-The file is opened from the resolved path and re-checked with `fstat` to be regular, narrowing the swap window between check and open.
+The file is opened by walking the resolved path from `/` one component at a time with `dir_fd` and `O_NOFOLLOW`, then checked with `fstat` to be regular. The resolved path has no symlinks, so a directory swapped for a link after the check (the root included) fails the open. Hosts without `dir_fd` support refuse uploads (`upload_unsupported`) instead of falling back to a path-based open.
 
 Alternatives considered: allowing any path (rejected: one prompt injection away from sending `~/.ssh` to the server); reusing Hermes' denylist alone (rejected: a denylist cannot enumerate every secret on a host).
 

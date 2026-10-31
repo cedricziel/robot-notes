@@ -292,6 +292,9 @@ make no request:
 
 - `upload_path_invalid`: relative, missing, or not a regular file.
 - `upload_path_denied`: outside every root, or blocked by the host denylist.
+- `upload_unsupported`: the host cannot open files relative to a directory
+  descriptor (for example Windows), so uploads stay off rather than risk
+  following a swapped-in symlink.
 
 Server errors pass through: `path_conflict` (409, an existing file is never
 overwritten or renamed, so choose another `filename`), `payload_too_large` (413,

@@ -47,6 +47,16 @@ The provider SHALL refuse any `local_path` that, after expanding `~` and resolvi
 - **WHEN** `local_path` is relative, does not exist, or names a directory
 - **THEN** the tool SHALL return an `upload_path_invalid` error without contacting the server
 
+#### Scenario: Path swapped after the check
+
+- **WHEN** any directory on the resolved path, the root included, is replaced by a symlink between the containment check and the open
+- **THEN** the open SHALL fail with `upload_path_invalid` instead of following the link
+
+#### Scenario: Host without descriptor-relative opens
+
+- **WHEN** the host cannot open files relative to a directory descriptor
+- **THEN** the tool SHALL return an `upload_unsupported` error and SHALL NOT read the file
+
 #### Scenario: Host denylist
 
 - **WHEN** Hermes' read denylist blocks the resolved path

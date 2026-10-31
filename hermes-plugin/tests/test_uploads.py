@@ -91,3 +91,24 @@ def test_directory_swapped_for_a_symlink_after_the_check_is_refused(root, monkey
     monkeypatch.setattr(uploads, "get_read_block_error", swap_then_allow)
 
     assert _code(nested / "a.txt", [str(root)]) == "upload_path_invalid"
+
+
+def test_root_swapped_for_a_symlink_after_the_check_is_refused(root, monkeypatch):
+    outside = root.parent / "outside"
+    outside.mkdir()
+    (outside / "report.pdf").write_bytes(b"secret")
+
+    def swap_then_allow(path):
+        root.rename(root.parent / "moved")
+        root.symlink_to(outside)
+        return None
+
+    monkeypatch.setattr(uploads, "get_read_block_error", swap_then_allow)
+
+    assert _code(root / "report.pdf", [str(root)]) == "upload_path_invalid"
+
+
+def test_hosts_without_descriptor_relative_opens_refuse_uploads(root, monkeypatch):
+    monkeypatch.setattr(uploads.os, "supports_dir_fd", set())
+
+    assert _code(root / "report.pdf", [str(root)]) == "upload_unsupported"
