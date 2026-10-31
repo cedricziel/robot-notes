@@ -1,3 +1,4 @@
+import io
 import json
 
 import httpx
@@ -775,3 +776,46 @@ def test_selected_vault_is_sent_on_every_content_operation(operation):
             assert route.calls.last.request.headers["if-match"] == "1"
     finally:
         client.close()
+
+
+@respx.mock
+def test_upload_file_posts_multipart_and_returns_metadata(client):
+    route = respx.post("https://notes.example.com/notes/files").mock(return_value=httpx.Response(201, json={
+        "path": "Exports", "filename": "chart.png", "size": 3, "content_type": "image/png"}))
+
+    result = client.upload_file(path="Exports", filename="chart.png", source=io.BytesIO(b"png"))
+
+    assert result == {"path": "Exports", "filename": "chart.png", "size": 3, "content_type": "image/png"}
+    sent = route.calls.last.request
+    assert sent.headers["authorization"] == "Bearer secret-key"
+    assert sent.headers["content-type"].startswith("multipart/form-data")
+    body = sent.read()
+    assert b'name="path"\r\n\r\nExports' in body
+    assert b'name="file"; filename="chart.png"' in body
+    assert b"Content-Type: image/png" in body
+
+
+@pytest.mark.parametrize("status,code,kind", [
+    (409, "path_conflict", ErrorKind.PATH_CONFLICT),
+    (413, "payload_too_large", ErrorKind.OTHER),
+    (422, "canonical_note_upload_forbidden", ErrorKind.OTHER),
+])
+@respx.mock
+def test_upload_file_maps_server_rejections(client, status, code, kind):
+    respx.post("https://notes.example.com/notes/files").mock(return_value=httpx.Response(status, json={"error": code}))
+
+    with pytest.raises(ClientError) as raised:
+        client.upload_file(path="", filename="a.bin", source=io.BytesIO(b"x"))
+
+    assert raised.value.code == code
+    assert raised.value.kind is kind
+
+
+@respx.mock
+def test_upload_file_rejects_a_malformed_acknowledgement(client):
+    respx.post("https://notes.example.com/notes/files").mock(return_value=httpx.Response(201, json={"ok": True}))
+
+    with pytest.raises(ClientError) as raised:
+        client.upload_file(path="", filename="a.bin", source=io.BytesIO(b"x"))
+
+    assert raised.value.code == "invalid_response"
