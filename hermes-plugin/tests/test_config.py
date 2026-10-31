@@ -167,7 +167,7 @@ def test_upload_roots_round_trip_only_when_set(tmp_path):
     assert RobotNotesConfig.load(str(tmp_path)).upload_roots == ("/srv/exports",)
 
 
-@pytest.mark.parametrize("roots", ["/srv/exports", ["relative/dir"], [""], [7], ["~/exports"]])
+@pytest.mark.parametrize("roots", ["/srv/exports", ["relative/dir"], [""], [7], ["~/exports"], None, {"/srv/exports": True}])
 def test_upload_roots_rejects_non_absolute_entries(roots):
     with pytest.raises(ValueError, match="upload_roots"):
         RobotNotesConfig.create(upload_roots=roots)

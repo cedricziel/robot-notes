@@ -125,7 +125,7 @@ class RobotNotesConfig:
                 raise ValueError(f"{name} must be an integer between 0 and {maximum}")
         if recall_expand_chars and not recall_max_bytes:
             raise ValueError("recall_expand_chars requires recall_max_bytes")
-        if isinstance(upload_roots, str) or not all(
+        if not isinstance(upload_roots, (list, tuple)) or not all(
             isinstance(root, str) and os.path.isabs(root) for root in upload_roots
         ):
             raise ValueError("upload_roots must be a list of absolute directory paths")

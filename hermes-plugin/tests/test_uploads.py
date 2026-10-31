@@ -73,3 +73,21 @@ def test_host_read_denylist_is_honored(root, monkeypatch):
     monkeypatch.setattr(uploads, "get_read_block_error", lambda path: "blocked credential store")
 
     assert _code(root / "report.pdf", [str(root)]) == "upload_path_denied"
+
+
+def test_directory_swapped_for_a_symlink_after_the_check_is_refused(root, monkeypatch):
+    nested = root / "nested"
+    nested.mkdir()
+    (nested / "a.txt").write_text("inside")
+    outside = root.parent / "outside"
+    outside.mkdir()
+    (outside / "a.txt").write_text("secret")
+
+    def swap_then_allow(path):
+        nested.rename(root / "moved")
+        nested.symlink_to(outside)
+        return None
+
+    monkeypatch.setattr(uploads, "get_read_block_error", swap_then_allow)
+
+    assert _code(nested / "a.txt", [str(root)]) == "upload_path_invalid"
