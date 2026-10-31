@@ -98,7 +98,31 @@ void main() {
   });
 
   knowledge_fixture.authorizedTest(
-      'reports unavailable metadata for an ordinary legacy note', () async {
+      'reports unavailable metadata for an ordinary legacy note to readers',
+      () async {
+    final legacy = await app.deps.noteWriteService.create(
+      title: 'Legacy',
+      content: 'ordinary',
+      actor: 'tester',
+    );
+    final grant = await completeOAuthFlow(
+      baseUrl: app.baseUrl,
+      apiKey: app.config.apiKey,
+      scope: 'notes:read',
+      resource: app.baseUrl,
+    );
+
+    final response = await http.get(
+      Uri.parse('${app.baseUrl}/notes/${legacy.id}/blocks'),
+      headers: {'Authorization': 'Bearer ${grant.accessToken}'},
+    );
+
+    expect(response.statusCode, 409);
+    expect(jsonDecode(response.body), {'error': 'block_map_unavailable'});
+  });
+
+  knowledge_fixture.authorizedTest(
+      'captures a baseline map for proposers on an ordinary note', () async {
     final legacy = await app.deps.noteWriteService.create(
       title: 'Legacy',
       content: 'ordinary',
@@ -110,8 +134,13 @@ void main() {
       headers: app.headers(),
     );
 
-    expect(response.statusCode, 409);
-    expect(jsonDecode(response.body), {'error': 'block_map_unavailable'});
+    expect(response.statusCode, 200, reason: response.body);
+    final map = jsonDecode(response.body) as Map<String, dynamic>;
+    expect(map['version'], legacy.version);
+    expect(map['blocks'], hasLength(1));
+    final current = await app.deps.storage.read(legacy.id);
+    expect(current.version, legacy.version);
+    expect(current.content, 'ordinary');
   });
 
   knowledge_fixture.authorizedTest(

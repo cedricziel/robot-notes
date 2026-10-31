@@ -871,6 +871,26 @@ class Storage {
         return next;
       });
 
+  /// Records a baseline block map for a note whose current accepted revision
+  /// was saved without history, so ordinary notes can receive block-level
+  /// proposals. Content and version stay unchanged; later saves keep the map
+  /// current. Returns false when the current revision already has a snapshot.
+  Future<bool> captureBlockMapBaseline(String id, {String? actor}) =>
+      _withLock(id, () async {
+        await _ensureIndexed();
+        final current = await read(id);
+        final snapshot =
+            File('${_noteHistory(id).path}/${current.version}.json');
+        if (snapshot.existsSync()) return false;
+        await _commitHistory(
+          current,
+          _relPathById[id],
+          actor: actor,
+          captureCurrent: true,
+        );
+        return true;
+      });
+
   Directory _proposalDirectory(String id) =>
       Directory('${_noteHistory(id).path}/proposals');
 

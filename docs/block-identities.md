@@ -1,6 +1,6 @@
 # Stable Markdown block identities
 
-Notes with accepted revision history capture block maps when they save. Set `history: true` to enable that history. Ordinary notes and older accepted revisions without maps return `block_map_unavailable`; their metadata is established by a later accepted save.
+Notes with accepted revision history capture block maps when they save. Set `history: true` to enable that history. Ordinary notes and older accepted revisions without maps return `block_map_unavailable` to plain readers; their metadata is established by a later accepted save. When a caller allowed to propose reads the current map of a note that has no snapshot yet, or submits a proposal against it, the server captures a baseline map for the current version first (content and version stay unchanged, and the note keeps revision history from then on). Stale maps are never replaced this way.
 
 `GET /notes/{id}/blocks` returns the current accepted map. Add `?version=N` to inspect a retained accepted revision. Requests require the existing note read scope and vault grant. The map contains opaque IDs, per-block revisions, kinds, exact UTF-16 start and end offsets, and source hashes. Hashes verify freshness and never identify blocks.
 

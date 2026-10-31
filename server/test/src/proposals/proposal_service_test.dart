@@ -1106,4 +1106,46 @@ void main() {
     );
     expect(accepted.state, 'accepted');
   });
+
+  test('proposers capture a baseline map for notes saved without history',
+      () async {
+    final ordinary =
+        await storage.create(title: 'Plain', content: 'one\n\ntwo');
+    await expectLater(
+      withKnowledgePrincipal(
+        reviewer,
+        () => service.acceptedBlocks(ordinary.id),
+      ),
+      throwsA(isA<BlockMapUnavailableException>()),
+    );
+
+    final blocks = await withKnowledgePrincipal(
+      proposer,
+      () => service.acceptedBlocks(ordinary.id),
+    );
+    expect(blocks['version'], ordinary.version);
+    expect(blocks['content'], 'one\n\ntwo');
+    final last = (blocks['blocks'] as List).cast<Map<String, dynamic>>().last;
+
+    final record = await withKnowledgePrincipal(
+      proposer,
+      () => service.submit(ordinary.id, {
+        'base_version': ordinary.version,
+        'idempotency_key': 'append',
+        'operations': [
+          {
+            'type': 'insert_after',
+            'block_id': last['id'],
+            'expected_revision': last['revision'],
+            'text': 'three\n',
+          }
+        ],
+      }),
+    );
+
+    expect(record.state, 'pending');
+    final current = await storage.read(ordinary.id);
+    expect(current.version, ordinary.version);
+    expect(current.content, 'one\n\ntwo');
+  });
 }
