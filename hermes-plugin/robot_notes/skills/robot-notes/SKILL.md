@@ -56,6 +56,10 @@ default vault. Vault selection does not itself restrict a static API key's acces
    the task calls for deletion. The server checks the configured credentials;
    the tool does not restrict deletion to notes created by this agent.
 
+Use `robotnotes_upload_file` only when it is available (the operator enabled
+`upload_roots`). Pass `local_path`, never file content. On `path_conflict`, choose
+another `filename`.
+
 Curated destinations always receive proposals, including with legacy operator keys.
 Use `curated_intent: true` for institutional drafts outside a designated folder and
 optional `evidence_refs` for exact supplied source coordinates. Never describe

@@ -13,7 +13,7 @@ in one session by default.
 
 At the original inventory date, the server registered 19 MCP tools and the
 provider exposed six native note tools. The current provider also has local
-health inspection, exact evidence inspection, and readonly proposal list/detail inspection, for ten native tools. Seven database tools and six other tools are missing for
+health inspection, exact evidence inspection, and readonly proposal list/detail inspection, for ten native tools, plus the opt-in `robotnotes_upload_file` (eleven when `upload_roots` is set). Seven database tools and six other tools are missing for
 literal MCP parity. There are also REST-only workspace capabilities.
 
 ## Existing tools: retain and extend
@@ -65,7 +65,7 @@ authority. Do not flatten the query filter grammar into an ambiguous string.
 Separate tools for each property type, board move, view CRUD, rename-database,
 and delete-database would mostly duplicate these operations.
 
-## Six other additions for literal MCP parity
+## Other additions for literal MCP parity
 
 | Proposed native tool | Inputs | Current server support |
 | --- | --- | --- |
@@ -76,13 +76,14 @@ and delete-database would mostly duplicate these operations.
 | `robotnotes_request_upload` | `path`, `filename`, `size_bytes?` | MCP `request_upload` only for reservation. Returns token, upload URL, expiry. A REST-only native adapter cannot reserve through an equivalent REST endpoint today. |
 | `robotnotes_finalize_upload` | `token` | MCP `finalize_upload` only for finalization. Caller uploads bytes via `PUT /notes/file-uploads/{token}` between these two tools. |
 
-For a native plugin, prefer **one `robotnotes_upload_file`** accepting an
-explicit local file path and vault destination, streaming through authenticated
-`POST /notes/files` multipart. This replaces the two-phase MCP pair for native
-use, making 12 additions rather than 13. Local file access must follow the host's
-file-access rules; do not inline binary/base64 payloads into model tool arguments.
-The current provider runs where Hermes runs, so a local path refers to that host,
-not automatically to an attached user's device.
+**Implemented:** `robotnotes_upload_file(local_path, path?, filename?)` replaces
+the two-phase MCP pair for native use. It streams the local file through
+authenticated `POST /notes/files` multipart and returns
+`{path, filename, size, content_type}`; file bytes never enter model context.
+It appears only when `upload_roots` in `robot_notes.json` lists absolute
+directories. Paths are confined to those roots (symlinks resolved, Hermes read
+denylist applied), and the tool is gated as a write. A local path refers to the
+Hermes host, not an attached user's device. See the README's File uploads section.
 
 ## Optional REST-only tools
 
@@ -137,7 +138,7 @@ it is unsuitable for writable scheduled workflows unless that policy is changed.
 Only one external Hermes memory provider can be active. Using robot-notes purely
 as MCP tools leaves that provider slot available for another backend. Native
 lifecycle integration can coexist with MCP operations using `native_tools: false`
-in `robot_notes.json`; all ten native schemas are hidden and direct dispatch is
+in `robot_notes.json`; every native schema is hidden and direct dispatch is
 rejected while the lifecycle hooks remain active.
 
 ## Delivery options and order
@@ -146,8 +147,8 @@ rejected while the lifecycle hooks remain active.
    its explicit tool catalog, and document connecting robot-notes MCP. Bundle or
    configure the same behavioral skill for MCP names. Filter MCP tools as needed.
 2. **Native-first experience:** add the seven database tools, the four missing
-   note/folder operations, upload-file, and extend existing list/search/create
-   schemas. This is 12 new tools plus extensions, for 20 native tools total.
+   note/folder operations, and extend existing list/search/create schemas. Upload-file
+   is already implemented.
 3. Add REST-only folder/tag/link/file reads where needed. Add lease tools only
    after demonstrating a workflow that benefits from them.
 
