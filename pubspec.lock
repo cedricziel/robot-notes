@@ -1317,10 +1317,10 @@ packages:
     dependency: transitive
     description:
       name: sqlite_vector
-      sha256: fab2d26b6534a7dfd5b8e1aa6d680eddf8471ac2bf48b7a96f34953398118840
+      sha256: "2466ff1bf37253bf6ac252d3ed20423553a44693e64f4569a584f7c67a14cf42"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.2"
+    version: "1.2.0"
   stack_trace:
     dependency: transitive
     description:
