@@ -21,7 +21,7 @@ dependencies:
   cupertino_ui: ^1.1.2
   cupertino_icons: ^2.0.0
   device_info_plus: ^13.3.0
-  file_picker: ^13.3.0
+  file_picker: ^13.3.2
   flutter_markdown_plus: ^1.0.12
   super_editor: 0.3.0-dev.52
   adaptive_super_editor:
