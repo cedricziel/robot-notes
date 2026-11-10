@@ -31,7 +31,7 @@ dependencies:
   dart_otel_api: ^0.1.2
   dart_otel_instrumentation_http: ^0.1.1
   flutter_otel_native: ^0.1.0
-  flutter_riverpod: ^3.4.3
+  flutter_riverpod: ^3.5.0
   flutter_secure_storage: ^11.2.0
   flutter_web_auth_2: ^5.1.0
   flutter_web_plugins:
